@@ -12,22 +12,23 @@ import (
 	"github.com/romshark/datapages/internal/generator/skeleton"
 )
 
-// TestCIWorkflowInstallsPinnedTools tests what the scaffolded workflow installs.
-// An unpinned CLI regenerates with whatever released last,
-// and the workflow fails the build when that differs from the committed code.
+// TestCIWorkflowInstallsPinnedTools tests that the scaffolded workflow installs
+// templ at its fixed version and Datapages at the version required by go.mod.
 func TestCIWorkflowInstallsPinnedTools(t *testing.T) {
 	t.Parallel()
 
+	const pseudo = "v0.9.5-0.20260920120806-f9d471eadce2"
 	for name, tc := range map[string]struct {
-		version string
-		want    string
+		modVersion string
+		want       string
 	}{
-		"release":           {version: "1.2.3", want: "datapages@v1.2.3"},
-		"built from source": {version: "", want: "datapages@latest"},
+		"release":          {modVersion: "v1.2.3", want: "datapages@v1.2.3"},
+		"pseudo-version":   {modVersion: pseudo, want: "datapages@" + pseudo},
+		"nothing required": {modVersion: "", want: "datapages@latest"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got, err := skeleton.CIWorkflow(tc.version)
+			got, err := skeleton.CIWorkflow(tc.modVersion)
 			require.NoError(t, err)
 			require.Contains(t, got, "go install "+
 				"github.com/romshark/datapages/cmd/"+tc.want)

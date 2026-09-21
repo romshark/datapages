@@ -25,8 +25,8 @@ import (
 	"github.com/romshark/datapages/internal/serverscan"
 )
 
-// newInitCmd takes two versions: version goes into the scaffolded CI workflow,
-// modVersion into the new go.mod. See [pinDatapages].
+// newInitCmd uses version for agent docs and modVersion for go.mod and CI.
+// [pinDatapages] defines how modVersion is applied.
 func newInitCmd(stderr io.Writer, version, modVersion string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -65,8 +65,8 @@ Pass --no-ai-skills to skip all of these files.`,
 	noAISkills := cmd.Flags().Bool("no-ai-skills", false,
 		"Skip agent instructions and skills")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		// Use accessible mode for non-terminal input (tests, piped input).
-		// When stdin is a real terminal, pass nil so huh uses its TUI.
+		// Non-file input uses huh's line-based accessible mode.
+		// Leave in nil for Cobra's *os.File stdin so huh selects the TUI.
 		var in io.Reader
 		if _, ok := c.InOrStdin().(*os.File); !ok {
 			in = c.InOrStdin()
@@ -77,9 +77,8 @@ Pass --no-ai-skills to skip all of these files.`,
 	return cmd
 }
 
-// oneByteReader wraps an io.Reader to return at most one byte per Read call.
-// This prevents bufio.Scanner from buffering ahead when multiple huh fields
-// share the same underlying reader in accessible mode.
+// oneByteReader prevents one huh field's scanner from
+// consuming input meant for the next field.
 type oneByteReader struct{ r io.Reader }
 
 func (o oneByteReader) Read(p []byte) (int, error) {
@@ -89,8 +88,8 @@ func (o oneByteReader) Read(p []byte) (int, error) {
 	return o.r.Read(p[:1])
 }
 
-// runField runs a huh field. When in is non-nil,
-// it uses accessible mode (line-based I/O). Otherwise it uses the full TUI.
+// runField uses huh's line-based accessible mode when in is set.
+// A nil reader selects the TUI.
 func runField(f huh.Field, in io.Reader, out io.Writer) error {
 	if in != nil {
 		return f.RunAccessible(out, in)
@@ -107,8 +106,6 @@ func runInit(
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	// Wrap non-terminal reader so each huh field's internal bufio.Scanner
-	// only consumes exactly the bytes it needs.
 	if in != nil {
 		in = oneByteReader{in}
 	}
@@ -152,8 +149,8 @@ func runInit(
 		created = true
 	}
 
-	// [github.com/romshark/datapages.NewServer] calls identify app packages
-	// before those packages exist on disk.
+	// [github.com/romshark/datapages.NewServer] calls identify
+	// app packages before those packages exist on disk.
 	modulePath, err := readModulePath(projectDir)
 	if err != nil {
 		return err
@@ -170,7 +167,7 @@ func runInit(
 		}
 	}
 
-	// An initialized project may still need refreshed agent instructions.
+	// Refresh agent instructions even when init creates no project files.
 	if aiSkills {
 		if err := writeAgentDocs(projectDir, out, version); err != nil {
 			return err
@@ -190,7 +187,9 @@ func runInit(
 		return err
 	}
 
-	ciWorkflow, err := skeleton.CIWorkflow(version)
+	// CI must install the version [pinDatapages] writes to go.mod.
+	// Source builds use a pseudo-version instead of a release.
+	ciWorkflow, err := skeleton.CIWorkflow(modVersion)
 	if err != nil {
 		return err
 	}
@@ -211,13 +210,13 @@ func runInit(
 		}
 	}
 
-	// Pin the CLI's Datapages version before tidy selects one.
+	// Pin Datapages before go mod tidy can select another version.
 	if err := pinDatapages(ctx, projectDir, modVersion, out, stderr); err != nil {
 		return err
 	}
 
-	// Generate Templ files before tidy so go.mod records their templ import.
-	// The parser cannot type-check the app package without that requirement.
+	// Generate Templ before go mod tidy records dependencies.
+	// The parser needs the templ requirement to type-check the app package.
 	if err := templGenerate(projectDir); err != nil {
 		return err
 	}
@@ -238,7 +237,7 @@ func runInit(
 		return err
 	}
 
-	// Generated imports need a second tidy.
+	// Record dependencies imported only by generated code.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
@@ -269,8 +268,8 @@ func runInit(
 	return nil
 }
 
-// resolveGitDir prompts for or defaults the directory name for a new git repo.
-// If dir is non-empty, it is used directly without prompting.
+// resolveGitDir returns dir when set. Otherwise it prompts for a repository
+// directory or requires --name in non-interactive mode.
 func resolveGitDir(
 	in io.Reader, out io.Writer, nonInteractive bool, dir string,
 ) (string, error) {
@@ -316,8 +315,8 @@ func resolveGitDir(
 	return name, nil
 }
 
-// resolveModulePath prompts for or defaults the Go module path.
-// If module is non-empty, it is used directly without prompting.
+// resolveModulePath returns module when set. Otherwise it prompts with a default
+// based on the Git remote or directory name. Non-interactive mode requires --module.
 func resolveModulePath(
 	in io.Reader, out io.Writer, projectDir string, nonInteractive bool, module string,
 ) (string, error) {
@@ -368,9 +367,9 @@ func resolveModulePath(
 	return modulePath, nil
 }
 
-// gitRemoteModulePath runs "git remote get-url origin" and converts
-// the URL to a Go module path. If dir is a subdirectory of the git root,
-// the relative path is appended. Returns empty string on any error.
+// gitRemoteModulePath converts the origin URL to a Go module path.
+// For a subdirectory, it appends the path relative to the repository root.
+// It returns an empty string when origin cannot be read.
 func gitRemoteModulePath(dir string) string {
 	c := exec.Command("git", "remote", "get-url", "origin")
 	c.Dir = dir
@@ -380,8 +379,6 @@ func gitRemoteModulePath(dir string) string {
 	}
 	modulePath := remoteURLToModulePath(strings.TrimSpace(string(out)))
 
-	// If project dir is a subdirectory of the git root, append the
-	// relative path so the module path is unique within the repo.
 	c = exec.Command("git", "rev-parse", "--show-toplevel")
 	c.Dir = dir
 	topOut, err := c.Output()
@@ -411,8 +408,8 @@ func remoteURLToModulePath(rawURL string) string {
 	return rawURL
 }
 
-// runIn runs a command in dir, reporting its combined output on failure.
-// label names the command in that error.
+// runIn executes name in dir and includes its
+// combined output in an error prefixed with label.
 func runIn(dir, label, name string, args ...string) error {
 	c := exec.Command(name, args...)
 	c.Dir = dir
@@ -422,8 +419,6 @@ func runIn(dir, label, name string, args ...string) error {
 	return nil
 }
 
-// execErr reports why a command failed. The output is empty when the program
-// is missing or cannot start, and err is then the only account of it.
 func execErr(label string, err error, out []byte) error {
 	if s := strings.TrimSpace(string(out)); s != "" {
 		return fmt.Errorf("%s: %w: %s", label, err, s)
@@ -442,7 +437,9 @@ func templGenerate(dir string) error {
 		"go", "run", skeleton.TemplCmd, "generate", "./app/")
 }
 
-func goModTidy(dir string) error { return runIn(dir, "go mod tidy", "go", "mod", "tidy") }
+func goModTidy(dir string) error {
+	return runIn(dir, "go mod tidy", "go", "mod", "tidy")
+}
 
 func writeDefaultConfigIfMissing(projectDir string, w io.Writer) (bool, error) {
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
@@ -457,9 +454,8 @@ func writeDefaultConfigIfMissing(projectDir string, w io.Writer) (bool, error) {
 	return true, nil
 }
 
-// writeAgentDocs writes the instructions AI coding agents read. They describe
-// the layout of the module, which is why they are written before generation
-// and whatever the app package parses to.
+// writeAgentDocs writes AI instructions from the module layout and server scan.
+// It doesn't require generated packages.
 func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 	modulePath, err := readModulePath(projectDir)
 	if err != nil {
@@ -493,7 +489,7 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 		return fmt.Errorf("writing agent instructions: %w", err)
 	}
 
-	// Report skill writes as one count to avoid a line for each file.
+	// Group skill writes into one line to keep init output short.
 	skillsDirs := []string{
 		filepath.FromSlash(agentdocs.SkillsDir),
 		filepath.FromSlash(agentdocs.AgentsSkillsDir),
@@ -518,7 +514,6 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 	return nil
 }
 
-// writeIfMissing writes content to rel under projectDir unless rel exists.
 func writeIfMissing(
 	projectDir, rel string, content []byte, w io.Writer,
 ) (bool, error) {
@@ -563,8 +558,8 @@ func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("generating session encryption key: %w", err)
 	}
-	// No CSRF secret: [github.com/romshark/datapages/modules/csrf.Tokens]
-	// derives the token from the session token and configures nothing.
+	// [github.com/romshark/datapages/modules/csrf.Tokens] derives
+	// CSRF tokens from session tokens. No separate secret is needed.
 	content := "NATS_URL=nats://localhost:4222\n" +
 		"SESSION_ENCRYPTION_KEY=" + sessKey + "\n"
 	return writeIfMissing(projectDir, ".env", []byte(content), w)
@@ -578,7 +573,7 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// gitignoreEnv ensures .env is listed in .gitignore.
+// gitignoreEnv appends .env without changing existing .gitignore entries.
 func gitignoreEnv(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 	content, err := os.ReadFile(gitignorePath)
@@ -606,19 +601,12 @@ func gitignoreEnv(projectDir string) error {
 	return closeErr
 }
 
-// pinDatapages writes the datapages requirement into the project's go.mod
-// before the first tidy runs.
+// pinDatapages pins the runtime dependency to the generator's source before
+// go mod tidy can select another version. It preserves an existing requirement.
 //
-// Without it tidy picks whatever the proxy calls latest. The generated code
-// imports runtime/httpserve, runtime/auth and the rest, which have to come
-// from the same tree as the generator that wrote it.
-//
-// A version the proxy resolves becomes a require. Otherwise the checkout the
-// binary was compiled from becomes a replace, see [datapagesCheckout]. With
-// neither, init warns and leaves the choice to tidy.
-//
-// A go.mod that already requires datapages keeps it. init runs in an existing
-// module too, and the version there is the user's to choose.
+// A resolvable version becomes a requirement.
+// Without one, pinDatapages uses the path from [datapagesCheckout] as a replacement.
+// Without either, init warns and lets go mod tidy select a version.
 func pinDatapages(
 	ctx context.Context, projectDir, version string, out, stderr io.Writer,
 ) error {
@@ -637,9 +625,8 @@ func pinDatapages(
 		}
 	}
 
-	// A require the proxy cannot resolve breaks every import in the module,
-	// which is worse than the version tidy would have picked. A binary stamped
-	// with a tag that was never pushed carries such a require.
+	// An unpublished build version would break every Datapages import.
+	// Confirm that Go can resolve it before adding the requirement.
 	reason := "this build carries no version"
 	if version != "" {
 		reason = ""
@@ -698,12 +685,12 @@ func pinDatapages(
 	return nil
 }
 
-// datapagesCheckout returns the directory of the datapages module this binary
-// was compiled from, empty when there is none to find.
+// datapagesCheckout returns the Datapages source tree used to build this binary.
+// It returns an empty string when the recorded source path does not identify that module.
 //
-// The compiler records the source path of every file it builds, which runtime.Caller
-// reads back. A release build erases it with -trimpath and carries a version instead.
-// A binary moved to another machine records a path that does not exist there.
+// runtime.Caller exposes the compiler-recorded file path. Local builds retain
+// an absolute path. Release builds use -trimpath, and copied binaries may refer
+// to a path absent on the new machine.
 func datapagesCheckout() string {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok || !filepath.IsAbs(file) {
@@ -715,7 +702,7 @@ func datapagesCheckout() string {
 			f, err := modfile.ParseLax("go.mod", data, nil)
 			if err != nil || f.Module == nil ||
 				f.Module.Mod.Path != datapagesModulePath {
-				// Another module: this file is no part of a datapages checkout.
+				// A different module boundary rules out a Datapages checkout.
 				return ""
 			}
 			return dir
@@ -728,14 +715,13 @@ func datapagesCheckout() string {
 	}
 }
 
-// moduleVersionResolveTimeout prevents a slow proxy or VCS host from stalling
-// init while it chooses between the CLI version and the local checkout.
+// moduleVersionResolveTimeout bounds proxy and
+// VCS lookups that have no deadline of their own.
 const moduleVersionResolveTimeout = 30 * time.Second
 
-// moduleVersionExists reports whether the proxy can resolve the datapages
-// module at version. It asks with "go list -m", which reports the answer in
-// its output rather than its exit status.
-// A caller may have set GOFLAGS=-e, which suppresses the exit status.
+// moduleVersionExists reports whether Go can resolve the Datapages module at version.
+// It reads module errors from formatted output because GOFLAGS=-e can
+// suppress the failure exit status.
 func moduleVersionExists(ctx context.Context, projectDir, version string) error {
 	query, cancel := context.WithTimeout(ctx, moduleVersionResolveTimeout)
 	defer cancel()
@@ -758,18 +744,14 @@ func moduleVersionExists(ctx context.Context, projectDir, version string) error 
 	return nil
 }
 
-// checkDatapagesRoot reports a resolved datapages version whose
-// root package cannot be imported.
-//
-// Every release up to v0.9.4 carries package main at the module root:
-// the CLI lived there before it moved to cmd/datapages.
-// The app package imports the root package, hence the parser,
-// the generator and the build all fail with errors that name the user's
-// own app package and never the version that cannot be imported.
+// checkDatapagesRoot reports Datapages versions whose module root is package main.
+// Releases through v0.9.4 use this layout and cannot satisfy app imports.
+// This check avoids parser and generator errors that name the app package
+// instead of the incompatible Datapages version.
 func checkDatapagesRoot(ctx context.Context, projectDir string) error {
 	name, err := goListValue(ctx, projectDir, "{{.Name}}", datapagesModulePath)
 	if err != nil || name != "main" {
-		// A load error is one the parser reports with more context.
+		// Let the parser report load errors with application context.
 		return nil
 	}
 	version, err := goListValue(
@@ -789,9 +771,8 @@ func checkDatapagesRoot(ctx context.Context, projectDir string) error {
 	)
 }
 
-// goListValue runs "go list" with the given format and arguments in dir and
-// returns the first line of its output. The -e keeps a package that doesn't
-// load from failing the command, which is the case the caller asks about.
+// goListValue returns the first formatted line from "go list -e". The -e flag
+// exposes package load errors in template data instead of the command status.
 func goListValue(
 	ctx context.Context, dir, format string, args ...string,
 ) (string, error) {

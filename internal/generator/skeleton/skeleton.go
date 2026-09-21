@@ -49,14 +49,14 @@ const datapagesModule = "github.com/romshark/datapages/cmd/datapages"
 
 // CIWorkflow renders the GitHub Actions workflow of a scaffolded project.
 //
-// version is the release of the CLI doing the scaffolding, without the leading "v".
-// The workflow installs that release, since the generator version decides
-// what the committed datapagesgen holds and the workflow fails the build on a difference.
-// A build from source carries no version and falls back to latest.
-func CIWorkflow(version string) (string, error) {
+// modVersion is the version in the scaffolded go.mod, including the leading
+// "v". An empty value selects latest. The workflow installs the same generator
+// version because it checks committed datapagesgen output.
+// Source builds use a pseudo-version.
+func CIWorkflow(modVersion string) (string, error) {
 	datapagesCmd := datapagesModule + "@latest"
-	if version != "" {
-		datapagesCmd = datapagesModule + "@v" + version
+	if modVersion != "" {
+		datapagesCmd = datapagesModule + "@" + modVersion
 	}
 	data := struct{ TemplCmd, DatapagesCmd string }{TemplCmd, datapagesCmd}
 	var buf bytes.Buffer
