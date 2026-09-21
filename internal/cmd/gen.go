@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages/internal/cmd/config"
 	"github.com/romshark/datapages/internal/generator"
 	"github.com/romshark/datapages/internal/generator/agentdocs"
-	datapagesparser "github.com/romshark/datapages/internal/parser"
+	"github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/errsuggest"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/serverscan"
@@ -39,6 +39,8 @@ datapages.NewServer call. A module without one is generated with the defaults
 (./app and ./datapagesgen) and gets a cmd/server/main.go written for it.
 
 Prometheus is read from the Metrics type argument of the same call.
+The generated main.go names datapages.EnablePrometheus, the same as
+"datapages init". Change it to datapages.DisablePrometheus for no metrics.
 Assets are read from the embed.FS variable of the app package whose
 doc comment names the URL path they are served at.
 
@@ -63,14 +65,20 @@ Errors go to stderr. The exit code is non-zero whenever parsing fails.`,
 			if err != nil {
 				return err
 			}
-			return runGen(moduleDir, conf, false, stderr, version)
+			return runGen(moduleDir, conf, scaffoldPrometheus, stderr, version)
 		},
 	}
 }
 
+// scaffoldPrometheus decides the Metrics type argument of the
+// cmd/server/main.go written for a module without a NewServer call.
+// gen, watch and init write that call, init's --prometheus overrides it,
+// and every later run reads the argument back out of the call.
+const scaffoldPrometheus = true
+
 // runGen generates every app of the module. scaffoldProm asks for Prometheus
-// in the main.go written for a module that holds no NewServer call yet, which
-// is the only run with no call to read the option from.
+// in the main.go written for a module that holds no NewServer call yet,
+// which is the only run with no call to read the option from.
 func runGen(
 	moduleDir string, cfg config.Config, scaffoldProm bool,
 	stderr io.Writer, version string,
@@ -238,7 +246,7 @@ func stubAssetsPrefix(hasAssets bool) string {
 }
 
 func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
-	app, errs := datapagesparser.Parse(appDir)
+	app, errs := parser.Parse(appDir)
 	if errs.Len() == 0 {
 		return app, nil
 	}

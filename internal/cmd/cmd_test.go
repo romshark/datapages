@@ -508,11 +508,16 @@ func TestLintGen(t *testing.T) {
 			require.FileExists(t, filepath.Join(dir, f))
 		}
 	}
-	// checkGenFiles checks the generated package and the cmd entry point.
+	// checkGenFiles checks the generated package and the cmd entry point,
+	// which gen scaffolds with the metrics argument init also writes.
 	checkGenFiles := func(t *testing.T, dir string) {
 		t.Helper()
 		checkGenPackage(t, dir)
-		require.FileExists(t, filepath.Join(dir, "cmd/server/main.go"))
+		mainGo := filepath.Join(dir, "cmd/server/main.go")
+		require.FileExists(t, mainGo)
+		b, err := os.ReadFile(mainGo)
+		require.NoError(t, err)
+		require.Contains(t, string(b), "datapages.EnablePrometheus")
 	}
 
 	for name, tc := range map[string]struct {

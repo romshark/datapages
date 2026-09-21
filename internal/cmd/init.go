@@ -60,8 +60,8 @@ Pass --no-ai-skills to skip all of these files.`,
 		"Project name (used as directory name)")
 	module := cmd.Flags().String("module", "",
 		"Go module path")
-	prometheus := cmd.Flags().Bool("prometheus", true,
-		"Enable Prometheus metrics generation")
+	prometheus := cmd.Flags().Bool("prometheus", scaffoldPrometheus,
+		"Enable Prometheus metrics in the generated entry point")
 	noAISkills := cmd.Flags().Bool("no-ai-skills", false,
 		"Skip agent instructions and skills")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
