@@ -9,7 +9,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.54.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/romshark/templier v0.12.1
+	github.com/romshark/templier v0.13.0
 	github.com/romshark/yamagiconf v1.1.1
 	github.com/spf13/cobra v1.10.2
 	github.com/starfederation/datastar-go v1.2.2
@@ -55,7 +55,7 @@ require (
 	github.com/docker/go-connections v0.8.1 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
-	github.com/ebitengine/purego v0.11.0 // indirect
+	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
