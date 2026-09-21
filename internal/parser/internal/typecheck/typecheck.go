@@ -19,15 +19,15 @@ import (
 // uint32, uint64), floats (float32, float64),
 // or any type that implements encoding.TextUnmarshaler.
 func IsInputFieldType(t types.Type) bool {
-	if isBasicInputType(t) {
+	if IsBasicInputType(t) {
 		return true
 	}
 	return gotypes.ImplementsTextUnmarshaler(t)
 }
 
-// isBasicInputType reports whether t is a basic scalar type
+// IsBasicInputType reports whether t is a basic scalar type
 // supported for path/query fields.
-func isBasicInputType(t types.Type) bool {
+func IsBasicInputType(t types.Type) bool {
 	return gotypes.IsString(t) || gotypes.IsBool(t) ||
 		gotypes.IsInt(t) || gotypes.IsFloat(t)
 }

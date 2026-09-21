@@ -383,7 +383,9 @@ Here, `s` and `selecteditem` are synchronized.
 
 The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`. The URL fragment remains.
 
-Reflected integer, float, and bool fields seed JavaScript numbers or booleans unless they implement `encoding.TextMarshaler`. Text marshalers and all other field types seed strings.
+Reflected integer, float, and bool fields seed JavaScript numbers or booleans unless they implement `encoding.TextMarshaler`. Text marshalers and string fields seed strings.
+
+A reflected field must be a basic type or implement `encoding.TextMarshaler`. `datapages gen` rejects any other type: it has no text form to seed the signal with, and the browser would write that seed back into the query.
 
 `datapages gen` rejects two query fields with the same `reflectsignal` value. They would generate duplicate `data-signals` attributes, and the browser would ignore the second value.
 

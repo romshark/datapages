@@ -81,6 +81,8 @@ A signal change rewrites or removes only its own query parameter. All other para
 
 `datapages gen` rejects duplicate `reflectsignal` values. Both fields would emit the same `data-signals:term` attribute, and an HTML parser keeps only the first attribute.
 
+A reflected field must be a basic type or implement `encoding.TextMarshaler`. A type that only implements `encoding.TextUnmarshaler` is rejected: it has no text form to seed the signal with.
+
 It also rejects a JSON type mismatch between a query field and its signal. The checked types are number, boolean and string. For example, reflecting a `string` query field into a `bool` signal sets `$flag` to `"true"`. The next action sends `{"flag":"true"}`, which signal decoding rejects with 400.
 
 ## Error pages

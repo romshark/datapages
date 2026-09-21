@@ -78,6 +78,10 @@ var (
 	ErrQueryReflectSignalTypeMismatch = errors.New(
 		"query struct field and reflected signal have incompatible JSON kinds",
 	)
+	ErrQueryReflectSignalNotText = errors.New(
+		"query struct field reflecting a signal must be a basic type or " +
+			"implement encoding.TextMarshaler",
+	)
 	ErrSignalsFieldNameDotted = errors.New(
 		"signals struct field declares one signal, which carries no period",
 	)
@@ -804,7 +808,19 @@ func ValidateReflectSignal(
 				rs, recv, method,
 			)
 		}
-		kind := gotypes.TextJSONKind(querySt.Field(i).Type())
+		ft := querySt.Field(i).Type()
+		if !typecheck.IsBasicInputType(ft) &&
+			!gotypes.ImplementsTextMarshaler(ft) {
+			return &QueryFieldReflectSignalNotTextError{
+				FieldName: querySt.Field(i).Name(),
+				TagValue:  rs,
+				FieldType: gotypes.QualifiedTypeName(ft),
+				Recv:      recv,
+				Method:    method,
+				Pos:       querySt.Field(i).Pos(),
+			}
+		}
+		kind := gotypes.TextJSONKind(ft)
 		if !gotypes.AcceptsJSONKind(sigType, kind) {
 			return &QueryFieldReflectSignalTypeError{
 				FieldName:  querySt.Field(i).Name(),
@@ -845,6 +861,31 @@ func (e *QueryFieldReflectSignalTypeError) Unwrap() error {
 }
 
 func (e *QueryFieldReflectSignalTypeError) ASTPos() token.Pos { return e.Pos }
+
+// QueryFieldReflectSignalNotTextError reports the field and its type
+// responsible for [ErrQueryReflectSignalNotText].
+type QueryFieldReflectSignalNotTextError struct {
+	FieldName string
+	TagValue  string
+	FieldType string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *QueryFieldReflectSignalNotTextError) Error() string {
+	return fmt.Sprintf(
+		"%v: field %s of type %s reflects signal %q in %s.%s",
+		ErrQueryReflectSignalNotText,
+		e.FieldName, e.FieldType, e.TagValue, e.Recv, e.Method,
+	)
+}
+
+func (e *QueryFieldReflectSignalNotTextError) Unwrap() error {
+	return ErrQueryReflectSignalNotText
+}
+
+func (e *QueryFieldReflectSignalNotTextError) ASTPos() token.Pos { return e.Pos }
 
 // SignalsFieldNameInvalidError is [ErrSignalsFieldNameInvalid] with context.
 type SignalsFieldNameInvalidError struct {
