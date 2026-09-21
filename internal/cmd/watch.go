@@ -85,7 +85,7 @@ func runWatch(
 			return err
 		}
 	}
-	if err := runGen(moduleDir, cfg, false, stderr, version); err != nil {
+	if err := runGen(moduleDir, cfg, scaffoldPrometheus, stderr, version); err != nil {
 		// Non-fatal: individual parse errors are already on stderr.
 		// The gen watcher will retry and surface errors in the browser on next save.
 		_, _ = fmt.Fprintln(stderr, err)
