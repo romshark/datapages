@@ -16,11 +16,17 @@
 > **Alpha Software:** Datapages is still in early development.
 > APIs are subject to change and you may encounter bugs.
 
-A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework for building dynamic, server-rendered web applications in pure Go.
+A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework and toolset for building GUI apps and web application in pure Go - no matter whether it's a **real-time collaborative dynamic web app**, a simple [HTMX](https://htmx.org/)-style website, or an installable local-first GUI app.
 
-**Focus on your business logic, generate the boilerplate** Datapages parses your app source package and generates all the wiring. Routing, sessions and authentication, SSE streams, per-tab server-side state, CSRF protection, type-safe URL and action helpers, Prometheus metrics - so your application code stays clean and takes full advantage of Go's strong static typing and high performance.
+See [FAQ.md](FAQ.md) for frequently asked questions.
 
-No matter whether you're building **real-time collaborative dynamic web app** or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you well.
+### Utilize AI agents more efficiently
+
+Datapages will provide your coding agents with the skills and CLI tools they need to generate well performing, resource-efficient apps and keep the code base coherent and maintainable, lowering token-usage, reducing potential for bugs and vulnerabilities as well as slowing the accumulation of technical debt.
+
+### Focus on your business logic
+
+Datapages parses your app source packages, lints them, reports errors, and generates all the wiring and boilerplate. Routing, sessions and authentication, SSE streams, per-tab server-side state, CSRF protection, type-safe URL and action helpers, Prometheus metrics, JavaScript service workers etc. - so your application code stays clean and takes full advantage of Go's strong static typing and high performance.
 
 ## Examples
 
@@ -182,8 +188,6 @@ See [`datapages.State[T]`](SPECIFICATION.md#parameter-datapagesstatet) for the d
 ## Specification
 
 See [SPECIFICATION.md](SPECIFICATION.md) for the full source package specification, including handler signatures, parameters, return values, events, sessions, and modules.
-
-See [FAQ.md](FAQ.md) for frequently asked questions.
 
 ## Modules
 
