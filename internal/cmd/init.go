@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
@@ -211,7 +212,7 @@ func runInit(
 	}
 
 	// Pin the CLI's Datapages version before tidy selects one.
-	if err := pinDatapages(projectDir, modVersion, out, stderr); err != nil {
+	if err := pinDatapages(ctx, projectDir, modVersion, out, stderr); err != nil {
 		return err
 	}
 
@@ -225,7 +226,7 @@ func runInit(
 		return err
 	}
 
-	if err := checkDatapagesRoot(projectDir); err != nil {
+	if err := checkDatapagesRoot(ctx, projectDir); err != nil {
 		return err
 	}
 
@@ -618,7 +619,9 @@ func gitignoreEnv(projectDir string) error {
 //
 // A go.mod that already requires datapages keeps it. init runs in an existing
 // module too, and the version there is the user's to choose.
-func pinDatapages(projectDir, version string, out, stderr io.Writer) error {
+func pinDatapages(
+	ctx context.Context, projectDir, version string, out, stderr io.Writer,
+) error {
 	gomodPath := filepath.Join(projectDir, "go.mod")
 	data, err := os.ReadFile(gomodPath)
 	if err != nil {
@@ -640,7 +643,7 @@ func pinDatapages(projectDir, version string, out, stderr io.Writer) error {
 	reason := "this build carries no version"
 	if version != "" {
 		reason = ""
-		if err := moduleVersionExists(projectDir, version); err != nil {
+		if err := moduleVersionExists(ctx, projectDir, version); err != nil {
 			reason = err.Error()
 		}
 	}
@@ -725,15 +728,28 @@ func datapagesCheckout() string {
 	}
 }
 
+// moduleVersionResolveTimeout prevents a slow proxy or VCS host from stalling
+// init while it chooses between the CLI version and the local checkout.
+const moduleVersionResolveTimeout = 30 * time.Second
+
 // moduleVersionExists reports whether the proxy can resolve the datapages
 // module at version. It asks with "go list -m", which reports the answer in
 // its output rather than its exit status.
 // A caller may have set GOFLAGS=-e, which suppresses the exit status.
-func moduleVersionExists(projectDir, version string) error {
-	out, err := goListValue(projectDir,
+func moduleVersionExists(ctx context.Context, projectDir, version string) error {
+	query, cancel := context.WithTimeout(ctx, moduleVersionResolveTimeout)
+	defer cancel()
+	out, err := goListValue(query, projectDir,
 		"{{if .Error}}{{.Error.Err}}{{end}}",
 		"-m", datapagesModulePath+"@"+version)
 	if err != nil {
+		switch {
+		case ctx.Err() != nil:
+			return ctx.Err()
+		case query.Err() != nil:
+			return fmt.Errorf("resolving %s@%s took longer than %s",
+				datapagesModulePath, version, moduleVersionResolveTimeout)
+		}
 		return err
 	}
 	if out != "" {
@@ -750,13 +766,15 @@ func moduleVersionExists(projectDir, version string) error {
 // The app package imports the root package, hence the parser,
 // the generator and the build all fail with errors that name the user's
 // own app package and never the version that cannot be imported.
-func checkDatapagesRoot(projectDir string) error {
-	name, err := goListValue(projectDir, "{{.Name}}", datapagesModulePath)
+func checkDatapagesRoot(ctx context.Context, projectDir string) error {
+	name, err := goListValue(ctx, projectDir, "{{.Name}}", datapagesModulePath)
 	if err != nil || name != "main" {
 		// A load error is one the parser reports with more context.
 		return nil
 	}
-	version, err := goListValue(projectDir, "{{.Version}}", "-m", datapagesModulePath)
+	version, err := goListValue(
+		ctx, projectDir, "{{.Version}}", "-m", datapagesModulePath,
+	)
 	if err != nil {
 		version = "the resolved version"
 	}
@@ -772,11 +790,13 @@ func checkDatapagesRoot(projectDir string) error {
 }
 
 // goListValue runs "go list" with the given format and arguments in dir and
-// returns the first line of its output. The -e keeps a package that does not
+// returns the first line of its output. The -e keeps a package that doesn't
 // load from failing the command, which is the case the caller asks about.
-func goListValue(dir, format string, args ...string) (string, error) {
+func goListValue(
+	ctx context.Context, dir, format string, args ...string,
+) (string, error) {
 	argv := append([]string{"list", "-e", "-f", format}, args...)
-	cmd := exec.Command("go", argv...)
+	cmd := exec.CommandContext(ctx, "go", argv...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

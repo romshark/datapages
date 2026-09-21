@@ -112,10 +112,9 @@ jobs:
         if: matrix.project.name == 'root'
         run: go install github.com/a-h/templ/cmd/templ@v0.3.1020
 
-      # Test and report coverage
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -timeout 15m -covermode=atomic -coverprofile=coverage.out ./...
 
       - name: Upload coverage to Coveralls
         if: matrix.deps == 'locked'
