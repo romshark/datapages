@@ -640,16 +640,27 @@ func (e *EventSubjectAfterPayloadError) Unwrap() error {
 }
 
 // RouteConflictError is [ErrRouteConflict] with the pattern that could not be
-// registered and what the router said about it.
+// registered, what already serves those requests and what the router said.
+// Other and OtherOwner are empty when no claimed pattern reproduces the conflict.
 type RouteConflictError struct {
-	Pattern string
-	Owner   string
-	Reason  string
+	Pattern    string // e.g. "GET /files/_$/{$}"
+	Owner      string // e.g. "PageFiles" or "the stream of PageFiles"
+	Other      string // the pattern already registered
+	OtherOwner string // what claims Other
+	Reason     string
 }
 
 func (e *RouteConflictError) Error() string {
-	return fmt.Sprintf("%v: %s cannot serve %q: %s",
-		ErrRouteConflict, e.Owner, e.Pattern, e.Reason)
+	switch {
+	case e.OtherOwner == "":
+		return fmt.Sprintf("%v: %s cannot serve %q: %s",
+			ErrRouteConflict, e.Owner, e.Pattern, e.Reason)
+	case e.Other == e.Pattern:
+		return fmt.Sprintf("%v: %s cannot serve %q, %s already serves it",
+			ErrRouteConflict, e.Owner, e.Pattern, e.OtherOwner)
+	}
+	return fmt.Sprintf("%v: %s cannot serve %q, %s serves %q: %s",
+		ErrRouteConflict, e.Owner, e.Pattern, e.OtherOwner, e.Other, e.Reason)
 }
 
 func (e *RouteConflictError) Unwrap() error { return ErrRouteConflict }
