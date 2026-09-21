@@ -211,16 +211,16 @@ a {
   user-select: none;
 }
 
-/* ── Alpha badge ─────────────────────────────────── */
+/* ── Beta badge ──────────────────────────────────── */
 
-.alpha-badge {
+.beta-badge {
   font-size: 0.6rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #e3b341;
-  background: rgba(210, 153, 34, 0.15);
-  border: 1px solid rgba(210, 153, 34, 0.3);
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.15);
+  border: 1px solid rgba(88, 166, 255, 0.3);
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
   line-height: 1;

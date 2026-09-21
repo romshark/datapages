@@ -42,7 +42,7 @@ func Index(version string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span class=\"alpha-badge\">alpha</span></span><nav><a href=\"https://github.com/romshark/datapages\">GitHub</a> <a href=\"https://pkg.go.dev/github.com/romshark/datapages\">Docs</a></nav></header><section class=\"hero\"><div class=\"gopher\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span class=\"beta-badge\">beta</span></span><nav><a href=\"https://github.com/romshark/datapages\">GitHub</a> <a href=\"https://pkg.go.dev/github.com/romshark/datapages\">Docs</a></nav></header><section class=\"hero\"><div class=\"gopher\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
