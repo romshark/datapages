@@ -222,6 +222,122 @@ The scaffold contains a commented `embed.FS` example. Enable it in the applicati
 
 Use `datapages.WithAssetsCache` to set production cache behavior. The [dev-mode specification](SPECIFICATION.md#dev-mode) defines development loading and cache behavior. The [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets) documentation defines the filesystem options.
 
+## Add offline page caching
+
+The offline module installs a service worker. Handlers can cache page snapshots that the worker serves when the network is unavailable. Start by declaring the fallback for a URL that has no snapshot:
+
+```go
+// PageOffline is /offline
+type PageOffline struct{ App *App }
+
+func (PageOffline) GET(
+	r *http.Request,
+) (body datapages.Component, err error) {
+	return pageOffline(), nil
+}
+```
+
+`PageOffline` is shared by every visitor and renders with a zero session. Keep it independent of signed-in state.
+
+Configure the worker in the application package. Precache every asset that a snapshot needs before its first online load, including a self-hosted Datastar bundle:
+
+```go
+const offlineWorkerVersion = 1
+
+func OfflineConfig() offline.Config {
+	return offline.Config{
+		WorkerVersion: offlineWorkerVersion,
+		Assets: []string{
+			assets.Path("style.css"),
+			assets.Path("datastar.js"),
+		},
+	}
+}
+```
+
+Declaring `PageOffline` generates the option that supplies its route. Add these options to `datapages.NewServer`:
+
+```go
+datapages.WithDatastarJS(assets.Path("datastar.js")),
+datapagesgen.WithOffline(app.OfflineConfig()),
+```
+
+The worker runs on HTTPS and localhost. On other plain HTTP origins the offline API does nothing.
+
+Add `pageCache datapages.PageCacheWriter` to a `GET` or action. `Set` stores a body for offline use; the URL must come from the generated `href` package:
+
+```go
+func (p PageItem) GET(
+	r *http.Request,
+	pageCache datapages.PageCacheWriter,
+	path datapages.Path[struct {
+		ID string `path:"id"`
+	}],
+) (body datapages.Component, err error) {
+	item, err := p.App.Item(r.Context(), path.Values.ID)
+	if err != nil {
+		return nil, err
+	}
+	if pageCache.Version() != item.Revision {
+		pageCache.Set(href.PageItem(item.ID), itemOffline(item), item.Revision)
+	}
+	return itemPage(item), nil
+}
+```
+
+`Version()` is the cached version of the current request URL, or zero when that URL is absent. An action can cache another URL, but cannot read that URL's current version. `Clear` removes one entry; `ClearAll` removes all page entries. Writes take effect together only after the handler returns without error.
+
+Apply these rules when choosing what to cache:
+
+- Pass a page body, not a complete HTML document. Datapages supplies the document shell.
+- Include every value that changes the snapshot in its version. Use `!=` for hashes and other unordered version keys.
+- Cache a separate body when offline interactions cannot work. A snapshot does not need to match the live page.
+- Treat the cache as origin-readable browser storage that outlives a session. Do not store secrets or data that must disappear at sign-out. Call `ClearAll` during sign-in and sign-out, then repopulate entries from later handlers.
+- Update or clear affected URLs when an action changes their data.
+- Increment `WorkerVersion` after a Datapages upgrade or a change to `Assets`, `ExcludePaths`, `CrossOriginDestinations`, `OfflineClass`, or `PageOffline`. A file update at an unchanged asset URL refreshes behind the cached copy and does not require a new worker version.
+
+Same-origin assets are cached on their first online load unless excluded. `Config.Assets` makes required files available immediately after worker installation. `Config.CrossOriginDestinations` controls which cross-origin asset types may be cached. Use the default `is-offline` class on `<html>` to disable controls that require the network.
+
+Register response compression before `WithOffline`; the offline middleware must edit the unencoded HTML before it is compressed. With a nonce-based CSP, `WithCSPNonce` must return the same nonce for every call with one request. The generated offline option applies that nonce to its inline scripts.
+
+The [`pageCache` specification](SPECIFICATION.md#parameter-pagecache-datapagespagecachewriter) defines valid handlers and write delivery. [Service Worker](SPECIFICATION.md#service-worker) defines installation, caching, CSP, and response behavior. [`example/offline-cache`](example/offline-cache/) is a complete session-aware application.
+
+## Show a cached shim while a page loads
+
+Use `SetShim` when a live page is slow. The worker serves the cached body immediately, fetches the live page in parallel, then uses Datastar to replace the document head and body:
+
+```go
+const shimVersion = 1
+
+func (p PageIndex) GET(
+	r *http.Request,
+	pageCache datapages.PageCacheWriter,
+) (body datapages.Component, err error) {
+	rows, err := p.App.Rows(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	if pageCache.Version() != shimVersion {
+		pageCache.SetShim(href.PageIndex(), indexShim(len(rows)), shimVersion)
+	}
+	return indexPage(rows), nil
+}
+```
+
+The first visit waits for the live response and stores the shim. Later visits can display it before the live response arrives. Increment the shim's page-cache version when its markup or data changes; this version is independent of `offline.Config.WorkerVersion`.
+
+A shim can appear online or remain visible after a failed fetch. Use neutral placeholder text, not an offline claim. It renders without a session or CSRF script and must contain no Datastar attributes. Put actions and visitor-specific content in the live body.
+
+An application with `PageOffline` uses the same `datapagesgen.WithOffline` setup as snapshots. When an application needs shims but no custom offline fallback, install the module directly:
+
+```go
+offline.WithServiceWorker("", offline.Config{
+	WorkerVersion: 1,
+})
+```
+
+[`example/fast-shim`](example/fast-shim/) compares shimmed pages with uncached pages under the same artificial delay.
+
 ## Build multiple applications
 
 One Go module can contain several application packages and entry points. Each `datapages.NewServer` call connects an app package to its generated package. `datapages gen` processes all of them; select one for development with:
