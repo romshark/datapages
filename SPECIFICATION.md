@@ -65,7 +65,7 @@ URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/
 
 `PageIndex` is required for `/`.
 
-`PageError500` and `PageError404` may override the default error pages for status codes 500 and 404.
+`PageError500` and `PageError404` may override the default error pages for status codes 500 and 404. Their `GET` serves both the page's own route and the error path, so it must not return `newSession` or `closeSession`: the cookie would also be written on a 404 or on a failed request, where the handler that failed may already have set one. A `session` parameter is allowed and is what an error page renders its document from.
 
 A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
 

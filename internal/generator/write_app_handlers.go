@@ -369,9 +369,6 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	w.Line(0, "}")
 }
 
-// writeSessionOutputs emits what a handler's newSession and closeSession
-// outputs ask for. A handler that returns them and is answered by neither has
-// them declared and unused, which is a package that does not compile.
 // writeSubjectSignalsRead emits the read of the signal values a page subscribes by.
 // Both stream handlers need it: the subjects a stream subscribes to do not depend on
 // whether the client holds a session.
