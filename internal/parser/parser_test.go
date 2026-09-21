@@ -885,6 +885,15 @@ func TestParse_ErrQueryReflectSignalType(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrQueryReflectSignalTypeMismatch)
 }
 
+// TestParse_ErrQueryReflectSignalNotText tests rejection of a reflected query
+// field whose type parses from text but cannot write itself back as text.
+func TestParse_ErrQueryReflectSignalNotText(t *testing.T) {
+	_, err := parse(t, "err_query_reflectsignal_nottext")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrQueryReflectSignalNotText)
+}
+
 // TestParse_ErrEmbedPointer tests an abstract page embedded as a pointer.
 // Generated code writes a page as a composite literal of values, which a pointer
 // field cannot take, and a nil one would panic in every handler the embed promotes.
