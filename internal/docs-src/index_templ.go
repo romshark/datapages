@@ -63,7 +63,7 @@ func Index(version string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><div class=\"cta\"><a href=\"https://github.com/romshark/datapages#getting-started\" class=\"btn btn-primary\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><div class=\"cta\"><a href=\"https://github.com/romshark/datapages/blob/main/GUIDE.md\" class=\"btn btn-primary\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
