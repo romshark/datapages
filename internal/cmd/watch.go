@@ -191,6 +191,16 @@ func runWatch(
 		)
 	}
 
+	// templier enables templ development mode for the whole process.
+	// Without a watch root, templ loads dependency components from development-mode
+	// files that templier doesn't write, which makes rendering fail.
+	// TEMPL_DEV_MODE_WATCH_ROOT limits development-mode loading to this module.
+	//
+	// [templ watch mode]: https://github.com/a-h/templ/blob/main/runtime/watchmode.go
+	if err := os.Setenv("TEMPL_DEV_MODE_WATCH_ROOT", moduleDir); err != nil {
+		return fmt.Errorf("setting templ watch root: %w", err)
+	}
+
 	e, err := engine.New(engineConf, engine.Options{})
 	if err != nil {
 		return fmt.Errorf("initializing watch engine: %w", err)
