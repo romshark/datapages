@@ -11,7 +11,7 @@ require (
 	// Required by the demo application
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/prometheus/client_golang v1.24.1
-	github.com/romshark/datapages v0.9.4
+	github.com/romshark/datapages v0.10.0
 	github.com/starfederation/datastar-go v1.2.2
 	golang.org/x/crypto v0.57.0
 )
