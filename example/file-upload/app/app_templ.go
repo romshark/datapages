@@ -2365,8 +2365,8 @@ func actionsMenu(f store.File, tab, origin string) templ.Component {
 	})
 }
 
-// toaster is the empty stack a page starts with. Every message is appended
-// into it, hence the id sits on the stack rather than on the toast inside it.
+// toaster is the empty stack a page starts with. Every message is appended into it,
+// hence the id sits on the stack rather than on the toast inside it.
 //
 // The corner is rendered rather than left to the element: neo-toaster sets
 // position="bottom-right" in its connectedCallback, and a morph reaching the
