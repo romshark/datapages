@@ -88,6 +88,10 @@ Not only does Datapages allow you to start quickly with `datapages init` and jum
 Agentic coding is a big topic right now and likely here to stay. But LLMs tend to drift over time and introduce accidental complexity.
 So for AI to be used more effectively I wanted to provide the skills and instructions necessary for agents to know how to deal with this tech stack and call into Datapages CLI help them when they drift by providing them with useful feedback.
 
+<p>
+  <img alt="Cost comparison: doing it all yourself, using AI assistance, and Datapages plus AI assistance" src="docs/infographic.svg" width="880">
+</p>
+
 ## Who This Is For
 
 Datapages is a good fit if you:
