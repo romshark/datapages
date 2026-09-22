@@ -61,3 +61,6 @@ docs/index.html
 
 # Backups datapages init writes when it rewrites an existing file.
 *.bak
+
+# macOS
+.DS_Store
