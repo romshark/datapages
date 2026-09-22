@@ -5,8 +5,8 @@ Upload files to disk and download them again. An upload is sent in chunks, can b
 Files are kept in the `uploads` directory, one blob and one metadata file each. The page shows the absolute path they land in.
 
 > [!NOTE]
-> This demo has initially been a testbed for the AI skills
-> and will gradually be improved and simplified.
+> This example application has initially been a testbed for the new AI skills.
+> It's fully AI-authored and will gradually be improved (and simplified if necessary).
 
 ## Prerequisites
 
