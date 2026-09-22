@@ -8,7 +8,7 @@ description: >-
 
 # Datastar
 
-Datastar provides client-side reactivity through `data-*` attributes. Datapages serves Datastar v1.0.3 and manages its script tag and SSE streams. Docs: https://data-star.dev/docs.md
+Datastar provides client-side reactivity through `data-*` attributes. Datapages serves Datastar v1.0.4 and manages its script tag and SSE streams. Docs: https://data-star.dev/docs.md
 
 Signals are reactive variables written as `$name`. In an expression, Datastar replaces `$signal` references and binds `el` to the current element. The sandbox allows calls only to `@name()` action helpers.
 
