@@ -1,0 +1,356 @@
+/* Everything the Morpheus components do not cover.
+ * The palette and the radius live in theme.css.
+ */
+
+*,
+*::before,
+*::after {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+body {
+	font-family: system-ui, sans-serif;
+	background: var(--page-bg);
+	color: var(--page-fg);
+	min-height: 100dvh;
+}
+
+.page {
+	max-width: 46rem;
+	margin-inline: auto;
+	padding: 2rem 1rem 4rem;
+}
+
+/* Drag and drop */
+
+.page.dragging::after {
+	content: "Drop to upload";
+	position: fixed;
+	inset: 0.75rem;
+	display: grid;
+	place-items: center;
+	border: 2px dashed var(--accent);
+	border-radius: 0.75rem;
+	background: color-mix(in oklab, var(--page-bg) 85%, transparent);
+	font-size: 1.25rem;
+	pointer-events: none;
+}
+
+/* Header */
+
+h1 {
+	font-size: 1.5rem;
+	font-weight: 600;
+}
+
+h2 {
+	font-size: 1.125rem;
+	font-weight: 600;
+}
+
+.hint {
+	color: var(--muted);
+	font-size: 0.875rem;
+	line-height: 1.6;
+	margin-block: 0.5rem 1.25rem;
+}
+
+.path {
+	background: var(--surface-2);
+	border-radius: 0.25rem;
+	padding: 0.1rem 0.35rem;
+	font-size: 0.8125rem;
+	overflow-wrap: anywhere;
+}
+
+/* The file inputs are opened by the buttons that reference them. */
+
+.offscreen {
+	position: absolute;
+	inline-size: 1px;
+	block-size: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+/* An icon is drawn in the text color of the button it sits in. */
+
+.icon {
+	flex: none;
+	inline-size: 1em;
+	block-size: 1em;
+	fill: currentColor;
+}
+
+/* Transfer limits */
+
+.limits {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 0.5rem;
+	padding: 0.75rem 1rem;
+	margin-block-end: 1.25rem;
+	font-size: 0.875rem;
+}
+
+/* Each limit fills the line it is on: an equal half while both fit, the whole
+   width once they wrap. A flex basis of zero and no width of their own leaves
+   the wrapping to the contents, which is what decides it, rather than to a
+   screen size the contents know nothing about. */
+
+.limits label {
+	flex: 1 1 0;
+}
+
+.limits label > neo-layout {
+	inline-size: 100%;
+	justify-content: space-between;
+}
+
+/* The two faces of the switch are "Limited" and "Unlimited", and the hidden
+   one is display:none: the control would resize as it is pressed and shift
+   everything after it. Wide enough for the longer label; the host centres it. */
+
+.limits neo-toggle {
+	inline-size: 12ch;
+}
+
+/* The widest rate the field accepts is MaxLimitKiB, seven digits, and the
+   number spinners take about another rem beside them. A fixed width at all
+   because the kit gives the field flex: 1 1 auto, which would size the two
+   groups by whatever their rates happen to be and leave the rows unaligned. */
+
+.limits neo-input-group > input {
+	flex: 0 0 auto;
+	inline-size: calc(7ch + 2.5rem);
+}
+
+.limits .hint {
+	flex-basis: 100%;
+	margin: 0;
+}
+
+/* File list */
+
+.files {
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.empty {
+	color: var(--muted);
+	padding: 2rem 0;
+	text-align: center;
+}
+
+.file {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 0.5rem;
+	padding: 1rem;
+}
+
+.file-head {
+	margin-block-end: 0.75rem;
+}
+
+.file-name {
+	flex: 1 1 8rem;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* The controls end the row, and wrap under it when the name needs the width. */
+
+.file-head .actions {
+	margin-inline-start: auto;
+}
+
+/* A row of controls per file needs more width than a phone has, which collapses
+   it into one menu there. Both are rendered and CSS picks: an element cannot
+   move between parents. The menu owns the dialog it opens, hence hiding it
+   rather than the neo-dialog around it. */
+
+.file .actions-menu {
+	display: none;
+}
+
+/* The download row is a real link, which can be saved as and copied like one.
+   A menu row styles itself and neo-menuitem carries no href: the anchor inside
+   it has to take the row's colour and fill its width instead of arriving as a
+   browser-blue underline.
+
+   A control filling a menu row also has to lay its icon and label out the way
+   neo-menuitem does, since it replaces the row's own
+   box rather than sitting inside it. */
+
+.actions-menu neo-menuitem > a,
+.actions-menu neo-menuitem > neo-clipcopy,
+.actions-menu neo-menuitem > neo-clipcopy > span {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 0.5rem;
+	color: inherit;
+	text-decoration: none;
+}
+
+@media (width <= 34rem) {
+	.file-head .actions {
+		display: none;
+	}
+
+	.file .actions-menu {
+		display: inline-flex;
+	}
+}
+
+/* The badge is an icon and nothing else, hence a button's padding drops.
+   Its note is prose, hence a readable measure rather than the panel's own width. */
+
+.status-badge {
+	padding: 0.25rem;
+}
+
+.status-note {
+	max-inline-size: 22rem;
+	padding: 0.25rem;
+	font-size: 0.875rem;
+	line-height: 1.5;
+}
+
+/* The status of a transfer. Only one somebody is sending moves. */
+
+.status {
+	flex: none;
+	inline-size: 1.15rem;
+	block-size: 1.15rem;
+	color: var(--muted);
+}
+
+.status-uploading,
+.status-complete {
+	color: var(--accent);
+}
+
+.status-uploading {
+	animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(1turn);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.status-uploading {
+		animation: none;
+	}
+}
+
+progress {
+	appearance: none;
+	inline-size: 100%;
+	block-size: 0.5rem;
+	border: none;
+	background: var(--surface-2);
+	border-radius: 999px;
+	overflow: hidden;
+}
+
+progress::-webkit-progress-bar {
+	background: var(--surface-2);
+}
+
+progress::-webkit-progress-value {
+	background: var(--accent);
+}
+
+progress::-moz-progress-bar {
+	background: var(--accent);
+}
+
+.meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 1.5rem;
+	margin-block: 0.75rem;
+	font-size: 0.8125rem;
+}
+
+.meta dt {
+	color: var(--muted);
+}
+
+.meta dd {
+	overflow-wrap: anywhere;
+}
+
+/* Upload dialog */
+
+.staged {
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	margin-block-end: 1.25rem;
+}
+
+/* The name field spans the dialog. --neo-input-min-width is the kit's 12rem
+   floor, which would keep the field from shrinking with a narrow dialog. */
+.staged neo-textinput {
+	--neo-input-min-width: 0;
+	inline-size: 100%;
+}
+
+.staged-choice {
+	margin-block-start: 0.375rem;
+	font-size: 0.8125rem;
+}
+
+.staged-choice label {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	cursor: pointer;
+}
+
+.staged-choice input {
+	flex: none;
+	margin: 0;
+}
+
+.staged-meta {
+	display: block;
+	margin-block-start: 0.25rem;
+	font-size: 0.75rem;
+	color: var(--muted);
+}
+
+/* The name in the delete dialog, which the dim hint text must not swallow. */
+.delete-name {
+	color: var(--page-fg);
+	overflow-wrap: anywhere;
+}
+
+/* Footer */
+
+#footer {
+	margin-block-start: 3rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+	align-items: center;
+	color: var(--muted);
+	font-size: 0.85rem;
+
+	& a {
+		color: var(--page-fg);
+	}
+}

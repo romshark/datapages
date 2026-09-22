@@ -41,6 +41,8 @@ jobs:
             name: "offline-cache"
           - path: "example/fast-shim"
             name: "fast-shim"
+          - path: "example/file-upload"
+            name: "file-upload"
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
@@ -67,6 +69,9 @@ jobs:
             deps: latest
           - project:
               name: "fast-shim"
+            deps: latest
+          - project:
+              name: "file-upload"
             deps: latest
     steps:
       - name: Install Go 1.27.1
