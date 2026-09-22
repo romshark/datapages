@@ -364,6 +364,12 @@ func TestLintSubjectAcrossApps(t *testing.T) {
 // TestWatch tests the watch command over a scaffolded module: it refuses a
 // directory with no go.mod, and it shuts the engine down when its context ends.
 func TestWatch(t *testing.T) {
+	// These cases run templ in watch mode. Its cleanup would delete the
+	// temporary template files used by an existing watch.
+	if cmd.WatchLockHeld() {
+		t.Skip("a datapages watch is running")
+	}
+
 	t.Run("no module", func(t *testing.T) {
 		dir := t.TempDir()
 		origDir, err := os.Getwd()

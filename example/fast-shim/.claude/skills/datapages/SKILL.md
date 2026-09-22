@@ -19,7 +19,7 @@ Write the app model first, then generate its helpers before templates call them:
 
 ```sh
 datapages gen
-templ generate # after any .templ change; datapages does not run it
+templ generate # after any .templ change, and never while datapages watch runs
 datapages lint
 go build ./...
 ```
@@ -29,6 +29,23 @@ go build ./...
 An earlier `templ generate` can produce references to helpers that do not exist yet. Remove those references, run `templ generate`, then run `datapages gen`. Restore the references and run `templ generate` again. After an initial parse failure, the generator may write empty stub helper packages.
 
 Use Templ `v0.3.1020`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
+
+### Never run `templ generate` while `datapages watch` runs
+
+Running `templ generate` interrupts the development server. `datapages watch` runs templ in watch mode, which reads application template strings from files in the temporary directory. A separate `templ generate` deletes those files when it exits. The server cannot render again until the next `.templ` change recreates them.
+
+Check before generating. `datapages watch` keeps one lock file per module fresh in the `datapages-watch` directory under the system temporary directory (`$TMPDIR` on macOS, `/tmp` on Linux, `%TEMP%` on Windows). A `.lock` file written less than 10 seconds ago means a watch is running. The file contains its PID, module directory, and development server host:
+
+```sh
+ls -lt "${TMPDIR:-/tmp}/datapages-watch" # inspect lock modification times
+pgrep -f "datapages watch"               # POSIX process check
+```
+
+The watcher regenerates changed files. Wait for it. To generate manually, stop the watcher first and restart it afterward.
+
+The restriction also applies to commands that invoke `templ generate`, including wrapper targets in `make` or Mage.
+
+To restore rendering, save a `.templ` file or restart the watcher.
 
 ## Rules
 

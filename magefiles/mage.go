@@ -479,6 +479,9 @@ func skipGeneration(dir string) bool {
 
 // GenTempl generates templ templates for examples and parser testdata.
 func GenTempl() error {
+	if err := CheckWatch(); err != nil {
+		return err
+	}
 	for _, root := range submoduleRoots {
 		if err := forEachModule(root, func(dir string) error {
 			if !hasTemplFiles(dir) {
@@ -495,6 +498,9 @@ func GenTempl() error {
 
 // GenDocs generates documentation pages.
 func GenDocs() error {
+	if err := CheckWatch(); err != nil {
+		return err
+	}
 	version, err := output("git", "describe", "--tags", "--abbrev=0")
 	if err != nil {
 		version = "latest"

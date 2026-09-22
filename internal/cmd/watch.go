@@ -76,6 +76,14 @@ func runWatch(
 	if err != nil {
 		return err
 	}
+	releaseLock, err := acquireWatchLock(moduleDir, host)
+	if err != nil {
+		// The development server can run without the lock. Warn because a
+		// concurrent "templ generate" can delete its temporary template files.
+		_, _ = fmt.Fprintln(stderr, "warning:", err)
+	}
+	defer releaseLock()
+
 	cfg, found, err := config.Load(moduleDir)
 	if err != nil {
 		return err

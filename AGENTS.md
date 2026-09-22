@@ -20,8 +20,23 @@
 - Minify the offline service worker: `mage genOfflineWorker`
 - Generate all (templ + datapages + AI skills + docs + worker): `mage gen`
 - Check that all generated code is current: `mage checkGen`
+- Check whether a `datapages watch` is running: `mage checkWatch`
 - Run go fix on all modules: `mage goFix`
 - Run fmt, modTidy, genTempl, genDocs, test and vulncheck: `mage all`
+
+Never run `templ generate`, or a target that wraps it (`genTempl`, `genDocs`,
+`gen`, `checkGen`, `all`), while someone has `datapages watch` running. Templ
+serves application template strings from files in the temporary directory in
+watch mode. A separate generation deletes those files when it exits. The
+running server cannot render again until the next `.templ` change.
+
+`datapages watch` keeps a lock file per module in the `datapages-watch`
+directory under the system temporary directory and refreshes it every 2s.
+`mage checkWatch` reports active watches and fails when it finds one.
+`genTempl` and `genDocs` call it before generating. SIGKILL prevents lock
+cleanup; the stale file expires 10s after its last write. `TestWatch` starts a
+watch engine and skips while a lock is held.
+See the `datapages` skill for how to recover a page broken this way.
 
 # Project Structure
 

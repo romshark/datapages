@@ -482,3 +482,63 @@ func TestModuleVersionExistsEndsWithTheContext(t *testing.T) {
 	err := moduleVersionExists(ctx, dir, "v1.2.3")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
+
+// TestAcquireWatchLock tests the record contents, heartbeat, and release.
+func TestAcquireWatchLock(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(envWatchLockDir, dir)
+
+	moduleDir := filepath.Join(t.TempDir(), "module")
+	release, err := acquireWatchLock(moduleDir, "localhost:7331")
+	require.NoError(t, err)
+
+	path := filepath.Join(dir, watchLockName(moduleDir))
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t,
+		fmt.Sprintf("%d\t%s\tlocalhost:7331\n", os.Getpid(), moduleDir),
+		string(content))
+
+	stale := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(path, stale, stale))
+	require.Eventually(t, func() bool {
+		info, err := os.Stat(path)
+		return err == nil && time.Since(info.ModTime()) < watchLockTTL
+	}, 3*watchLockHeartbeat, 50*time.Millisecond,
+		"the heartbeat must refresh the lock file")
+
+	release()
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestWatchLockNamePerModule tests that equivalent module paths share a lock
+// name and distinct module paths do not.
+func TestWatchLockNamePerModule(t *testing.T) {
+	dir := t.TempDir()
+	require.Equal(t, watchLockName(dir), watchLockName(dir+string(filepath.Separator)))
+	require.Equal(t, watchLockName(dir), watchLockName(filepath.Join(dir, "sub", "..")))
+	require.NotEqual(t, watchLockName(dir), watchLockName(filepath.Join(dir, "sub")))
+}
+
+// WatchLockHeld reports whether a watch lock is held to the external test package.
+func WatchLockHeld() bool { return watchLockHeld() }
+
+// TestWatchLockHeld tests that fresh lock files are held and stale files are ignored.
+func TestWatchLockHeld(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(envWatchLockDir, dir)
+	require.False(t, watchLockHeld(), "empty directory")
+
+	path := filepath.Join(dir, "0123456789abcdef.lock")
+	require.NoError(t, os.WriteFile(path, []byte("1\t/tmp/mod\tlocalhost:7331\n"), 0o666))
+	require.True(t, watchLockHeld(), "fresh lock file")
+
+	stale := time.Now().Add(-2 * watchLockTTL)
+	require.NoError(t, os.Chtimes(path, stale, stale))
+	require.False(t, watchLockHeld(), "expired lock file")
+
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "other.txt"), nil, 0o666))
+	require.False(t, watchLockHeld(), "file that is no lock")
+}
