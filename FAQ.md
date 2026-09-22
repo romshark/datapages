@@ -29,7 +29,7 @@ For server-centric applications that are mostly useless when offline with the se
 - **Optimal agentic engineering**: Datapages ships with all AI skills and CLI tools necessary for coding agents to be utmost efficient. This avoids wasting tokens on huge piles of React and Go API boilerplate.
 - **Less code**: You don't need to maintain a JavaScript code base + a JSON API server, in fact, you need no API at all. The amount of code is substantially lower.
 - **More efficient SSR**: you don't need to run a JavaScript runtime like with Next.js for SSR. Rendering HTML with Go is significantly more resource-efficient and faster.
-- **Lighter bundle**: Datastar (v1.0.3) is the entire runtime at just ~13KB gzipped, plus a short inline script on pages that use per-tab state. React, Vue, Angular, or even HTMX + Alpine.js all usually end up being larger.
+- **Lighter bundle**: Datastar (v1.0.4) is the entire runtime at just ~13KB gzipped, plus a short inline script on pages that use per-tab state. React, Vue, Angular, or even HTMX + Alpine.js all usually end up being larger.
 - **Real-Time by default**: Making your SPA a real-time multiplayer UI is usually considerably more extra work and code. With Datapages you get real-time web UIs out of the box.
 
 If the only reason you're going for a JavaScript SPA is a larger ecosystem and from that you only really need a UI kit - consider these alternatives instead that work great with Datapages:

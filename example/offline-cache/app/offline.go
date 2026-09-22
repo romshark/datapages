@@ -7,7 +7,7 @@ import (
 
 // OfflineWorkerVersion is the service worker's own version. Increment it when
 // the worker script or precached files change.
-const OfflineWorkerVersion = 3
+const OfflineWorkerVersion = 4
 
 // OfflineConfig returns the offline module configuration. The generated
 // datapagesgen.WithOffline option supplies the PageOffline route.
