@@ -1435,17 +1435,20 @@ func TestInitPinsTheDatapagesModule(t *testing.T) {
 			"--name", "pinned", "--module", "example.com/pinned",
 		},
 		nil, &stdout, &stderr,
-		// A released version the proxy has. The workspace redirects the build
-		// to this checkout, which is what keeps the scaffold type-checking.
-		"0.9.4", "xxxxxxx", "2026-2-23",
+		// A released version the proxy has, with an importable root package.
+		// go mod tidy upgrades past a version that cannot satisfy the app
+		// imports, which is what every release up to v0.9.4 does.
+		// The workspace redirects the build to this checkout,
+		// which is what keeps the scaffold type-checking.
+		"0.10.0", "xxxxxxx", "2026-2-23",
 	)
 	require.Equal(t, 0, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 
 	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
 	require.NoError(t, err)
-	require.Contains(t, string(data), "github.com/romshark/datapages v0.9.4")
+	require.Contains(t, string(data), "github.com/romshark/datapages v0.10.0")
 	require.Contains(t, stdout.String(),
-		"Required github.com/romshark/datapages v0.9.4")
+		"Required github.com/romshark/datapages v0.10.0")
 }
 
 // TestInitReplacesWithTheLocalCheckout tests what init writes when the build
