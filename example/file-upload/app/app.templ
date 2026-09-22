@@ -1,0 +1,759 @@
+package app
+
+import (
+	"strconv"
+
+	"github.com/romshark/morpheus/neo"
+
+	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/assets"
+	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/href"
+	"github.com/romshark/datapages/example/file-upload/store"
+)
+
+templ head() {
+	<title>File Upload</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
+	// Morpheus is pinned to a tag: a floating ref would pull in breaking
+	// changes on a page nobody rebuilt.
+	<link rel="stylesheet" href={ morpheusCDN + "/morpheus.css" }/>
+	<link rel="stylesheet" href={ assets.Path("theme.css") }/>
+	<script type="module" src={ morpheusCDN + "/bundle.js" }></script>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
+	<script src={ assets.Path("browser.js") } defer></script>
+}
+
+templ pageIndex(files []store.File, tab, origin, dir string, lim Limits) {
+	<div
+		id="page-index"
+		class="page"
+		data-signals:dragging="false"
+		data-signals:limit-up={ strconv.FormatInt(lim.Upload.KiB, 10) }
+		data-signals:limit-down={ strconv.FormatInt(lim.Download.KiB, 10) }
+		data-signals:unlimited-up={ strconv.FormatBool(lim.Upload.Unlimited) }
+		data-signals:unlimited-down={ strconv.FormatBool(lim.Download.Unlimited) }
+		data-class:dragging="$dragging"
+		data-on:dragover__window__prevent="$dragging = true"
+		data-on:dragleave__window="$dragging = !!evt.relatedTarget"
+		data-on:drop__window__prevent={ action.PageIndex.Stage.POST(
+			action.WithBefore("$dragging = false; dpUpload.drop(evt)"),
+			action.WithPayload("{files: dpUpload.files()}"),
+		) }
+	>
+		<header>
+			<neo-layout row align-items="center" justify-content="space-between" gap="md">
+				<h1>Files</h1>
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant: neo.Set(neo.ButtonVariantPrimary),
+				}, templ.Attributes{"data-on:click": "$picker.click()"}) {
+					@iconUpload()
+					Upload
+				}
+			</neo-layout>
+		</header>
+		<p class="hint">
+			Drop files anywhere on this page, or press Upload.
+			<br/>
+			Every upload is written to <code class="path">{ dir }</code>
+		</p>
+		@limits()
+		// Both inputs stay out of view and are opened by the buttons that
+		// reference them: a file dialog opens only on a click of the visitor.
+		<input
+			data-ref:picker
+			class="offscreen"
+			type="file"
+			multiple
+			tabindex="-1"
+			aria-hidden="true"
+			data-on:change={ action.PageIndex.Stage.POST(
+				action.WithBefore("dpUpload.pick(el)"),
+				action.WithPayload("{files: dpUpload.files()}"),
+			) }
+		/>
+		<input
+			data-ref:repick
+			class="offscreen"
+			type="file"
+			tabindex="-1"
+			aria-hidden="true"
+			data-on:change={ action.PageIndex.Reattach.POST(
+				action.WithBefore("dpUpload.repick(el)"),
+				action.WithPayload("dpUpload.reattachment()"),
+			) }
+		/>
+		@fileList(files, tab, origin)
+		@footer()
+		@uploadDialog(nil)
+		@toaster()
+	</div>
+}
+
+templ footer() {
+	<footer id="footer">
+		<p>
+			This is a
+			<a target="_blank" href="https://github.com/romshark/datapages">Datapages</a>
+			demo.
+		</p>
+		<p>
+			by
+			<a target="_blank" href="https://github.com/romshark/">github.com/romshark</a>
+		</p>
+	</footer>
+}
+
+// limitStep binds one arrow key to a step of the rate signal.
+// in-input is required because a number field counts as a text entry context,
+// where neo-keys suppresses a chord carrying no modifier.
+// It's disabled along with the field, which stops a switched-off limit from stepping.
+templ limitStep(rate, unlimited, key string, up bool) {
+	@neo.KeysAttrs(neo.KeysOpts{
+		Keys:    neo.Set(key),
+		InInput: neo.Set(true),
+		Repeat:  neo.Set(true),
+	}, templ.Attributes{
+		"data-attr:disabled": "$" + unlimited,
+		"data-on:neo-keys": action.PageIndex.Limits.POST(
+			action.WithBefore(limitStepExpr(rate, up)),
+		),
+	})
+}
+
+// limits renders the two controls. They say what the limits should
+// be and nothing else: the pacing is on the server.
+templ limits() {
+	<neo-layout class="limits" row wrap align-items="center" gap="md">
+		@limitField("Upload", "limitUp", "unlimitedUp")
+		@limitField("Download", "limitDown", "unlimitedDown")
+		<p class="hint">
+			Unlimited lets a direction run at whatever the network gives.
+			A limit is one budget for every transfer in that direction
+			and is enforced by the server.
+		</p>
+	</neo-layout>
+}
+
+// limitField is one direction. The rate and the switch sit in one group,
+// so that the control reads as one thing: neo-input-group puts what follows the
+// field on its trailing edge and wires a neo-toggle there as a control.
+//
+// The rate signal keeps its number while the switch says unlimited,
+// which is what the field shows again when the switch goes off.
+templ limitField(label, rate, unlimited string) {
+	<label>
+		<neo-layout row align-items="center" gap="sm">
+			{ label }
+			@neo.InputGroup() {
+				// A native input, not a neo-textinput, which neo-input-group
+				// styles the same way: Datastar binds a custom element through
+				// its value property, but it picks the adapter before the
+				// Morpheus module has upgraded the element, so it settles for
+				// writing the value attribute. neo-textinput ignores that
+				// attribute while its inner field has focus, which dropped every
+				// step the arrow keys made in the focused field.
+				//
+				// step is one, not [LimitStepKiB]: a native field counts its
+				// steps from min, and a step of 64 from a minimum of 1 would
+				// mark every round rate the arrows produce as invalid.
+				<input
+					type="number"
+					min={ strconv.Itoa(MinLimitKiB) }
+					max={ strconv.Itoa(MaxLimitKiB) }
+					step="1"
+					data-bind={ rate }
+					data-attr:disabled={ "$" + unlimited }
+					data-on:change={ action.PageIndex.Limits.POST() }
+				/>
+				<span>KiB/s</span>
+				// The arrows snap to the grid of [LimitStepKiB] instead of taking
+				// the single step the field is declared with.
+				@limitStep(rate, unlimited, "ArrowUp", true)
+				@limitStep(rate, unlimited, "ArrowDown", false)
+				@neo.ToggleAttrs(neo.ToggleOpts{}, templ.Attributes{
+					"title":             "Run this direction at no limit",
+					"data-attr:pressed": "$" + unlimited,
+					"data-on:neo-toggle-change": action.PageIndex.Limits.POST(
+						action.WithBefore("$" + unlimited + " = evt.detail.pressed"),
+					),
+				}) {
+					@neo.ToggleOff() {
+						Limited
+					}
+					@neo.ToggleOn() {
+						Unlimited
+					}
+				}
+			}
+		</neo-layout>
+	</label>
+}
+
+// fileList renders every file. tab names the browser tab it renders for and
+// decides who is offered the controls that need the bytes of a transfer.
+templ fileList(files []store.File, tab, origin string) {
+	<ul id="file-list" class="files">
+		if len(files) == 0 {
+			<li class="empty">No files yet.</li>
+		}
+		for _, f := range files {
+			<li class="file">
+				<neo-layout class="file-head" row wrap align-items="center" gap="sm">
+					@statusBadge(f, tab)
+					<span class="file-name">{ f.Name }</span>
+					<neo-layout class="actions" row wrap gap="sm">
+						if f.Complete() {
+							// A link, not a button: neo-button reads no href and one
+							// on it navigates nowhere. The kit styles a real anchor to
+							// match through data-neo-link. The response names the file
+							// and asks for a download, hence no download attribute.
+							@neo.Link(neo.LinkOpts{
+								Href:    neo.Set(href.Asset("files/" + f.ID)),
+								Variant: neo.Set(neo.LinkVariantButtonPrimary),
+							}) {
+								@iconDownload()
+								<span class="label">Download</span>
+							}
+							// Clipcopy copies a literal, which is why the server hands
+							// it the whole address rather than the path the link carries.
+							@neo.Clipcopy(neo.ClipcopyOpts{
+								Value: neo.Set(origin + href.Asset("files/"+f.ID)),
+							}) {
+								// The first child is the trigger and both faces
+								// belong inside it: the host styles nothing of its
+								// own and ignores clicks landing anywhere else.
+								@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
+									"aria-label": "Copy the link to this file",
+									"title":      "Copy link",
+								}) {
+									@neo.ClipcopyIdle() {
+										@iconCopy()
+									}
+									@neo.ClipcopyCopied() {
+										@iconCopied()
+									}
+								}
+							}
+						} else if heldBy(f, tab) {
+							if f.Status == store.StatusUploading {
+								@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
+									"data-file-id": f.ID,
+									"data-on:click": action.PageIndex.Pause.POST(f.ID,
+										action.WithBefore(
+											"dpUpload.pause(el.dataset.fileId)"),
+									),
+								}) {
+									@iconPause()
+									<span class="label">Pause</span>
+								}
+							} else {
+								@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
+									"data-on:click": action.PageIndex.Resume.POST(f.ID),
+								}) {
+									@iconPlay()
+									<span class="label">Resume</span>
+								}
+							}
+						} else {
+							// This tab never read the file. The button opens
+							// the file dialog and posts nothing, which leaves
+							// everything as it was when the dialog is closed.
+							@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
+								"title":         "Pick the file again to continue it from this tab",
+								"data-file-id":  f.ID,
+								"data-on:click": "dpUpload.claim(el.dataset.fileId, $repick)",
+							}) {
+								@iconUpload()
+								<span class="label">Take over</span>
+							}
+						}
+						@deleteDialog(f)
+					</neo-layout>
+					@actionsMenu(f, tab, origin)
+				</neo-layout>
+				if !f.Complete() {
+					// The bytes are the label, which the component lays out against
+					// the percentage on the same line. AriaLabel is not set because
+					// a label serves as the accessible name too, and this one says
+					// more than "Upload progress" would.
+					@neo.Progress(neo.ProgressOpts[int]{
+						Value: neo.Set(f.Percent()),
+						Max:   neo.Set(100),
+						Unit:  neo.Set("%"),
+						Label: neo.Set(humanSize(f.Received) + " of " + humanSize(f.Size)),
+					})
+				}
+				<dl class="meta">
+					if f.Complete() {
+						// The progress bar carried the byte count while the file
+						// was still arriving. A finished one has no bar, hence
+						// the size sits here instead.
+						<div>
+							<dt>Size</dt>
+							<dd>{ humanSize(f.Size) }</dd>
+						</div>
+					}
+					<div>
+						<dt>Type</dt>
+						<dd>{ f.ContentType }</dd>
+					</div>
+					<div>
+						<dt>Added</dt>
+						<dd>{ f.CreatedAt.Format("2006-01-02 15:04:05") }</dd>
+					</div>
+					if f.OriginalName != f.Name {
+						<div>
+							<dt>Original name</dt>
+							<dd>{ f.OriginalName }</dd>
+						</div>
+					}
+				</dl>
+			</li>
+		}
+	</ul>
+}
+
+// statusBadge is the icon of a transfer and the prose behind it.
+// The badge alone cannot say why a row offers Take over rather than Resume:
+// pressing it explains the state in a sentence.
+//
+// Ghost, because every other button variant carries a transform, which would
+// make it the containing block of the fixed panel and trap it in the row.
+templ statusBadge(f store.File, tab string) {
+	if !f.Complete() {
+		@neo.Popover(neo.PopoverOpts{Placement: neo.Set(neo.Placement("bottom-start"))}) {
+			@neo.ButtonAttrs(neo.ButtonOpts{
+				Variant: neo.Set(neo.ButtonVariantGhost),
+			}, attrs(neo.PopoverTrigger(), templ.Attributes{
+				"class":      "status-badge",
+				"aria-label": "What is happening to this file",
+			})) {
+				@statusIcon(f)
+			}
+			<div { neo.PopoverContent()... } class="status-note">
+				{ transferExplanation(f, tab) }
+			</div>
+		}
+	}
+}
+
+// statusIcon says where a transfer stands. It is the one icon that carries
+// meaning of its own, hence the only one with a name of its own.
+// Only an upload somebody is sending moves.
+templ statusIcon(f store.File) {
+	switch transferStateOf(f) {
+		case transferComplete:
+			// Nothing. A file that is all there is the ordinary case, and the
+			// row already says so: it offers a download rather than a transfer.
+		case transferPaused:
+			<svg
+				class="status status-paused"
+				role="img"
+				aria-label="paused"
+				viewBox="0 0 16 16"
+			>
+				<rect x="4" y="3" width="3" height="10" rx="1" fill="currentColor"></rect>
+				<rect x="9" y="3" width="3" height="10" rx="1" fill="currentColor"></rect>
+			</svg>
+		case transferInterrupted:
+			<svg
+				class="status status-interrupted"
+				role="img"
+				aria-label="interrupted"
+				viewBox="0 0 16 16"
+			>
+				<circle
+					cx="8"
+					cy="8"
+					r="6.5"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+				></circle>
+				<rect
+					x="7.25"
+					y="4"
+					width="1.5"
+					height="5"
+					rx="0.75"
+					fill="currentColor"
+				></rect>
+				<rect
+					x="7.25"
+					y="10.5"
+					width="1.5"
+					height="1.5"
+					rx="0.75"
+					fill="currentColor"
+				></rect>
+			</svg>
+		default:
+			<svg
+				class="status status-uploading"
+				role="img"
+				aria-label="uploading"
+				viewBox="0 0 16 16"
+			>
+				<circle
+					cx="8"
+					cy="8"
+					r="6"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-opacity="0.25"
+				></circle>
+				<path
+					d="M8 2a6 6 0 0 1 6 6"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+				></path>
+			</svg>
+	}
+}
+
+// The icons carry no meaning their label does not,
+// hence they are hidden from assistive technology.
+templ iconUpload() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<path d="M8 1.5 12.5 6.5H9.5V11h-3V6.5h-3Z"></path>
+		<rect x="2.5" y="12.5" width="11" height="2" rx="1"></rect>
+	</svg>
+}
+
+templ iconDownload() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<path d="M8 11.5 3.5 6.5h3V2h3v4.5h3Z"></path>
+		<rect x="2.5" y="12.5" width="11" height="2" rx="1"></rect>
+	</svg>
+}
+
+templ iconPause() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<rect x="3.5" y="2.5" width="3.5" height="11" rx="1"></rect>
+		<rect x="9" y="2.5" width="3.5" height="11" rx="1"></rect>
+	</svg>
+}
+
+templ iconPlay() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<path d="M4.5 2.7 13 8l-8.5 5.3Z"></path>
+	</svg>
+}
+
+templ iconCopy() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<rect
+			x="5.75"
+			y="1.75"
+			width="8.5"
+			height="10.5"
+			rx="1.5"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.5"
+		></rect>
+		<path
+			d="M3.25 4.75H2.75a1 1 0 0 0-1 1v7.5a1 1 0 0 0 1 1h6.5a1 1 0 0 0 1-1v-0.5"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.5"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		></path>
+	</svg>
+}
+
+templ iconCopied() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<path
+			d="M3.5 8.5 6.5 11.5 12.5 4.5"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		></path>
+	</svg>
+}
+
+templ iconDots() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<circle cx="3" cy="8" r="1.5"></circle>
+		<circle cx="8" cy="8" r="1.5"></circle>
+		<circle cx="13" cy="8" r="1.5"></circle>
+	</svg>
+}
+
+templ iconTrash() {
+	<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+		<path d="M6.5 1h3a1 1 0 0 1 1 1v.5H14v2H2v-2h3.5V2a1 1 0 0 1 1-1Z"></path>
+		<path d="M3.4 6h9.2l-.6 7.2A2 2 0 0 1 10 15H6a2 2 0 0 1-2-1.8Z"></path>
+	</svg>
+}
+
+templ uploadDialog(pending []PendingFile) {
+	<div id="upload-dialog">
+		if len(pending) > 0 {
+			// Not dismissible: Escape would close it in the browser while the
+			// server still holds the staged files. Cancel and Start both answer
+			// the server, which is what empties them.
+			@neo.Dialog(neo.DialogOpts{
+				Open:        neo.Set(true),
+				Dismissible: neo.Set(neo.DismissibleOff),
+			}) {
+				// A Morpheus dialog binds to a trigger among its children and
+				// stays inert without one. This one is opened by the server
+				// answering a pick, which leaves the trigger never pressed.
+				<button
+					type="button"
+					class="offscreen"
+					tabindex="-1"
+					aria-hidden="true"
+					{ neo.DialogTrigger()... }
+				></button>
+				<dialog>
+					<form
+						data-on:submit__prevent={ action.PageIndex.Start.POST(
+							action.WithContentType(action.ContentTypeForm),
+						) }
+					>
+						@neo.DialogHeader() {
+							@neo.DialogTitle() {
+								if len(pending) == 1 {
+									Upload one file
+								} else {
+									Upload { strconv.Itoa(len(pending)) } files
+								}
+							}
+							@neo.DialogDescription() {
+								Rename a file before it starts, or keep what it is called.
+							}
+						}
+						@neo.DialogBody() {
+							<ul class="staged">
+								for i, f := range pending {
+									<li>
+										@neo.TextInputAttrs(neo.TextInputOpts{
+											Name:  neo.Set(nameField(i)),
+											Value: neo.Set(f.Name),
+										}, templ.Attributes{
+											"maxlength":  strconv.Itoa(store.MaxNameLen),
+											"aria-label": "File name",
+											"required":   true,
+										})
+										<span class="staged-meta">{ stagedMeta(f) }</span>
+										if f.MatchID != "" {
+											// Native radios: neo-radio-group is not
+											// form-associated and would submit nothing.
+											<neo-layout
+												class="staged-choice"
+												column
+												gap="xs"
+											>
+												<label>
+													<input
+														type="radio"
+														name={ dupField(i) }
+														value="continue"
+														checked
+													/>
+													Continue the unfinished upload
+													({ strconv.Itoa(f.MatchPercent) }%)
+												</label>
+												<label>
+													<input
+														type="radio"
+														name={ dupField(i) }
+														value={ dupSeparate }
+													/>
+													Upload as a separate file
+												</label>
+											</neo-layout>
+										}
+									</li>
+								}
+							</ul>
+						}
+						@neo.DialogFooter() {
+							@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
+								"data-on:click": action.PageIndex.Cancel.POST(),
+							}) {
+								Cancel
+							}
+							// The action sits on the click, not on the submit:
+							// neo-button is not form-associated and type="submit"
+							// on it submits nothing. The form keeps its own
+							// handler so that Enter in a name field still starts
+							// the upload. Both send the closest form.
+							@neo.ButtonAttrs(neo.ButtonOpts{
+								Variant: neo.Set(neo.ButtonVariantPrimary),
+							}, templ.Attributes{
+								"data-on:click": action.PageIndex.Start.POST(
+									action.WithContentType(action.ContentTypeForm),
+								),
+							}) {
+								Start upload
+							}
+						}
+					</form>
+				</dialog>
+			}
+		}
+	</div>
+}
+
+// deleteDialog is the Delete control of one row together with the
+// confirmation it opens. The dialog sits in the row because it names that
+// row's file, and the browser opens it rather than the server: a Morpheus
+// dialog binds to a trigger among its own children.
+templ deleteDialog(f store.File) {
+	@neo.Dialog(neo.DialogOpts{}) {
+		@neo.ButtonAttrs(neo.ButtonOpts{
+			Variant: neo.Set(neo.ButtonVariantDanger),
+		}, neo.DialogTrigger()) {
+			@iconTrash()
+			<span class="label">Delete</span>
+		}
+		@deleteConfirmation(f)
+	}
+}
+
+// deleteConfirmation is what a Delete control opens, wherever it sits.
+// The dialog binds to any trigger among its siblings, which pairs the row's
+// button and the same entry in the phone menu each with their own copy.
+templ deleteConfirmation(f store.File) {
+	<dialog>
+		@neo.DialogHeader() {
+			@neo.DialogTitle() {
+				Delete this file?
+			}
+		}
+		@neo.DialogBody() {
+			<p>
+				<strong class="delete-name">{ f.Name }</strong>
+				is removed from the server and its download link stops working.
+			</p>
+		}
+		@neo.DialogFooter() {
+			@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+				Cancel
+			}
+			@neo.ButtonAttrs(neo.ButtonOpts{
+				Variant: neo.Set(neo.ButtonVariantDanger),
+			}, attrs(neo.DialogClose(), templ.Attributes{
+				"data-file-id": f.ID,
+				"data-on:click": action.PageIndex.File.DELETE(f.ID,
+					action.WithBefore("dpUpload.forget(el.dataset.fileId)"),
+				),
+			})) {
+				Delete
+			}
+		}
+	</dialog>
+}
+
+// actionsMenu is the same controls on a screen too narrow for a row of buttons.
+// It's a second copy rather than the same nodes moved, because CSS
+// decides which one shows and CSS cannot move an element between parents.
+templ actionsMenu(f store.File, tab, origin string) {
+	@neo.Dialog(neo.DialogOpts{}) {
+		// Ghost, because every other variant carries transform: translateY(0),
+		// which makes the button the containing block of the fixed menu panel
+		// and traps its z-index in a stacking context the row paints over.
+		@neo.ButtonAttrs(neo.ButtonOpts{
+			Variant: neo.Set(neo.ButtonVariantGhost),
+		}, templ.Attributes{
+			"class":      "actions-menu",
+			"aria-label": "More actions for this file",
+		}) {
+			@iconDots()
+			<neo-menu placement="bottom-end">
+				if f.Complete() {
+					// neo-menuitem cancels the default of every click it sees,
+					// which leaves an anchor nested in a row unable to navigate.
+					// The row carries the address instead, which templ escapes,
+					// rather than a URL built into an expression.
+					<neo-menuitem
+						data-href={ href.Asset("files/" + f.ID) }
+						data-on:click="window.location.href = el.dataset.href"
+					>
+						@iconDownload()
+						Download
+					</neo-menuitem>
+					<neo-menuitem>
+						@neo.Clipcopy(neo.ClipcopyOpts{
+							Value: neo.Set(origin + href.Asset("files/"+f.ID)),
+						}) {
+							<span>
+								@iconCopy()
+								Copy link
+							</span>
+						}
+					</neo-menuitem>
+				} else if heldBy(f, tab) {
+					if f.Status == store.StatusUploading {
+						<neo-menuitem
+							data-file-id={ f.ID }
+							data-on:click={ action.PageIndex.Pause.POST(f.ID,
+								action.WithBefore("dpUpload.pause(el.dataset.fileId)"),
+							) }
+						>
+							@iconPause()
+							Pause
+						</neo-menuitem>
+					} else {
+						<neo-menuitem
+							data-on:click={ action.PageIndex.Resume.POST(f.ID) }
+						>
+							@iconPlay()
+							Resume
+						</neo-menuitem>
+					}
+				} else {
+					<neo-menuitem
+						data-file-id={ f.ID }
+						data-on:click="dpUpload.claim(el.dataset.fileId, $repick)"
+					>
+						@iconUpload()
+						Take over
+					</neo-menuitem>
+				}
+				<hr/>
+				<neo-menuitem { neo.DialogTrigger()... }>
+					@iconTrash()
+					Delete
+				</neo-menuitem>
+			</neo-menu>
+		}
+		@deleteConfirmation(f)
+	}
+}
+
+// toaster is the empty stack a page starts with. Every message is appended into it,
+// hence the id sits on the stack rather than on the toast inside it.
+//
+// The corner is rendered rather than left to the element: neo-toaster sets
+// position="bottom-right" in its connectedCallback, and a morph reaching the
+// host strips whatever the markup does not carry, which unpins the stack from
+// the corner and leaves it wherever it sits in the page.
+templ toaster() {
+	@neo.ToasterAttrs(neo.ToasterOpts{
+		Position: neo.Set(neo.ToasterPositionBottomRight),
+	}, templ.Attributes{"id": "toast"})
+}
+
+// errorToast is one message for the stack. neo-toast renders its own markup in
+// a shadow root that projects the named slots only: a bare text child lands in
+// no slot and the toast shows an icon and nothing else.
+templ errorToast(err error) {
+	@neo.ToastAttrs(neo.ToastOpts{
+		Variant:  neo.Set(neo.ToastVariantError),
+		Duration: neo.Set(6000),
+	}, templ.Attributes{"id": toastID()}) {
+		<span slot="title">{ errorMessage(err) }</span>
+	}
+}

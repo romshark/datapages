@@ -1,0 +1,11 @@
+cmd: cmd/server
+watch:
+  exclude:
+    - ".git/**"
+    - ".*"
+    - "*~"
+    # What visitors upload is data, not source. Watching it would rebuild the
+    # server on every chunk.
+    - "uploads/**"
+  watcher-ignore:
+    - "uploads/**"

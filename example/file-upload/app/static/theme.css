@@ -1,0 +1,113 @@
+/* The theme of this application, replacing the one Morpheus ships.
+ *
+ * One palette serves both: the names are the kit's, and style.css uses the
+ * same ones rather than keeping a second set that drifts from these. Every
+ * component radius falls back to --page-radius,
+ * which is what makes the whole kit square.
+ *
+ * The kit is not uniform about its colours. Most components read the page
+ * palette (--neo-dialog-bg is var(--page-bg), --neo-toast-error is
+ * var(--danger-bg)). The button does not: every --neo-button-* colour is a
+ * literal in morpheus.css, and setting --accent alone leaves it blue.
+ * Those are restated at the end of each block.
+ *
+ * Only prefers-color-scheme is honoured. The kit's own themes also answer to
+ * a .light / .dark class on the root, which this application never sets.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	--page-bg: #ececeb;
+	--page-fg: #1c1c1b;
+	--muted: #5e5e5b;
+	--surface: #f7f7f6;
+	--surface-2: #e2e2e0;
+	--border: #cfcfcc;
+	--shadow: rgb(0 0 0 / 18%);
+
+	/* Neutral, so that nothing but danger carries colour. */
+	--accent: #3b3b3b;
+	--accent-fg: #f7f7f6;
+
+	--btn-bg: var(--surface);
+	--btn-fg: var(--page-fg);
+	--btn-border: var(--border);
+	--btn-hover-bg: var(--surface-2);
+
+	/* Danger is the one saturated colour of this palette, at an OKLCH chroma
+	 * of 0.213 against 0.000 for the accent and 0.001 to 0.008 for the greys.
+	 * It marks the only action on this page that nothing undoes. The hover is
+	 * the same hue a step darker, which also raises the contrast of the text on it.
+	 */
+	--danger-bg: #c60000;
+
+	--link: #4d5d6b;
+	--link-hover: #3d4c5a;
+	--link-visited: #5a5467;
+
+	--neo-tooltip-bg: #1c1c1b;
+	--neo-tooltip-color: #f7f7f6;
+
+	--page-radius: 0.1875rem;
+
+	/* A panel that floats over a card cannot share the card's colour, or it
+	 * reads as see-through. --neo-menu-bg follows --btn-bg, which is exactly
+	 * --surface: both panels are raised a step instead,
+	 * lighter than the card in either colour scheme.
+	 */
+	--neo-menu-bg: #ffffff;
+	--neo-popover-bg: #ffffff;
+	--neo-popover-color: var(--page-fg);
+
+	/* The menu trigger is a ghost button, whose default hover is a black wash
+	 * that disappears on a dark page. */
+	--neo-button-ghost-hover-bg: var(--surface-2);
+	--neo-button-ghost-active-bg: var(--border);
+
+	--neo-button-bg: var(--surface);
+	--neo-button-color: var(--page-fg);
+	--neo-button-border-color: var(--border);
+	--neo-button-hover-bg: var(--surface-2);
+	--neo-button-primary-bg: #3b3b3b;
+	--neo-button-primary-color: #f7f7f6;
+	--neo-button-primary-hover-bg: #2e2e2e;
+	--neo-button-danger-bg: #c60000;
+	--neo-button-danger-color: #f7f7f6;
+	--neo-button-danger-hover-bg: #aa0000;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--page-bg: #1c1c1b;
+		--page-fg: #e8e8e5;
+		--muted: #a2a29e;
+		--surface: #262625;
+		--surface-2: #323230;
+		--border: #3d3d3a;
+		--shadow: rgb(0 0 0 / 55%);
+
+		/* Inverted rather than lightened: #3b3b3b on this page reads as a
+		 * disabled control, and primary has to carry the most weight. */
+		--accent: #c9c9c4;
+		--accent-fg: #1c1c1b;
+
+		--link: #9db1bf;
+		--link-hover: #b0c4d3;
+		--link-visited: #aea7bc;
+
+		--neo-tooltip-bg: #e8e8e5;
+		--neo-tooltip-color: #1c1c1b;
+
+		--neo-button-ghost-hover-bg: var(--surface-2);
+		--neo-button-ghost-active-bg: var(--border);
+
+		--neo-menu-bg: var(--surface-2);
+		--neo-popover-bg: var(--surface-2);
+
+		--neo-button-primary-bg: #c9c9c4;
+		--neo-button-primary-color: #1c1c1b;
+		--neo-button-primary-hover-bg: #dcdcd7;
+		--neo-button-danger-hover-bg: #d81414;
+	}
+}

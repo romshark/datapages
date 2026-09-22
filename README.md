@@ -39,6 +39,7 @@ Datapages parses your app source packages, lints them, reports errors, and gener
 - [`sqlitesessions`](example/sqlitesessions/): Custom `sessions.Manager` implementation backed by SQLite via [sqinn-go](https://github.com/cvilsmeier/sqinn-go) (no cgo).
 - [`fast-shim`](example/fast-shim/): A cached placeholder shown immediately and replaced with the live response.
 - [`offline-cache`](example/offline-cache/): Service worker support with handler-cached pages, a `PageOffline` fallback, and tickets available without a connection.
+- [`file-upload`](example/file-upload/): Chunked file uploads to disk that can be paused, resumed and continued after a reload or a server restart, with server-enforced transfer limits.
 
 ## Getting Started
 
