@@ -17,6 +17,8 @@ What it demonstrates:
 - Light and dark mode via `prefers-color-scheme`.
 - Offline pages through `modules/offline`.
 
+https://github.com/user-attachments/assets/325a5f88-a9c5-45f1-b2fc-bbaca92bb246
+
 ## Pages
 
 | Route                        | Page           | Description                                         |
