@@ -11,6 +11,8 @@
 
 On the first visit to a shimmed page, the cache is empty and the response takes 900 ms. On later visits, the service worker returns the cached shim and fetches the live page in parallel. Datastar replaces the `<head>` and `<body>` when the fetch completes.
 
+https://github.com/user-attachments/assets/1be1f20c-815f-471e-8b5e-87137d4c5cd7
+
 ## Shim setup
 
 `PageIndex.GET` in [`app/app.go`](./app/app.go) caches the shim:
