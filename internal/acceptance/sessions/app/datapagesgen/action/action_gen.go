@@ -317,3 +317,27 @@ func (pageLogin_SubmitInline) POST(options ...Option) string {
 	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
+
+var PageRoom pageRoom
+
+type pageRoom struct {
+	Update pageRoom_Update
+}
+
+type pageRoom_Update struct{}
+
+// POST references /room/update/
+func (pageRoom_Update) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/room/update/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/room/update/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/room/update/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}

@@ -1001,7 +1001,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 					continue
 				}
 				w.Raw("\t\t")
-				w.writeEvUserSubExpr(ev)
+				w.writeEvSubExpr(ev, nil)
 				w.Raw(",\n")
 			}
 			w.Line(1, "}")
@@ -1064,7 +1064,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 				continue
 			}
 			w.Raw("\t\t")
-			w.writeEvUserSubExpr(ev)
+			w.writeEvSubExpr(ev, nil)
 			w.Raw(",\n")
 		}
 
@@ -1073,35 +1073,43 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 	}
 }
 
-// writeEvUserSubExpr emits a Go expression that builds a per-user
-// subscription subject for a private event. Non-User positions
-// become "*" wildcards; the User position uses the userID variable.
-//
-// E.g. for SubjectUser + SubjectChatRoom with subject "chat.sent":
-//
-//	"chat.sent." + userID + ".*"
-func (w *Writer) writeEvUserSubExpr(e *model.Event) {
-	var beforeUser strings.Builder
-	beforeUser.WriteString(e.Subject)
-	var afterUser strings.Builder
-	foundUser := false
-	for _, sf := range e.SubjectFields {
-		if sf.Kind.IsUser() && !foundUser {
-			foundUser = true
+// writeEvSubExpr writes one event subscription expression with the first user
+// field and every signal field bound. Keeping the bindings in one subject
+// prevents cross-user matches and duplicate NATS deliveries.
+func (w *Writer) writeEvSubExpr(
+	ev *model.Event, identBySignal map[string]string,
+) {
+	lit := ev.Subject
+	wrote := false
+	userBound := false
+	for _, sf := range ev.SubjectFields {
+		lit += "."
+		var val string
+		switch {
+		case sf.Kind.IsUser() && !userBound:
+			userBound = true
+			val = "userID"
+		case sf.SignalName != "":
+			val = "subj" + identBySignal[sf.SignalName]
+		default:
+			lit += "*"
 			continue
 		}
-		if !foundUser {
-			beforeUser.WriteString(".*")
-		} else {
-			afterUser.WriteString(".*")
+		if wrote {
+			w.Raw(" + ")
 		}
+		w.writeQuoted(lit)
+		w.Raw(" + subject.Encode(")
+		w.Raw(val)
+		w.Byte(')')
+		wrote = true
+		lit = ""
 	}
-
-	w.writeQuoted(beforeUser.String() + ".")
-	w.Raw(" + subject.Encode(userID)")
-	if afterUser.String() != "" {
-		w.Raw(" + ")
-		w.writeQuoted(afterUser.String())
+	if lit != "" {
+		if wrote {
+			w.Raw(" + ")
+		}
+		w.writeQuoted(lit)
 	}
 }
 
@@ -1149,7 +1157,7 @@ func (w *Writer) writeEvSubjSignalFunc(
 			continue
 		}
 		w.Raw("\t\t")
-		w.writeEvSignalSubExpr(ev, identBySignal)
+		w.writeEvSubExpr(ev, identBySignal)
 		w.Raw(",\n")
 	}
 
@@ -1219,10 +1227,7 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 	}
 	w.Raw(") []string {\n")
 
-	// A stream with no user subscribes by everything that is not addressed to one.
-	// A subject built from an empty user ID names nobody: the in-memory
-	// broker reads it as a literal that never matches, NATS refuses it and the
-	// stream fails to open. Signal-scoped events are public and stay.
+	// Empty user tokens never match in the in-memory broker and NATS rejects them.
 	w.Line(1, "if userID == \"\" {")
 	w.Line(2, "return []string{")
 	for _, eh := range p.EventHandlers {
@@ -1232,7 +1237,7 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 		}
 		w.Raw("\t\t\t")
 		if ev.IsSignalScoped() {
-			w.writeEvSignalSubExpr(ev, identBySignal)
+			w.writeEvSubExpr(ev, identBySignal)
 		} else {
 			w.Raw(evSubjConst(ev))
 		}
@@ -1256,57 +1261,28 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 		}
 	}
 
-	// Private events.
 	for _, eh := range p.EventHandlers {
 		ev := w.eventMap[eh.EventTypeName]
 		if ev == nil || !ev.IsPrivate() {
 			continue
 		}
 		w.Raw("\t\t")
-		w.writeEvUserSubExpr(ev)
+		w.writeEvSubExpr(ev, identBySignal)
 		w.Raw(",\n")
 	}
 
-	// Signal-scoped events.
 	for _, eh := range p.EventHandlers {
 		ev := w.eventMap[eh.EventTypeName]
-		if ev == nil || !ev.IsSignalScoped() {
+		if ev == nil || !ev.IsSignalScoped() || ev.IsPrivate() {
 			continue
 		}
 		w.Raw("\t\t")
-		w.writeEvSignalSubExpr(ev, identBySignal)
+		w.writeEvSubExpr(ev, identBySignal)
 		w.Raw(",\n")
 	}
 
 	w.Line(1, "}")
 	w.Line(0, "}")
-}
-
-// writeEvSignalSubExpr emits a Go expression that builds a signal-scoped
-// subscription subject. Each signal-tagged subject field uses the parameter
-// its signal is bound to; non-signal positions become "*" wildcards.
-//
-// E.g. for a field with signal:"instance_id" and subject "calc.updated":
-//
-//	"calc.updated." + subjInstanceID
-func (w *Writer) writeEvSignalSubExpr(
-	ev *model.Event, identBySignal map[string]string,
-) {
-	w.writeQuoted(ev.Subject + ".")
-	for i, sf := range ev.SubjectFields {
-		if i > 0 {
-			w.Raw(` + "." + `)
-		} else {
-			w.Raw(" + ")
-		}
-		if sf.SignalName != "" {
-			w.Raw("subject.Encode(subj")
-			w.Raw(identBySignal[sf.SignalName])
-			w.Byte(')')
-		} else {
-			w.writeQuoted("*")
-		}
-	}
 }
 
 func (w *Writer) writeBrokerSubjectKind(events []*model.Event) {

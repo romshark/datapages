@@ -62,6 +62,18 @@ type EventBroadcast struct {
 	Text string `json:"text"`
 }
 
+// EventRoomUpdate is "room.update"
+//
+// Recipient and Calc restrict delivery by user and calc_id.
+// Room remains a wildcard because it is not bound to a signal.
+type EventRoomUpdate struct {
+	Recipient datapages.SubjectUser `json:"recipient"`
+	Room      datapages.Subject     `json:"chat_room"`
+	Calc      datapages.Subject     `signal:"calc_id"`
+
+	Data string `json:"data"`
+}
+
 // Head is the shared head. It is given the session and can therefore differ
 // for a signed-in visitor.
 func (a *App) Head(session Session, _ *http.Request) datapages.Head {
@@ -261,6 +273,42 @@ func (p PageSignOutLink) GET(_ *http.Request, session Session) (
 	}
 	p.App.record("signoutlink(%s)", session.UserID())
 	return echo("bye " + session.UserID()), true, nil
+}
+
+// PageRoom is /room
+type PageRoom struct{ App *App }
+
+func (PageRoom) GET(_ *http.Request) (body datapages.Component, err error) {
+	return echo("room"), nil
+}
+
+func (p PageRoom) OnRoomUpdate(
+	event EventRoomUpdate,
+	sse datapages.SSE,
+	session Session,
+) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="update">` + session.UserID() + ": " + event.Data + `</div>`,
+	))
+}
+
+// POSTUpdate is /room/update
+func (p PageRoom) POSTUpdate(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		User   string `json:"user"`
+		Room   string `json:"room"`
+		CalcID string `json:"calc_id"`
+		Data   string `json:"data"`
+	}],
+	roomUpdate datapages.Dispatcher[EventRoomUpdate],
+) error {
+	return roomUpdate.Dispatch(EventRoomUpdate{
+		Recipient: datapages.SubjectUser(signals.Values.User),
+		Room:      datapages.Subject(signals.Values.Room),
+		Calc:      datapages.Subject(signals.Values.CalcID),
+		Data:      signals.Values.Data,
+	})
 }
 
 // PageLog is /log

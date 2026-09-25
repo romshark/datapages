@@ -5,6 +5,7 @@ package acceptance_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -683,6 +684,37 @@ func TestPrivateEvent(t *testing.T) {
 	})
 }
 
+// TestPrivateSignalScopedEvent tests that private and signal scopes combine
+// without cross-user delivery, cross-signal delivery or duplicates.
+func TestPrivateSignalScopedEvent(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+
+		alice := srv.client(t)
+		alice.signIn(t, "alice", "")
+		bob := srv.client(t)
+		bob.signIn(t, "bob", "")
+
+		aliceC1 := alice.openStreamAt(t, "/room/_$/", map[string]string{"calc_id": "c1"})
+		aliceC2 := alice.openStreamAt(t, "/room/_$/", map[string]string{"calc_id": "c2"})
+		bobC1 := bob.openStreamAt(t, "/room/_$/", map[string]string{"calc_id": "c1"})
+
+		status, body := alice.post(t, "/room/update/",
+			`{"user":"alice","room":"r1","calc_id":"c1","data":"for alice on c1"}`)
+		require.Equal(t, http.StatusOK, status, "%s", body)
+
+		require.True(t, aliceC1.saw(`<div id="update">alice: for alice on c1</div>`),
+			"the addressed user's stream on the calc_id received nothing")
+		require.True(t, bobC1.never("for alice on c1"),
+			"a private event reached another user's stream on the same calc_id")
+		require.True(t, aliceC2.never("for alice on c1"),
+			"the event reached the addressed user's stream on another calc_id")
+		require.Equal(t, 1, aliceC1.count("for alice on c1"),
+			"the addressed user's stream received the event more than once")
+	})
+}
+
 // TestSignInAcceptsAnyUserID tests a user ID that cannot stand in a subject as it is.
 // The ID names the subject every event addressed to that user is published to and
 // subscribed by, and both sides escape it the same way.
@@ -855,12 +887,25 @@ func (s *stream) requireHealthy() {
 
 func (c *client) openStream(t *testing.T) *stream {
 	t.Helper()
+	return c.openStreamAt(t, "/_$/", nil)
+}
+
+// openStreamAt sends signals at connect time for subject scoping.
+func (c *client) openStreamAt(
+	t *testing.T, path string, signals map[string]string,
+) *stream {
+	t.Helper()
+	target := c.srv.URL + path
+	if signals != nil {
+		b, err := json.Marshal(signals)
+		require.NoError(t, err, "encoding signals")
+		target += "?datastar=" + url.QueryEscape(string(b))
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet, c.srv.URL+"/_$/", nil,
-	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		t.Fatalf("building stream request: %v", err)
 	}
@@ -927,16 +972,23 @@ func (s *stream) saw(sub string) bool {
 
 func (s *stream) never(sub string) bool {
 	s.t.Helper()
+	return s.count(sub) == 0
+}
+
+// count waits for late duplicate events before reading the stream.
+func (s *stream) count(sub string) int {
+	s.t.Helper()
 	time.Sleep(200 * time.Millisecond)
 	s.requireHealthy()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	n := 0
 	for _, l := range s.lines {
 		if strings.Contains(l, sub) {
-			return false
+			n++
 		}
 	}
-	return true
+	return n
 }
 
 func logOf(t *testing.T, c *client) string {

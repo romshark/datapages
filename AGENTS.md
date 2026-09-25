@@ -256,8 +256,12 @@ Avoid:
 - Hype and intensifiers: "not just X, it's THE Y", "load-bearing", "crucial",
   "powerful", "seamless", "robust", "comprehensive", "deep dive".
 - Counting the items instead of naming them. "Two things: X and Y" is "X and Y".
-  A teaser count with no items after it ("three things jumped out at me") is
-  worse.
+  "One dispatch, three streams: A, B and C" is "A, B and C". A teaser count
+  with no items after it ("three things jumped out at me") is worse.
+- A verbless lead-in before a colon: "One dispatch, three streams: ...",
+  "Two values, one subject: ...". In running text, the words before a colon
+  must stand alone as a sentence. Labels such as `TODO:` and `BREAKING:`, and
+  a line that introduces a code block or a list, are exempt.
 - Figurative language where a plain word fits: "buys", "drives", "unlocks",
   "wins", "kills", "shines", "leaves the reader hunting". These are examples,
   not the whole set. The test is whether the sentence says what literally happens:
@@ -278,7 +282,8 @@ Avoid:
   right".
 - Typographic drama: spaced-out words, all-caps emphasis, exclamation marks,
   emoji, bold scattered over half the sentences.
-- Em-dashes and ", so ..." clauses. Use a colon, a full stop or "which ...".
+- Em-dashes and ", so ..." clauses. Use a full stop, "which ...", or a colon
+  after a complete sentence.
 - Non-ASCII characters where ASCII exists: curly quotes, ellipsis, arrows,
   non-breaking spaces. Write `'`, `"`, `...`, `->` and a plain space.
 - Stating what did not change, stayed, or was already correct.

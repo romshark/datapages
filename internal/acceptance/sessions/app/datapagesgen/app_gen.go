@@ -179,7 +179,8 @@ func (s *Server) Init(
 }
 
 const (
-	EvSubjNotice = "notice.*"
+	EvSubjNotice     = "notice.*"
+	EvSubjRoomUpdate = "room.update.*.*.*"
 
 	// Public events:
 
@@ -187,13 +188,15 @@ const (
 )
 
 const (
-	EvPrefixNotice = "notice."
+	EvPrefixNotice     = "notice."
+	EvPrefixRoomUpdate = "room.update."
 )
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
 		EvSubjBroadcast,
 		EvSubjNotice,
+		EvSubjRoomUpdate,
 	}
 }
 
@@ -206,6 +209,15 @@ func evSubjPageIndex(userID string) []string {
 	return []string{
 		EvSubjBroadcast,
 		"notice." + subject.Encode(userID),
+	}
+}
+
+func evSubjPageRoom(userID string, subjCalcID string) []string {
+	if userID == "" {
+		return []string{}
+	}
+	return []string{
+		"room.update." + subject.Encode(userID) + ".*." + subject.Encode(subjCalcID),
 	}
 }
 
@@ -229,6 +241,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /login/{$}",
 		pageLoginHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /room/{$}",
+		pageRoomHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /room/_$/{$}",
+		pageRoomHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /secret/{$}",
 		pageSecretHandlers{s}.GET)
@@ -259,6 +277,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /login/rename/{$}",
 		pageLoginHandlers{s}.POSTRename)
+	s.Mux().HandleFunc(
+		"POST /room/update/{$}",
+		pageRoomHandlers{s}.POSTUpdate)
 }
 
 func (s *Server) httpErrIntern(
@@ -771,6 +792,137 @@ func (s pageLoginHandlers) POSTRename(
 	}
 }
 
+type pageRoomHandlers struct{ *Server }
+
+func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageRoom{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageRoom.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageRoom.GET", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('/room/_$/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageRoom", err)
+		return
+	}
+}
+
+func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+
+	var subjSignals struct {
+		CalcID string `json:"calc_id"`
+	}
+	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+	if subjSignals.CalcID == "" {
+		s.HTTPErrBad(w, "invalid signal",
+			fmt.Errorf("signal %q must not be empty", "calc_id"))
+		return
+	}
+
+	p := dpapp.PageRoom{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRoom(sess.UserID(), subjSignals.CalcID),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageRoom stream")
+			var eventRoomUpdate dpapp.EventRoomUpdate
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvPrefixRoomUpdate):
+					eventRoomUpdate = dpapp.EventRoomUpdate{}
+					if err := json.Unmarshal(msg.Data, &eventRoomUpdate); err != nil {
+						s.LogErr("unmarshaling EventRoomUpdate JSON", err)
+						continue
+					}
+					if err := p.OnRoomUpdate(
+						eventRoomUpdate,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
+						s.LogErr("handling PageRoom.OnRoomUpdate", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageRoomHandlers) POSTUpdate(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		User   string `json:"user"`
+		Room   string `json:"room"`
+		CalcID string `json:"calc_id"`
+		Data   string `json:"data"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchRoomUpdate := dispatcherEventRoomUpdate{s: s.Server, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageRoom.Update")
+	p := dpapp.PageRoom{
+		App: s.app,
+	}
+	err := p.POSTUpdate(r, signals, dispatchRoomUpdate)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageRoom.Update", err)
+		return
+	}
+}
+
 type pageSecretHandlers struct{ *Server }
 
 func (s pageSecretHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -906,6 +1058,39 @@ func (d dispatcherEventBroadcast) DispatchCtx(
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjBroadcast, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", EvSubjBroadcast, err)
+	}
+	return nil
+}
+
+type dispatcherEventRoomUpdate struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventRoomUpdate) Dispatch(e dpapp.EventRoomUpdate) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventRoomUpdate) DispatchCtx(
+	ctx context.Context, e dpapp.EventRoomUpdate,
+) error {
+	if e.Recipient == "" {
+		return errors.New("EventRoomUpdate.Recipient must not be empty")
+	}
+	if e.Room == "" {
+		return errors.New("EventRoomUpdate.Room must not be empty")
+	}
+	if e.Calc == "" {
+		return errors.New("EventRoomUpdate.Calc must not be empty")
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventRoomUpdate JSON: %w", err)
+	}
+	subj := "room.update." + subject.Encode(string(e.Recipient)) + "." + subject.Encode(string(e.Room)) + "." + subject.Encode(string(e.Calc))
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
 	}
 	return nil
 }

@@ -50,6 +50,7 @@ func TestContract(t *testing.T) {
 			href.PageLog(),
 			href.PageToken(),
 			href.PageSecret(),
+			href.PageRoom(),
 		},
 		Actions: []string{
 			action.PageIndex.Render.POST(),
@@ -57,12 +58,14 @@ func TestContract(t *testing.T) {
 			action.PageLogin.Broadcast.POST(),
 			action.PageLogin.Notify.POST(),
 			action.PageLogin.Rename.POST(),
+			action.PageRoom.Update.POST(),
 			action.App.SignOut.POST(),
 		},
 		SignalActions: []string{
 			action.PageLogin.Submit.POST(),
 			action.PageLogin.Broadcast.POST(),
 			action.PageLogin.Notify.POST(),
+			action.PageRoom.Update.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
