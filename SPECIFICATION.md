@@ -432,7 +432,7 @@ session datapages.Session[Data]
 
 See [datapages.go](datapages.go) for method definitions.
 
-Expired sessions are unauthenticated and their cookies are removed. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
+Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends at its `ExpiresAt()`. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
 
 An action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions.
 

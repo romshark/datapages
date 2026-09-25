@@ -715,6 +715,43 @@ func TestPrivateSignalScopedEvent(t *testing.T) {
 	})
 }
 
+// TestStreamEndsAtSessionExpiry tests a stream opened shortly before its
+// session expires. From ExpiresAt on, a request carrying the session is served
+// as a guest, and the stream ends then instead of rendering the user's private
+// events until the tab closes.
+func TestStreamEndsAtSessionExpiry(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		alice := srv.client(t)
+
+		// Long enough to open the stream and see one event through it.
+		expiresAt := time.Now().Add(2 * time.Second)
+		token, err := srv.sessions.CreateSession(context.Background(),
+			sessions.Record[app.SessionData]{UserID: "alice", ExpiresAt: expiresAt})
+		require.NoError(t, err)
+		alice.setSessionCookie(t, token)
+		alice.token = csrfToken(t, srv.csrf, token)
+
+		s := alice.openStream(t)
+		status, body := alice.post(t, "/login/notify/",
+			`{"user":"alice","text":"before expiry"}`)
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.True(t, s.saw(`<div id="notice">alice: before expiry</div>`),
+			"the stream received nothing before its session expired")
+		require.True(t, time.Now().Before(expiresAt),
+			"the session expired before the test checked the open stream")
+
+		select {
+		case <-s.done:
+		case <-time.After(time.Until(expiresAt) + 2*time.Second):
+			t.Fatal("the stream is still open after its session expired")
+		}
+		require.False(t, time.Now().Before(expiresAt),
+			"the stream ended before its session expired")
+	})
+}
+
 // TestSignInAcceptsAnyUserID tests a user ID that cannot stand in a subject as it is.
 // The ID names the subject every event addressed to that user is published to and
 // subscribed by, and both sides escape it the same way.
@@ -873,6 +910,7 @@ type stream struct {
 	mu     sync.Mutex
 	lines  []string
 	failed error // the read ended for a reason other than the test closing it
+	done   chan struct{}
 }
 
 // requireHealthy fails the test when the connection ended by itself.
@@ -926,8 +964,11 @@ func (c *client) openStreamAt(
 		t.Fatalf("opening stream: status %d", resp.StatusCode)
 	}
 
-	s := &stream{t: t, cancel: cancel, path: resp.Request.URL.Path}
+	s := &stream{
+		t: t, cancel: cancel, path: resp.Request.URL.Path, done: make(chan struct{}),
+	}
 	go func() {
+		defer close(s.done)
 		defer func() { _ = resp.Body.Close() }()
 		sc := bufio.NewScanner(resp.Body)
 		// A patch of a whole page is one SSE event and outgrows the default 64KiB token.

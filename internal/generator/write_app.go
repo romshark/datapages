@@ -637,9 +637,9 @@ func (s *Server) handleStreamRequest(
 ) {
 	s.streams.Handle(w, r, `)
 	if w.usage.streamAuth {
-		w.Raw(`sessKey, sess.UserID()`)
+		w.Raw(`sessKey, sess.UserID(), sess.ExpiresAt()`)
 	} else {
-		w.Raw(`"", ""`)
+		w.Raw(`"", "", time.Time{}`)
 	}
 	w.Raw(`, subjects, onOpen, onClose, fn)
 }

@@ -249,6 +249,7 @@ func (s Session[Data]) IssuedAt() time.Time { return s.issuedAt }
 
 // ExpiresAt is the time the session becomes invalid at. Datapages treats a client
 // whose session has expired as unauthenticated and removes the session cookie.
+// Streams the session opened end at this time.
 // It's zero for guest clients and for sessions that never expire.
 func (s Session[Data]) ExpiresAt() time.Time { return s.expiresAt }
 

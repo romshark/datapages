@@ -228,7 +228,7 @@ func StateInstanceReserved() { mStateInstances.Inc() }
 func StateInstanceReleased() { mStateInstances.Dec() }
 
 // SSEDisconnect counts why a stream ended.
-// reason is "close", "client" or "shutdown".
+// reason is "close", "expired", "client" or "shutdown".
 func SSEDisconnect(reason string) {
 	mSSEDisconnects.WithLabelValues(reason).Inc()
 }

@@ -25,13 +25,13 @@ import (
 // Metrics counts what the handler does. A nil Metrics counts nothing.
 type Metrics interface {
 	// ConnectionOpened counts a stream the server just accepted.
-	// w lets an implementation mark the request as a stream rather than a
-	// request being served.
+	// w lets an implementation mark the request as
+	// a stream rather than a request being served.
 	ConnectionOpened(w http.ResponseWriter)
 	// ConnectionClosed counts down the stream the server just let go.
 	ConnectionClosed()
 	// Disconnect counts why a stream ended.
-	// reason is "close", "client" or "shutdown".
+	// reason is "close", "expired", "client" or "shutdown".
 	Disconnect(reason string)
 	// ConnectionDuration records how long a stream was open.
 	ConnectionDuration(since time.Time)
@@ -55,7 +55,7 @@ type Handler struct {
 	seq           atomic.Uint64
 }
 
-// NewHandler returns a handler subscribing to broker.
+// NewHandler returns a handler that subscribes to broker.
 //
 // sessions ends a stream when the session it belongs to is closed.
 // It may be nil, in which case no stream watches its session. metrics may be nil.
@@ -81,17 +81,18 @@ func NewHandler(
 // and returns once fn does. onOpen and onClose may be nil; fn must not be nil.
 //
 // sessionKey names the session the stream belongs to.
-// It is watched only when userID is non-empty and the handler was given a session store.
+// It's watched only when userID is non-empty and the handler was given a session store.
+// A non-zero expiresAt ends the stream when the session expires. Without that limit,
+// it could keep rendering events after later requests treat the session as a guest.
 //
-// onClose runs only for a stream whose onOpen succeeded. An onOpen that returns
-// an error or panics still owns what it acquired, which is what lets onClose
-// assume that state is there.
+// onClose runs only after onOpen succeeds. A failing or panicking onOpen must
+// release partial state itself, so onClose may assume initialization completed.
 //
-// A panic in onClose is recovered here, since nothing else would.
-// A panic in fn is the caller's, and generated code defers a recover of its own there.
+// Handle recovers panics from onClose because no other caller can report them.
+// The caller owns panics from fn; generated implementations recover them.
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request,
-	sessionKey, userID string,
+	sessionKey, userID string, expiresAt time.Time,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -110,9 +111,8 @@ func (h *Handler) Handle(
 
 	streamID := datapages.StreamID(h.seq.Add(1))
 
-	// The subscription is established before the response head goes out.
-	// A client learns the stream is open by reading that head and may dispatch
-	// immediately after, which must not reach the broker before this.
+	// Subscribe before writing the response head. A client may dispatch as soon
+	// as it reads the head, so the broker subscription must already exist.
 	ctx := r.Context()
 	sub, err := h.broker.Subscribe(ctx, h.brokerMetrics, subjects...)
 	if err != nil {
@@ -122,7 +122,7 @@ func (h *Handler) Handle(
 	}
 
 	// Own the subscription until the watcher goroutine takes it over.
-	// A panic below would otherwise leave it in the broker forever.
+	// A panic before handoff would otherwise leave it in the broker forever.
 	handedOff := false
 	defer func() {
 		if !handedOff {
@@ -134,8 +134,6 @@ func (h *Handler) Handle(
 
 	subC := sub.C()
 	if onOpen != nil {
-		// No onClose for a stream that never opened. onClose releases what
-		// onOpen acquired, and a failed onOpen may have acquired nothing.
 		if err := callOnOpen(onOpen, streamID, sse); err != nil {
 			h.onErr(w, r, sse, "handling stream open hook", err)
 			return
@@ -148,8 +146,7 @@ func (h *Handler) Handle(
 		sessionClosed = make(chan struct{})
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		// Purely defensive. At the time of writing,
-		// no store here reports a closure twice, but one that did would panic.
+		// A store may report closure more than once; closing the channel twice panics.
 		var once sync.Once
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
 			once.Do(func() { close(sessionClosed) })
@@ -162,8 +159,8 @@ func (h *Handler) Handle(
 		}
 	}
 
-	// Counted here, not before the hooks above: until the loop runs this is an
-	// ordinary request, and one refused by StreamOpen stays one.
+	// Count the request as a stream only after StreamOpen and session watcher
+	// setup succeed. A request rejected by StreamOpen remains ordinary.
 	var start time.Time
 	if h.metrics != nil {
 		h.metrics.ConnectionOpened(w)
@@ -173,10 +170,21 @@ func (h *Handler) Handle(
 
 	handedOff = true
 	go func() {
+		// [sessions.CloseNotifier.NotifyClosed] does not report expiry.
+		// A store may retain an expired session until a later request or
+		// [sessions.ExpiredDeleter.DeleteExpired].
+		var expired <-chan time.Time
+		if !expiresAt.IsZero() {
+			t := time.NewTimer(time.Until(expiresAt))
+			defer t.Stop()
+			expired = t.C
+		}
 		reason := ""
 		select {
 		case <-sessionClosed:
 			reason = "close"
+		case <-expired:
+			reason = "expired"
 		case <-r.Context().Done():
 			reason = "client"
 		case <-h.core.ShutdownCh():
@@ -191,9 +199,8 @@ func (h *Handler) Handle(
 
 	fn(streamID, sse, subC)
 
-	// After fn, not beside sub.Close. fn still delivers what the channel buffered,
-	// and onClose may free what those handlers read.
-	// Here it also makes http.Server.Shutdown wait for the hook.
+	// fn may drain buffered messages through handlers that need state released
+	// by onClose. Run onClose synchronously after fn so [http.Server.Shutdown] waits.
 	h.runCloseHook(onClose, streamID)
 }
 
@@ -212,9 +219,9 @@ func callOnOpen(
 	return onOpen(streamID, sse)
 }
 
-// runCloseHook calls onClose, which may be nil. A panic in it is recovered and
-// logged: neither caller can report it, the error path still owes the client a
-// response and the normal path has already written one.
+// runCloseHook calls onClose when non-nil. It logs instead of propagating
+// a panic because the error path still owes a response and the normal path
+// has already written one.
 func (h *Handler) runCloseHook(
 	onClose func(streamID datapages.StreamID), streamID datapages.StreamID,
 ) {
