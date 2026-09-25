@@ -481,21 +481,32 @@ BREAKING:
 # Changelog
 
 `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-The release workflow publishes the section of a tag as its GitHub release
-notes and fails when the tag has none. `TestChangelogReleases` in
-`internal/tools/release-notes` checks every version heading of the file.
+The release workflow publishes each tag's section and fails when it's missing.
+`TestChangelogReleases` validates version headings.
 
-- A change that a user of the framework, the CLI or the generated code can
-  notice adds an entry under `## [Unreleased]` in the same commit.
-  `docs`, `test`, `chore` and `ci` changes add none.
-- Sort entries into `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`
-  and `Security`.
-- Write an entry in the imperative, like a commit title:
-  `Reject subject fields tagged json:"-"`. Add the sentences a user needs to
-  tell whether the change affects them.
-- A `Security` entry states who can read or do what, the affected versions
-  and the step that fixes an application, such as `datapages gen`.
+- Add user-visible framework, CLI and generated-code changes under `## [Unreleased]`
+  in the same commit. Omit `docs`, `test`, `chore` and `ci`.
+- Sort entries into `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed` and `Security`.
+- Use imperative entries like commit titles: `Reject subject fields tagged
+  json:"-"`. Say enough for users to determine whether they are affected.
+- A `Security` entry follows [Security entries](#security-entries).
 - A breaking change repeats the migration steps of its `BREAKING:` block.
-- To release, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add an
-  empty `## [Unreleased]` above it, update the compare links at the bottom
-  and tag `vX.Y.Z`.
+- To release, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`,
+  insert an empty `## [Unreleased]`, update the compare links and tag `vX.Y.Z`.
+
+## Security entries
+
+A security entry lets users determine exposure and remediation:
+
+- State who can read or do what to whom: "any signed-in user can
+  read another user's private events", not "a privacy issue".
+- Describe affected applications with terms users can find in their code.
+- Give exact affected versions, verified against the release history.
+- Give upgrade, regeneration and redeploy steps.
+  Include a workaround or say there is none.
+- Link the GHSA or CVE when one exists.
+
+Leave severity labels, CVSS scores and exploit steps to the advisory.
+
+Fix released vulnerabilities in a GitHub advisory's private fork. Publish the advisory,
+release and entry together so disclosure does not precede an upgrade.
