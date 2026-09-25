@@ -91,3 +91,5 @@ Each request fires `datastar-fetch` events. `evt.detail.type` is `started`, `fin
 - Navigate with `<a href>`, not an action, so the browser keeps its history. Use default request options unless a requirement needs a different value.
 
 A misused attribute logs `Uncaught datastar runtime error: <name>` with a link to a page explaining it.
+
+<!-- written by datapages sha256:9e51c94d570fee7f -->

@@ -43,3 +43,5 @@ Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that mat
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
 Full reference: https://github.com/romshark/datapages/blob/main/SPECIFICATION.md
+
+<!-- written by datapages sha256:ad95ca1c8e15b40d -->

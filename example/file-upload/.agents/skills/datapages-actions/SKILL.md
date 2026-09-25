@@ -96,3 +96,5 @@ Only Datastar requests call this hook. It receives every handler error, includin
 A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.PanicError`. It contains the panic value and stack. Use `errors.As` to inspect it. Datapages logs the stack before it calls the hook, then ends the request.
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
+
+<!-- written by datapages sha256:a72dccb119a8391d -->

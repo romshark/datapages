@@ -61,13 +61,11 @@ func TestSharedBudget(t *testing.T) {
 	start := time.Now()
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			src := bytes.NewReader(make([]byte, size))
 			_, err := io.Copy(io.Discard, throttle.Reader(context.Background(), src, l))
 			require.NoError(t, err)
-		}()
+		})
 	}
 	wg.Wait()
 

@@ -97,3 +97,5 @@ Use `State[T]` for filters, sort order and other per-tab values. Use stream hook
 Datapages serves the stream at the page route plus `_$/`. A page with both public and user-addressed events has a second stream at `_$/anon/`.
 
 Share a handler across pages by embedding: see `datapages-pages`.
+
+<!-- written by datapages sha256:7f8acb7a674887c8 -->

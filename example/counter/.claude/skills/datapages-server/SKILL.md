@@ -111,3 +111,5 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 | `custom-watchers` | extra watchers with include/exclude patterns, command and rebuild action |
 
 See `datapages watch --help` for CLI flags.
+
+<!-- written by datapages sha256:09d9723416d70b71 -->

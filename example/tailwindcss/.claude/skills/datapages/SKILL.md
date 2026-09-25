@@ -108,3 +108,5 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-server` | the server entry point, options, broker, static assets |
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
+
+<!-- written by datapages sha256:5f418b761bcd4855 -->

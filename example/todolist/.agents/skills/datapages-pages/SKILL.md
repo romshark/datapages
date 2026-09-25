@@ -136,3 +136,5 @@ type PageChat struct {
 ```
 
 A method declared on a page replaces the embedded method only for that page. The replacement can call `p.Base.OnMessageSent(event, sse)` to wrap the embedded method.
+
+<!-- written by datapages sha256:bb50d329214dc0c0 -->

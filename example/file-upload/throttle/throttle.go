@@ -131,7 +131,7 @@ func Reader(ctx context.Context, r io.Reader, l *Limiter) io.Reader {
 
 // ReadSeeker is [Reader] for what [net/http.ServeContent] serves.
 func ReadSeeker(ctx context.Context, rs io.ReadSeeker, l *Limiter) io.ReadSeeker {
-	return &readSeeker{reader: reader{ctx: ctx, r: rs, l: l}, s: rs}
+	return &readSeeker{ctx: ctx, r: rs, l: l, s: rs}
 }
 
 // reader carries the context of the transfer it paces, since [io.Reader] takes none.

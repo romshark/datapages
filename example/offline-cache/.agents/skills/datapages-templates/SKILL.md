@@ -96,3 +96,5 @@ An action sends signals by default. To send form controls or file data, use `act
 - Templ parses a text line that starts with `switch`, `if`, `for`, `else` or `case` as Go control flow, even inside HTML. Wrap the text in an element or reword it.
 - An apostrophe in an attribute becomes `&#39;`. The browser decodes it before the JavaScript parser reads the expression, which can make the expression invalid. Reword it, use `&quot;` for inner strings or escape it with a backslash.
 - Encode a value interpolated into `data-signals` with `json.Marshal` instead of quoting it yourself. An apostrophe in the value ends the string, and what follows it runs as script.
+
+<!-- written by datapages sha256:9e6d5fd0b43d5325 -->

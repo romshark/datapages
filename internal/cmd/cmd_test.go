@@ -1322,8 +1322,8 @@ func TestInit(t *testing.T) {
 }
 
 // TestInitInInitializedProject tests that init in a project that is already
-// set up succeeds, writes the agent instructions it was asked for, and keeps
-// what it replaces.
+// set up succeeds, writes the agent instructions it was asked for, keeps what
+// it replaces and leaves an AGENTS.md of the project alone.
 func TestInitInInitializedProject(t *testing.T) {
 	t.Setenv("GOFLAGS", "-e")
 	repoRoot := repoRootDir(t)
@@ -1360,16 +1360,27 @@ func TestInitInInitializedProject(t *testing.T) {
 	require.FileExists(t, filepath.Join(dir,
 		".claude", "skills", "datastar", "SKILL.md"))
 
-	const mine = "# My own instructions\n"
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, "AGENTS.md"), []byte(mine), 0o644,
-	))
+	agents := filepath.Join(dir, "AGENTS.md")
+	written, err := os.ReadFile(agents)
+	require.NoError(t, err)
+	edited := "- run `make lint` too.\n" + string(written)
+	require.NoError(t, os.WriteFile(agents, []byte(edited), 0o644))
 
 	stdout = run()
 	require.Contains(t, stdout, "Kept the previous AGENTS.md as AGENTS.md.bak")
 	backup, err := os.ReadFile(filepath.Join(dir, "AGENTS.md.bak"))
 	require.NoError(t, err)
-	require.Equal(t, mine, string(backup))
+	require.Equal(t, edited, string(backup))
+
+	// Without the stamp, AGENTS.md is the project's own.
+	const mine = "# My own instructions\n"
+	require.NoError(t, os.WriteFile(agents, []byte(mine), 0o644))
+	stdout = run()
+	require.Contains(t, stdout, "Left AGENTS.md alone")
+	kept, err := os.ReadFile(agents)
+	require.NoError(t, err)
+	require.Equal(t, mine, string(kept))
+	require.NoFileExists(t, filepath.Join(dir, "AGENTS.md.bak.1"))
 
 	// Nothing changed since the last run, so nothing is written again.
 	stdout = run()

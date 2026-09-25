@@ -196,3 +196,5 @@ The generated code picks how queued writes reach the worker from the handler sig
 | action returning neither | sent over an SSE stream opened for that purpose, readable only by a Datastar request |
 
 `newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. Navigation waits up to 500ms for the worker to apply `ClearAll` before loading the destination.
+
+<!-- written by datapages sha256:09292e5e7f3057ff -->

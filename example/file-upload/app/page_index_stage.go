@@ -35,9 +35,8 @@ func (p PageIndex) POSTStage(
 			return fmt.Errorf("%w: %s is %s, the limit is %s",
 				datapages.ErrBadRequest, name, humanSize(f.Size), humanSize(maxFileSize))
 		}
-		row := PendingFile{PickedFile: PickedFile{
-			Name: name, Size: f.Size, ContentType: f.ContentType,
-		}}
+		row := PendingFile{
+			Name: name, Size: f.Size, ContentType: f.ContentType}
 		if match, ok := unfinished[key(name, f.Size)]; ok {
 			// The name offered is the one that upload already carries,
 			// so that confirming the dialog unchanged renames nothing.

@@ -81,3 +81,5 @@ Specify the data type in this call. Go cannot infer it here. The type argument a
 Use `modules/sessions/natskv`. Use `modules/sessions/inmem` only for development. It stores sessions in memory and loses them on restart.
 
 Datapages does not scan the store for expired records. It deletes an expired record only when a client sends that session. Call `mgr.DeleteExpired(ctx)` on a ticker to delete all other expired records.
+
+<!-- written by datapages sha256:cc5621d9daf69b8c -->

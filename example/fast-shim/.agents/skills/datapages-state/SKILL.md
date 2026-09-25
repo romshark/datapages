@@ -51,3 +51,5 @@ It must be the event's only subject field and cannot have a `signal` tag. A page
 ## Limit
 
 Each server allows `datapages.DefaultMaxConcurrentInstances` live instances by default. Change the limit with `datapages.WithStateConfig(datapages.StateConfig{MaxConcurrentInstances: n})`. When the server reaches the limit, a new stream receives 503 with `Retry-After`.
+
+<!-- written by datapages sha256:cef4bfd61b1bae27 -->

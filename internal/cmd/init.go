@@ -51,7 +51,8 @@ Init rewrites these on every run: AGENTS.md, CLAUDE.md, GEMINI.md,
 .github/copilot-instructions.md, .cursor/rules/datapages.mdc and the
 skills under .agents/skills and .claude/skills. If you edit these files
 then init will create <name>.bak backup files before it replaces them.
-Skills with other names stay untouched.
+An AGENTS.md that does not end with the datapages stamp is your own and
+stays untouched, and so do skills with other names.
 Pass --no-ai-skills to skip all of these files.`,
 	}
 	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
@@ -510,6 +511,11 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 	}
 	for _, b := range res.BackedUp {
 		_, _ = fmt.Fprintf(w, "Kept the previous %s as %s\n", b.Path, b.To)
+	}
+	for _, rel := range res.Kept {
+		_, _ = fmt.Fprintf(w,
+			"Left %s alone: it has no datapages stamp. Delete it to have init write it.\n",
+			rel)
 	}
 	return nil
 }
