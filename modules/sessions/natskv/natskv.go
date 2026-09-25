@@ -257,8 +257,9 @@ func (s *SessionManager[Data]) NotifyClosed(
 
 // SaveSession overwrites the session data for an existing token.
 // The record must name the user the token belongs to.
+// It does nothing if the session no longer exists.
 func (s *SessionManager[Data]) SaveSession(
-	_ context.Context, token string, rec sessions.Record[Data],
+	ctx context.Context, token string, rec sessions.Record[Data],
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
@@ -271,27 +272,50 @@ func (s *SessionManager[Data]) SaveSession(
 	if rec.UserID != uid {
 		return fmt.Errorf("%w: %q under %q", ErrUserIDMismatch, rec.UserID, uid)
 	}
-	return s.putSession(kvKey, rec)
+	value, err := marshalRecord(rec)
+	if err != nil {
+		return err
+	}
+
+	// [nats.KeyValue.Put] could re-create a deleted session and
+	// reactivate its cookie. [nats.KeyValue.Update] restricts
+	// the write to the revision returned by [nats.KeyValue.Get].
+	for {
+		entry, err := s.kv.Get(kvKey)
+		if errors.Is(err, nats.ErrKeyNotFound) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("reading session from KV: %w", err)
+		}
+		_, err = s.kv.Update(kvKey, value, entry.Revision())
+		switch {
+		case err == nil:
+			return nil
+		case !errors.Is(err, nats.ErrKeyRevisionMismatch):
+			return fmt.Errorf("storing session in KV: %w", err)
+		}
+		// A concurrent delete makes the next Get return [nats.ErrKeyNotFound];
+		// a save advances the revision. Neither [nats.KeyValue.Get] nor
+		// [nats.KeyValue.Update] accepts ctx, so check it between retries.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 }
 
-// putSession stores rec under kvKey.
-func (s *SessionManager[Data]) putSession(
-	kvKey string, rec sessions.Record[Data],
-) error {
+// marshalRecord encodes rec in the bucket's [kvRecord] envelope.
+func marshalRecord[Data any](rec sessions.Record[Data]) ([]byte, error) {
 	data, err := json.Marshal(rec)
 	if err != nil {
-		return fmt.Errorf("marshaling session data: %w", err)
+		return nil, fmt.Errorf("marshaling session data: %w", err)
 	}
 
 	kvRec, err := json.Marshal(kvRecord{Data: data})
 	if err != nil {
-		return fmt.Errorf("marshaling KV record: %w", err)
+		return nil, fmt.Errorf("marshaling KV record: %w", err)
 	}
-
-	if _, err := s.kv.Put(kvKey, kvRec); err != nil {
-		return fmt.Errorf("storing session in KV: %w", err)
-	}
-	return nil
+	return kvRec, nil
 }
 
 // CreateSession creates a new session in NATS KV.
@@ -317,8 +341,12 @@ func (s *SessionManager[Data]) CreateSession(
 		return "", fmt.Errorf("encrypting session token: %w", err)
 	}
 
-	if err := s.putSession(string(kvKey), rec); err != nil {
+	value, err := marshalRecord(rec)
+	if err != nil {
 		return "", err
+	}
+	if _, err := s.kv.Put(string(kvKey), value); err != nil {
+		return "", fmt.Errorf("storing session in KV: %w", err)
 	}
 	return token, nil
 }

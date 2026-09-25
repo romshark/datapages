@@ -247,6 +247,128 @@ func TestSaveSessionInvalidToken(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestSaveSessionAfterClose tests that saving a stale record
+// can't re-create a session closed concurrently.
+func TestSaveSessionAfterClose(t *testing.T) {
+	conn := setupNATS(t)
+	sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "SAVE_CLOSED"},
+	})
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	for name, closeSession := range map[string]func(token, userID string) error{
+		"CloseSession": func(token, _ string) error {
+			return sm.CloseSession(ctx, token)
+		},
+		"CloseAllUserSessions": func(_, userID string) error {
+			_, err := sm.CloseAllUserSessions(ctx, nil, userID)
+			return err
+		},
+		"DeleteExpired": func(string, string) error {
+			_, err := sm.DeleteExpired(ctx)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Only the DeleteExpired row observes this past expiry.
+			token, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+				UserID: name, ExpiresAt: time.Now().Add(-time.Minute),
+			})
+			require.NoError(t, err)
+			rec, _, ok, err := sm.ReadSessionFromCookie(token)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			require.NoError(t, closeSession(token, rec.UserID))
+
+			rec.ExpiresAt = time.Now().Add(time.Hour)
+			require.NoError(t, sm.SaveSession(ctx, token, rec))
+
+			_, _, ok, err = sm.ReadSessionFromCookie(token)
+			require.NoError(t, err)
+			require.False(t, ok, "the save re-created the closed session")
+		})
+	}
+}
+
+// TestSaveSessionInterleavedWrite tests that SaveSession preserves
+// a concurrent delete and retries a concurrent save.
+func TestSaveSessionInterleavedWrite(t *testing.T) {
+	conn := setupNATS(t)
+	conf := natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "SAVE_INTERLEAVED"},
+	}
+	other, err := natskv.New[testSession](conn, tokGen, conf)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	tests := map[string]struct {
+		between func(t *testing.T, token string)
+		wantOK  bool
+	}{
+		"CloseSession": {
+			between: func(t *testing.T, token string) {
+				require.NoError(t, other.CloseSession(ctx, token))
+			},
+		},
+		"SaveSession": {
+			between: func(t *testing.T, token string) {
+				rec := sessions.Record[testSession]{
+					UserID: "alice", Data: testSession{Role: "other"},
+				}
+				require.NoError(t, other.SaveSession(ctx, token, rec))
+			},
+			wantOK: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sm, err := natskv.New[testSession](conn, tokGen, conf)
+			require.NoError(t, err)
+			token, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+				UserID: "alice",
+			})
+			require.NoError(t, err)
+
+			ran := false
+			natskv.WrapKV(sm, func(kv nats.KeyValue) nats.KeyValue {
+				return &beforeUpdateKV{KeyValue: kv, fn: func() {
+					ran = true
+					tc.between(t, token)
+				}}
+			})
+			require.NoError(t, sm.SaveSession(ctx, token, sessions.Record[testSession]{
+				UserID: "alice", Data: testSession{Role: "saved"},
+			}))
+			require.True(t, ran, "SaveSession wrote without a revision check")
+
+			rec, _, ok, err := other.ReadSessionFromCookie(token)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantOK, ok)
+			if ok {
+				require.Equal(t, "saved", rec.Data.Role)
+			}
+		})
+	}
+}
+
+// beforeUpdateKV runs fn before forwarding its first Update.
+type beforeUpdateKV struct {
+	nats.KeyValue
+	fn func()
+}
+
+func (kv *beforeUpdateKV) Update(key string, value []byte, last uint64) (uint64, error) {
+	if fn := kv.fn; fn != nil {
+		kv.fn = nil
+		fn()
+	}
+	return kv.KeyValue.Update(key, value, last)
+}
+
 // TestCreateSession tests that a created session is readable back under its token,
 // and that an empty user ID is refused.
 func TestCreateSession(t *testing.T) {
