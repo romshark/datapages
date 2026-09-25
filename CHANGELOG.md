@@ -8,8 +8,6 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
-## [0.10.1] - 2026-09-25
-
 ### Security
 
 - Prevent signed-in users from receiving private events addressed to another
@@ -17,5 +15,4 @@ Releases up to v0.10.0 have their notes on
   It also affects v0.7.0 through v0.9.4 when the page handles a public
   signal-scoped event. Upgrade to v0.10.1 and run `datapages gen`.
 
-[Unreleased]: https://github.com/romshark/datapages/compare/v0.10.1...HEAD
-[0.10.1]: https://github.com/romshark/datapages/compare/v0.10.0...v0.10.1
+[Unreleased]: https://github.com/romshark/datapages/compare/v0.10.0...HEAD
