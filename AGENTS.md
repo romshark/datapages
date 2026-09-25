@@ -70,6 +70,8 @@ Internal, used by the CLI and build tooling:
 - `internal/templatingbench/` - the templating benchmarks `FAQ.md` quotes.
 - `internal/cmd/` - CLI command implementations, `package cmd`.
 - `internal/tools/render-pages/` - renders `docs/index.html`.
+- `internal/tools/release-notes/` - prints the section of `CHANGELOG.md` that
+  the release workflow publishes for a tag.
 - `internal/docs-src/` - templ source and CSS for the docs page.
 - `docs/` - generated GitHub Pages output.
 - `magefiles/` - build targets.
@@ -475,3 +477,25 @@ BREAKING:
 - Hand-written callers: import `github.com/romshark/datapages/runtime/httpserve`
   and update the two names above.
 ```
+
+# Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+The release workflow publishes the section of a tag as its GitHub release
+notes and fails when the tag has none. `TestChangelogReleases` in
+`internal/tools/release-notes` checks every version heading of the file.
+
+- A change that a user of the framework, the CLI or the generated code can
+  notice adds an entry under `## [Unreleased]` in the same commit.
+  `docs`, `test`, `chore` and `ci` changes add none.
+- Sort entries into `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`
+  and `Security`.
+- Write an entry in the imperative, like a commit title:
+  `Reject subject fields tagged json:"-"`. Add the sentences a user needs to
+  tell whether the change affects them.
+- A `Security` entry states who can read or do what, the affected versions
+  and the step that fixes an application, such as `datapages gen`.
+- A breaking change repeats the migration steps of its `BREAKING:` block.
+- To release, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add an
+  empty `## [Unreleased]` above it, update the compare links at the bottom
+  and tag `vX.Y.Z`.

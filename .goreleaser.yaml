@@ -26,6 +26,7 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
 
+# Used only when GoReleaser runs without --release-notes.
 changelog:
   use: github
   filters:
