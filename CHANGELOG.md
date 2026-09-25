@@ -10,9 +10,7 @@ Releases up to v0.10.0 have their notes on
 
 ### Security
 
-- Prevent signed-in users from receiving private events addressed to another
-  user when their streams share the event's signal value. This affects v0.10.0.
-  It also affects v0.7.0 through v0.9.4 when the page handles a public
-  signal-scoped event. Upgrade to v0.10.1 and run `datapages gen`.
+- Prevent signed-in users from receiving private events addressed to another user when their streams share the event's signal value. This affects v0.10.0. It also affects v0.7.0 through v0.9.4 when the page handles a public signal-scoped event. Upgrade to v0.10.1 and run `datapages gen`.
+- Prevent attacker-controlled values in an `SSE.Prefetch` URL from running JavaScript (XSS) in browsers that receive the prefetch. Applications are affected when they build the URL from untrusted data without percent-encoding it. This affects v0.10.0. Upgrade to v0.10.1 and redeploy. Until then, use the `href` builders or escape each value with `url.PathEscape` or `url.QueryEscape`.
 
 [Unreleased]: https://github.com/romshark/datapages/compare/v0.10.0...HEAD

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
@@ -243,4 +244,113 @@ func TestScriptAndRedirect(t *testing.T) {
 	})
 	require.Contains(t, got, "/a/")
 	require.Contains(t, got, "/b/")
+}
+
+// prefetchURLs extracts URLs after validating the SSE, script and JSON boundaries.
+func prefetchURLs(t *testing.T, event string) []string {
+	t.Helper()
+	require.NotContains(t, event, "\r",
+		"a carriage return reached the event stream:\n%s", event)
+	var lines []string
+	for line := range strings.Lines(event) {
+		if el, ok := strings.CutPrefix(line, "data: elements "); ok {
+			lines = append(lines, strings.TrimSuffix(el, "\n"))
+		}
+	}
+	element := strings.Join(lines, "\n")
+	body, ok := strings.CutPrefix(element, `<script type="speculationrules">`)
+	require.True(t, ok, "not a speculation rules element:\n%s", element)
+	body, ok = strings.CutSuffix(body, "</script>")
+	require.True(t, ok, "the element does not end the script:\n%s", element)
+	// Escaping every '<' prevents </script> and <!-- from changing the element.
+	require.NotContains(t, body, "<",
+		"a URL put a '<' into the script element:\n%s", element)
+
+	var rules struct {
+		Prefetch []struct {
+			Source string   `json:"source"`
+			URLs   []string `json:"urls"`
+		} `json:"prefetch"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &rules),
+		"the rules are not JSON:\n%s", body)
+	require.Len(t, rules.Prefetch, 1)
+	require.Equal(t, "list", rules.Prefetch[0].Source)
+	return rules.Prefetch[0].URLs
+}
+
+// TestPrefetchEncodesURLs tests that control and markup bytes cross the SSE,
+// script and JSON layers without changing a URL.
+func TestPrefetchEncodesURLs(t *testing.T) {
+	t.Parallel()
+
+	for name, url := range map[string]string{
+		"quote":           `/u/x"y`,
+		"backslash":       `/u/x\y`,
+		"end of script":   `/u/x"</script><b>hi</b>`,
+		"comment":         "/u/<!--<script>",
+		"line feed":       "/u/x\ny",
+		"carriage return": "/u/x\ry",
+		"query":           "/search/?q=a&page=2",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
+				return sse.New(g).Prefetch("/a/", url)
+			})
+			require.Equal(t, []string{"/a/", url}, prefetchURLs(t, got))
+		})
+	}
+}
+
+func TestPrefetchWithoutURLs(t *testing.T) {
+	t.Parallel()
+
+	got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
+		return sse.New(g).Prefetch()
+	})
+	require.Empty(t, got)
+}
+
+// FuzzPrefetch tests that arbitrary URLs produce safe rules. Valid UTF-8 URLs
+// round-trip unchanged because encoding/json replaces invalid UTF-8 with U+FFFD.
+func FuzzPrefetch(f *testing.F) {
+	for _, seed := range [][2]string{
+		{"/a/", "/b/"},
+		{`/u/x"</script><b>hi</b>`, `/a\b`},
+		{"/u/<!--<script>", "/x\r\ny"},
+		{"", "\x00\x1f\x7f"},
+		{"/\u00e4/", "\xff\xfe"},
+	} {
+		f.Add(seed[0], seed[1])
+	}
+	f.Fuzz(func(t *testing.T, a, b string) {
+		got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
+			return sse.New(g).Prefetch(a, b)
+		})
+		urls := prefetchURLs(t, got)
+		if utf8.ValidString(a) && utf8.ValidString(b) {
+			require.Equal(t, []string{a, b}, urls)
+		}
+	})
+}
+
+type discard struct{ h http.Header }
+
+func (d *discard) Header() http.Header         { return d.h }
+func (d *discard) Write(b []byte) (int, error) { return len(b), nil }
+func (d *discard) WriteHeader(int)             {}
+func (d *discard) Flush()                      {}
+
+// BenchmarkPrefetch measures the href-generated URL case.
+func BenchmarkPrefetch(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, "/_$/", nil)
+	s := sse.New(datastar.NewSSE(&discard{h: make(http.Header)}, req))
+	urls := []string{"/listing/42/", "/listing/43/", "/search/?q=bike&page=2"}
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := s.Prefetch(urls...); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

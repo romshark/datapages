@@ -135,5 +135,72 @@ func (s wrapper) Redirect(target string) error {
 }
 
 func (s wrapper) Prefetch(urls ...string) error {
-	return s.g.Prefetch(urls...)
+	if len(urls) == 0 {
+		return nil
+	}
+	// Browsers unregister rules when their script element is removed:
+	// https://html.spec.whatwg.org/multipage/webappapis.html#unregister-speculation-rules
+	return s.g.ExecuteScript(
+		speculationRules(urls),
+		datastar.WithExecuteScriptAutoRemove(false),
+		datastar.WithExecuteScriptAttributes(`type="speculationrules"`),
+	)
+}
+
+// speculationRules returns a JSON speculation-rules body that prefetches URLs.
+// It escapes URLs that datastar-go writes raw and keeps percent-encoded URLs on
+// the one-allocation path.
+//
+// https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/speculationrules
+func speculationRules(urls []string) string {
+	var b strings.Builder
+	b.Grow(speculationRulesLen(urls))
+	b.WriteString(rulesHead)
+	for i, u := range urls {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('"')
+		writeJSONStringBody(&b, u)
+		b.WriteByte('"')
+	}
+	b.WriteString(rulesTail)
+	return b.String()
+}
+
+const rulesHead, rulesTail = `{"prefetch":[{"source":"list","urls":[`, `]}]}`
+
+// speculationRulesLen returns the exact rules length when no URL needs escaping.
+func speculationRulesLen(urls []string) int {
+	n := len(rulesHead) + len(rulesTail) + len(urls) - 1 // the commas
+	for _, u := range urls {
+		n += len(`""`) + len(u)
+	}
+	return n
+}
+
+const hexDigits = "0123456789abcdef"
+
+// writeJSONStringBody writes s inside a JSON string embedded in a one-line <script>.
+// It escapes '"' and '\' and encodes controls and '<' as \u00XX,
+// preventing SSE line breaks, </script> and <!--.
+func writeJSONStringBody(b *strings.Builder, s string) {
+	last := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 0x20 && c != '"' && c != '\\' && c != '<' {
+			continue
+		}
+		b.WriteString(s[last:i])
+		if c == '"' || c == '\\' {
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		} else {
+			b.WriteString(`\u00`)
+			b.WriteByte(hexDigits[c>>4])
+			b.WriteByte(hexDigits[c&0xf])
+		}
+		last = i + 1
+	}
+	b.WriteString(s[last:])
 }
