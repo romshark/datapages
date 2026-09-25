@@ -390,6 +390,7 @@ func injectBefore(body, script []byte) []byte {
 // [bytes.ToLower] cannot provide offsets into arbitrary s because Unicode
 // lowercasing and invalid UTF-8 replacement can change byte lengths.
 func indexFoldASCII(s, marker []byte) int {
+	fails := 0
 	for off := 0; ; off++ {
 		i := bytes.IndexByte(s[off:], marker[0])
 		if i < 0 {
@@ -402,6 +403,40 @@ func indexFoldASCII(s, marker []byte) int {
 		if equalFoldASCII(s[off:off+len(marker)], marker) {
 			return off
 		}
+		// Dense candidates make equalFoldASCII scan marker repeatedly.
+		// Switch to chunked lowercasing at the cutoff [bytes.Index] uses on arm64.
+		if fails++; fails > 4+off>>4 {
+			if j := indexLowerASCII(s[off+1:], marker); j >= 0 {
+				return off + 1 + j
+			}
+			return -1
+		}
+	}
+}
+
+// indexLowerASCII is [indexFoldASCII] for dense candidates. It lowercases A to
+// Z of s chunk by chunk, which keeps offsets, and searches each chunk with [bytes.Index].
+func indexLowerASCII(s, marker []byte) int {
+	// BenchmarkMiddleware shows no improvement at 8 KB
+	// and a 5-15% regression at 512 bytes.
+	var buf [2048]byte
+	for off := 0; ; {
+		n := min(len(buf), len(s)-off)
+		chunk := buf[:n]
+		for i, c := range s[off : off+n] {
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			chunk[i] = c
+		}
+		if i := bytes.Index(chunk, marker); i >= 0 {
+			return off + i
+		}
+		if off+n == len(s) {
+			return -1
+		}
+		// The overlap finds a marker that crosses the end of the chunk.
+		off += n - len(marker) + 1
 	}
 }
 

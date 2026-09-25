@@ -1,6 +1,7 @@
 package offline_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,16 +114,7 @@ func TestMiddleware(t *testing.T) {
 // when lowercasing preceding text changes its byte length.
 func TestMiddlewareInjectsBeforeHead(t *testing.T) {
 	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
-	serve := func(page string) string {
-		rec := httptest.NewRecorder()
-		mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte(page))
-		})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-		return rec.Body.String()
-	}
-	script := strings.TrimSuffix(
-		strings.TrimPrefix(serve("<html></head>"), "<html>"), "</head>",
-	)
+	script := injectedScript(mw)
 	require.True(t, strings.HasPrefix(script, "<script>"))
 
 	for name, tc := range map[string]struct{ head, tail string }{
@@ -150,9 +142,70 @@ func TestMiddlewareInjectsBeforeHead(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.head+script+tc.tail, serve(tc.head+tc.tail))
+			require.Equal(t, tc.head+script+tc.tail, serve(mw, tc.head+tc.tail))
 		})
 	}
+}
+
+// TestMiddlewareInjectsBeforeHeadAfterDenseTags tests every </head> offset
+// across the first two chunks of the dense-candidate fallback.
+func TestMiddlewareInjectsBeforeHeadAfterDenseTags(t *testing.T) {
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+	script := injectedScript(mw)
+	for n := range 4200 {
+		head := "<html>" + strings.Repeat("<", n)
+		tail := "</HeAd><body>x</body>"
+		if got := serve(mw, head+tail); got != head+script+tail {
+			t.Fatalf("%d '<' before </head>: got %q", n, got)
+		}
+	}
+}
+
+// FuzzMiddlewareInjectsBeforeHead uses an ASCII-lowercased copy as the
+// insertion-position oracle for arbitrary pages.
+func FuzzMiddlewareInjectsBeforeHead(f *testing.F) {
+	for _, seed := range []string{
+		"", "<head></head>", "</HEAD>", "</body>", "<</head>", "</hea</head>",
+		"İ</head>", "\xff</head>", strings.Repeat("<", 100) + "</HeAd>",
+		strings.Repeat("</", 3000) + "</head>",
+	} {
+		f.Add(seed)
+	}
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+	script := injectedScript(mw)
+	f.Fuzz(func(t *testing.T, s string) {
+		page := "<html>" + s
+		lower := []byte(page)
+		for i, c := range lower {
+			if 'A' <= c && c <= 'Z' {
+				lower[i] = c + 'a' - 'A'
+			}
+		}
+		want := page + script
+		for _, marker := range []string{"</head>", "</body>"} {
+			if i := strings.Index(string(lower), marker); i >= 0 {
+				want = page[:i] + script + page[i:]
+				break
+			}
+		}
+		if got := serve(mw, page); got != want {
+			t.Fatalf("page %q: got %q", page, got)
+		}
+	})
+}
+
+func serve(mw func(http.Handler) http.Handler, page string) string {
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, page)
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	return rec.Body.String()
+}
+
+func injectedScript(mw func(http.Handler) http.Handler) string {
+	return strings.TrimSuffix(
+		strings.TrimPrefix(serve(mw, "<html></head>"), "<html>"), "</head>",
+	)
 }
 
 func TestMiddlewareServiceWorkerHeaders(t *testing.T) {
