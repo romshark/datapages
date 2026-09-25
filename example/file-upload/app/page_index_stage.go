@@ -36,7 +36,8 @@ func (p PageIndex) POSTStage(
 				datapages.ErrBadRequest, name, humanSize(f.Size), humanSize(maxFileSize))
 		}
 		row := PendingFile{
-			Name: name, Size: f.Size, ContentType: f.ContentType}
+			Name: name, Size: f.Size, ContentType: f.ContentType,
+		}
 		if match, ok := unfinished[key(name, f.Size)]; ok {
 			// The name offered is the one that upload already carries,
 			// so that confirming the dialog unchanged renames nothing.
