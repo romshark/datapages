@@ -109,6 +109,52 @@ func TestMiddleware(t *testing.T) {
 	}
 }
 
+// TestMiddlewareInjectsBeforeHead tests closing-tag insertion
+// when lowercasing preceding text changes its byte length.
+func TestMiddlewareInjectsBeforeHead(t *testing.T) {
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+	serve := func(page string) string {
+		rec := httptest.NewRecorder()
+		mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(page))
+		})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		return rec.Body.String()
+	}
+	script := strings.TrimSuffix(
+		strings.TrimPrefix(serve("<html></head>"), "<html>"), "</head>",
+	)
+	require.True(t, strings.HasPrefix(script, "<script>"))
+
+	for name, tc := range map[string]struct{ head, tail string }{
+		"capital I with dot": {
+			head: "<!DOCTYPE html><html><head><title>İletişim</title>",
+			tail: "</head><body><h1>x</h1></body></html>",
+		},
+		"kelvin sign": {
+			head: "<!DOCTYPE html><html><head><title>300K</title>",
+			tail: "</head><body><h1>x</h1></body></html>",
+		},
+		// Lowercasing replaces each invalid byte with the three-byte U+FFFD encoding.
+		"invalid utf-8": {
+			head: "<!DOCTYPE html><html><head><title>" +
+				strings.Repeat("\xff", 20) + "</title>",
+			tail: "</head><body>x</body></html>",
+		},
+		"uppercase tag": {
+			head: "<!DOCTYPE html><html><head><title>x</title>",
+			tail: "</HEAD><BODY>x</BODY></HTML>",
+		},
+		"no head": {
+			head: "<!DOCTYPE html><html><body>İ",
+			tail: "</body></html>",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.head+script+tc.tail, serve(tc.head+tc.tail))
+		})
+	}
+}
+
 func TestMiddlewareServiceWorkerHeaders(t *testing.T) {
 	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
 	rec := httptest.NewRecorder()

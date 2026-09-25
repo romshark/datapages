@@ -372,9 +372,8 @@ func looksHTML(p []byte) bool {
 // injectBefore inserts script before the first </head> tag, or before </body>
 // when no </head> exists. It appends script when neither tag exists.
 func injectBefore(body, script []byte) []byte {
-	lower := bytes.ToLower(body)
 	for _, marker := range [][]byte{[]byte("</head>"), []byte("</body>")} {
-		if i := bytes.Index(lower, marker); i >= 0 {
+		if i := indexFoldASCII(body, marker); i >= 0 {
 			out := make([]byte, 0, len(body)+len(script))
 			out = append(out, body[:i]...)
 			out = append(out, script...)
@@ -383,4 +382,39 @@ func injectBefore(body, script []byte) []byte {
 		}
 	}
 	return append(body, script...)
+}
+
+// indexFoldASCII returns the first marker in s under ASCII case-insensitive matching,
+// or -1. marker must be lowercase ASCII and start with a non-letter.
+//
+// [bytes.ToLower] cannot provide offsets into arbitrary s because Unicode
+// lowercasing and invalid UTF-8 replacement can change byte lengths.
+func indexFoldASCII(s, marker []byte) int {
+	for off := 0; ; off++ {
+		i := bytes.IndexByte(s[off:], marker[0])
+		if i < 0 {
+			return -1
+		}
+		off += i
+		if len(s)-off < len(marker) {
+			return -1
+		}
+		if equalFoldASCII(s[off:off+len(marker)], marker) {
+			return off
+		}
+	}
+}
+
+// equalFoldASCII reports whether s matches lower,
+// a same-length lowercase ASCII value, ignoring ASCII letter case.
+func equalFoldASCII(s, lower []byte) bool {
+	for i, c := range s {
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != lower[i] {
+			return false
+		}
+	}
+	return true
 }
