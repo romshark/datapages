@@ -8,6 +8,8 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-26
+
 ### Added
 
 - Count streams that end at their session's `ExpiresAt` under `reason="expired"` in `datapages_sse_disconnects_total`.
@@ -23,4 +25,5 @@ Releases up to v0.10.0 have their notes on
 - Prevent `natskv.SessionManager.SaveSession` from re-creating a session deleted by `CloseSession`, `CloseAllUserSessions` or `DeleteExpired`. A stale save could let a signed-out user or an attacker with a revoked cookie authenticate again. Applications using `SaveSession` are affected in v0.1.0 through v0.10.0. Upgrade to v0.10.1 and redeploy. There is no workaround.
 - End a user's private-event streams at the session's `ExpiresAt`. In v0.10.0, a client that opened a stream before expiry, including one using a stolen cookie, could keep reading afterward until the session was deleted. Applications setting a non-zero `NewSession.ExpiresAt` are affected. Upgrade to v0.10.1, run `datapages gen` and redeploy. Until then, call `DeleteExpired` frequently; the inmem and natskv stores end streams when they delete sessions.
 
-[Unreleased]: https://github.com/romshark/datapages/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/romshark/datapages/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/romshark/datapages/compare/v0.10.0...v0.10.1

@@ -300,7 +300,7 @@ func LintDatapages() error {
 	defer os.RemoveAll(tmp)
 
 	bin := filepath.Join(tmp, "datapages")
-	if err := run("go", "build", "-o", bin, "./cmd/datapages"); err != nil {
+	if err := buildCLI(bin); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
@@ -421,7 +421,7 @@ func GenDatapages() error {
 	defer os.RemoveAll(tmp)
 
 	bin := filepath.Join(tmp, "datapages")
-	if err := run("go", "build", "-o", bin, "./cmd/datapages"); err != nil {
+	if err := buildCLI(bin); err != nil {
 		return err
 	}
 	for _, root := range []string{"example", acceptanceRoot} {
@@ -436,6 +436,16 @@ func GenDatapages() error {
 		}
 	}
 	return nil
+}
+
+// buildCLI builds cmd/datapages from source into bin.
+//
+// -buildvcs=false keeps a checkout at a release tag from reporting that release.
+// As a release, the CLI raises the Datapages requirement of every go.mod it
+// generates for and pins the specification URL of the AI instructions,
+// which [CheckGen] then reports as changes.
+func buildCLI(bin string) error {
+	return run("go", "build", "-buildvcs=false", "-o", bin, "./cmd/datapages")
 }
 
 // acceptanceRoot holds the acceptance cases, one module each.
@@ -454,10 +464,10 @@ func GenAISkills() error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	// Built from source, since the release a CLI reports is what pins the
-	// specification URL the instructions carry.
+	// Built from source by [buildCLI], which reports no release: a release pins
+	// the specification URL the instructions carry.
 	bin := filepath.Join(tmp, "datapages")
-	if err := run("go", "build", "-o", bin, "./cmd/datapages"); err != nil {
+	if err := buildCLI(bin); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
