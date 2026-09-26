@@ -2,7 +2,7 @@ module datapagestest/fixture/page_cache
 
 go 1.27.1
 
-require github.com/romshark/datapages v0.10.0
+require github.com/romshark/datapages v0.10.1
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

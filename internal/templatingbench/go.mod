@@ -3,7 +3,7 @@ module github.com/romshark/datapages/internal/templatingbench
 go 1.27.1
 
 require (
-	github.com/CloudyKit/jet/v6 v6.3.2
+	github.com/CloudyKit/jet/v6 v6.3.3
 	github.com/a-h/templ v0.3.1020
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/quicktemplate v1.8.0

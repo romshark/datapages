@@ -2,7 +2,7 @@ module datapagestest/fixture/event_subject_duplicate
 
 go 1.27.1
 
-require github.com/romshark/datapages v0.9.4
+require github.com/romshark/datapages v0.10.1
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
