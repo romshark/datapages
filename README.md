@@ -10,7 +10,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/romshark/datapages/badge.svg?branch=main)](https://coveralls.io/github/romshark/datapages?branch=main)
 [![Go Reference](https://pkg.go.dev/badge/github.com/romshark/datapages.svg)](https://pkg.go.dev/github.com/romshark/datapages)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![Beta](https://img.shields.io/badge/status-beta-blue)
+[![Release](https://img.shields.io/github/v/release/romshark/datapages)](https://github.com/romshark/datapages/releases/latest)
 
 [![Discord](https://img.shields.io/badge/Discord-%23datapages-5865F2?logo=discord&logoColor=white)](https://discord.com/channels/1296224603642925098/1464634812135505940)
 [![Slack](https://img.shields.io/badge/Slack-%23datapages-4A154B?logo=slack&logoColor=white)](https://gophers.slack.com/archives/C0AKMFC1M2A)
