@@ -23,7 +23,7 @@ Go for a JavaScript single page application if:
 1. the server is not your source of truth.
 2. you're building a local-first standalone CDN-hostable website(-app).
 
-For server-centric applications that are mostly useless when offline with the server being the inevitable source of truth, or even local-first installed GUI apps ([see previous question](http://#can-and-should-i-use-datapages-for-local-first-go-gui-apps)) - Datapages is a better choice for several reasons:
+For server-centric applications that are mostly useless when offline with the server being the inevitable source of truth, or even local-first installed GUI apps ([see previous question](#can-and-should-i-use-datapages-for-local-first-go-gui-apps)) - Datapages is a better choice for several reasons:
 
 - **No `npm` supply chain**: All you need is Go and HTML/CSS with tiny pieces of JavaScript inside, not the entire JavaScript zoo. This reduces the attack surface of your code base.
 - **Optimal agentic engineering**: Datapages ships with all AI skills and CLI tools necessary for coding agents to be utmost efficient. This avoids wasting tokens on huge piles of React and Go API boilerplate.
