@@ -249,10 +249,8 @@ func (p *pageCacheBuf) WriteHeader(int)             {}
 	if m.GlobalHeadGenerator == nil {
 		w.Raw("nil\n}\n")
 	} else {
-		w.Raw("s.app.Head(r")
-		if m.GlobalHeadGenerator.InputSession {
-			w.Raw(", " + w.sessionType + "{}")
-		}
+		w.Raw("s.app.Head(")
+		w.writeHeadArgs(m.GlobalHeadGenerator, w.sessionType+"{}")
 		w.Raw(")\n}\n")
 	}
 	w.Raw(`

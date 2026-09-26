@@ -644,6 +644,17 @@ func (w *Writer) renderSessionVar(
 // hasSess indicates whether a "sess" variable is in scope.
 func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 	w.Raw("\tgenericHead := s.app.Head(")
+	sessArg := w.sessionType + "{}"
+	if hasSess {
+		sessArg = "sess"
+	}
+	w.writeHeadArgs(gh, sessArg)
+	w.Raw(")\n")
+}
+
+// writeHeadArgs writes the arguments of an App.Head call in the order Head
+// declares them, which the parser leaves free.
+func (w *Writer) writeHeadArgs(gh *model.GlobalHead, sessArg string) {
 	for i, kind := range gh.OrderedInputs {
 		if i > 0 {
 			w.Raw(", ")
@@ -652,14 +663,8 @@ func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 			w.Raw("r")
 			continue
 		}
-		if hasSess {
-			w.Raw("sess")
-			continue
-		}
-		w.Raw(w.sessionType)
-		w.Raw("{}")
+		w.Raw(sessArg)
 	}
-	w.Raw(")\n")
 }
 
 // streamInitTail closes the data-init attribute of a page after the quoted
