@@ -8,6 +8,10 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+### Fixed
+
+- Include the CSRF script for signed-in visitors when a page handles an event containing a `datapages.SubjectUser` field, even if its `GET` method and the app-wide `Head` method don't accept the session. Without the script, every action on that page returns 403. Run `datapages gen`.
+
 ## [0.10.1] - 2026-09-26
 
 ### Added

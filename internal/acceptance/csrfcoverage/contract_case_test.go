@@ -40,10 +40,11 @@ func TestContract(t *testing.T) {
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,
-		Links:          []string{href.PageIndex()},
+		Links:          []string{href.PageIndex(), href.PageInbox()},
 		Actions: []string{
 			action.PageIndex.SignIn.POST(),
 			action.PageIndex.Delete.POST(),
+			action.PageInbox.MarkRead.POST(),
 		},
 		SignalActions: []string{action.PageIndex.SignIn.POST()},
 		OptionedAction: action.PageIndex.SignIn.POST(

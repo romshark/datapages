@@ -63,6 +63,31 @@ func (p PageIndex) POSTDelete(
 	return nil
 }
 
+// EventMailed is "mailed"
+//
+// [datapages.SubjectUser] marks the event as private.
+type EventMailed struct {
+	Recipient datapages.SubjectUser `json:"recipient"`
+}
+
+// PageInbox is /inbox
+//
+// [PageInbox.GET] has no session parameter. Its private event stream still
+// reads the session. The document must render with that session to write the
+// CSRF script for signed-in visitors.
+type PageInbox struct{ App *App }
+
+func (PageInbox) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">inbox</pre>`), nil
+}
+
+func (PageInbox) OnMailed(event EventMailed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(`<pre id="echo">mailed</pre>`))
+}
+
+// POSTMarkRead is /inbox/mark-read
+func (PageInbox) POSTMarkRead(_ *http.Request) error { return nil }
+
 // PageError404 is /not-found
 //
 // The 404 page reads the session: its document has to carry the CSRF script,

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -203,6 +204,49 @@ func TestErrorPagesCarryTheCSRFScript(t *testing.T) {
 				"the document carries no CSRF script:\n%s", body)
 		})
 	}
+}
+
+var csrfTokenInScript = regexp.MustCompile(`"X-CSRF-Token",'([^']+)'`)
+
+// TestPrivateEventPageCarriesTheCSRFScript tests that a signed-in visitor can
+// submit an action from a page whose GET omits the session but whose private
+// event stream requires it.
+func TestPrivateEventPageCarriesTheCSRFScript(t *testing.T) {
+	t.Parallel()
+	store := sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)
+
+	srv := httptest.NewServer(mustNewServer(
+		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
+	))
+	t.Cleanup(srv.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "building cookie jar")
+	client := &http.Client{Jar: jar}
+
+	post := newPost(t, srv, client)
+
+	require.Equal(t, http.StatusOK,
+		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/inbox/", nil,
+	)
+	require.NoError(t, err, "building GET /inbox/")
+	resp, err := client.Do(req)
+	require.NoError(t, err, "GET /inbox/")
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading /inbox/")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	m := csrfTokenInScript.FindStringSubmatch(string(b))
+	require.NotNil(t, m, "the document carries no CSRF script:\n%s", b)
+
+	require.Equal(t, http.StatusOK, post("/inbox/mark-read/", "", m[1]),
+		"posting with the page's CSRF token")
 }
 
 // TestUnclaimedPathReadsTheSessionOnce tests the store reads a 404 costs.

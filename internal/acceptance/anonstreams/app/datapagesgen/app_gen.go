@@ -735,7 +735,7 @@ func (s pageRoomsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageRooms", err)
 		return
@@ -1031,7 +1031,7 @@ func (s pageTabsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageTabs", err)
 		return

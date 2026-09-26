@@ -46,5 +46,8 @@ func PageBoom() string { return "/boom/" }
 // PageError404 references /not-found/{$}
 func PageError404() string { return "/not-found/" }
 
+// PageInbox references /inbox/{$}
+func PageInbox() string { return "/inbox/" }
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }

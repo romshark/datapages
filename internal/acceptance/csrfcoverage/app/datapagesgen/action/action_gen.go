@@ -170,6 +170,30 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var PageInbox pageInbox
+
+type pageInbox struct {
+	MarkRead pageInbox_MarkRead
+}
+
+type pageInbox_MarkRead struct{}
+
+// POST references /inbox/mark-read/
+func (pageInbox_MarkRead) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/inbox/mark-read/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/inbox/mark-read/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/inbox/mark-read/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PageIndex pageIndex
 
 type pageIndex struct {

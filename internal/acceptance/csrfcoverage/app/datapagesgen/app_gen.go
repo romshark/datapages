@@ -3,17 +3,23 @@
 package datapagesgen
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
+	"github.com/romshark/datapages/runtime/stream"
+	"github.com/romshark/datapages/runtime/subject"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app/datapagesgen/action"
@@ -55,6 +61,23 @@ func (s *Server) writeHTML(
 	})
 }
 
+func (s *Server) handleStreamRequest(
+	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[struct{}],
+	subjects []string,
+	onOpen func(
+		streamID datapages.StreamID,
+		sse *datastar.ServerSentEventGenerator,
+	) error,
+	onClose func(streamID datapages.StreamID),
+	fn func(
+		streamID datapages.StreamID,
+		sse *datastar.ServerSentEventGenerator,
+		ch <-chan messaging.Message,
+	),
+) {
+	s.streams.Handle(w, r, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+}
+
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
@@ -93,6 +116,7 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
+	streams              *stream.Handler
 	app                  *dpapp.App
 	*auth.Manager[struct{}]
 }
@@ -152,6 +176,12 @@ func (s *Server) Init(
 		}
 	}
 	s.Manager = auth.NewManager(s.Core, sessionManager, cfg, nil)
+	s.streams = stream.NewHandler(
+		s.Core, messageBroker, s.messageBrokerMetrics,
+		s.SessionManager(),
+		nil,
+		s.httpErrIntern,
+	)
 
 	setupHandlers(s)
 
@@ -163,13 +193,26 @@ func (s *Server) Init(
 }
 
 const (
+	EvSubjMailed = "mailed.*"
 
-// Public events:
+	// Public events:
 
 )
 
+const (
+	EvPrefixMailed = "mailed."
+)
+
 func MessageBrokerStreamSubjects() []string {
-	return []string{}
+	return []string{
+		EvSubjMailed,
+	}
+}
+
+func evSubjPageInbox(userID string) []string {
+	return []string{
+		"mailed." + subject.Encode(userID),
+	}
 }
 
 func setupHandlers(s *Server) {
@@ -184,8 +227,17 @@ func setupHandlers(s *Server) {
 		"GET /server-error/{$}",
 		pageError500Handlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /inbox/{$}",
+		pageInboxHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /inbox/_$/{$}",
+		pageInboxHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"POST /inbox/mark-read/{$}",
+		pageInboxHandlers{s}.POSTMarkRead)
 	s.Mux().HandleFunc(
 		"POST /sign-in/{$}",
 		pageIndexHandlers{s}.POSTSignIn)
@@ -328,6 +380,109 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 		w, r, sess, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
+		return
+	}
+}
+
+type pageInboxHandlers struct{ *Server }
+
+func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageInbox{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageInbox.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageInbox.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('/inbox/_$/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageInbox", err)
+		return
+	}
+}
+
+func (s pageInboxHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+
+	p := dpapp.PageInbox{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageInbox(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageInbox stream")
+			var eventMailed dpapp.EventMailed
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvPrefixMailed):
+					eventMailed = dpapp.EventMailed{}
+					if err := json.Unmarshal(msg.Data, &eventMailed); err != nil {
+						s.LogErr("unmarshaling EventMailed JSON", err)
+						continue
+					}
+					if err := p.OnMailed(
+						eventMailed,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageInbox.OnMailed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageInboxHandlers) POSTMarkRead(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageInbox.MarkRead")
+	p := dpapp.PageInbox{
+		App: s.app,
+	}
+	err := p.POSTMarkRead(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageInbox.MarkRead", err)
 		return
 	}
 }

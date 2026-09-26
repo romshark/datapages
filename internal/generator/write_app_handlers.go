@@ -448,13 +448,14 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	}
 
 	// Close and create session, before anything is written: both set a cookie,
-	// and a cookie set after the body has started is dropped.
-	// The 500 page renders from its session like any other page. PageOffline
-	// does not: the worker precaches a single copy and serves it to every
-	// visitor.
+	// and a cookie set after the body has started is dropped. Render with the session
+	// read for GET, Head or a private event stream. The CSRF script derives its token
+	// from that session. Rendering with the zero session omits the script, which makes
+	// CSRF-protected actions return 403 for a signed-in visitor.  The 500 page renders
+	// from its session like any other page. PageOffline does not: the worker precaches
+	// a single copy and serves it to every visitor.
 	getRendersBody := p.PageSpecialization != model.PageTypeOffline
-	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody,
-		hasSessionInput(h) || globalHeadNeedsSession(m))
+	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody, hasSess)
 	w.writeSessionOutputs(h, getSessRebind)
 
 	// Redirect.
