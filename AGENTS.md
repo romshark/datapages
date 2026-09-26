@@ -403,6 +403,10 @@ for _, it := range items {
   characters or less, no trailing period.
 - Types: `feat`, `fix`, `perf`, `refactor`, `test`, `chore`, `ci`, `docs`.
   Suffix the type with `!` for a breaking change.
+- Mark a change as breaking when it incompatibly changes an application-facing API.
+  Changes to `runtime/` APIs are not breaking: they are generator-facing,
+  and `datapages gen` updates generated callers. Treat the root package,
+  `modules/` and generated APIs such as `href` and `action` as public APIs.
 - Wrap the description at 72 characters.
 - Imperative mood in the title, never past tense: `Add cache`, not
   `Added cache` or `Adds cache`. The description uses present tense and
@@ -491,6 +495,8 @@ The release workflow publishes each tag's section and fails when it's missing.
   json:"-"`. Say enough for users to determine whether they are affected.
 - A `Security` entry follows [Security entries](#security-entries).
 - A breaking change repeats the migration steps of its `BREAKING:` block.
+- Do not add a separate entry for a `runtime/` API change. The entry for the
+  user-visible change that requires it tells users to run `datapages gen`.
 - To release, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`,
   insert an empty `## [Unreleased]`, update the compare links and tag `vX.Y.Z`.
 

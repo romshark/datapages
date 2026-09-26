@@ -136,17 +136,17 @@ const (
 )
 
 // WriteCSRFScript writes the script that adds the X-CSRF-Token header to every
-// state-changing Datastar fetch of the page. It writes nothing for a guest
-// (empty userID) and when CSRF protection is off.
+// state-changing Datastar fetch of the page. It writes nothing if sessionToken
+// is empty or CSRF protection is disabled.
 //
 // cspNonce must be HTML escaped. An empty value omits the nonce attribute.
 //
 // The token goes into a JavaScript string literal unescaped.
 // It must not contain ', \ or a line break.
 func (m *Manager[Data]) WriteCSRFScript(
-	w io.Writer, userID, sessionToken, cspNonce string,
+	w io.Writer, sessionToken, cspNonce string,
 ) error {
-	if userID == "" || m.csrfDisabled {
+	if sessionToken == "" || m.csrfDisabled {
 		return nil
 	}
 	if _, err := io.WriteString(w, csrfScriptOpen); err != nil {
@@ -165,8 +165,7 @@ func (m *Manager[Data]) WriteCSRFScript(
 		return err
 	}
 	if n == 0 {
-		m.server.Logger().Warn("wrote empty CSRF token",
-			slog.String("user-id", userID))
+		m.server.Logger().Warn("wrote empty CSRF token")
 	}
 	_, err = io.WriteString(w, csrfScriptSuffix)
 	return err
@@ -232,11 +231,16 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 // The cookie of a closed or expired session passes:
 // only the store read of [Manager.ReadSession] tells that apart.
 func (m *Manager[Data]) CheckCSRFOnly(w http.ResponseWriter, r *http.Request) bool {
-	cookieVal, found := httpread.CookieValue(r, m.conf.Cookie.Name)
-	if !found {
-		return true
-	}
-	return m.CheckCSRF(w, r, cookieVal)
+	return m.CheckCSRF(w, r, m.SessionCookie(r))
+}
+
+// SessionCookie returns the request's session token without reading the session store.
+// It returns an empty string when the cookie is absent.
+// Generated document handlers use this token for CSRF scripts when they don't
+// read a session; [Manager.CheckCSRFOnly] validates actions against the same value.
+func (m *Manager[Data]) SessionCookie(r *http.Request) string {
+	v, _ := httpread.CookieValue(r, m.conf.Cookie.Name)
+	return v
 }
 
 // CheckCSRF answers r and returns false when the request carries no valid CSRF token.

@@ -340,8 +340,8 @@ func (c *pageCacheWriter) payload() (string, error) {
 		if err := c.s.writeHTML(
 			&buf, c.r, `)
 	if m.Session != nil {
-		// One cached copy serves every visitor. Render it sessionless.
-		w.Raw(w.sessionType + "{}, ")
+		// One cached copy serves every visitor. Render it without a CSRF script.
+		w.Raw(`"", `)
 	}
 	if m.GlobalHeadGenerator != nil {
 		w.Raw("c.s.pageCacheHead(c.r), ")
@@ -526,9 +526,7 @@ func (s *Server) writeHTML(
 	r *http.Request,
 `)
 	if m.Session != nil {
-		w.Raw(`	sess `)
-		w.Raw(w.sessionType)
-		w.Raw(`,
+		w.Raw(`	sessionToken string,
 `)
 	}
 	if m.GlobalHeadGenerator != nil {
@@ -545,8 +543,7 @@ func (s *Server) writeHTML(
 `)
 	if m.Session != nil {
 		w.Raw(`		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
+		SessionToken:    sessionToken,
 `)
 	}
 	if m.GlobalHeadGenerator != nil {
@@ -1436,7 +1433,7 @@ func needsCSRFOnly(h *model.Handler, m *model.App) bool {
 // writeCSRFOnlyCheck emits the CSRF check a handler runs when it takes no
 // session. It reads the cookie alone, which the session store never sees.
 func (w *Writer) writeCSRFOnlyCheck() {
-	w.Line(1, "// The CSRF token comes from the cookie, hence no store read here.")
+	w.Line(1, "// CheckCSRFOnly validates against the cookie without reading the session store.")
 	w.Line(1, "if !s.CheckCSRFOnly(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
@@ -2122,8 +2119,9 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		w.Line(1, "}")
 	}
 
-	// The parser refuses newSession and closeSession on the 404 page,
-	// so nothing here sets a cookie and the session is the one read above.
+	// The parser rejects newSession and closeSession on PageError404. Rendering
+	// uses either the session read above or the request's session cookie when
+	// the handler reads no session.
 	hasSess := hasSessionInput(h) || globalHeadNeedsSession(m)
 	sessArg, _ := w.renderSessionVar(h, m, true, hasSess)
 
@@ -2150,10 +2148,10 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
-		// PageOffline keeps the zero session whatever its handler read: the
-		// worker precaches a single copy and serves it to every visitor.
+		// PageOffline omits the CSRF script even if its handler reads a session.
+		// The worker precaches one copy for every visitor.
 		if p.PageSpecialization == model.PageTypeOffline {
-			sessArg = w.sessionType + "{}"
+			sessArg = `""`
 		}
 		w.Raw(sessArg)
 		w.Raw(", ")

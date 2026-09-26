@@ -51,7 +51,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[struct{}],
+	sessionToken string,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -59,8 +59,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:         s.Manager,
-		UserID:       sess.UserID(),
-		SessionToken: sess.Token(),
+		SessionToken: sessionToken,
 		HeadGeneric:  headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
 			// The id authorizes access to one tab's state. The fetch wrapper keeps
@@ -535,7 +534,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -584,7 +583,7 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PagePost", err)
 		return
@@ -735,7 +734,7 @@ func (s pageRoomsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageRooms", err)
 		return
@@ -897,7 +896,7 @@ func (s pageRoomsHandlers) POSTPost(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -929,7 +928,7 @@ func (s pageRoomsHandlers) POSTNotice(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -961,7 +960,7 @@ func (s pageRoomsHandlers) POSTDM(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -1031,7 +1030,7 @@ func (s pageTabsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageTabs", err)
 		return
@@ -1243,7 +1242,7 @@ func (s pageTabsHandlers) POSTBump(
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}

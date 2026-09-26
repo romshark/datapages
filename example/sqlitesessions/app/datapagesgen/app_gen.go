@@ -45,7 +45,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[dpapp.SessionData],
+	sessionToken string,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -53,8 +53,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
+		SessionToken:    sessionToken,
 		HeadGeneric:     headGeneric,
 		Head:            head,
 		Body:            body,
@@ -313,7 +312,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -389,7 +388,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, nil, nil,
+		w, r, sess.Token(), genericHead, head, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -426,7 +425,7 @@ func (s pageLoginHandlers) POSTValidate(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageLogin.POSTValidate", err)
 		return
@@ -474,7 +473,7 @@ func (s pageLoginHandlers) POSTSubmit(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageLogin.POSTSubmit", err)
 		return
@@ -504,7 +503,7 @@ func (s pageRegisterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, nil, nil,
+		w, r, sess.Token(), genericHead, head, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageRegister", err)
 		return
@@ -542,7 +541,7 @@ func (s pageRegisterHandlers) POSTValidate(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageRegister.POSTValidate", err)
 		return
@@ -591,7 +590,7 @@ func (s pageRegisterHandlers) POSTSubmit(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageRegister.POSTSubmit", err)
 		return

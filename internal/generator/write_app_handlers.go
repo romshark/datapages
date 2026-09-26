@@ -447,13 +447,15 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 		w.Line(1, "}")
 	}
 
-	// Close and create session, before anything is written: both set a cookie,
-	// and a cookie set after the body has started is dropped. Render with the session
-	// read for GET, Head or a private event stream. The CSRF script derives its token
-	// from that session. Rendering with the zero session omits the script, which makes
-	// CSRF-protected actions return 403 for a signed-in visitor.  The 500 page renders
-	// from its session like any other page. PageOffline does not: the worker precaches
-	// a single copy and serves it to every visitor.
+	// Close and create the session before writing the body because both set a cookie.
+	// net/http ignores Set-Cookie headers added after the body starts.
+	//
+	// Render with the token from any session read for GET, Head or a private
+	// event stream. Otherwise, use the request's session cookie without reading
+	// the store. The CSRF script sends this token with subsequent actions.
+	//
+	// PageError500 uses the same rule. PageOffline omits the script because the
+	// worker precaches one copy for every visitor.
 	getRendersBody := p.PageSpecialization != model.PageTypeOffline
 	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody, hasSess)
 	w.writeSessionOutputs(h, getSessRebind)
@@ -556,21 +558,21 @@ func actionSessionInScope(h *model.Handler, m *model.App) bool {
 	return hasSessionInput(h) || (h.OutputBody != nil && globalHeadNeedsSession(m))
 }
 
-// writeSessionOutputs emits what a handler's newSession and closeSession
-// outputs ask for. Both set a cookie, so both run before the response body.
+// writeSessionOutputs emits the CreateSession and CloseSession calls requested
+// by a handler's newSession and closeSession outputs. Both calls set a cookie,
+// so they run before the response body. The generated code must use each
+// output or its package does not compile.
 //
-// A handler that returns a session and never has it acted on leaves the value unused,
-// which is a generated package that does not compile.
-//
-// sessVar, when non-empty, names the variable the document is rendered from
-// and is rebound here: rendered from the session read before, the document
-// carries no CSRF script the response's own Set-Cookie already demands.
-func (w *Writer) writeSessionOutputs(h *model.Handler, sessVar string) {
+// rebind, when non-empty, formats the assignment that makes document rendering
+// use the session left by CreateSession or CloseSession. Its single %s
+// placeholder receives the local variable name. This keeps the CSRF script
+// consistent with the response's Set-Cookie header.
+func (w *Writer) writeSessionOutputs(h *model.Handler, rebind string) {
 	if h.OutputCloseSession != nil {
 		w.Raw("\tif ")
 		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
-		if sessVar != "" {
+		if rebind != "" {
 			w.Line(2, "closed, err := s.CloseSession(w, r, sessToken)")
 			w.Line(2, "if err != nil {")
 		} else {
@@ -579,8 +581,8 @@ func (w *Writer) writeSessionOutputs(h *model.Handler, sessVar string) {
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
-		if sessVar != "" {
-			w.Linef(2, "%s = closed", sessVar)
+		if rebind != "" {
+			w.Linef(2, rebind, "closed")
 		}
 		w.Line(1, "}")
 	}
@@ -588,7 +590,7 @@ func (w *Writer) writeSessionOutputs(h *model.Handler, sessVar string) {
 		w.Raw("\tif j := ")
 		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
-		if sessVar != "" {
+		if rebind != "" {
 			w.Raw("\t\tcreated, err := s.CreateSession(w, r, ")
 			w.Raw(outputVar(h.OutputNewSession))
 			w.Raw(")\n")
@@ -601,31 +603,41 @@ func (w *Writer) writeSessionOutputs(h *model.Handler, sessVar string) {
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
-		if sessVar != "" {
-			w.Linef(2, "%s = created", sessVar)
+		if rebind != "" {
+			w.Linef(2, rebind, "created")
 		}
 		w.Line(1, "}")
 	}
 }
 
-// renderSessionVar returns the session expression writeHTML takes and the
-// variable writeSessionOutputs rebinds, empty when nothing is rendered.
-// It declares one where the handler acts on a session but reads none.
+// renderSessionVar returns the session-token expression passed to writeHTML
+// and the assignment template used after a session output changes that token.
+// The assignment is empty when no rebinding is required. It declares a token
+// variable when a session output can change the token and no session value is
+// in scope.
+//
+// A handler without a session parameter uses the request cookie without
+// reading the store. Actions without a session parameter validate CSRF against
+// the same cookie.
 func (w *Writer) renderSessionVar(
 	h *model.Handler, m *model.App, rendersBody, hasSess bool,
 ) (arg, rebind string) {
 	if m.Session == nil || !rendersBody {
-		return w.sessionType + "{}", ""
+		return `""`, ""
 	}
 	if hasSess {
-		return "sess", "sess"
+		return "sess.Token()", "sess = %s"
 	}
 	if h.OutputNewSession == nil && h.OutputCloseSession == nil {
-		return w.sessionType + "{}", ""
+		return "s.SessionCookie(r)", ""
 	}
-	// A name of its own: "sess" may hold the read for the CSRF check.
-	w.Linef(1, "renderSess := %s{}", w.sessionType)
-	return "renderSess", "renderSess"
+	if h.OutputCloseSession != nil {
+		// CloseSession needs the token that the earlier store read validated.
+		w.Line(1, "renderToken := sessToken")
+	} else {
+		w.Line(1, "renderToken := s.SessionCookie(r)")
+	}
+	return "renderToken", "renderToken = %s.Token()"
 }
 
 // writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])

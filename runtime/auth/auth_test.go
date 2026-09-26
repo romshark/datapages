@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,4 +180,53 @@ func TestCreateSessionCookieExpiry(t *testing.T) {
 	require.Len(t, cookies, 1)
 	require.WithinDuration(t, expiresAt, cookies[0].Expires, time.Second)
 	require.InDelta(t, int(30*24*time.Hour/time.Second), cookies[0].MaxAge, 1)
+}
+
+var csrfTokenInScript = regexp.MustCompile(`"X-CSRF-Token",'([^']+)'`)
+
+// TestWriteCSRFScriptFromSessionCookie tests that a document handler can write
+// a CSRF script from the request cookie without reading the session store.
+// [auth.Manager.CheckCSRFOnly] accepts the script's token with the same cookie.
+// An absent cookie or disabled CSRF protection produces no script.
+func TestWriteCSRFScriptFromSessionCookie(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		cookie   string
+		disabled bool
+		script   bool
+	}{
+		"session cookie": {cookie: "tok", script: true},
+		"no cookie":      {},
+		"disabled":       {cookie: "tok", disabled: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			store := inmem.New[struct{}](sessions.DefaultTokenGenerator{
+				Length: sessions.DefaultTokenLen,
+			})
+			m := auth.NewManager(testServer{}, store, datapages.ServerConfig{
+				CSRF: &datapages.CSRFConfig{Disabled: tt.disabled},
+			}, nil)
+
+			page := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.cookie != "" {
+				page.AddCookie(&http.Cookie{Name: m.CookieName(), Value: tt.cookie})
+			}
+			var b strings.Builder
+			require.NoError(t, m.WriteCSRFScript(&b, m.SessionCookie(page), ""))
+			if !tt.script {
+				require.Empty(t, b.String())
+				return
+			}
+
+			match := csrfTokenInScript.FindStringSubmatch(b.String())
+			require.NotNil(t, match, "the script contains no token:\n%s", b.String())
+
+			action := httptest.NewRequest(http.MethodPost, "/", nil)
+			action.AddCookie(&http.Cookie{Name: m.CookieName(), Value: tt.cookie})
+			action.Header.Set("X-CSRF-Token", match[1])
+			require.True(t, m.CheckCSRFOnly(httptest.NewRecorder(), action),
+				"the script token does not match the session cookie")
+		})
+	}
 }

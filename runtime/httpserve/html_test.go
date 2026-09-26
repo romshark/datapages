@@ -32,11 +32,11 @@ func (c renderer) Render(_ context.Context, w io.Writer) error {
 // csrfScript writes what a session manager would.
 type csrfScript struct{ err error }
 
-func (c csrfScript) WriteCSRFScript(w io.Writer, userID, token, nonce string) error {
+func (c csrfScript) WriteCSRFScript(w io.Writer, token, nonce string) error {
 	if c.err != nil {
 		return c.err
 	}
-	_, err := io.WriteString(w, "<csrf "+userID+" "+token+" "+nonce+">")
+	_, err := io.WriteString(w, "<csrf "+token+" "+nonce+">")
 	return err
 }
 
@@ -90,12 +90,11 @@ func TestWriteHTML(t *testing.T) {
 		"csrf follows the head": {
 			httpserve.HTMLDocument{
 				CSRF:         csrfScript{},
-				UserID:       "u1",
 				SessionToken: "tok",
 				Head:         renderer{s: "<meta p>"},
 			},
 			c.HTMLPrefix() +
-				"<meta p><csrf u1 tok ></head><body></body></html>",
+				"<meta p><csrf tok ></head><body></body></html>",
 		},
 		"body attributes and suffix": {
 			httpserve.HTMLDocument{
@@ -265,7 +264,7 @@ func TestWriteHTMLCSPNonce(t *testing.T) {
 			wantHas: []string{
 				`<html data-nonce="r4nd0m+val/ue=">`,
 				`<script type="module" nonce="r4nd0m+val/ue=" src="/ds.js">`,
-				"<csrf u1 tok r4nd0m+val/ue=>",
+				"<csrf tok r4nd0m+val/ue=>",
 			},
 			wantTag: `<script nonce="r4nd0m+val/ue=">`,
 		},
@@ -289,7 +288,7 @@ func TestWriteHTMLCSPNonce(t *testing.T) {
 			c.Build()
 
 			body, err := writeHTML(t, c, httpserve.HTMLDocument{
-				CSRF: csrfScript{}, UserID: "u1", SessionToken: "tok",
+				CSRF: csrfScript{}, SessionToken: "tok",
 			})
 			require.NoError(t, err)
 			for _, want := range tc.wantHas {

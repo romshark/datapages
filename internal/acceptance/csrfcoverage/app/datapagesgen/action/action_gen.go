@@ -170,6 +170,54 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var App app
+
+type app struct {
+	Ping app_Ping
+}
+
+type app_Ping struct{}
+
+// POST references /ping/
+func (app_Ping) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/ping/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/ping/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/ping/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+var PageAbout pageAbout
+
+type pageAbout struct {
+	Preview pageAbout_Preview
+}
+
+type pageAbout_Preview struct{}
+
+// POST references /about/preview/
+func (pageAbout_Preview) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/about/preview/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/about/preview/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/about/preview/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PageInbox pageInbox
 
 type pageInbox struct {

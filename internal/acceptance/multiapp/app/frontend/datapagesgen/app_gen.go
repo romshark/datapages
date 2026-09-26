@@ -46,7 +46,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[dpapp.SessionData],
+	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -54,8 +54,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
+		SessionToken:    sessionToken,
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -265,7 +264,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -327,7 +326,7 @@ func (s pageIndexHandlers) POSTAnnounce(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -358,7 +357,7 @@ func (s pageIndexHandlers) POSTSignIn(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -397,7 +396,7 @@ func (s pageIndexHandlers) POSTNotice(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}

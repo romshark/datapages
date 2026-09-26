@@ -44,7 +44,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[struct{}],
+	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -52,8 +52,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
+		SessionToken:    sessionToken,
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -218,6 +217,9 @@ func evSubjPageInbox(userID string) []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /about/{$}",
+		pageAboutHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /boom/{$}",
 		pageBoomHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -235,6 +237,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"POST /ping/{$}",
+		appHandlers{s}.POSTPing)
+	s.Mux().HandleFunc(
+		"POST /about/preview/{$}",
+		pageAboutHandlers{s}.POSTPreview)
 	s.Mux().HandleFunc(
 		"POST /inbox/mark-read/{$}",
 		pageInboxHandlers{s}.POSTMarkRead)
@@ -298,9 +306,76 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess, nil, body, nil, nil,
+		w, r, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	// CheckCSRFOnly validates against the cookie without reading the session store.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "App.Ping")
+	err := s.app.POSTPing(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Ping", err)
+		return
+	}
+}
+
+type pageAboutHandlers struct{ *Server }
+
+func (s pageAboutHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageAbout{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageAbout.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageAbout.GET", err)
+		return
+	}
+
+	if err := s.writeHTML(
+		w, r, s.SessionCookie(r), nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageAbout", err)
+		return
+	}
+}
+
+func (s pageAboutHandlers) POSTPreview(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	// CheckCSRFOnly validates against the cookie without reading the session store.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageAbout.Preview")
+	p := dpapp.PageAbout{
+		App: s.app,
+	}
+	body, err := p.POSTPreview(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageAbout.Preview", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, s.SessionCookie(r), nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of PageAbout.POSTPreview", err)
 		return
 	}
 }
@@ -319,7 +394,7 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, nil, body, nil, nil,
+		w, r, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageBoom", err)
 		return
@@ -345,7 +420,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, nil, body, nil, nil,
+		w, r, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -377,7 +452,7 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 
 	w.WriteHeader(status)
 	if err := s.writeHTML(
-		w, r, sess, nil, body, nil, nil,
+		w, r, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
 		return
@@ -414,7 +489,7 @@ func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageInbox", err)
 		return
@@ -472,7 +547,7 @@ func (s pageInboxHandlers) POSTMarkRead(
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -511,7 +586,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, nil, body, nil, nil,
+		w, r, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -524,7 +599,7 @@ func (s pageIndexHandlers) POSTSignIn(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -559,7 +634,7 @@ func (s pageIndexHandlers) POSTDelete(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}

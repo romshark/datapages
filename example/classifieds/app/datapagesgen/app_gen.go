@@ -66,7 +66,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[struct{}],
+	sessionToken string,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -74,8 +74,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:         s.Manager,
-		UserID:       sess.UserID(),
-		SessionToken: sess.Token(),
+		SessionToken: sessionToken,
 		HeadGeneric:  headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
 			// The id authorizes access to one tab's state. The fetch wrapper keeps
@@ -683,7 +682,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -723,7 +722,7 @@ func (s appHandlers) POSTCause500(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -769,7 +768,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -860,7 +859,7 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 
 	w.WriteHeader(status)
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, nil, nil,
+		w, r, s.SessionCookie(r), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
 		return
@@ -906,7 +905,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -999,7 +998,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -1047,7 +1046,7 @@ func (s pageLoginHandlers) POSTSubmit(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageLogin.POSTSubmit", err)
 		return
@@ -1122,7 +1121,7 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageMessages", err)
 		return
@@ -1472,7 +1471,7 @@ func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageMyPosts", err)
 		return
@@ -1588,7 +1587,7 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PagePost", err)
 		return
@@ -1788,7 +1787,7 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageSearch", err)
 		return
@@ -1927,7 +1926,7 @@ func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageSettings", err)
 		return
@@ -2167,7 +2166,7 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageUser", err)
 		return

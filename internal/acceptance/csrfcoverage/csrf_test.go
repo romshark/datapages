@@ -249,6 +249,76 @@ func TestPrivateEventPageCarriesTheCSRFScript(t *testing.T) {
 		"posting with the page's CSRF token")
 }
 
+// TestHandlersWithoutSessionWriteCSRFScript tests page and action responses
+// from handlers with no session parameter. A session cookie produces a CSRF
+// script whose token authorizes an app-level action.
+// A request without a session cookie produces no script.
+func TestHandlersWithoutSessionWriteCSRFScript(t *testing.T) {
+	t.Parallel()
+	store := sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)
+
+	srv := httptest.NewServer(mustNewServer(
+		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
+	))
+	t.Cleanup(srv.Close)
+
+	send := func(
+		t *testing.T, client *http.Client, method, path, token string,
+	) (int, string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(
+			context.Background(), method, srv.URL+path, nil,
+		)
+		require.NoError(t, err, "building %s %s", method, path)
+		if method != http.MethodGet {
+			req.Header.Set("Datastar-Request", "true")
+		}
+		if token != "" {
+			req.Header.Set("X-CSRF-Token", token)
+		}
+		resp, err := client.Do(req)
+		require.NoError(t, err, "%s %s", method, path)
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err, "reading %s", path)
+		return resp.StatusCode, string(b)
+	}
+
+	status, guestPage := send(t, srv.Client(), http.MethodGet, "/about/", "")
+	require.Equal(t, http.StatusOK, status)
+	require.NotContains(t, guestPage, "X-CSRF-Token",
+		"the document contains a CSRF script without a session cookie")
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "building cookie jar")
+	client := &http.Client{Jar: jar}
+	require.Equal(t, http.StatusOK,
+		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+
+	status, page := send(t, client, http.MethodGet, "/about/", "")
+	require.Equal(t, http.StatusOK, status)
+	pageToken := csrfTokenInScript.FindStringSubmatch(page)
+	require.NotNil(t, pageToken, "the page contains no CSRF script:\n%s", page)
+
+	status, doc := send(t, client, http.MethodPost, "/about/preview/", pageToken[1])
+	require.Equal(t, http.StatusOK, status, "posting with the page's CSRF token")
+	docToken := csrfTokenInScript.FindStringSubmatch(doc)
+	require.NotNil(t, docToken, "the action response contains no CSRF script:\n%s", doc)
+
+	for name, token := range map[string]string{
+		"page":            pageToken[1],
+		"action response": docToken[1],
+	} {
+		t.Run(name, func(t *testing.T) {
+			status, _ := send(t, client, http.MethodPost, "/ping/", token)
+			require.Equal(t, http.StatusOK, status,
+				"POST /ping/ with the %s CSRF token", name)
+		})
+	}
+}
+
 // TestUnclaimedPathReadsTheSessionOnce tests the store reads a 404 costs.
 //
 // The index handler serves every path no page claims. It read the session

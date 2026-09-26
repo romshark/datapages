@@ -41,7 +41,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[struct{}],
+	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -49,8 +49,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
+		SessionToken:    sessionToken,
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -202,18 +201,18 @@ func (s pageEnterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageEnter.GET", err)
 		return
 	}
-	renderSess := datapages.Session[struct{}]{}
+	renderToken := s.SessionCookie(r)
 	if j := newSession; j.UserID != "" {
 		created, err := s.CreateSession(w, r, newSession)
 		if err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 			return
 		}
-		renderSess = created
+		renderToken = created.Token()
 	}
 
 	if err := s.writeHTML(
-		w, r, renderSess, nil, body, nil, nil,
+		w, r, renderToken, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageEnter", err)
 		return
@@ -255,7 +254,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, nil, body, nil, nil,
+		w, r, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -340,7 +339,7 @@ func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, nil, body, bodyAttrs, bodySuffix,
+		w, r, s.SessionCookie(r), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageNested", err)
 		return

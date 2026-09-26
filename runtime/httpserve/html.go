@@ -7,18 +7,23 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// CSRFScriptWriter writes what makes a page send its CSRF token back.
+// CSRFScriptWriter writes the script that adds a CSRF token to state-changing
+// Datastar requests.
 // It is implemented by the session manager of the generated server.
 type CSRFScriptWriter interface {
-	WriteCSRFScript(w io.Writer, userID, sessionToken, cspNonce string) error
+	WriteCSRFScript(w io.Writer, sessionToken, cspNonce string) error
 }
 
 // HTMLDocument is the page [Core.WriteHTML] writes. Every field may be zero.
 type HTMLDocument struct {
 	// CSRF writes the CSRF script into the head.
 	// Nil for an application that declares no session type.
-	CSRF                 CSRFScriptWriter
-	UserID, SessionToken string
+	CSRF CSRFScriptWriter
+
+	// SessionToken is the token the CSRF script sends with actions from this document.
+	// It must match the session cookie those actions will send. Leave it empty when
+	// the actions will send no session cookie or when visitors share the document.
+	SessionToken string
 
 	// HeadGeneric is what the application-wide head generator renders.
 	// It goes before Head, which is the head of the page itself.
@@ -72,7 +77,7 @@ func (c *Core) WriteHTML(
 		}
 	}
 	if doc.CSRF != nil {
-		err := doc.CSRF.WriteCSRFScript(w, doc.UserID, doc.SessionToken, c.CSPNonce(r))
+		err := doc.CSRF.WriteCSRFScript(w, doc.SessionToken, c.CSPNonce(r))
 		if err != nil {
 			return err
 		}

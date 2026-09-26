@@ -10,7 +10,7 @@ Releases up to v0.10.0 have their notes on
 
 ### Fixed
 
-- Include the CSRF script for signed-in visitors when a page handles an event containing a `datapages.SubjectUser` field, even if its `GET` method and the app-wide `Head` method don't accept the session. Without the script, every action on that page returns 403. Run `datapages gen`.
+- Write the CSRF script into every request-specific page and action response whose actions carry a session cookie, including documents whose handlers do not accept a session. This prevents actions submitted from those documents from returning 403. `PageOffline` and page-cache entries omit the script because visitors share them. Run `datapages gen`.
 
 ## [0.10.1] - 2026-09-26
 

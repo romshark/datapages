@@ -88,6 +88,31 @@ func (PageInbox) OnMailed(event EventMailed, sse datapages.SSE) error {
 // POSTMarkRead is /inbox/mark-read
 func (PageInbox) POSTMarkRead(_ *http.Request) error { return nil }
 
+// PageAbout is /about
+//
+// [PageAbout.GET] has no session parameter, and neither an app-wide Head nor
+// an event stream requires a session. The document derives its CSRF script
+// from the session cookie.
+type PageAbout struct{ App *App }
+
+func (PageAbout) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">about</pre>`), nil
+}
+
+// POSTPreview is /about/preview
+//
+// It returns a document without a session parameter.
+func (PageAbout) POSTPreview(_ *http.Request) (
+	body datapages.Component, err error,
+) {
+	return templ.Raw(`<pre id="echo">preview</pre>`), nil
+}
+
+// POSTPing is /ping
+//
+// Every page can call this app-level action.
+func (*App) POSTPing(_ *http.Request) error { return nil }
+
 // PageError404 is /not-found
 //
 // The 404 page reads the session: its document has to carry the CSRF script,

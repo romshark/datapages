@@ -40,6 +40,9 @@ func External(url string) string {
 	return url
 }
 
+// PageAbout references /about/{$}
+func PageAbout() string { return "/about/" }
+
 // PageBoom references /boom/{$}
 func PageBoom() string { return "/boom/" }
 

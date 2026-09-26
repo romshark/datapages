@@ -59,7 +59,7 @@ func textOf(v encoding.TextMarshaler) string {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[dpStream.SessionData],
+	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -67,8 +67,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
+		SessionToken:    sessionToken,
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -275,7 +274,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess.Token(), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -333,7 +332,7 @@ func (s pageIndexHandlers) POSTTick(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -403,7 +402,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[dpStream.SessionData]{}, nil, body, nil, nil,
+		w, r, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageItem", err)
 		return
@@ -416,7 +415,7 @@ func (s pageItemHandlers) POSTSave(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}

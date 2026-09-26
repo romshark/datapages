@@ -203,7 +203,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 			body = withShimHydrate(body)
 		}
 		if err := c.s.writeHTML(
-			&buf, c.r, datapages.Session[struct{}]{}, c.s.pageCacheHead(c.r), nil, body, nil, nil,
+			&buf, c.r, "", c.s.pageCacheHead(c.r), nil, body, nil, nil,
 		); err != nil {
 			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
 		}
@@ -318,7 +318,7 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[struct{}],
+	sessionToken string,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -326,8 +326,7 @@ func (s *Server) writeHTML(
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
+		SessionToken:    sessionToken,
 		HeadGeneric:     headGeneric,
 		Head:            head,
 		Body:            body,
@@ -552,7 +551,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -611,7 +610,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -639,7 +638,7 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 
 	w.WriteHeader(status)
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, nil, nil,
+		w, r, s.SessionCookie(r), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
 		return
@@ -694,7 +693,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.embedInto(body), bodyAttrs, bodySuffix,
+		w, r, sess.Token(), genericHead, nil, pageCache.embedInto(body), bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -707,7 +706,7 @@ func (s pageIndexHandlers) POSTSearch(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// The CSRF token comes from the cookie, hence no store read here.
+	// CheckCSRFOnly validates against the cookie without reading the session store.
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
@@ -762,7 +761,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, sess.Token(), genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -812,7 +811,7 @@ func (s pageLoginHandlers) POSTSubmit(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, sess.Token(), genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageLogin.POSTSubmit", err)
 		return
@@ -834,7 +833,7 @@ func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, nil, nil,
+		w, r, "", genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageOffline", err)
 		return
@@ -872,7 +871,7 @@ func (s pagePurchaseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PagePurchase", err)
 		return
@@ -941,7 +940,7 @@ func (s pageShowHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, pageCache.embedInto(body), nil, nil,
+		w, r, sess.Token(), genericHead, head, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageShow", err)
 		return
@@ -980,7 +979,7 @@ func (s pageTicketHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, sess.Token(), genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageTicket", err)
 		return
@@ -1014,7 +1013,7 @@ func (s pageTicketsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, sess.Token(), genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageTickets", err)
 		return

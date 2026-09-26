@@ -434,7 +434,7 @@ See [datapages.go](datapages.go) for method definitions.
 
 Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends at its `ExpiresAt()`. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
 
-An action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions.
+An action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions. When a handler renders a document without reading the session, it uses the session cookie to write the CSRF script without reading the store.
 
 Expired sessions are removed on read. Datapages does not call the session manager's `DeleteExpired`; applications must schedule cleanup for abandoned sessions.
 
@@ -822,7 +822,7 @@ Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/W
 
 ### Content Security Policy
 
-Datapages writes inline scripts. The CSRF script goes into the head of a page with a session. A stateful page gets the instance ID script. Datastar compiles every `data-*` expression at run time.
+Datapages writes inline scripts. It writes the CSRF script in the head of every request-specific document whose actions carry a session cookie. `PageOffline` and page-cache entries omit the script because visitors share them. A stateful page gets the instance ID script. Datastar compiles every `data-*` expression at run time.
 
 Without `WithCSPNonce` a policy must allow `script-src 'unsafe-inline' 'unsafe-eval'`.
 
