@@ -53,8 +53,35 @@ func TestSection(t *testing.T) {
 	}
 }
 
+func TestLink(t *testing.T) {
+	for name, tc := range map[string]struct {
+		version string
+		want    string
+		ok      bool
+	}{
+		"latest": {
+			version: "0.11.0",
+			want:    "https://github.com/romshark/datapages/compare/v0.10.1...v0.11.0",
+			ok:      true,
+		},
+		"older": {
+			version: "0.10.1",
+			want:    "https://github.com/romshark/datapages/compare/v0.10.0...v0.10.1",
+			ok:      true,
+		},
+		"missing":             {version: "0.9.0"},
+		"prefix of a version": {version: "0.1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, ok := link(changelog, tc.version)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // TestChangelogReleases tests that every released version
-// has a valid heading and non-empty notes.
+// has a valid heading, non-empty notes and a link definition.
 func TestChangelogReleases(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "CHANGELOG.md"))
 	require.NoError(t, err)
@@ -73,5 +100,7 @@ func TestChangelogReleases(t *testing.T) {
 		require.Regexp(t, semver, version, "heading %q", strings.TrimSpace(line))
 		_, ok = section(string(b), version)
 		require.True(t, ok, "the section of %s has no notes", version)
+		_, ok = link(string(b), version)
+		require.True(t, ok, "%s has no link definition", version)
 	}
 }

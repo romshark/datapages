@@ -1,4 +1,5 @@
-// Command release-notes prints a release tag's section of CHANGELOG.md.
+// Command release-notes prints a release tag's section of CHANGELOG.md
+// followed by the compare link from the version's link definition.
 package main
 
 import (
@@ -30,7 +31,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s has no section for %s\n", path, version)
 		os.Exit(1)
 	}
-	fmt.Print(notes)
+	url, ok := link(string(b), version)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "%s has no link definition for %s\n", path, version)
+		os.Exit(1)
+	}
+	fmt.Printf("%s\n**Full Changelog**: %s\n", notes, url)
 }
 
 // section returns a version's non-empty Keep a Changelog body.
@@ -53,6 +59,20 @@ func section(changelog, version string) (string, bool) {
 		return "", false
 	}
 	return notes + "\n", true
+}
+
+// link returns the URL of a version's link definition.
+// GoReleaser's --release-notes replaces the body GitHub generates,
+// which otherwise ends with this compare link.
+func link(changelog, version string) (string, bool) {
+	prefix := "[" + version + "]: "
+	for line := range strings.Lines(changelog) {
+		if url, ok := strings.CutPrefix(line, prefix); ok {
+			url = strings.TrimSpace(url)
+			return url, url != ""
+		}
+	}
+	return "", false
 }
 
 func isLinkDefinition(line string) bool {
