@@ -9,6 +9,7 @@
 [![golangci-lint](https://github.com/romshark/datapages/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/romshark/datapages/actions/workflows/golangci-lint.yml)
 [![Coverage Status](https://coveralls.io/repos/github/romshark/datapages/badge.svg?branch=main)](https://coveralls.io/github/romshark/datapages?branch=main)
 [![Go Reference](https://pkg.go.dev/badge/github.com/romshark/datapages.svg)](https://pkg.go.dev/github.com/romshark/datapages)
+[![Discord](https://img.shields.io/badge/Discord-%23datapages-5865F2?logo=discord&logoColor=white)](https://discord.com/channels/1296224603642925098/1464634812135505940)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Beta](https://img.shields.io/badge/status-beta-blue)
 
