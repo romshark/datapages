@@ -28,6 +28,7 @@ var examples = []string{
 	"counter",
 	"fast-shim",
 	"offline-cache",
+	"realtime-charts",
 	"sqlitesessions",
 	"tailwindcss",
 	"todolist",

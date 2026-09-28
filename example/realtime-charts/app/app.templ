@@ -1,0 +1,277 @@
+package app
+
+import (
+	"slices"
+	"strconv"
+
+	"github.com/romshark/datapages/example/realtime-charts/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/realtime-charts/app/datapagesgen/assets"
+	"github.com/romshark/datapages/example/realtime-charts/app/datapagesgen/href"
+	"github.com/romshark/datapages/example/realtime-charts/market"
+)
+
+// Both scripts block parsing so that <rt-chart> is defined before Datastar
+// assigns its first bars; rt-chart.js explains why that matters.
+// The integrity hash pins the file the CDN serves.
+templ head() {
+	<title>Realtime Charts</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<meta name="color-scheme" content="dark light"/>
+	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
+	<script
+		src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"
+		integrity="sha384-KkYqTZlM13Zya6fVUF3IGCBOQ1ehFeJVVgxaVvD/0MebineF9EI8Jkd3NnWNChqN"
+		crossorigin="anonymous"
+	></script>
+	<script src={ assets.Path("rt-chart.js") }></script>
+}
+
+// pageView declares the settings signals with the values the page shows.
+// They replace the values Datapages seeds from the raw query, which a
+// hand-edited URL can set to something the page does not offer.
+//
+// A phone shows the logo without its name, which fits it into the row of the
+// tabs. The media query of the source is the one of the phone layout in
+// style.css.
+//
+// The live button pauses and resumes the pushes to the tab. Its label says
+// which of the two the tab gets, Live or Paused, and its title what a click
+// does. A button whose label changes is not a toggle button and has no
+// aria-pressed. Pausing sets the paused signal to the second of the charts on
+// screen, which the URL then carries.
+//
+// The live button and the status keep their width when their text changes,
+// which keeps the controls in place. The button holds both labels and hides
+// one. The status holds hidden sizers with its widest texts, a pause at a
+// two-digit hour in the morning and in the afternoon in the format of the
+// browser.
+//
+// The navigation bar and the sidebar share a wrapper. On a narrow screen the
+// wrapper sticks to the top as one block, which keeps the sidebar below a
+// navigation bar whose height depends on how often it wraps.
+templ pageView(t chartType, q ViewQuery, selected []string, cards []card) {
+	<div
+		id="page"
+		class="page"
+		data-signals:view={ jsString(string(t)) }
+		data-signals:refresh={ jsString(q.Refresh) }
+		data-signals:indexes={ jsString(q.Indexes) }
+		data-signals:paused={ strconv.FormatInt(q.Paused, 10) }
+		data-signals:pushed="0"
+	>
+		<div class="top">
+			<nav class="navbar">
+				<h1 class="brand">
+					<picture>
+						<source
+							media="(max-width: 600px)"
+							srcset={ assets.Path("logo.svg") }
+							width="21"
+							height="26"
+						/>
+						<img
+							class="logo"
+							src={ assets.Path("logo-full.svg") }
+							width="112"
+							height="26"
+							alt="Datapages"
+						/>
+					</picture>
+					<span class="visually-hidden">Realtime Charts</span>
+				</h1>
+				@tabs(t, q)
+				<div class="controls">
+					<div class="control">
+						<button
+							type="button"
+							class={ "live", templ.KV("paused", q.Paused != 0) }
+							if q.Paused != 0 {
+								title="Resume updates"
+							} else {
+								title="Pause updates"
+							}
+							data-class:paused="$paused !== 0"
+							data-attr:title="$paused ? 'Resume updates' : 'Pause updates'"
+							data-on:click={ action.App.Settings.POST(
+								action.WithBefore("$paused = $paused ? 0 : $pushed"),
+							) }
+						>
+							<span class="when-live">Live</span>
+							<span class="when-paused">Paused</span>
+						</button>
+						<select
+							data-bind="refresh"
+							disabled?={ q.Paused != 0 }
+							title="Refresh interval"
+							data-attr:disabled="$paused !== 0"
+							data-on:change={ action.App.Settings.POST() }
+						>
+							for _, r := range refreshRates {
+								<option value={ r.String() } selected?={ r.String() == q.Refresh }>
+									{ r.String() }
+								</option>
+							}
+						</select>
+					</div>
+					<span class="updated">
+						<span
+							class="sizer"
+							aria-hidden="true"
+							data-text="'Paused at ' + new Date(2000, 0, 1, 10).toLocaleTimeString()"
+						>
+							Paused at 10:00:00 AM
+						</span>
+						<span
+							class="sizer"
+							aria-hidden="true"
+							data-text="'Paused at ' + new Date(2000, 0, 1, 22).toLocaleTimeString()"
+						>
+							Paused at 10:00:00 PM
+						</span>
+						<span
+							data-text="$pushed ? ($paused ? 'Paused at ' : 'Updated ') + new Date($pushed * 1000).toLocaleTimeString() : 'Connecting...'"
+						>
+							Connecting...
+						</span>
+					</span>
+				</div>
+			</nav>
+			@sidebar(selected)
+		</div>
+		@errorMessage("")
+		<main>
+			@grid(t, cards)
+		</main>
+		<footer class="footer">
+			<a href="https://github.com/romshark/datapages">Datapages</a> demo.
+			Charts by
+			<a href="https://www.tradingview.com/">TradingView</a>
+			Lightweight Charts&trade;.
+		</footer>
+	</div>
+}
+
+// tabs links to the view pages with the settings of the current one.
+// A settings change patches them with the new settings.
+templ tabs(active chartType, q ViewQuery) {
+	<nav id="tabs" class="tabs" aria-label="Chart type">
+		<a
+			href={ href.PageIndex(href.QueryPageIndex(q)) }
+			class="tab"
+			if active == typeCandles {
+				aria-current="page"
+			}
+		>Candles</a>
+		<a
+			href={ href.PageBars(href.QueryPageBars(q)) }
+			class="tab"
+			if active == typeBars {
+				aria-current="page"
+			}
+		>Bars</a>
+		<a
+			href={ href.PageLine(href.QueryPageLine(q)) }
+			class="tab"
+			if active == typeLine {
+				aria-current="page"
+			}
+		>Line</a>
+		<a
+			href={ href.PageArea(href.QueryPageArea(q)) }
+			class="tab"
+			if active == typeArea {
+				aria-current="page"
+			}
+		>Area</a>
+		<a
+			href={ href.PageBaseline(href.QueryPageBaseline(q)) }
+			class="tab"
+			if active == typeBaseline {
+				aria-current="page"
+			}
+		>Baseline</a>
+		<a
+			href={ href.PageHistogram(href.QueryPageHistogram(q)) }
+			class="tab"
+			if active == typeHistogram {
+				aria-current="page"
+			}
+		>Histogram</a>
+	</nav>
+}
+
+// sidebar lists every index with a toggle that shows or hides its chart.
+// A toggle patches the sidebar with the new selection.
+templ sidebar(selected []string) {
+	<aside id="sidebar" class="sidebar" aria-label="Indexes">
+		<h2>Indexes</h2>
+		<ul>
+			for _, in := range market.Indexes {
+				<li>
+					<button
+						type="button"
+						class="index"
+						aria-pressed={ strconv.FormatBool(slices.Contains(selected, in.Symbol)) }
+						data-on:click={ action.App.Toggle.POST(in.Symbol) }
+					>
+						<span class="symbol">{ in.Symbol }</span>
+						<span class="name">{ in.Name }</span>
+					</button>
+				</li>
+			}
+		</ul>
+	</aside>
+}
+
+// grid is the part of the page that is patched as HTML when the selection
+// changes. The bars arrive as signals. The baseline of a baseline chart is
+// the price the index opened with, the reference of the change in the card
+// header.
+templ grid(t chartType, cards []card) {
+	<div id="grid" class="grid">
+		if len(cards) == 0 {
+			<p class="empty">Select indexes in the sidebar to show their charts.</p>
+		}
+		for _, c := range cards {
+			<article id={ "card-" + c.Symbol } class="card">
+				<header class="card-header">
+					<div class="ident">
+						<span class="symbol">{ c.Symbol }</span>
+						<span class="name">{ c.Name }</span>
+					</div>
+					<div class="quote">
+						<span
+							class="price"
+							data-text={ feedSignal(c.Index, "price") + " ?? ''" }
+						></span>
+						<span
+							class="change"
+							data-text={ feedSignal(c.Index, "change") + " ?? ''" }
+							data-class:up={ feedSignal(c.Index, "up") + " === true" }
+							data-class:down={ feedSignal(c.Index, "up") + " === false" }
+						></span>
+					</div>
+				</header>
+				<rt-chart
+					id={ "chart-" + c.Symbol }
+					type={ string(t) }
+					base={ price(c.Open) }
+					data-effect={ "el.bars = " + feedSignal(c.Index, "bars") }
+				></rt-chart>
+			</article>
+		}
+	</div>
+}
+
+templ errorMessage(msg string) {
+	<p id="error" class="error" role="alert">{ msg }</p>
+}
+
+templ pageError(title, detail string) {
+	<main class="error-page">
+		<h1>{ title }</h1>
+		<p>{ detail }</p>
+		<a href={ href.PageIndex(href.QueryPageIndex{}) }>Back to the charts</a>
+	</main>
+}

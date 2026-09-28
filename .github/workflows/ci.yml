@@ -43,6 +43,8 @@ jobs:
             name: "fast-shim"
           - path: "example/file-upload"
             name: "file-upload"
+          - path: "example/realtime-charts"
+            name: "realtime-charts"
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
@@ -72,6 +74,9 @@ jobs:
             deps: latest
           - project:
               name: "file-upload"
+            deps: latest
+          - project:
+              name: "realtime-charts"
             deps: latest
     steps:
       - name: Install Go 1.27.1

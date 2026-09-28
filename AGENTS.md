@@ -82,6 +82,7 @@ Examples, one module each:
 - `example/fast-shim/` - instant loads: cached shims morphed by Datastar.
 - `example/offline-cache/` - service-worker offline support, handler-written cache and a `PageOffline` fallback, on a ticketing app.
 - `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through middleware below the asset prefix, both directions paced by a server-side rate limit.
+- `example/realtime-charts/` - charts of a simulated market, one page per chart type: a goroutine outside any handler writes an in-memory time-series database and publishes one subject per index, streams subscribe to them by wildcard, the pages share their stream handlers by embedding, `*App` actions reach their tab through a `SubjectStateID` event and signal patches carry the bars to a custom element.
 
 Where code goes:
 

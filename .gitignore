@@ -43,6 +43,7 @@ example/calculator/build/
 example/calculator/.maestro/screenshots/
 example/webcomponents/server
 example/sqlitesessions/server
+example/realtime-charts/server
 example/**/certs/*
 example/**/grafana/data/
 
