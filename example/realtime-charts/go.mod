@@ -9,6 +9,7 @@ require (
 	github.com/romshark/datapages v0.10.1
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/stretchr/testify v1.12.1
+	golang.org/x/net v0.59.0
 )
 
 require (

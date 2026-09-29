@@ -1,6 +1,6 @@
-// Package tsdb is an in-memory time-series database. It keeps named series
-// of timestamped values for a retention period, returns the values of any
-// time range and aggregates ranges into open, high, low and close buckets.
+// Package tsdb is an in-memory time-series database. It keeps named series of timestamped
+// values for a retention period, returns the values of any time range and aggregates
+// ranges into open, high, low and close buckets.
 package tsdb
 
 import (
@@ -20,8 +20,7 @@ type Point struct {
 
 // Bucket is the open, high, low and close of the points of one step.
 type Bucket struct {
-	// Time is the start of the bucket in Unix milliseconds,
-	// a multiple of its step.
+	// Time is the start of the bucket in Unix milliseconds, a multiple of its step.
 	Time                   int64
 	Open, High, Low, Close float64
 }
@@ -29,7 +28,7 @@ type Bucket struct {
 // ErrOutOfOrder reports a point that is not newer than the one before it.
 var ErrOutOfOrder = errors.New("point not newer than the one before it")
 
-// DB is an in-memory time-series database. It is safe for concurrent use.
+// DB is safe for concurrent use.
 type DB struct {
 	retention int64
 
@@ -37,16 +36,15 @@ type DB struct {
 	series map[string][]Point
 }
 
-// New returns an empty database that keeps the points of a series for the
-// retention before the newest point of that series.
+// New returns an empty database that keeps the points of a series for the retention
+// before the newest point of that series.
 func New(retention time.Duration) *DB {
 	return &DB{retention: retention.Milliseconds(), series: map[string][]Point{}}
 }
 
-// Append adds points, oldest first, to the series name and creates it when
-// it does not exist. Every point must be newer than the one before it, or
-// Append adds nothing and returns [ErrOutOfOrder]. Points older than the
-// retention are dropped.
+// Append adds points, oldest first, to the series name and creates it when it does not
+// exist. Every point must be newer than the one before it, or Append adds nothing and
+// returns [ErrOutOfOrder]. Append drops the points older than the retention.
 func (db *DB) Append(name string, points ...Point) error {
 	if len(points) == 0 {
 		return nil
@@ -66,8 +64,9 @@ func (db *DB) Append(name string, points ...Point) error {
 		prev, have = p.Time, true
 	}
 	s = append(s, points...)
-	// Reslicing drops the old points without moving the others. Append
-	// copies the points it keeps only when the capacity runs out.
+	// Reslicing drops the old points without moving the others. The array behind them is
+	// freed once the builtin append outgrows it and copies only the points the series
+	// keeps.
 	newest := s[len(s)-1].Time
 	s = s[sort.Search(len(s), func(i int) bool {
 		return s[i].Time >= newest-db.retention
@@ -117,9 +116,9 @@ func (db *DB) Last(name string) (Point, bool) {
 	return s[len(s)-1], true
 }
 
-// OHLC aggregates the points of name with from <= Time <= to into buckets
-// of step milliseconds that start at multiples of step, oldest first. A step
-// without points has no bucket.
+// OHLC aggregates the points of name with from <= Time <= to into buckets of step
+// milliseconds that start at multiples of step, oldest first. A step without points has
+// no bucket.
 func (db *DB) OHLC(name string, from, to, step int64) []Bucket {
 	db.mu.RLock()
 	defer db.mu.RUnlock()

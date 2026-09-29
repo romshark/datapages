@@ -49,407 +49,29 @@ func Asset(p string) string {
 	return hrefcheck.AssetPath("/static/", p)
 }
 
-// PageArea references /area/{$}
-func PageArea(query QueryPageArea) string {
-	var (
-		refreshStr string
-		indexesStr string
-		pausedStr  string
-	)
-
-	if query.Refresh != "" {
-		refreshStr = url.QueryEscape(query.Refresh)
-	}
-	if query.Indexes != "" {
-		indexesStr = url.QueryEscape(query.Indexes)
-	}
-	if query.Paused != 0 {
-		pausedStr = url.QueryEscape(strconv.FormatInt(query.Paused, 10))
-	}
-
-	anyQuery := query.Refresh != "" ||
-		query.Indexes != "" ||
-		query.Paused != 0
-
-	var b strings.Builder
-	l := len("/area/")
-	if anyQuery {
-		l += len("?")
-	}
-
-	// n = number of query params already accounted for (for '&')
-	n := 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("refresh=") + len(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("indexes=") + len(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("paused=") + len(pausedStr)
-	}
-	_ = n
-
-	b.Grow(l)
-
-	b.WriteString("/area/")
-	if anyQuery {
-		b.WriteString("?")
-	}
-
-	n = 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("refresh=")
-		b.WriteString(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("indexes=")
-		b.WriteString(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		b.WriteString("paused=")
-		b.WriteString(pausedStr)
-	}
-
-	return b.String()
-}
-
-// QueryPageArea is the query parameters for PageArea
-type QueryPageArea struct {
-	Refresh string `query:"refresh"`
-	Indexes string `query:"indexes"`
-	Paused  int64  `query:"paused"`
-}
-
-// PageBars references /bars/{$}
-func PageBars(query QueryPageBars) string {
-	var (
-		refreshStr string
-		indexesStr string
-		pausedStr  string
-	)
-
-	if query.Refresh != "" {
-		refreshStr = url.QueryEscape(query.Refresh)
-	}
-	if query.Indexes != "" {
-		indexesStr = url.QueryEscape(query.Indexes)
-	}
-	if query.Paused != 0 {
-		pausedStr = url.QueryEscape(strconv.FormatInt(query.Paused, 10))
-	}
-
-	anyQuery := query.Refresh != "" ||
-		query.Indexes != "" ||
-		query.Paused != 0
-
-	var b strings.Builder
-	l := len("/bars/")
-	if anyQuery {
-		l += len("?")
-	}
-
-	// n = number of query params already accounted for (for '&')
-	n := 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("refresh=") + len(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("indexes=") + len(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("paused=") + len(pausedStr)
-	}
-	_ = n
-
-	b.Grow(l)
-
-	b.WriteString("/bars/")
-	if anyQuery {
-		b.WriteString("?")
-	}
-
-	n = 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("refresh=")
-		b.WriteString(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("indexes=")
-		b.WriteString(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		b.WriteString("paused=")
-		b.WriteString(pausedStr)
-	}
-
-	return b.String()
-}
-
-// QueryPageBars is the query parameters for PageBars
-type QueryPageBars struct {
-	Refresh string `query:"refresh"`
-	Indexes string `query:"indexes"`
-	Paused  int64  `query:"paused"`
-}
-
-// PageBaseline references /baseline/{$}
-func PageBaseline(query QueryPageBaseline) string {
-	var (
-		refreshStr string
-		indexesStr string
-		pausedStr  string
-	)
-
-	if query.Refresh != "" {
-		refreshStr = url.QueryEscape(query.Refresh)
-	}
-	if query.Indexes != "" {
-		indexesStr = url.QueryEscape(query.Indexes)
-	}
-	if query.Paused != 0 {
-		pausedStr = url.QueryEscape(strconv.FormatInt(query.Paused, 10))
-	}
-
-	anyQuery := query.Refresh != "" ||
-		query.Indexes != "" ||
-		query.Paused != 0
-
-	var b strings.Builder
-	l := len("/baseline/")
-	if anyQuery {
-		l += len("?")
-	}
-
-	// n = number of query params already accounted for (for '&')
-	n := 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("refresh=") + len(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("indexes=") + len(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("paused=") + len(pausedStr)
-	}
-	_ = n
-
-	b.Grow(l)
-
-	b.WriteString("/baseline/")
-	if anyQuery {
-		b.WriteString("?")
-	}
-
-	n = 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("refresh=")
-		b.WriteString(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("indexes=")
-		b.WriteString(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		b.WriteString("paused=")
-		b.WriteString(pausedStr)
-	}
-
-	return b.String()
-}
-
-// QueryPageBaseline is the query parameters for PageBaseline
-type QueryPageBaseline struct {
-	Refresh string `query:"refresh"`
-	Indexes string `query:"indexes"`
-	Paused  int64  `query:"paused"`
-}
-
 // PageError404 references /not-found/{$}
 func PageError404() string { return "/not-found/" }
-
-// PageHistogram references /histogram/{$}
-func PageHistogram(query QueryPageHistogram) string {
-	var (
-		refreshStr string
-		indexesStr string
-		pausedStr  string
-	)
-
-	if query.Refresh != "" {
-		refreshStr = url.QueryEscape(query.Refresh)
-	}
-	if query.Indexes != "" {
-		indexesStr = url.QueryEscape(query.Indexes)
-	}
-	if query.Paused != 0 {
-		pausedStr = url.QueryEscape(strconv.FormatInt(query.Paused, 10))
-	}
-
-	anyQuery := query.Refresh != "" ||
-		query.Indexes != "" ||
-		query.Paused != 0
-
-	var b strings.Builder
-	l := len("/histogram/")
-	if anyQuery {
-		l += len("?")
-	}
-
-	// n = number of query params already accounted for (for '&')
-	n := 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("refresh=") + len(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("indexes=") + len(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("paused=") + len(pausedStr)
-	}
-	_ = n
-
-	b.Grow(l)
-
-	b.WriteString("/histogram/")
-	if anyQuery {
-		b.WriteString("?")
-	}
-
-	n = 0
-
-	if query.Refresh != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("refresh=")
-		b.WriteString(refreshStr)
-	}
-	if query.Indexes != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("indexes=")
-		b.WriteString(indexesStr)
-	}
-	if query.Paused != 0 {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		b.WriteString("paused=")
-		b.WriteString(pausedStr)
-	}
-
-	return b.String()
-}
-
-// QueryPageHistogram is the query parameters for PageHistogram
-type QueryPageHistogram struct {
-	Refresh string `query:"refresh"`
-	Indexes string `query:"indexes"`
-	Paused  int64  `query:"paused"`
-}
 
 // PageIndex references /{$}
 func PageIndex(query QueryPageIndex) string {
 	var (
+		typeStr    string
 		refreshStr string
+		rangeStr   string
 		indexesStr string
 		pausedStr  string
+		syncStr    string
+		layoutStr  string
 	)
 
+	if query.Type != "" {
+		typeStr = url.QueryEscape(query.Type)
+	}
 	if query.Refresh != "" {
 		refreshStr = url.QueryEscape(query.Refresh)
+	}
+	if query.Range != "" {
+		rangeStr = url.QueryEscape(query.Range)
 	}
 	if query.Indexes != "" {
 		indexesStr = url.QueryEscape(query.Indexes)
@@ -457,10 +79,20 @@ func PageIndex(query QueryPageIndex) string {
 	if query.Paused != 0 {
 		pausedStr = url.QueryEscape(strconv.FormatInt(query.Paused, 10))
 	}
+	if query.Sync {
+		syncStr = url.QueryEscape(strconv.FormatBool(query.Sync))
+	}
+	if query.Layout != "" {
+		layoutStr = url.QueryEscape(query.Layout)
+	}
 
-	anyQuery := query.Refresh != "" ||
+	anyQuery := query.Type != "" ||
+		query.Refresh != "" ||
+		query.Range != "" ||
 		query.Indexes != "" ||
-		query.Paused != 0
+		query.Paused != 0 ||
+		query.Sync ||
+		query.Layout != ""
 
 	var b strings.Builder
 	l := len("/")
@@ -471,12 +103,26 @@ func PageIndex(query QueryPageIndex) string {
 	// n = number of query params already accounted for (for '&')
 	n := 0
 
+	if query.Type != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("type=") + len(typeStr)
+	}
 	if query.Refresh != "" {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
 		l += len("refresh=") + len(refreshStr)
+	}
+	if query.Range != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("range=") + len(rangeStr)
 	}
 	if query.Indexes != "" {
 		if n > 0 {
@@ -491,6 +137,20 @@ func PageIndex(query QueryPageIndex) string {
 		}
 		n++
 		l += len("paused=") + len(pausedStr)
+	}
+	if query.Sync {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("sync=") + len(syncStr)
+	}
+	if query.Layout != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("layout=") + len(layoutStr)
 	}
 	_ = n
 
@@ -503,6 +163,14 @@ func PageIndex(query QueryPageIndex) string {
 
 	n = 0
 
+	if query.Type != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("type=")
+		b.WriteString(typeStr)
+	}
 	if query.Refresh != "" {
 		if n > 0 {
 			b.WriteString("&")
@@ -510,6 +178,14 @@ func PageIndex(query QueryPageIndex) string {
 		n++
 		b.WriteString("refresh=")
 		b.WriteString(refreshStr)
+	}
+	if query.Range != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("range=")
+		b.WriteString(rangeStr)
 	}
 	if query.Indexes != "" {
 		if n > 0 {
@@ -523,8 +199,24 @@ func PageIndex(query QueryPageIndex) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("paused=")
 		b.WriteString(pausedStr)
+	}
+	if query.Sync {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("sync=")
+		b.WriteString(syncStr)
+	}
+	if query.Layout != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("layout=")
+		b.WriteString(layoutStr)
 	}
 
 	return b.String()
@@ -532,21 +224,35 @@ func PageIndex(query QueryPageIndex) string {
 
 // QueryPageIndex is the query parameters for PageIndex
 type QueryPageIndex struct {
+	Type    string `query:"type"`
 	Refresh string `query:"refresh"`
+	Range   string `query:"range"`
 	Indexes string `query:"indexes"`
 	Paused  int64  `query:"paused"`
+	Sync    bool   `query:"sync"`
+	Layout  string `query:"layout"`
 }
 
-// PageLine references /line/{$}
-func PageLine(query QueryPageLine) string {
+// PageMap references /map/{$}
+func PageMap(query QueryPageMap) string {
 	var (
+		typeStr    string
 		refreshStr string
+		rangeStr   string
 		indexesStr string
 		pausedStr  string
+		syncStr    string
+		layoutStr  string
 	)
 
+	if query.Type != "" {
+		typeStr = url.QueryEscape(query.Type)
+	}
 	if query.Refresh != "" {
 		refreshStr = url.QueryEscape(query.Refresh)
+	}
+	if query.Range != "" {
+		rangeStr = url.QueryEscape(query.Range)
 	}
 	if query.Indexes != "" {
 		indexesStr = url.QueryEscape(query.Indexes)
@@ -554,13 +260,23 @@ func PageLine(query QueryPageLine) string {
 	if query.Paused != 0 {
 		pausedStr = url.QueryEscape(strconv.FormatInt(query.Paused, 10))
 	}
+	if query.Sync {
+		syncStr = url.QueryEscape(strconv.FormatBool(query.Sync))
+	}
+	if query.Layout != "" {
+		layoutStr = url.QueryEscape(query.Layout)
+	}
 
-	anyQuery := query.Refresh != "" ||
+	anyQuery := query.Type != "" ||
+		query.Refresh != "" ||
+		query.Range != "" ||
 		query.Indexes != "" ||
-		query.Paused != 0
+		query.Paused != 0 ||
+		query.Sync ||
+		query.Layout != ""
 
 	var b strings.Builder
-	l := len("/line/")
+	l := len("/map/")
 	if anyQuery {
 		l += len("?")
 	}
@@ -568,12 +284,26 @@ func PageLine(query QueryPageLine) string {
 	// n = number of query params already accounted for (for '&')
 	n := 0
 
+	if query.Type != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("type=") + len(typeStr)
+	}
 	if query.Refresh != "" {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
 		l += len("refresh=") + len(refreshStr)
+	}
+	if query.Range != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("range=") + len(rangeStr)
 	}
 	if query.Indexes != "" {
 		if n > 0 {
@@ -589,17 +319,39 @@ func PageLine(query QueryPageLine) string {
 		n++
 		l += len("paused=") + len(pausedStr)
 	}
+	if query.Sync {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("sync=") + len(syncStr)
+	}
+	if query.Layout != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("layout=") + len(layoutStr)
+	}
 	_ = n
 
 	b.Grow(l)
 
-	b.WriteString("/line/")
+	b.WriteString("/map/")
 	if anyQuery {
 		b.WriteString("?")
 	}
 
 	n = 0
 
+	if query.Type != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("type=")
+		b.WriteString(typeStr)
+	}
 	if query.Refresh != "" {
 		if n > 0 {
 			b.WriteString("&")
@@ -607,6 +359,14 @@ func PageLine(query QueryPageLine) string {
 		n++
 		b.WriteString("refresh=")
 		b.WriteString(refreshStr)
+	}
+	if query.Range != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("range=")
+		b.WriteString(rangeStr)
 	}
 	if query.Indexes != "" {
 		if n > 0 {
@@ -620,16 +380,217 @@ func PageLine(query QueryPageLine) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("paused=")
 		b.WriteString(pausedStr)
+	}
+	if query.Sync {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("sync=")
+		b.WriteString(syncStr)
+	}
+	if query.Layout != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("layout=")
+		b.WriteString(layoutStr)
 	}
 
 	return b.String()
 }
 
-// QueryPageLine is the query parameters for PageLine
-type QueryPageLine struct {
+// QueryPageMap is the query parameters for PageMap
+type QueryPageMap struct {
+	Type    string `query:"type"`
 	Refresh string `query:"refresh"`
+	Range   string `query:"range"`
 	Indexes string `query:"indexes"`
 	Paused  int64  `query:"paused"`
+	Sync    bool   `query:"sync"`
+	Layout  string `query:"layout"`
+}
+
+// PagePortfolio references /portfolio/{$}
+func PagePortfolio(query QueryPagePortfolio) string {
+	var (
+		typeStr    string
+		refreshStr string
+		rangeStr   string
+		indexesStr string
+		pausedStr  string
+		syncStr    string
+		layoutStr  string
+	)
+
+	if query.Type != "" {
+		typeStr = url.QueryEscape(query.Type)
+	}
+	if query.Refresh != "" {
+		refreshStr = url.QueryEscape(query.Refresh)
+	}
+	if query.Range != "" {
+		rangeStr = url.QueryEscape(query.Range)
+	}
+	if query.Indexes != "" {
+		indexesStr = url.QueryEscape(query.Indexes)
+	}
+	if query.Paused != 0 {
+		pausedStr = url.QueryEscape(strconv.FormatInt(query.Paused, 10))
+	}
+	if query.Sync {
+		syncStr = url.QueryEscape(strconv.FormatBool(query.Sync))
+	}
+	if query.Layout != "" {
+		layoutStr = url.QueryEscape(query.Layout)
+	}
+
+	anyQuery := query.Type != "" ||
+		query.Refresh != "" ||
+		query.Range != "" ||
+		query.Indexes != "" ||
+		query.Paused != 0 ||
+		query.Sync ||
+		query.Layout != ""
+
+	var b strings.Builder
+	l := len("/portfolio/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Type != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("type=") + len(typeStr)
+	}
+	if query.Refresh != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("refresh=") + len(refreshStr)
+	}
+	if query.Range != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("range=") + len(rangeStr)
+	}
+	if query.Indexes != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("indexes=") + len(indexesStr)
+	}
+	if query.Paused != 0 {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("paused=") + len(pausedStr)
+	}
+	if query.Sync {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("sync=") + len(syncStr)
+	}
+	if query.Layout != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("layout=") + len(layoutStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/portfolio/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Type != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("type=")
+		b.WriteString(typeStr)
+	}
+	if query.Refresh != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("refresh=")
+		b.WriteString(refreshStr)
+	}
+	if query.Range != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("range=")
+		b.WriteString(rangeStr)
+	}
+	if query.Indexes != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("indexes=")
+		b.WriteString(indexesStr)
+	}
+	if query.Paused != 0 {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("paused=")
+		b.WriteString(pausedStr)
+	}
+	if query.Sync {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("sync=")
+		b.WriteString(syncStr)
+	}
+	if query.Layout != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("layout=")
+		b.WriteString(layoutStr)
+	}
+
+	return b.String()
+}
+
+// QueryPagePortfolio is the query parameters for PagePortfolio
+type QueryPagePortfolio struct {
+	Type    string `query:"type"`
+	Refresh string `query:"refresh"`
+	Range   string `query:"range"`
+	Indexes string `query:"indexes"`
+	Paused  int64  `query:"paused"`
+	Sync    bool   `query:"sync"`
+	Layout  string `query:"layout"`
 }

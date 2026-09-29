@@ -57,6 +57,7 @@ Public, imported by application or generated code:
 
 - root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds every server option: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. None are generated.
 - `cmd/datapages/` - the shipped binary.
+- `datapagestest/` - the client an application's tests use: visitors with a cookie jar and CSRF tokens, page loads, Datastar actions, SSE streams and redirect targets. `internal/acceptance/datapagestest` runs it against a generated server.
 - `modules/` - pluggable modules: csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
   - `httpserve` - the server core a generated one embeds: listener, routes, middleware chain, logger, shutdown, redirect, Datastar request check, dev-mode cache headers, the assets file system and the HTML document writer.
@@ -82,7 +83,7 @@ Examples, one module each:
 - `example/fast-shim/` - instant loads: cached shims morphed by Datastar.
 - `example/offline-cache/` - service-worker offline support, handler-written cache and a `PageOffline` fallback, on a ticketing app.
 - `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through middleware below the asset prefix, both directions paced by a server-side rate limit.
-- `example/realtime-charts/` - charts of a simulated market, one page per chart type: a goroutine outside any handler writes an in-memory time-series database and publishes one subject per index, streams subscribe to them by wildcard, the pages share their stream handlers by embedding, `*App` actions reach their tab through a `SubjectStateID` event and signal patches carry the bars to a custom element.
+- `example/realtime-charts/` - charts of a simulated market in six chart types, a market map and a portfolio, one page each: a goroutine outside any handler writes an in-memory time-series database and publishes one subject per index, streams subscribe to them by wildcard, the pages share their stream handlers by embedding, `*App` actions reach their tab through a `SubjectStateID` event and signal patches carry the bars to custom elements around three chart libraries.
 
 Where code goes:
 
@@ -207,7 +208,8 @@ Do write:
 Form:
 
 - Respect [writing](#writing).
-- Plain sentences, present tense, within the line limit.
+- Plain sentences, present tense.
+- Wrap comment lines at 90 columns, counting a tab as 4 columns. Fill each line: break only before a word that would pass column 90.
 - Go doc comments on exported names start with the name. This is the one place where repeating the name is required.
 - Put the comment above the code, not after it. Comments after the code are for short notes on struct fields, enum values and table-test rows.
 - Reference other code with Go doc links in square brackets: `[Scan]`, `[Parser.Parse]`, `[github.com/romshark/datapages.Subject]`.

@@ -8,6 +8,11 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+### Added
+
+- Add the `datapagestest` package for testing an app over HTTP the way a browser running Datastar uses it. A visitor keeps its own cookie jar and sends the CSRF token of its session. A tab keeps the `Datapages-Instance` of its page load and sends actions with their signals in the body, or in the query of a DELETE. A stream waits for a matching event and proves an event's absence with a later anchor. `Response.Redirect` reads the target of each redirect form. The server runs on in-memory connections, which lets a test run inside a `testing/synctest` bubble.
+- Add the `datapages-testing` skill to the agent instructions `datapages init` writes. It covers testing an app with `datapagestest`: page loads, actions, SSE streams, per-tab state, events, sessions and CSRF, and waiting for a condition instead of a fixed time. Run `datapages init` to add it to an existing project.
+
 ### Fixed
 
 - Write the CSRF script into every request-specific page and action response whose actions carry a session cookie, including documents whose handlers do not accept a session. This prevents actions submitted from those documents from returning 403. `PageOffline` and page-cache entries omit the script because visitors share them. Run `datapages gen`.

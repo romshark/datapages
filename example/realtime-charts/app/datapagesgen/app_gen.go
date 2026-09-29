@@ -270,34 +270,6 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
-func evSubjPageArea(stateID string) []string {
-	return []string{
-		EvSubjIndexTicked,
-		EvPrefixSettingsChanged + stateID,
-	}
-}
-
-func evSubjPageBars(stateID string) []string {
-	return []string{
-		EvSubjIndexTicked,
-		EvPrefixSettingsChanged + stateID,
-	}
-}
-
-func evSubjPageBaseline(stateID string) []string {
-	return []string{
-		EvSubjIndexTicked,
-		EvPrefixSettingsChanged + stateID,
-	}
-}
-
-func evSubjPageHistogram(stateID string) []string {
-	return []string{
-		EvSubjIndexTicked,
-		EvPrefixSettingsChanged + stateID,
-	}
-}
-
 func evSubjPageIndex(stateID string) []string {
 	return []string{
 		EvSubjIndexTicked,
@@ -305,7 +277,14 @@ func evSubjPageIndex(stateID string) []string {
 	}
 }
 
-func evSubjPageLine(stateID string) []string {
+func evSubjPageMap(stateID string) []string {
+	return []string{
+		EvSubjIndexTicked,
+		EvPrefixSettingsChanged + stateID,
+	}
+}
+
+func evSubjPagePortfolio(stateID string) []string {
 	return []string{
 		EvSubjIndexTicked,
 		EvPrefixSettingsChanged + stateID,
@@ -462,35 +441,11 @@ func (s *Server) releaseStateCharts(id string, slot *stateSlotStateCharts) {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
-		"GET /area/{$}",
-		pageAreaHandlers{s}.GET)
-	s.Mux().HandleFunc(
-		"GET /area/_$/{$}",
-		pageAreaHandlers{s}.GETStream)
-	s.Mux().HandleFunc(
-		"GET /bars/{$}",
-		pageBarsHandlers{s}.GET)
-	s.Mux().HandleFunc(
-		"GET /bars/_$/{$}",
-		pageBarsHandlers{s}.GETStream)
-	s.Mux().HandleFunc(
-		"GET /baseline/{$}",
-		pageBaselineHandlers{s}.GET)
-	s.Mux().HandleFunc(
-		"GET /baseline/_$/{$}",
-		pageBaselineHandlers{s}.GETStream)
-	s.Mux().HandleFunc(
 		"GET /not-found/{$}",
 		pageError404Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /error/{$}",
 		pageError500Handlers{s}.GET)
-	s.Mux().HandleFunc(
-		"GET /histogram/{$}",
-		pageHistogramHandlers{s}.GET)
-	s.Mux().HandleFunc(
-		"GET /histogram/_$/{$}",
-		pageHistogramHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
@@ -498,17 +453,26 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
-		"GET /line/{$}",
-		pageLineHandlers{s}.GET)
+		"GET /map/{$}",
+		pageMapHandlers{s}.GET)
 	s.Mux().HandleFunc(
-		"GET /line/_$/{$}",
-		pageLineHandlers{s}.GETStream)
+		"GET /map/_$/{$}",
+		pageMapHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /portfolio/{$}",
+		pagePortfolioHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /portfolio/_$/{$}",
+		pagePortfolioHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /settings/{$}",
 		appHandlers{s}.POSTSettings)
 	s.Mux().HandleFunc(
 		"POST /toggle/{symbol}/{$}",
 		appHandlers{s}.POSTToggle)
+	s.Mux().HandleFunc(
+		"POST /select/{selection}/{$}",
+		appHandlers{s}.POSTSelect)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -654,94 +618,8 @@ func (s appHandlers) POSTToggle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type pageAreaHandlers struct{ *Server }
-
-func (s pageAreaHandlers) GET(w http.ResponseWriter, r *http.Request) {
-
-	var query datapages.Query[dpapp.ViewQuery]
-	query.Values.Refresh = httpread.QueryValue(r.URL.RawQuery, "refresh")
-	query.Values.Indexes = httpread.QueryValue(r.URL.RawQuery, "indexes")
-	{
-		if q := httpread.QueryValue(r.URL.RawQuery, "paused"); q != "" {
-			i, err := strconv.ParseInt(q, 10, 64)
-			if err != nil {
-				s.HTTPErrBad(w, "unexpected value for query parameter: paused", err)
-				return
-			}
-			query.Values.Paused = i
-		}
-	}
-
-	instanceID, err := newStateInstanceID()
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "minting state instance", err)
-		return
-	}
-	w.Header().Set(stateInstanceIDHeader, instanceID)
-	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
-
-	p := dpapp.PageArea{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	defer s.recoverPanic(w, r, nil, "PageArea.GET")
-	body, disableRefreshAfterHidden, err := p.GET(r, query)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageArea.GET", err)
-		return
-	}
-	genericHead := s.app.Head(r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		if !disableRefreshAfterHidden {
-			httpserve.WriteReloadOnVisibility(w)
-		}
-
-		_, _ = io.WriteString(w, ` data-signals:refresh="'`)
-		htmlattr.WriteSignalString(w, query.Values.Refresh)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:indexes="'`)
-		htmlattr.WriteSignalString(w, query.Values.Indexes)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:paused="`)
-		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.Paused, 10))
-		_, _ = io.WriteString(w, `"`)
-	}
-
-	bodySuffix := func(w http.ResponseWriter) {
-
-		_, _ = io.WriteString(w, ` data-init="@get('/area/_$/',{retry:'error'})"`)
-
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
-			if ($refresh) params.set('refresh', $refresh); else params.delete('refresh');
-			if ($indexes) params.set('indexes', $indexes); else params.delete('indexes');
-			if ($paused) params.set('paused', $paused); else params.delete('paused');
-			const query = params.toString();
-			window.history.replaceState(null, '', (query ? '/area?' + query : '/area') + location.hash);
-		"`)
-	}
-
-	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
-	); err != nil {
-		s.LogErr("rendering PageArea", err)
-		return
-	}
-}
-
-func (s pageAreaHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-
-	var signals datapages.Signals[dpapp.Settings]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
+func (s appHandlers) POSTSelect(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
 		return
 	}
 
@@ -751,453 +629,33 @@ func (s pageAreaHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	slot := s.allocateStateCharts(instanceID)
-	if slot == nil {
-		w.Header().Set("Retry-After", "5")
-		http.Error(w,
-			http.StatusText(http.StatusServiceUnavailable),
-			http.StatusServiceUnavailable)
-		return
-	}
-	defer s.releaseStateCharts(instanceID, slot)
-	stateID := stateRouteKey(instanceID)
-
-	p := dpapp.PageArea{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	s.handleStreamRequest(w, r, evSubjPageArea(stateID),
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
-			return p.StreamOpen(r, dpsse.New(sse), datapages.State[dpapp.StateCharts]{Values: slot.state}, signals)
-		},
-		func(streamID datapages.StreamID) {
-			s.releaseStateCharts(instanceID, slot)
-		},
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			defer s.recoverPanic(w, r, sse, "PageArea stream")
-			var eventIndexTicked dpapp.EventIndexTicked
-			var eventSettingsChanged dpapp.EventSettingsChanged
-			for msg := range ch {
-				switch {
-				case strings.HasPrefix(msg.Subject, EvPrefixIndexTicked):
-					eventIndexTicked = dpapp.EventIndexTicked{}
-					if err := json.Unmarshal(msg.Data, &eventIndexTicked); err != nil {
-						s.LogErr("unmarshaling EventIndexTicked JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnIndexTicked(
-							eventIndexTicked,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageArea.OnIndexTicked", err)
-						}
-					}()
-				case strings.HasPrefix(msg.Subject, EvPrefixSettingsChanged):
-					eventSettingsChanged = dpapp.EventSettingsChanged{}
-					if err := json.Unmarshal(msg.Data, &eventSettingsChanged); err != nil {
-						s.LogErr("unmarshaling EventSettingsChanged JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnSettingsChanged(
-							eventSettingsChanged,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageArea.OnSettingsChanged", err)
-						}
-					}()
-				}
-			}
-		})
-}
-
-type pageBarsHandlers struct{ *Server }
-
-func (s pageBarsHandlers) GET(w http.ResponseWriter, r *http.Request) {
-
-	var query datapages.Query[dpapp.ViewQuery]
-	query.Values.Refresh = httpread.QueryValue(r.URL.RawQuery, "refresh")
-	query.Values.Indexes = httpread.QueryValue(r.URL.RawQuery, "indexes")
-	{
-		if q := httpread.QueryValue(r.URL.RawQuery, "paused"); q != "" {
-			i, err := strconv.ParseInt(q, 10, 64)
-			if err != nil {
-				s.HTTPErrBad(w, "unexpected value for query parameter: paused", err)
-				return
-			}
-			query.Values.Paused = i
-		}
-	}
-
-	instanceID, err := newStateInstanceID()
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "minting state instance", err)
-		return
-	}
-	w.Header().Set(stateInstanceIDHeader, instanceID)
-	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
-
-	p := dpapp.PageBars{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	defer s.recoverPanic(w, r, nil, "PageBars.GET")
-	body, disableRefreshAfterHidden, err := p.GET(r, query)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageBars.GET", err)
-		return
-	}
-	genericHead := s.app.Head(r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		if !disableRefreshAfterHidden {
-			httpserve.WriteReloadOnVisibility(w)
-		}
-
-		_, _ = io.WriteString(w, ` data-signals:refresh="'`)
-		htmlattr.WriteSignalString(w, query.Values.Refresh)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:indexes="'`)
-		htmlattr.WriteSignalString(w, query.Values.Indexes)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:paused="`)
-		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.Paused, 10))
-		_, _ = io.WriteString(w, `"`)
-	}
-
-	bodySuffix := func(w http.ResponseWriter) {
-
-		_, _ = io.WriteString(w, ` data-init="@get('/bars/_$/',{retry:'error'})"`)
-
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
-			if ($refresh) params.set('refresh', $refresh); else params.delete('refresh');
-			if ($indexes) params.set('indexes', $indexes); else params.delete('indexes');
-			if ($paused) params.set('paused', $paused); else params.delete('paused');
-			const query = params.toString();
-			window.history.replaceState(null, '', (query ? '/bars?' + query : '/bars') + location.hash);
-		"`)
-	}
-
-	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
-	); err != nil {
-		s.LogErr("rendering PageBars", err)
-		return
-	}
-}
-
-func (s pageBarsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-
-	var signals datapages.Signals[dpapp.Settings]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-
-	instanceID := r.Header.Get(stateInstanceIDHeader)
-	if !wellFormedStateInstanceID(instanceID) {
+	slot, ok := s.lookupStateCharts(instanceID)
+	if !ok {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	slot := s.allocateStateCharts(instanceID)
-	if slot == nil {
-		w.Header().Set("Retry-After", "5")
-		http.Error(w,
-			http.StatusText(http.StatusServiceUnavailable),
-			http.StatusServiceUnavailable)
-		return
-	}
-	defer s.releaseStateCharts(instanceID, slot)
 	stateID := stateRouteKey(instanceID)
 
-	p := dpapp.PageBars{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	s.handleStreamRequest(w, r, evSubjPageBars(stateID),
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
-			return p.StreamOpen(r, dpsse.New(sse), datapages.State[dpapp.StateCharts]{Values: slot.state}, signals)
-		},
-		func(streamID datapages.StreamID) {
-			s.releaseStateCharts(instanceID, slot)
-		},
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			defer s.recoverPanic(w, r, sse, "PageBars stream")
-			var eventIndexTicked dpapp.EventIndexTicked
-			var eventSettingsChanged dpapp.EventSettingsChanged
-			for msg := range ch {
-				switch {
-				case strings.HasPrefix(msg.Subject, EvPrefixIndexTicked):
-					eventIndexTicked = dpapp.EventIndexTicked{}
-					if err := json.Unmarshal(msg.Data, &eventIndexTicked); err != nil {
-						s.LogErr("unmarshaling EventIndexTicked JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnIndexTicked(
-							eventIndexTicked,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageBars.OnIndexTicked", err)
-						}
-					}()
-				case strings.HasPrefix(msg.Subject, EvPrefixSettingsChanged):
-					eventSettingsChanged = dpapp.EventSettingsChanged{}
-					if err := json.Unmarshal(msg.Data, &eventSettingsChanged); err != nil {
-						s.LogErr("unmarshaling EventSettingsChanged JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnSettingsChanged(
-							eventSettingsChanged,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageBars.OnSettingsChanged", err)
-						}
-					}()
-				}
-			}
-		})
-}
-
-type pageBaselineHandlers struct{ *Server }
-
-func (s pageBaselineHandlers) GET(w http.ResponseWriter, r *http.Request) {
-
-	var query datapages.Query[dpapp.ViewQuery]
-	query.Values.Refresh = httpread.QueryValue(r.URL.RawQuery, "refresh")
-	query.Values.Indexes = httpread.QueryValue(r.URL.RawQuery, "indexes")
-	{
-		if q := httpread.QueryValue(r.URL.RawQuery, "paused"); q != "" {
-			i, err := strconv.ParseInt(q, 10, 64)
-			if err != nil {
-				s.HTTPErrBad(w, "unexpected value for query parameter: paused", err)
-				return
-			}
-			query.Values.Paused = i
-		}
-	}
-
-	instanceID, err := newStateInstanceID()
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "minting state instance", err)
-		return
-	}
-	w.Header().Set(stateInstanceIDHeader, instanceID)
-	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
-
-	p := dpapp.PageBaseline{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	defer s.recoverPanic(w, r, nil, "PageBaseline.GET")
-	body, disableRefreshAfterHidden, err := p.GET(r, query)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageBaseline.GET", err)
-		return
-	}
-	genericHead := s.app.Head(r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		if !disableRefreshAfterHidden {
-			httpserve.WriteReloadOnVisibility(w)
-		}
-
-		_, _ = io.WriteString(w, ` data-signals:refresh="'`)
-		htmlattr.WriteSignalString(w, query.Values.Refresh)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:indexes="'`)
-		htmlattr.WriteSignalString(w, query.Values.Indexes)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:paused="`)
-		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.Paused, 10))
-		_, _ = io.WriteString(w, `"`)
-	}
-
-	bodySuffix := func(w http.ResponseWriter) {
-
-		_, _ = io.WriteString(w, ` data-init="@get('/baseline/_$/',{retry:'error'})"`)
-
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
-			if ($refresh) params.set('refresh', $refresh); else params.delete('refresh');
-			if ($indexes) params.set('indexes', $indexes); else params.delete('indexes');
-			if ($paused) params.set('paused', $paused); else params.delete('paused');
-			const query = params.toString();
-			window.history.replaceState(null, '', (query ? '/baseline?' + query : '/baseline') + location.hash);
-		"`)
-	}
-
-	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
-	); err != nil {
-		s.LogErr("rendering PageBaseline", err)
-		return
-	}
-}
-
-func (s pageBaselineHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-
-	var signals datapages.Signals[dpapp.Settings]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-
-	instanceID := r.Header.Get(stateInstanceIDHeader)
-	if !wellFormedStateInstanceID(instanceID) {
+	var path datapages.Path[struct {
+		Selection string `path:"selection"`
+	}]
+	path.Values.Selection = r.PathValue("selection")
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	slot := s.allocateStateCharts(instanceID)
-	if slot == nil {
-		w.Header().Set("Retry-After", "5")
-		http.Error(w,
-			http.StatusText(http.StatusServiceUnavailable),
-			http.StatusServiceUnavailable)
+
+	dispatchSettingsChanged := dispatcherEventSettingsChanged{s: s.Server, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "App.Select")
+	err := s.app.POSTSelect(r, path, datapages.State[dpapp.StateCharts]{Values: slot.state}, stateID, dispatchSettingsChanged)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Select", err)
 		return
 	}
-	defer s.releaseStateCharts(instanceID, slot)
-	stateID := stateRouteKey(instanceID)
-
-	p := dpapp.PageBaseline{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	s.handleStreamRequest(w, r, evSubjPageBaseline(stateID),
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
-			return p.StreamOpen(r, dpsse.New(sse), datapages.State[dpapp.StateCharts]{Values: slot.state}, signals)
-		},
-		func(streamID datapages.StreamID) {
-			s.releaseStateCharts(instanceID, slot)
-		},
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			defer s.recoverPanic(w, r, sse, "PageBaseline stream")
-			var eventIndexTicked dpapp.EventIndexTicked
-			var eventSettingsChanged dpapp.EventSettingsChanged
-			for msg := range ch {
-				switch {
-				case strings.HasPrefix(msg.Subject, EvPrefixIndexTicked):
-					eventIndexTicked = dpapp.EventIndexTicked{}
-					if err := json.Unmarshal(msg.Data, &eventIndexTicked); err != nil {
-						s.LogErr("unmarshaling EventIndexTicked JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnIndexTicked(
-							eventIndexTicked,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageBaseline.OnIndexTicked", err)
-						}
-					}()
-				case strings.HasPrefix(msg.Subject, EvPrefixSettingsChanged):
-					eventSettingsChanged = dpapp.EventSettingsChanged{}
-					if err := json.Unmarshal(msg.Data, &eventSettingsChanged); err != nil {
-						s.LogErr("unmarshaling EventSettingsChanged JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnSettingsChanged(
-							eventSettingsChanged,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageBaseline.OnSettingsChanged", err)
-						}
-					}()
-				}
-			}
-		})
 }
 
 type pageError404Handlers struct{ *Server }
@@ -1250,188 +708,6 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 	}
 }
 
-type pageHistogramHandlers struct{ *Server }
-
-func (s pageHistogramHandlers) GET(w http.ResponseWriter, r *http.Request) {
-
-	var query datapages.Query[dpapp.ViewQuery]
-	query.Values.Refresh = httpread.QueryValue(r.URL.RawQuery, "refresh")
-	query.Values.Indexes = httpread.QueryValue(r.URL.RawQuery, "indexes")
-	{
-		if q := httpread.QueryValue(r.URL.RawQuery, "paused"); q != "" {
-			i, err := strconv.ParseInt(q, 10, 64)
-			if err != nil {
-				s.HTTPErrBad(w, "unexpected value for query parameter: paused", err)
-				return
-			}
-			query.Values.Paused = i
-		}
-	}
-
-	instanceID, err := newStateInstanceID()
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "minting state instance", err)
-		return
-	}
-	w.Header().Set(stateInstanceIDHeader, instanceID)
-	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
-
-	p := dpapp.PageHistogram{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	defer s.recoverPanic(w, r, nil, "PageHistogram.GET")
-	body, disableRefreshAfterHidden, err := p.GET(r, query)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageHistogram.GET", err)
-		return
-	}
-	genericHead := s.app.Head(r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		if !disableRefreshAfterHidden {
-			httpserve.WriteReloadOnVisibility(w)
-		}
-
-		_, _ = io.WriteString(w, ` data-signals:refresh="'`)
-		htmlattr.WriteSignalString(w, query.Values.Refresh)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:indexes="'`)
-		htmlattr.WriteSignalString(w, query.Values.Indexes)
-		_, _ = io.WriteString(w, `'"`)
-
-		_, _ = io.WriteString(w, ` data-signals:paused="`)
-		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.Paused, 10))
-		_, _ = io.WriteString(w, `"`)
-	}
-
-	bodySuffix := func(w http.ResponseWriter) {
-
-		_, _ = io.WriteString(w, ` data-init="@get('/histogram/_$/',{retry:'error'})"`)
-
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
-			if ($refresh) params.set('refresh', $refresh); else params.delete('refresh');
-			if ($indexes) params.set('indexes', $indexes); else params.delete('indexes');
-			if ($paused) params.set('paused', $paused); else params.delete('paused');
-			const query = params.toString();
-			window.history.replaceState(null, '', (query ? '/histogram?' + query : '/histogram') + location.hash);
-		"`)
-	}
-
-	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
-	); err != nil {
-		s.LogErr("rendering PageHistogram", err)
-		return
-	}
-}
-
-func (s pageHistogramHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-
-	var signals datapages.Signals[dpapp.Settings]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-
-	instanceID := r.Header.Get(stateInstanceIDHeader)
-	if !wellFormedStateInstanceID(instanceID) {
-		w.Header().Set(stateRetryHeader, stateRetryReconnect)
-		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-		return
-	}
-	slot := s.allocateStateCharts(instanceID)
-	if slot == nil {
-		w.Header().Set("Retry-After", "5")
-		http.Error(w,
-			http.StatusText(http.StatusServiceUnavailable),
-			http.StatusServiceUnavailable)
-		return
-	}
-	defer s.releaseStateCharts(instanceID, slot)
-	stateID := stateRouteKey(instanceID)
-
-	p := dpapp.PageHistogram{
-		App: s.app,
-		Dashboard: dpapp.Dashboard{
-			App: s.app,
-		},
-	}
-	s.handleStreamRequest(w, r, evSubjPageHistogram(stateID),
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
-			return p.StreamOpen(r, dpsse.New(sse), datapages.State[dpapp.StateCharts]{Values: slot.state}, signals)
-		},
-		func(streamID datapages.StreamID) {
-			s.releaseStateCharts(instanceID, slot)
-		},
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			defer s.recoverPanic(w, r, sse, "PageHistogram stream")
-			var eventIndexTicked dpapp.EventIndexTicked
-			var eventSettingsChanged dpapp.EventSettingsChanged
-			for msg := range ch {
-				switch {
-				case strings.HasPrefix(msg.Subject, EvPrefixIndexTicked):
-					eventIndexTicked = dpapp.EventIndexTicked{}
-					if err := json.Unmarshal(msg.Data, &eventIndexTicked); err != nil {
-						s.LogErr("unmarshaling EventIndexTicked JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnIndexTicked(
-							eventIndexTicked,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageHistogram.OnIndexTicked", err)
-						}
-					}()
-				case strings.HasPrefix(msg.Subject, EvPrefixSettingsChanged):
-					eventSettingsChanged = dpapp.EventSettingsChanged{}
-					if err := json.Unmarshal(msg.Data, &eventSettingsChanged); err != nil {
-						s.LogErr("unmarshaling EventSettingsChanged JSON", err)
-						continue
-					}
-					slot.mu.Lock()
-					if slot.dead {
-						slot.mu.Unlock()
-						continue
-					}
-					func() {
-						defer slot.mu.Unlock()
-						if err := p.OnSettingsChanged(
-							eventSettingsChanged,
-							dpsse.New(sse),
-							datapages.State[dpapp.StateCharts]{Values: slot.state},
-						); err != nil {
-							s.LogErr("handling PageHistogram.OnSettingsChanged", err)
-						}
-					}()
-				}
-			}
-		})
-}
-
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -1441,7 +717,9 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var query datapages.Query[dpapp.ViewQuery]
+	query.Values.Type = httpread.QueryValue(r.URL.RawQuery, "type")
 	query.Values.Refresh = httpread.QueryValue(r.URL.RawQuery, "refresh")
+	query.Values.Range = httpread.QueryValue(r.URL.RawQuery, "range")
 	query.Values.Indexes = httpread.QueryValue(r.URL.RawQuery, "indexes")
 	{
 		if q := httpread.QueryValue(r.URL.RawQuery, "paused"); q != "" {
@@ -1453,6 +731,17 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			query.Values.Paused = i
 		}
 	}
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "sync"); q != "" {
+			b, err := strconv.ParseBool(q)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: sync", err)
+				return
+			}
+			query.Values.Sync = b
+		}
+	}
+	query.Values.Layout = httpread.QueryValue(r.URL.RawQuery, "layout")
 
 	instanceID, err := newStateInstanceID()
 	if err != nil {
@@ -1470,7 +759,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, disableRefreshAfterHidden, err := p.GET(r, query)
+	body, head, disableRefreshAfterHidden, err := p.GET(r, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -1482,8 +771,16 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			httpserve.WriteReloadOnVisibility(w)
 		}
 
+		_, _ = io.WriteString(w, ` data-signals:type="'`)
+		htmlattr.WriteSignalString(w, query.Values.Type)
+		_, _ = io.WriteString(w, `'"`)
+
 		_, _ = io.WriteString(w, ` data-signals:refresh="'`)
 		htmlattr.WriteSignalString(w, query.Values.Refresh)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:range="'`)
+		htmlattr.WriteSignalString(w, query.Values.Range)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, ` data-signals:indexes="'`)
@@ -1493,6 +790,14 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, ` data-signals:paused="`)
 		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.Paused, 10))
 		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, ` data-signals:sync="`)
+		htmlattr.WriteSignalValue(w, strconv.FormatBool(query.Values.Sync))
+		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, ` data-signals:layout="'`)
+		htmlattr.WriteSignalString(w, query.Values.Layout)
+		_, _ = io.WriteString(w, `'"`)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -1500,16 +805,20 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
 
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($type) params.set('type', $type); else params.delete('type');
 			if ($refresh) params.set('refresh', $refresh); else params.delete('refresh');
+			if ($range) params.set('range', $range); else params.delete('range');
 			if ($indexes) params.set('indexes', $indexes); else params.delete('indexes');
 			if ($paused) params.set('paused', $paused); else params.delete('paused');
+			if ($sync) params.set('sync', $sync); else params.delete('sync');
+			if ($layout) params.set('layout', $layout); else params.delete('layout');
 			const query = params.toString();
 			window.history.replaceState(null, '', (query ? '/?' + query : '/') + location.hash);
 		"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -1618,12 +927,14 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		})
 }
 
-type pageLineHandlers struct{ *Server }
+type pageMapHandlers struct{ *Server }
 
-func (s pageLineHandlers) GET(w http.ResponseWriter, r *http.Request) {
+func (s pageMapHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[dpapp.ViewQuery]
+	query.Values.Type = httpread.QueryValue(r.URL.RawQuery, "type")
 	query.Values.Refresh = httpread.QueryValue(r.URL.RawQuery, "refresh")
+	query.Values.Range = httpread.QueryValue(r.URL.RawQuery, "range")
 	query.Values.Indexes = httpread.QueryValue(r.URL.RawQuery, "indexes")
 	{
 		if q := httpread.QueryValue(r.URL.RawQuery, "paused"); q != "" {
@@ -1635,6 +946,17 @@ func (s pageLineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			query.Values.Paused = i
 		}
 	}
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "sync"); q != "" {
+			b, err := strconv.ParseBool(q)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: sync", err)
+				return
+			}
+			query.Values.Sync = b
+		}
+	}
+	query.Values.Layout = httpread.QueryValue(r.URL.RawQuery, "layout")
 
 	instanceID, err := newStateInstanceID()
 	if err != nil {
@@ -1645,16 +967,16 @@ func (s pageLineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	// A shared cache would expose this bearer id to another visitor.
 	w.Header().Set("Cache-Control", "no-store")
 
-	p := dpapp.PageLine{
+	p := dpapp.PageMap{
 		App: s.app,
 		Dashboard: dpapp.Dashboard{
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageLine.GET")
-	body, disableRefreshAfterHidden, err := p.GET(r, query)
+	defer s.recoverPanic(w, r, nil, "PageMap.GET")
+	body, head, disableRefreshAfterHidden, err := p.GET(r, query)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageLine.GET", err)
+		s.httpErrIntern(w, r, nil, "handling PageMap.GET", err)
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1664,8 +986,16 @@ func (s pageLineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			httpserve.WriteReloadOnVisibility(w)
 		}
 
+		_, _ = io.WriteString(w, ` data-signals:type="'`)
+		htmlattr.WriteSignalString(w, query.Values.Type)
+		_, _ = io.WriteString(w, `'"`)
+
 		_, _ = io.WriteString(w, ` data-signals:refresh="'`)
 		htmlattr.WriteSignalString(w, query.Values.Refresh)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:range="'`)
+		htmlattr.WriteSignalString(w, query.Values.Range)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, ` data-signals:indexes="'`)
@@ -1675,30 +1005,42 @@ func (s pageLineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, ` data-signals:paused="`)
 		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.Paused, 10))
 		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, ` data-signals:sync="`)
+		htmlattr.WriteSignalValue(w, strconv.FormatBool(query.Values.Sync))
+		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, ` data-signals:layout="'`)
+		htmlattr.WriteSignalString(w, query.Values.Layout)
+		_, _ = io.WriteString(w, `'"`)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/line/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/map/_$/',{retry:'error'})"`)
 
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($type) params.set('type', $type); else params.delete('type');
 			if ($refresh) params.set('refresh', $refresh); else params.delete('refresh');
+			if ($range) params.set('range', $range); else params.delete('range');
 			if ($indexes) params.set('indexes', $indexes); else params.delete('indexes');
 			if ($paused) params.set('paused', $paused); else params.delete('paused');
+			if ($sync) params.set('sync', $sync); else params.delete('sync');
+			if ($layout) params.set('layout', $layout); else params.delete('layout');
 			const query = params.toString();
-			window.history.replaceState(null, '', (query ? '/line?' + query : '/line') + location.hash);
+			window.history.replaceState(null, '', (query ? '/map?' + query : '/map') + location.hash);
 		"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
-		s.LogErr("rendering PageLine", err)
+		s.LogErr("rendering PageMap", err)
 		return
 	}
 }
 
-func (s pageLineHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageMapHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1726,13 +1068,13 @@ func (s pageLineHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	defer s.releaseStateCharts(instanceID, slot)
 	stateID := stateRouteKey(instanceID)
 
-	p := dpapp.PageLine{
+	p := dpapp.PageMap{
 		App: s.app,
 		Dashboard: dpapp.Dashboard{
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, evSubjPageLine(stateID),
+	s.handleStreamRequest(w, r, evSubjPageMap(stateID),
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
@@ -1748,7 +1090,7 @@ func (s pageLineHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
-			defer s.recoverPanic(w, r, sse, "PageLine stream")
+			defer s.recoverPanic(w, r, sse, "PageMap stream")
 			var eventIndexTicked dpapp.EventIndexTicked
 			var eventSettingsChanged dpapp.EventSettingsChanged
 			for msg := range ch {
@@ -1771,7 +1113,7 @@ func (s pageLineHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 							dpsse.New(sse),
 							datapages.State[dpapp.StateCharts]{Values: slot.state},
 						); err != nil {
-							s.LogErr("handling PageLine.OnIndexTicked", err)
+							s.LogErr("handling PageMap.OnIndexTicked", err)
 						}
 					}()
 				case strings.HasPrefix(msg.Subject, EvPrefixSettingsChanged):
@@ -1792,7 +1134,222 @@ func (s pageLineHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 							dpsse.New(sse),
 							datapages.State[dpapp.StateCharts]{Values: slot.state},
 						); err != nil {
-							s.LogErr("handling PageLine.OnSettingsChanged", err)
+							s.LogErr("handling PageMap.OnSettingsChanged", err)
+						}
+					}()
+				}
+			}
+		})
+}
+
+type pagePortfolioHandlers struct{ *Server }
+
+func (s pagePortfolioHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[dpapp.ViewQuery]
+	query.Values.Type = httpread.QueryValue(r.URL.RawQuery, "type")
+	query.Values.Refresh = httpread.QueryValue(r.URL.RawQuery, "refresh")
+	query.Values.Range = httpread.QueryValue(r.URL.RawQuery, "range")
+	query.Values.Indexes = httpread.QueryValue(r.URL.RawQuery, "indexes")
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "paused"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 64)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: paused", err)
+				return
+			}
+			query.Values.Paused = i
+		}
+	}
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "sync"); q != "" {
+			b, err := strconv.ParseBool(q)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: sync", err)
+				return
+			}
+			query.Values.Sync = b
+		}
+	}
+	query.Values.Layout = httpread.QueryValue(r.URL.RawQuery, "layout")
+
+	instanceID, err := newStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// A shared cache would expose this bearer id to another visitor.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := dpapp.PagePortfolio{
+		App: s.app,
+		Dashboard: dpapp.Dashboard{
+			App: s.app,
+		},
+	}
+	defer s.recoverPanic(w, r, nil, "PagePortfolio.GET")
+	body, head, disableRefreshAfterHidden, err := p.GET(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePortfolio.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		if !disableRefreshAfterHidden {
+			httpserve.WriteReloadOnVisibility(w)
+		}
+
+		_, _ = io.WriteString(w, ` data-signals:type="'`)
+		htmlattr.WriteSignalString(w, query.Values.Type)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:refresh="'`)
+		htmlattr.WriteSignalString(w, query.Values.Refresh)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:range="'`)
+		htmlattr.WriteSignalString(w, query.Values.Range)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:indexes="'`)
+		htmlattr.WriteSignalString(w, query.Values.Indexes)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:paused="`)
+		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.Paused, 10))
+		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, ` data-signals:sync="`)
+		htmlattr.WriteSignalValue(w, strconv.FormatBool(query.Values.Sync))
+		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, ` data-signals:layout="'`)
+		htmlattr.WriteSignalString(w, query.Values.Layout)
+		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/portfolio/_$/',{retry:'error'})"`)
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($type) params.set('type', $type); else params.delete('type');
+			if ($refresh) params.set('refresh', $refresh); else params.delete('refresh');
+			if ($range) params.set('range', $range); else params.delete('range');
+			if ($indexes) params.set('indexes', $indexes); else params.delete('indexes');
+			if ($paused) params.set('paused', $paused); else params.delete('paused');
+			if ($sync) params.set('sync', $sync); else params.delete('sync');
+			if ($layout) params.set('layout', $layout); else params.delete('layout');
+			const query = params.toString();
+			window.history.replaceState(null, '', (query ? '/portfolio?' + query : '/portfolio') + location.hash);
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, genericHead, head, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PagePortfolio", err)
+		return
+	}
+}
+
+func (s pagePortfolioHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	var signals datapages.Signals[dpapp.Settings]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateCharts(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateCharts(instanceID, slot)
+	stateID := stateRouteKey(instanceID)
+
+	p := dpapp.PagePortfolio{
+		App: s.app,
+		Dashboard: dpapp.Dashboard{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, evSubjPagePortfolio(stateID),
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(r, dpsse.New(sse), datapages.State[dpapp.StateCharts]{Values: slot.state}, signals)
+		},
+		func(streamID datapages.StreamID) {
+			s.releaseStateCharts(instanceID, slot)
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PagePortfolio stream")
+			var eventIndexTicked dpapp.EventIndexTicked
+			var eventSettingsChanged dpapp.EventSettingsChanged
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvPrefixIndexTicked):
+					eventIndexTicked = dpapp.EventIndexTicked{}
+					if err := json.Unmarshal(msg.Data, &eventIndexTicked); err != nil {
+						s.LogErr("unmarshaling EventIndexTicked JSON", err)
+						continue
+					}
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnIndexTicked(
+							eventIndexTicked,
+							dpsse.New(sse),
+							datapages.State[dpapp.StateCharts]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PagePortfolio.OnIndexTicked", err)
+						}
+					}()
+				case strings.HasPrefix(msg.Subject, EvPrefixSettingsChanged):
+					eventSettingsChanged = dpapp.EventSettingsChanged{}
+					if err := json.Unmarshal(msg.Data, &eventSettingsChanged); err != nil {
+						s.LogErr("unmarshaling EventSettingsChanged JSON", err)
+						continue
+					}
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnSettingsChanged(
+							eventSettingsChanged,
+							dpsse.New(sse),
+							datapages.State[dpapp.StateCharts]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PagePortfolio.OnSettingsChanged", err)
 						}
 					}()
 				}

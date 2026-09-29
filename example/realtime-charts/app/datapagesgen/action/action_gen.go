@@ -174,8 +174,30 @@ func WithRequestCancellationController(expr string) Option {
 var App app
 
 type app struct {
+	Select   app_Select
 	Settings app_Settings
 	Toggle   app_Toggle
+}
+
+type app_Select struct{}
+
+// POST references /select/{selection}/
+func (app_Select) POST(
+	selection string,
+	options ...Option,
+) string {
+	s_selection := url.PathEscape(selection)
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/select/") + len(s_selection) + len("/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/select/")
+	b.WriteString(s_selection)
+	b.WriteString("/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
 }
 
 type app_Settings struct{}

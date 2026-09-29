@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/realtime-charts/market"
@@ -18,17 +19,17 @@ var StaticFS embed.FS
 
 // EventIndexTicked is "index.ticked"
 //
-// The market loop in cmd/server publishes it for every index after every
-// tick, each index on a subject of its own: index.ticked.GLWT for GLWT.
-// The event carries nothing else: a stream reads the prices from the database.
+// The market loop in cmd/server publishes it for every index after every tick, each index
+// on a subject of its own: index.ticked.GLWT for GLWT. The event carries nothing else: a
+// stream reads the prices from the database.
 type EventIndexTicked struct {
 	Index datapages.Subject `json:"index"`
 }
 
 // EventSettingsChanged is "settings.changed"
 //
-// POSTSettings and POSTToggle dispatch it to the tab whose settings they
-// changed. The settings are in the state of that tab.
+// [App.POSTSettings], [App.POSTToggle] and [App.POSTSelect] dispatch it to the tab whose
+// settings they changed. The settings are in the state of that tab.
 type EventSettingsChanged struct {
 	Tab datapages.SubjectStateID `json:"tab"`
 }
@@ -53,11 +54,11 @@ func (*App) RecoverError(err error, sse datapages.SSE) error {
 
 // POSTSettings is /settings/{$}
 //
-// It changes the refresh interval of the calling tab and pauses or resumes
-// it. Every view page calls it, which makes it an action of App, and an App
-// action cannot patch the page that called it. It dispatches an event to the
-// calling tab instead, and [Dashboard.OnSettingsChanged] renders the change
-// on the stream of that tab.
+// It changes the chart type, the refresh interval, the time range and the layout of the
+// calling tab, pauses or resumes it and turns the sync of its charts on or off. Every
+// view page calls it, which makes it an action of App, and an App action cannot patch the
+// page that called it. It dispatches an event to the calling tab instead, and
+// [Dashboard.OnSettingsChanged] renders the change on the stream of that tab.
 func (a *App) POSTSettings(
 	r *http.Request,
 	state datapages.State[StateCharts],
@@ -65,15 +66,34 @@ func (a *App) POSTSettings(
 	signals datapages.Signals[Settings],
 	settingsChanged datapages.Dispatcher[EventSettingsChanged],
 ) error {
+	typ, ok := parseType(signals.Values.Type)
+	if !ok {
+		return fmt.Errorf("%w: chart type %q",
+			datapages.ErrBadRequest, signals.Values.Type)
+	}
+	lay, ok := parseLayout(signals.Values.Layout)
+	if !ok {
+		return fmt.Errorf("%w: layout %q",
+			datapages.ErrBadRequest, signals.Values.Layout)
+	}
 	refresh, ok := parseRefresh(signals.Values.Refresh)
 	if !ok {
 		return fmt.Errorf("%w: refresh interval %q",
 			datapages.ErrBadRequest, signals.Values.Refresh)
 	}
+	rng, ok := a.parseRange(signals.Values.Range)
+	if !ok {
+		return fmt.Errorf("%w: time range %q",
+			datapages.ErrBadRequest, signals.Values.Range)
+	}
 	paused := a.pausedAt(signals.Values.Paused)
+	state.Values.Type = typ
 	state.Values.Refresh = refresh
+	state.Values.Range = rng
 	state.Values.Resumed = state.Values.Paused != 0 && paused == 0
 	state.Values.Paused = paused
+	state.Values.Sync = signals.Values.Sync
+	state.Values.Layout = lay
 	return settingsChanged.Dispatch(EventSettingsChanged{
 		Tab: datapages.SubjectStateID(stateID),
 	})
@@ -81,8 +101,8 @@ func (a *App) POSTSettings(
 
 // POSTToggle is /toggle/{symbol}/{$}
 //
-// It shows or hides the chart of an index on the calling tab, the way
-// POSTSettings changes the settings.
+// It shows or hides the chart of an index on the calling tab, the way [App.POSTSettings]
+// changes the settings.
 func (a *App) POSTToggle(
 	r *http.Request,
 	path datapages.Path[struct {
@@ -101,29 +121,64 @@ func (a *App) POSTToggle(
 	})
 }
 
+// POSTSelect is /select/{selection}/{$}
+//
+// It shows the charts of all indexes on the calling tab when the selection is all and
+// hides them when it is none, the way [App.POSTToggle] shows or hides one.
+func (a *App) POSTSelect(
+	r *http.Request,
+	path datapages.Path[struct {
+		Selection string `path:"selection"`
+	}],
+	state datapages.State[StateCharts],
+	stateID string,
+	settingsChanged datapages.Dispatcher[EventSettingsChanged],
+) error {
+	switch path.Values.Selection {
+	case "all":
+		// The state must not share everyIndex with every other tab.
+		state.Values.Indexes = slices.Clone(everyIndex)
+	case "none":
+		state.Values.Indexes = nil
+	default:
+		return fmt.Errorf("%w: selection %q",
+			datapages.ErrNotFound, path.Values.Selection)
+	}
+	return settingsChanged.Dispatch(EventSettingsChanged{
+		Tab: datapages.SubjectStateID(stateID),
+	})
+}
+
 // now returns the time of the newest prices in Unix seconds.
 func (a *App) now() int64 { return a.market.Now() / 1000 }
 
-// pausedAt returns the Unix second p freezes the charts at: zero for a live
-// tab, else p moved into the seconds the database holds. A link to a moment
-// the database no longer holds shows the oldest one it does.
+// pausedAt returns the Unix second p freezes the charts at: zero for a live tab, else p
+// moved into the seconds the database holds. A link to a moment the database no longer
+// holds shows the oldest one it does.
 func (a *App) pausedAt(p int64) int64 {
 	if p <= 0 {
 		return 0
 	}
-	// Every index has a price at the same times, which makes the first
-	// index stand for all of them.
+	// Every index has a price at the same times, which makes the first index stand for
+	// all of them.
 	first, _ := a.db.First(market.Indexes[0].Symbol)
 	return min(max(p, (first.Time+999)/1000), a.now())
 }
 
-// position maps the symbol of an index to its position in [market.Indexes].
 var position = func() map[string]int {
 	m := make(map[string]int, len(market.Indexes))
 	for i, in := range market.Indexes {
 		m[in.Symbol] = i
 	}
 	return m
+}()
+
+var everyIndex = func() []string {
+	symbols := make([]string, len(market.Indexes))
+	for i, in := range market.Indexes {
+		symbols[i] = in.Symbol
+	}
+	return symbols
 }()
 
 // PageError404 is /not-found

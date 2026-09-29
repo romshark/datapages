@@ -43,7 +43,7 @@ Datapages parses your app source packages, lints them, reports errors, and gener
 - [`fast-shim`](example/fast-shim/): A cached placeholder shown immediately and replaced with the live response.
 - [`offline-cache`](example/offline-cache/): Service worker support with handler-cached pages, a `PageOffline` fallback, and tickets available without a connection.
 - [`file-upload`](example/file-upload/): Chunked file uploads to disk that can be paused, resumed and continued after a reload or a server restart, with server-enforced transfer limits.
-- [`realtime-charts`](example/realtime-charts/): A scrollable grid of [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/) of a simulated market in six chart types. An in-memory time-series database fed by a goroutine that publishes one subject per index, a sidebar that selects the indexes and a pause the URL carries as a timestamp.
+- [`realtime-charts`](example/realtime-charts/): A scrollable grid of [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) of a simulated market in six chart types, a market map drawn with [Apache ECharts](https://echarts.apache.org/) and a portfolio of the selected indexes drawn with [uPlot](https://github.com/leeoniya/uPlot). An in-memory time-series database fed by a goroutine that publishes one subject per index, a sidebar that selects the indexes and a pause the URL carries as a timestamp.
 
 ## Getting Started
 
