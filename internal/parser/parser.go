@@ -80,6 +80,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
 	validateRouteVarNames(&ctx, &errs)
+	validateRouteChars(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
@@ -1950,17 +1951,41 @@ func collectPageStateNames(pg *model.Page) map[string]struct{} {
 // and both leave a generated href and action package the user's build refuses.
 // The report names the route, which is the one line the user edits.
 func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
-	check := func(route string, expr ast.Expr, owner string) {
-		if !strings.HasPrefix(route, "/") {
-			// Reported where the route is read.
-			return
-		}
+	eachRoute(ctx, func(route string, expr ast.Expr, owner string) {
 		for v := range routepattern.Vars(route) {
 			if validate.RouteVarName(v) == nil {
 				continue
 			}
 			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
 				&RouteVarNameInvalidError{Owner: owner, Route: route, Var: v})
+		}
+	})
+}
+
+// validateRouteChars reports a double quote or a backslash in a route.
+// Generated code writes routes into Go string literals unescaped, where a quote
+// ends the literal and a backslash starts an escape sequence, which can turn
+// the route into another one, as `\u00e9` does.
+//
+// Their percent-encoded forms work: net/http decodes them before matching.
+func validateRouteChars(ctx *parseCtx, errs *Errors) {
+	eachRoute(ctx, func(route string, expr ast.Expr, owner string) {
+		if i := strings.IndexAny(route, "\"\\"); i >= 0 {
+			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
+				&RouteCharInvalidError{
+					Owner: owner, Route: route, Char: rune(route[i]),
+				})
+		}
+	})
+}
+
+// eachRoute calls fn for every page, page action and app action route.
+// A route that does not start with "/" is skipped:
+// it's reported where the route is read.
+func eachRoute(ctx *parseCtx, fn func(route string, expr ast.Expr, owner string)) {
+	check := func(route string, expr ast.Expr, owner string) {
+		if strings.HasPrefix(route, "/") {
+			fn(route, expr, owner)
 		}
 	}
 	for _, p := range ctx.app.Pages {

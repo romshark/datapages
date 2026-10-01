@@ -206,6 +206,8 @@ var (
 
 	ErrRouteVarNameInvalid = validate.ErrRouteVarNameInvalid
 
+	ErrRouteCharInvalid = errors.New("route contains an unsupported character")
+
 	ErrEventSubjectDuplicate = errors.New("duplicate event subject")
 
 	ErrEventSubjectOverlap = errors.New("overlapping event subjects")
@@ -699,6 +701,21 @@ func (e *RouteVarNameInvalidError) Error() string {
 }
 
 func (e *RouteVarNameInvalidError) Unwrap() error { return ErrRouteVarNameInvalid }
+
+// RouteCharInvalidError is [ErrRouteCharInvalid] with the character,
+// the route it sits in and what claims that route.
+type RouteCharInvalidError struct {
+	Owner string // "PageFoo", "PageFoo.POSTBar" or "App.POSTBar"
+	Route string
+	Char  rune
+}
+
+func (e *RouteCharInvalidError) Error() string {
+	return fmt.Sprintf("%v: %q in %s route %q",
+		ErrRouteCharInvalid, e.Char, e.Owner, e.Route)
+}
+
+func (e *RouteCharInvalidError) Unwrap() error { return ErrRouteCharInvalid }
 
 // EventSubjectDuplicateError is [ErrEventSubjectDuplicate] with the two types
 // that share the subject. A subject is the case an inbound event is matched by,

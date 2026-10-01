@@ -206,6 +206,21 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Use `// DELETEItem is /items/item`",
 		},
 
+		"ErrRouteCharInvalid/quote": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageSay", Route: `/say"hi"`, Char: '"',
+			},
+			want: `fix: Write '"' as %22. ` +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/backslash": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageBack", Route: `/back\slash`, Char: '\\',
+			},
+			want: `fix: Write '\\' as %5C. ` +
+				"net/http decodes it before matching the route.",
+		},
+
 		"ErrEventCommMissing": {
 			err:  &parser.EventCommMissingError{TypeName: "EventUserCreated"},
 			want: "fix: Add `// EventUserCreated is \"subject\"` as the first doc comment line",

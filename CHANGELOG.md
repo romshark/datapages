@@ -29,6 +29,7 @@ Releases up to v0.10.0 have their notes on
 - Stop `datapages gen` from writing code that does not compile when `PageError404.GET` takes a path, query, signals or dispatcher parameter. For a URL that no route matches, the handler receives that URL's query and signals and a zero path. Run `datapages gen`.
 - Reject an `OnXXX` handler that takes a second `datapages.SSE`, session or `datapages.StreamID` parameter, as every other handler does. A field with two names, such as `sse, sse2 datapages.SSE`, declares two parameters: `datapages gen` read it as one and wrote a call that did not compile.
 - Reject an `OnXXX` handler that takes its event by pointer, as in `event *EventPing`. The generated code for it did not compile. Take the event by value.
+- Reject a route containing `"` or `\` in `datapages lint` and `datapages gen`. For such a route, `datapages gen` failed with a Go syntax error, or the generated server matched a different path when the backslash formed a Go escape such as `\u00e9`. Write the characters as `%22` and `%5C`, which `net/http` decodes before matching the route.
 
 ## [0.10.1] - 2026-09-26
 

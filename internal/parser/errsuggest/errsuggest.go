@@ -221,6 +221,16 @@ func Suggest(err error) string {
 			d.Var,
 		)
 
+	case errors.Is(err, parser.ErrRouteCharInvalid):
+		var d *parser.RouteCharInvalidError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Write %q as %%%02X. net/http decodes it before matching the route.",
+			d.Char, d.Char,
+		)
+
 	case errors.Is(err, parser.ErrEventCommMissing):
 		var d *parser.EventCommMissingError
 		if !errors.As(err, &d) {

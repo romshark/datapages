@@ -630,6 +630,25 @@ func TestParse_ErrRouteUnparsablePatternHasNoOwner(t *testing.T) {
 	require.Contains(t, conflict.Error(), "bad wildcard segment")
 }
 
+// TestParse_ErrRouteChar tests that page, page action and app action routes
+// refuse double quotes and backslashes and accept their percent-encoded forms.
+func TestParse_ErrRouteChar(t *testing.T) {
+	_, err := parse(t, "err_route_char")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteCharInvalid, // PageQuote
+		parser.ErrRouteCharInvalid, // PageBackslash
+		parser.ErrRouteCharInvalid, // PageBackslash.POSTSave
+		parser.ErrRouteCharInvalid, // App.POSTQuote
+	)
+	var d *parser.RouteCharInvalidError
+	_, e := err.Entry(2)
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, '\\', d.Char)
+	require.Equal(t, `/back\slash/save`, d.Route)
+}
+
 // TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard
 // and which also opens a stream. The stream endpoint sits under the page path,
 // where a wildcard would swallow it.
