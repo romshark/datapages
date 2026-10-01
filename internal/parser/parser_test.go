@@ -762,7 +762,7 @@ func TestParse_ErrEventHandlerMultiName(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // OnTick: extra
 		parser.ErrSignatureUnsupportedInput, // OnTock: again
 	)
-	for i, want := range [][2]int{{41, 7}, {49, 12}, {58, 11}, {66, 2}} {
+	for i, want := range [][2]int{{40, 7}, {48, 12}, {57, 11}, {65, 2}} {
 		pos, _ := err.Entry(i)
 		requirePosEqual(t, "app.go", want[0], want[1], pos)
 	}
