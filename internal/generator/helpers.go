@@ -286,8 +286,12 @@ func renderStruct(st *types.Struct, qual func(*types.Package) string) string {
 	b.WriteString("struct {\n")
 	for i := range st.NumFields() {
 		f := st.Field(i)
-		b.WriteString(f.Name())
-		b.WriteByte(' ')
+		// An embedded field is written as its type alone. Written with its name,
+		// it's a named field, and the struct is a different type.
+		if !f.Embedded() {
+			b.WriteString(f.Name())
+			b.WriteByte(' ')
+		}
 		if nested, ok := f.Type().(*types.Struct); ok {
 			b.WriteString(renderStruct(nested, qual))
 		} else {
@@ -304,9 +308,11 @@ func renderStruct(st *types.Struct, qual func(*types.Package) string) string {
 	return b.String()
 }
 
-// isNamedType returns true if the type is a named type (not anonymous struct).
+// isNamedType reports whether t is a defined type, directly or behind an alias,
+// rather than an anonymous struct. A defined type is written by its name:
+// the struct it is defined as is a different type argument.
 func isNamedType(t model.Type) bool {
-	_, ok := t.Resolved.(*types.Named)
+	_, ok := types.Unalias(t.Resolved).(*types.Named)
 	return ok
 }
 

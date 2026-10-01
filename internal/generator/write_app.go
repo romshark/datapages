@@ -2066,7 +2066,12 @@ func (w *Writer) renderPathType(input *model.Input, m *model.App) string {
 // It renders for app_gen.go, which names every package [genImports] does.
 func (w *Writer) renderValuesType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderTypeIn(w.imports.Qualifier(), input.Type)
+		// An alias is written as the type it stands for, which is the same
+		// type argument. The alias may be unexported, as in
+		// type itemPath = ItemPath, and app_gen.go cannot refer to it.
+		return types.TypeString(
+			types.Unalias(input.Type.Resolved), w.imports.Qualifier(),
+		)
 	}
 	return renderAnonStructType(input.Type, m.Fset, w.imports.Qualifier())
 }
