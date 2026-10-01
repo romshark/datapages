@@ -11,6 +11,7 @@ Releases up to v0.10.0 have their notes on
 ### Fixed
 
 - Write the CSRF script into every request-specific page and action response whose actions carry a session cookie, including documents whose handlers do not accept a session. This prevents actions submitted from those documents from returning 403. `PageOffline` and page-cache entries omit the script because visitors share them. Run `datapages gen`.
+- Shut down gracefully on SIGTERM in the `cmd/server/main.go` that `datapages init` writes. Docker, Kubernetes and systemd stop a process with SIGTERM, which previously ended the server without waiting for requests, SSE streams and `StreamClose` hooks. `datapages init` does not rewrite an existing `main.go`: add `syscall.SIGTERM` to its `signal.NotifyContext` call.
 
 ## [0.10.1] - 2026-09-26
 

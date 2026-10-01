@@ -54,7 +54,7 @@ opts = append(opts,
 
 `WithBodySizeLimit` limits an action request body, including its signals. The default is 1 MiB. An over-limit request returns 400 while reading signals. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams.
 
-`WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns.
+`WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
 The session cookie uses the `Secure` attribute. Set `DisableSecureCookie` only when the complete deployment uses plain HTTP, where the browser would reject the secure cookie. `datapages.IsDevMode()` reports whether the dev server is active. `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable development behavior. Log at `slog.LevelDebug` when you need to inspect that behavior.
 

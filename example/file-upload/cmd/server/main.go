@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/file-upload/app"
@@ -20,6 +22,10 @@ func main() {
 	fHost := flag.String("host", "localhost:8080", "server host address")
 	fDir := flag.String("dir", "uploads", "directory the uploaded files are kept in")
 	flag.Parse()
+
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	files, err := store.New(*fDir)
 	if err != nil {
@@ -46,7 +52,7 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "listening on http://%s\n", *fHost)
-	err = s.ListenAndServe(context.Background(), *fHost)
+	err = s.ListenAndServe(ctx, *fHost)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

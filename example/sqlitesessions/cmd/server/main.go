@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	sqinn "github.com/cvilsmeier/sqinn-go/v2"
@@ -28,7 +29,8 @@ func main() {
 	port := envOr("PORT", "8080")
 	dbPath := envOr("SESSION_DB_PATH", "./sqlitesessions.db")
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	sq, err := sqinn.Launch(sqinn.Options{

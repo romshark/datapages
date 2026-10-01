@@ -27,7 +27,7 @@ A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error 
 
 A panic during page writing is logged. A plain page load retains its status and truncated body. On a Datastar request, a defined `RecoverError` appends any SSE frames it writes to the truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
-Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
+Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. It starts when the context passed to `ListenAndServe` is canceled. Cancel that context on SIGTERM as well as SIGINT: container runtimes and systemd stop a process with SIGTERM, whose default action ends the process without a graceful shutdown. The `cmd/server/main.go` that `datapages init` writes calls `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
 ```go
 func (*App) RecoverError(

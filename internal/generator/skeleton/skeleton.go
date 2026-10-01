@@ -102,6 +102,7 @@ var mainGoImports = map[string]string{
 	"os":                            "os",
 	"os/signal":                     "signal",
 	"strings":                       "strings",
+	"syscall":                       "syscall",
 	"github.com/romshark/datapages": "datapages",
 	"github.com/romshark/datapages/modules/messaging/natscore": "natscore",
 	"github.com/romshark/datapages/modules/sessions":           "sessions",

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/romshark/datapages"
@@ -20,6 +22,10 @@ import (
 func main() {
 	fHost := flag.String("host", "localhost:8080", "server host address")
 	flag.Parse()
+
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	l := new(list.List)
 	now := time.Now()
@@ -51,7 +57,7 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "listening on http://%s\n", *fHost)
-	err = s.ListenAndServe(context.Background(), *fHost)
+	err = s.ListenAndServe(ctx, *fHost)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

@@ -1,8 +1,10 @@
 package skeleton_test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"strconv"
 	"strings"
 	"testing"
@@ -133,6 +135,46 @@ func TestMainGoImportsAreKnown(t *testing.T) {
 				require.Contains(t, known, path,
 					"main.go imports %s, which the alias decision does not know", path)
 			}
+		})
+	}
+}
+
+// TestMainGoShutsDownOnSIGTERM tests that the scaffolded main.go cancels the
+// context it passes to ListenAndServe on SIGTERM as well as SIGINT. Docker,
+// Kubernetes and systemd stop a process with SIGTERM, whose default action ends
+// the process without a graceful shutdown.
+func TestMainGoShutsDownOnSIGTERM(t *testing.T) {
+	t.Parallel()
+
+	for name, sessionData := range map[string]string{
+		"plain":   "",
+		"session": "struct{}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			src, err := skeleton.MainGo(
+				"example.com/m/app", "app",
+				"example.com/m/app/datapagesgen", "datapagesgen",
+				true, sessionData, nil,
+			)
+			require.NoError(t, err)
+
+			f, err := parser.ParseFile(token.NewFileSet(), "main.go", src, 0)
+			require.NoError(t, err)
+
+			var signals []string
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || types.ExprString(call.Fun) != "signal.NotifyContext" {
+					return true
+				}
+				for _, arg := range call.Args[1:] {
+					signals = append(signals, types.ExprString(arg))
+				}
+				return false
+			})
+			require.Subset(t, signals, []string{"os.Interrupt", "syscall.SIGTERM"},
+				"main.go does not cancel the server context on both signals:\n%s", src)
 		})
 	}
 }

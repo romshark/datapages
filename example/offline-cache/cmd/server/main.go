@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app"
@@ -23,7 +24,8 @@ func main() {
 	fHost := flag.String("host", "localhost:8080", "server host address")
 	flag.Parse()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	// The demo requires no external services. A process exit removes all data.
