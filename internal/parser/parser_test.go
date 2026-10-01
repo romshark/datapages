@@ -631,7 +631,8 @@ func TestParse_ErrRouteUnparsablePatternHasNoOwner(t *testing.T) {
 }
 
 // TestParse_ErrRouteChar tests that page, page action and app action routes
-// refuse double quotes and backslashes and accept their percent-encoded forms.
+// refuse double quotes, backslashes and backticks and accept their
+// percent-encoded forms.
 func TestParse_ErrRouteChar(t *testing.T) {
 	_, err := parse(t, "err_route_char")
 
@@ -641,12 +642,22 @@ func TestParse_ErrRouteChar(t *testing.T) {
 		parser.ErrRouteCharInvalid, // PageBackslash
 		parser.ErrRouteCharInvalid, // PageBackslash.POSTSave
 		parser.ErrRouteCharInvalid, // App.POSTQuote
+		parser.ErrRouteCharInvalid, // PageTick
+		parser.ErrRouteCharInvalid, // PageTick.POSTPing
 	)
-	var d *parser.RouteCharInvalidError
-	_, e := err.Entry(2)
-	require.ErrorAs(t, e, &d)
-	require.Equal(t, '\\', d.Char)
-	require.Equal(t, `/back\slash/save`, d.Route)
+	for i, want := range map[int]struct {
+		char  rune
+		route string
+	}{
+		2: {'\\', `/back\slash/save`},
+		5: {'`', "/back`tick/ping"},
+	} {
+		var d *parser.RouteCharInvalidError
+		_, e := err.Entry(i)
+		require.ErrorAs(t, e, &d)
+		require.Equal(t, want.char, d.Char)
+		require.Equal(t, want.route, d.Route)
+	}
 }
 
 // TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard

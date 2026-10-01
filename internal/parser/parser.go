@@ -1962,15 +1962,16 @@ func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
 	})
 }
 
-// validateRouteChars reports a double quote or a backslash in a route.
-// Generated code writes routes into Go string literals unescaped, where a quote
-// ends the literal and a backslash starts an escape sequence, which can turn
-// the route into another one, as `\u00e9` does.
+// validateRouteChars reports a double quote, a backslash or a backtick in a route.
+// Generated code writes routes into Go string literals unescaped:
+// a backtick ends a raw literal, a quote ends an interpreted one, and a backslash starts
+// an escape sequence, which can turn the route into another one, as `\u00e9` does.
 //
+// None of the three may stand unencoded in a URL path (RFC 3986, section 3.3).
 // Their percent-encoded forms work: net/http decodes them before matching.
 func validateRouteChars(ctx *parseCtx, errs *Errors) {
 	eachRoute(ctx, func(route string, expr ast.Expr, owner string) {
-		if i := strings.IndexAny(route, "\"\\"); i >= 0 {
+		if i := strings.IndexAny(route, "\"\\`"); i >= 0 {
 			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
 				&RouteCharInvalidError{
 					Owner: owner, Route: route, Char: rune(route[i]),

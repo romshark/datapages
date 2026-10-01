@@ -1,5 +1,5 @@
-// Package app declares routes with double quotes and backslashes, which are
-// rejected, and equivalent percent-encoded routes, which are accepted.
+// Package app declares routes with double quotes, backslashes and backticks,
+// which are rejected, and equivalent percent-encoded routes, which are accepted.
 package app
 
 import (
@@ -37,12 +37,22 @@ func (PageBackslash) POSTSave(r *http.Request) error { return nil } /* ErrRouteC
 // POSTQuote is /quote"
 func (*App) POSTQuote(r *http.Request) error { return nil } /* ErrRouteCharInvalid */
 
-// PageEncoded is /say%22hi%5C
+// PageTick is /back`tick
+type PageTick struct{ App *App } /* ErrRouteCharInvalid */
+
+func (PageTick) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
+}
+
+// POSTPing is /back`tick/ping
+func (PageTick) POSTPing(r *http.Request) error { return nil } /* ErrRouteCharInvalid */
+
+// PageEncoded is /say%22hi%5C%60
 type PageEncoded struct{ App *App }
 
 func (PageEncoded) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
-// POSTPing is /say%22hi%5C/ping
+// POSTPing is /say%22hi%5C%60/ping
 func (PageEncoded) POSTPing(r *http.Request) error { return nil }

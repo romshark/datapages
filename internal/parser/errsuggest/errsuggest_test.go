@@ -220,6 +220,13 @@ func TestSuggest(t *testing.T) {
 			want: `fix: Write '\\' as %5C. ` +
 				"net/http decodes it before matching the route.",
 		},
+		"ErrRouteCharInvalid/backtick": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageTick", Route: "/back`tick", Char: '`',
+			},
+			want: "fix: Write '`' as %60. " +
+				"net/http decodes it before matching the route.",
+		},
 
 		"ErrEventCommMissing": {
 			err:  &parser.EventCommMissingError{TypeName: "EventUserCreated"},
