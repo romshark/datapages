@@ -12,6 +12,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 
@@ -176,12 +177,18 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"q"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
+
 	p := dpapp.PageError404{
 		App: s.app,
 	}
 
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, redirect, err := p.GET(r)
+	body, redirect, err := p.GET(r, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
@@ -201,11 +208,17 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"q"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
+
 	p := dpapp.PageError404{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, redirect, err := p.GET(r)
+	body, redirect, err := p.GET(r, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return

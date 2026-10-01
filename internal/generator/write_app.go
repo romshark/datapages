@@ -1635,6 +1635,28 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 		w.Line(0, "")
 	}
 
+	if h404.InputQuery != nil {
+		w.writeReadQuery(h404.InputQuery, m)
+	}
+	if h404.InputPath != nil {
+		// render404 handles PageIndex's fallback route, not PageError404's
+		// declared route. Its path input therefore has the zero value.
+		w.Line(0, "")
+		w.Raw("\tvar path ")
+		w.Raw(w.renderPathType(h404.InputPath, m))
+		w.Byte('\n')
+	}
+	if h404.InputSignals != nil {
+		w.writeReadGETSignals(h404.InputSignals, m)
+	}
+	if len(h404.InputDispatches) > 0 {
+		w.writeDispatchersOn(h404, "dispatch", "s", "r.Context()")
+	}
+	if h404.InputQuery != nil || h404.InputPath != nil ||
+		h404.InputSignals != nil || len(h404.InputDispatches) > 0 {
+		w.Line(0, "")
+	}
+
 	if h404.InputPageCache != nil {
 		w.Line(1, "pageCache := newPageCache(w, s, r, nil)")
 	}
@@ -1927,6 +1949,15 @@ func (w *Writer) writeMethodCall(
 // dispatchers of more than one handler, as the stream handler does.
 // ctxExpr is the context Dispatch publishes with.
 func (w *Writer) writeDispatchers(h *model.Handler, prefix, ctxExpr string) {
+	// A handler method's receiver embeds the server rather than being it.
+	w.writeDispatchersOn(h, prefix, "s.Server", ctxExpr)
+}
+
+// writeDispatchersOn is [Writer.writeDispatchers] for code that reaches the
+// server through srvExpr. render404 is a method of the server itself.
+func (w *Writer) writeDispatchersOn(
+	h *model.Handler, prefix, srvExpr, ctxExpr string,
+) {
 	for _, d := range h.InputDispatches {
 		if !slices.Contains(w.dispatchedEvents, d.EventTypeName) {
 			w.dispatchedEvents = append(w.dispatchedEvents, d.EventTypeName)
@@ -1936,9 +1967,9 @@ func (w *Writer) writeDispatchers(h *model.Handler, prefix, ctxExpr string) {
 		w.Raw(dispatchVarName(prefix, d.EventTypeName))
 		w.Raw(" := ")
 		w.Raw(dispatcherTypeName(d.EventTypeName))
-		// Every dispatcher is built inside a handler method, whose receiver
-		// embeds the server rather than being it.
-		w.Raw("{s: s.Server, ctx: ")
+		w.Raw("{s: ")
+		w.Raw(srvExpr)
+		w.Raw(", ctx: ")
 		w.Raw(ctxExpr)
 		w.Raw("}\n")
 	}

@@ -323,24 +323,9 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
-	// Read signals.
-	//
-	// A page load carries them in the datastar query parameter,
-	// which the Datastar client adds and a visitor typing the URL does not.
-	// Their absence is the ordinary case and leaves the handler the zero value;
-	// only a malformed value is an error.
 	if h.InputSignals != nil {
 		hasBody = true
-		w.Line(0, "")
-		w.Raw("\tvar signals ")
-		w.Raw(w.renderSignalsType(h.InputSignals, m))
-		w.Byte('\n')
-		w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
-		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
-		w.Line(3, `s.HTTPErrBad(w, "reading signals", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
+		w.writeReadGETSignals(h.InputSignals, m)
 	}
 
 	// Dispatch closures.
@@ -374,6 +359,25 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	w.writeGETMethodCall(p, m, needsSession)
 
 	w.Line(0, "}")
+}
+
+// writeReadGETSignals emits code that reads the signals of a page GET.
+//
+// A page load carries them in the datastar query parameter,
+// which the Datastar client adds and a visitor typing the URL does not.
+// Their absence is the ordinary case and leaves the handler the zero value;
+// only a malformed value is an error.
+func (w *Writer) writeReadGETSignals(input *model.Input, m *model.App) {
+	w.Line(0, "")
+	w.Raw("\tvar signals ")
+	w.Raw(w.renderSignalsType(input, m))
+	w.Byte('\n')
+	w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
+	w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+	w.Line(3, `s.HTTPErrBad(w, "reading signals", err)`)
+	w.Line(3, "return")
+	w.Line(2, "}")
+	w.Line(1, "}")
 }
 
 // writeSubjectSignalsRead emits the read of the signal values a page subscribes by.

@@ -71,7 +71,7 @@ URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/
 
 Each declares its route by comment like any other page. `PageOffline` always renders with a zero `Session`: the worker precaches one copy and serves it to every visitor, which means it cannot depend on who is signed in.
 
-The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document.
+The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document. For a URL that no route matches, `PageError404.GET` receives that URL's query and signals and a zero path.
 
 A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
 

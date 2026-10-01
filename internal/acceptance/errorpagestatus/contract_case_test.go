@@ -14,13 +14,15 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-// TestContract must not use t.Parallel() because the generated Init sets the
-// package-level logger of the href package, which contract.Run's ExternalHref test reads.
+// TestContract must not use t.Parallel() because the generated Init
+// sets the package-level logger of the href package,
+// which [contract.Run]'s ExternalHref test reads.
 func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
-			return mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+			return mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
 				contract.Options[datapages.ServerOption](opts)...)
 		},
 		WithMiddleware: contract.OptVariadic(datapages.WithMiddleware),
@@ -31,6 +33,9 @@ func TestContract(t *testing.T) {
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,
-		Links:          []string{href.PageIndex(), href.PageError404()},
+		Links: []string{
+			href.PageIndex(),
+			href.PageError404(href.QueryPageError404{}),
+		},
 	})
 }
