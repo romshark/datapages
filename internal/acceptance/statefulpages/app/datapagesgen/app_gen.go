@@ -485,7 +485,7 @@ func (s pageCloseStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/closestate/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/closestate/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
@@ -618,7 +618,7 @@ func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/failopen/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/failopen/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
@@ -708,7 +708,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
@@ -868,7 +868,7 @@ func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/panicclose/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/panicclose/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(

@@ -59,6 +59,7 @@ type Case struct {
 	WithDatastarJS func(src string) any
 	WithHTTPServer func(*http.Server) any
 	WithLogger     func(*slog.Logger) any
+	WithBuildID    func(id string) any
 
 	// StreamSubjects is the generated MessageBrokerStreamSubjects.
 	StreamSubjects func() []string
@@ -150,6 +151,7 @@ func Run(t *testing.T, c Case) {
 	for name, run := range map[string]func(*testing.T){
 		"ActionOptions":              c.testActionOptions,
 		"AttributeSeparation":        c.testAttributeSeparation,
+		"BuildCheck":                 c.testBuildCheck,
 		"ClientGoesAway":             c.testClientGoesAway,
 		"Compression":                c.testCompression,
 		"DatastarJS":                 c.testDatastarJS,
@@ -1042,6 +1044,81 @@ func (c Case) testDatastarJS(t *testing.T) {
 	if _, body := get(t, srv, c.index()); !strings.Contains(body, src) {
 		t.Errorf("the page does not load the configured script:\n%s", body)
 	}
+}
+
+// testBuildCheck tests that a Datastar request from another build is answered
+// 205 Reset Content instead of running a handler. A request with the current
+// build ID or none passes.
+func (c Case) testBuildCheck(t *testing.T) {
+	if c.WithBuildID == nil {
+		t.Skip("the case wires no WithBuildID")
+	}
+	const build = "contract-build"
+	srv := c.server(t, c.WithBuildID(build))
+
+	meta := `<meta name="datapages-build" content="` + build + `"/>`
+	if _, body := get(t, srv, c.index()); !strings.Contains(body, meta) {
+		t.Errorf("the page does not carry %s:\n%s", meta, body)
+	}
+
+	var routes [][2]string
+	if c.StreamPath != "" {
+		routes = append(routes, [2]string{http.MethodGet, c.StreamPath})
+	}
+	for _, expr := range c.Actions {
+		method, target := parseAction(t, expr)
+		routes = append(routes, [2]string{method, target})
+	}
+	for _, route := range routes {
+		method, target := route[0], route[1]
+		t.Run(method+" "+target, func(t *testing.T) {
+			status, header, body := sendBuild(t, srv, method, target, "another-build")
+			if status != http.StatusResetContent {
+				t.Errorf("another build: status = %d, want 205", status)
+			}
+			if header != build {
+				t.Errorf("another build: Datapages-Build = %q, want %q", header, build)
+			}
+			if body != "" {
+				t.Errorf("another build: the handler wrote %q", body)
+			}
+			for _, sent := range []string{build, ""} {
+				if status, _, _ := sendBuild(t, srv, method, target, sent); status ==
+					http.StatusResetContent {
+					t.Errorf("build %q: status 205, want the handler's answer", sent)
+				}
+			}
+		})
+	}
+}
+
+// sendBuild sends a Datastar request with an optional build ID. It reads only
+// the start of the body because an open stream does not end.
+func sendBuild(
+	t *testing.T, srv *httptest.Server, method, target, build string,
+) (status int, header, body string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, srv.URL+target, nil)
+	if err != nil {
+		t.Fatalf("building %s %s: %v", method, target, err)
+	}
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	if build != "" {
+		req.Header.Set("Datapages-Build", build)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, target, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusResetContent {
+		b, _ := io.ReadAll(resp.Body)
+		body = string(b)
+	}
+	return resp.StatusCode, resp.Header.Get("Datapages-Build"), body
 }
 
 // testHTTPServerOption tests WithHTTPServer.

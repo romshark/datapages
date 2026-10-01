@@ -160,8 +160,8 @@ func handlerOutputVars(h *model.Handler) []string {
 }
 
 // handlerInputArgs builds the argument list for a handler call
-// in the order defined by h.OrderedInputs. dispatchPrefix names the dispatch
-// closures the call passes, see dispatchVarName.
+// in the order defined by h.OrderedInputs.
+// dispatchPrefix names the dispatch closures the call passes, see dispatchVarName.
 func handlerInputArgs(
 	h *model.Handler, skipSSE bool, dispatchPrefix, appPkgQual string,
 ) []string {
@@ -663,27 +663,20 @@ func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 }
 
 // streamInitTail closes the data-init attribute of a page after the quoted
-// stream path: the Datastar option object, when the page needs one, then the
-// closing parenthesis of the call and the closing quote of the attribute.
+// stream path: the Datastar option object, then the closing parenthesis of the
+// call and the closing quote of the attribute.
 //
-// retry is written for a stateful page. Its stream connect is answered 503
-// once the server holds datapages.StateConfig.MaxConcurrentInstances, and the
-// default policy retries network errors only, which leaves a tab refused at
-// the cap with no stream and no way back until the visitor reloads the page.
-// "error" covers a status, which is what lets such a tab reconnect on its own
-// once the server has room again.
-func streamInitTail(openWhenHidden, retry bool) string {
-	var opts []string
+// A page needs its stream for as long as it is open. "always" reconnects after
+// a network error, after an error response such as 503 at
+// [datapages.StateConfig.MaxConcurrentInstances] or a reverse proxy's 502 while
+// the application restarts, and after a stream the server ends. Datastar stops
+// after 10 failed attempts by default, about three minutes. Infinity keeps
+// the page trying through a longer outage, once every 30s.
+func streamInitTail(openWhenHidden bool) string {
 	if openWhenHidden {
-		opts = append(opts, "openWhenHidden:true")
+		return `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`
 	}
-	if retry {
-		opts = append(opts, "retry:'error'")
-	}
-	if len(opts) == 0 {
-		return `)"`
-	}
-	return ",{" + strings.Join(opts, ",") + `})"`
+	return `,{retry:'always',retryMaxCount:Infinity})"`
 }
 
 func (w *Writer) writeGETBodyAttrs(
@@ -788,9 +781,8 @@ func (w *Writer) writeGETBodyAttrs(
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 		streamPath := routepattern.StreamPath(p.Route)
-		// Only a stateful stream is ever refused for want of capacity.
-		tail := streamInitTail(false, p.State != nil)
-		tailBg := streamInitTail(true, p.State != nil)
+		tail := streamInitTail(false)
+		tailBg := streamInitTail(true)
 		if hasPrivate && hasSess {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
@@ -1126,9 +1118,12 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		} else {
+			// The page writes the data-init of this stream only for a session.
+			// A guest request comes from a page whose session ended while the
+			// stream was disconnected. See [stream.Handler.Reload].
 			w.Line(0, "")
 			w.Line(1, `if sess.UserID() == "" {`)
-			w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
+			w.Line(2, "s.streams.Reload(w, r)")
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}

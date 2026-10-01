@@ -763,7 +763,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/not-found/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/not-found/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -785,7 +785,7 @@ func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -900,7 +900,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -922,7 +922,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -1107,9 +1107,9 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, ` data-init="@get('/messages/_$/'`)
 			if enableBackgroundStreaming {
-				_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'error'})"`)
+				_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
 			} else {
-				_, _ = io.WriteString(w, `,{retry:'error'})"`)
+				_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
 			}
 		}
 
@@ -1138,7 +1138,7 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -1466,7 +1466,7 @@ func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/my-posts/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/my-posts/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -1488,7 +1488,7 @@ func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -1582,7 +1582,7 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WritePathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `_$/')"`)
+			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -1604,7 +1604,7 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -1772,7 +1772,7 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/search/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/search/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
@@ -1804,7 +1804,7 @@ func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -1921,7 +1921,7 @@ func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/settings/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/settings/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -1943,7 +1943,7 @@ func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -2161,7 +2161,7 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `_$/')"`)
+			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -2183,7 +2183,7 @@ func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 

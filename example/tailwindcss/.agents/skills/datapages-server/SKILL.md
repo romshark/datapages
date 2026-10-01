@@ -56,11 +56,13 @@ opts = append(opts,
 
 `WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
+Deployments need no application code. Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Shutdown resets open SSE streams. Datastar then reconnects to the next process. The ID defaults to a hash of the executable. Set `WithBuildID` when replicas use different binaries for one release. During a rolling deployment, route each client to one build.
+
 The session cookie uses the `Secure` attribute. Set `DisableSecureCookie` only when the complete deployment uses plain HTTP, where the browser would reject the secure cookie. `datapages.IsDevMode()` reports whether the dev server is active. `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable development behavior. Log at `slog.LevelDebug` when you need to inspect that behavior.
 
 Declaring `PageOffline` generates `datapagesgen.WithOffline(offline.Config{...})`. The option serves the service worker. See `datapages-offline`.
 
-If `WithMiddleware` adds a `Content-Security-Policy`, it must allow `script-src 'unsafe-inline' 'unsafe-eval'`. Datapages writes the CSRF script and the instance ID script inline. Datastar compiles every `data-*` expression at run time.
+If `WithMiddleware` adds a `Content-Security-Policy`, it must allow `script-src 'unsafe-inline' 'unsafe-eval'`. Datapages writes the build script, the CSRF script and the instance ID script inline. Datastar compiles every `data-*` expression at run time.
 
 `WithCSPNonce(func(r *http.Request) string)` replaces both allowances with a nonce. The application mints the nonce and puts it in its own policy header. Datapages reads it back, writes it on the `html` element as `data-nonce` and on every script it writes. Mint the nonce in middleware and store it in the request context: Datapages calls the function several times per response and every call with the same request must return the same value. `data-nonce` turns on Datastar's CSP mode, which compiles expressions through a nonced script element instead of `Function`. It needs Datastar 1.0.3 or later. The nonce must differ per response.
 
@@ -112,4 +114,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:cde79700aaa50a91 -->
+<!-- written by datapages sha256:1030124f7f157c5c -->

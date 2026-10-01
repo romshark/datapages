@@ -259,9 +259,9 @@ func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('/background/_$/'`)
 		if enableBackgroundStreaming {
-			_, _ = io.WriteString(w, `,{openWhenHidden:true})"`)
+			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `)"`)
+			_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -378,7 +378,7 @@ func (s pageLiveHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/live/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/live/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
@@ -485,7 +485,7 @@ func (s pageNoRefreshHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/no-refresh/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/no-refresh/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(

@@ -3,6 +3,7 @@ package datapages_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,6 +125,57 @@ func TestWithAssetsCache(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, &tc.conf, cfg.AssetsCache)
+		})
+	}
+}
+
+// TestWithBuildID tests that IDs fit unchanged in an HTTP header.
+// Fetch rejects other characters, and servers trim surrounding whitespace.
+func TestWithBuildID(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		id      string
+		wantErr string // empty: the ID is accepted
+	}{
+		"commit hash": {id: "4f221f8b14b235c4b2f4212c133adf9f"},
+		"release tag": {id: "v1.2.3-rc.1+build.7"},
+		"punctuation": {id: `a"b<c>&d'e`},
+		"longest":     {id: strings.Repeat("x", 128)},
+		"empty":       {id: "", wantErr: "WithBuildID: id is empty"},
+		"too long": {
+			id:      strings.Repeat("x", 129),
+			wantErr: "WithBuildID: id length (129) exceeds 128 bytes",
+		},
+		"space": {
+			id:      "v1 v2",
+			wantErr: "WithBuildID: id contains a space at byte 2",
+		},
+		"control character": {
+			id:      "v1\r\nX: 1",
+			wantErr: `WithBuildID: id contains control character '\r' at byte 2`,
+		},
+		"delete": {
+			id:      "v1\x7f",
+			wantErr: `WithBuildID: id contains control character '\x7f' at byte 2`,
+		},
+		"non-ASCII": {
+			id:      "v1-ü",
+			wantErr: "WithBuildID: id contains non-ASCII character 'ü' at byte 3",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var cfg datapages.ServerConfig
+			err := datapages.WithBuildID(tc.id)(&cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				require.Equal(t, tc.id, cfg.BuildID)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+			require.Empty(t, cfg.BuildID)
 		})
 	}
 }

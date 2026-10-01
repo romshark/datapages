@@ -286,7 +286,7 @@ func MakeSession[Data any](
 //	}
 //
 // A zero UserID is a no-op, no session is created. The session the request
-// arrived with is closed, which ends its streams.
+// arrived with is closed, which ends its streams and reloads their pages.
 type NewSession[Data any] struct {
 	// UserID identifies the authenticated user.
 	UserID string
@@ -660,10 +660,14 @@ const (
 	HeaderOfflineVersion = "X-Datapages-Offline-Version"
 
 	// HeaderWorkerVersion names the request header containing the installed
-	// service worker's own version.
-	// The server compares it against the worker version it ships to decide
-	// whether to install, update or leave the worker untouched.
+	// service worker's own version. The server compares it against the worker version
+	// it ships to decide whether to install, update or leave the worker untouched.
 	HeaderWorkerVersion = "X-Datapages-Worker-Version"
+
+	// HeaderBuild names the header in which a page sends its build ID with
+	// Datastar requests. A server with a different ID returns 205 Reset Content
+	// and its own ID without running the handler. The page then reloads.
+	HeaderBuild = "Datapages-Build"
 )
 
 // PageCacheWriter writes to the client's service worker cache. It is passed

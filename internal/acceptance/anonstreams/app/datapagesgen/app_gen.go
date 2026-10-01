@@ -576,9 +576,9 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WritePathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `_$/')"`)
+			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `_$/anon/')"`)
+			_, _ = io.WriteString(w, `_$/anon/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -727,9 +727,9 @@ func (s pageRoomsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/rooms/_$/')"`)
+			_, _ = io.WriteString(w, `/rooms/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `/rooms/_$/anon/')"`)
+			_, _ = io.WriteString(w, `/rooms/_$/anon/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -1023,9 +1023,9 @@ func (s pageTabsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/tabs/_$/',{retry:'error'})"`)
+			_, _ = io.WriteString(w, `/tabs/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `/tabs/_$/anon/',{retry:'error'})"`)
+			_, _ = io.WriteString(w, `/tabs/_$/anon/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 

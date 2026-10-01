@@ -36,6 +36,7 @@ func TestContract(t *testing.T) {
 		},
 		WithMiddleware: contract.OptVariadic(datapages.WithMiddleware),
 		WithDatastarJS: contract.Opt(datapages.WithDatastarJS),
+		WithBuildID:    contract.Opt(datapages.WithBuildID),
 		WithHTTPServer: contract.Opt(datapages.WithHTTPServer),
 		WithLogger:     contract.Opt(datapages.WithLogger),
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,

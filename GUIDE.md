@@ -216,6 +216,14 @@ The in-memory session manager is suitable for development. A restart removes its
 
 If the deployment uses per-tab state, follow the multi-server guidance in the [`State[T]` specification](SPECIFICATION.md#parameter-datapagesstatet) when running more than one application server.
 
+## Deploy a new version
+
+When you change your application and deploy a new version, open tabs still use the old page. If the build ID stays the same while element IDs, signals or routes change, the new server accepts requests from those tabs. Morphs may target missing elements, actions may send incompatible data, and an action may change server data while the page stops updating.
+
+Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Graceful shutdown resets open SSE streams. Idle tabs then reconnect. If the build ID is unchanged, a tab reconnects without reloading.
+
+The build ID defaults to a hash of the executable and changes with each rebuild. If you set `datapages.WithBuildID`, change its value whenever the browser-server API changes. Use the same value on every replica of one release. During a rolling deployment, route each client to one build. Alternating between builds causes repeated reloads with increasing delays. See [Deployments](SPECIFICATION.md#deployments).
+
 ## Serve static assets
 
 The scaffold contains a commented `embed.FS` example. Enable it in the application package, pass it with `datapages.WithAssets`, and use the generated `assets` or `href` helper when writing a URL.

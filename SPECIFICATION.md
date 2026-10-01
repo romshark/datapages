@@ -29,6 +29,8 @@ A panic during page writing is logged. A plain page load retains its status and 
 
 Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. It starts when the context passed to `ListenAndServe` is canceled. Cancel that context on SIGTERM as well as SIGINT: container runtimes and systemd stop a process with SIGTERM, whose default action ends the process without a graceful shutdown. The `cmd/server/main.go` that `datapages init` writes calls `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
+Shutdown runs each open stream's `StreamClose` hook, then resets the connection. The page reconnects to the next process. See [Deployments](#deployments).
+
 ```go
 func (*App) RecoverError(
 	err error,
@@ -180,7 +182,7 @@ func (PageIndex) OnSomethingHappened(
 }
 ```
 
-`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, the stream closes, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
+`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. The stream then closes, and the page reconnects after 5s, which runs `StreamOpen` again. The page keeps the 5s as the first wait of its later reconnects. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
 
 `datapages.StreamID` identifies an SSE stream within a process. Its parameter name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and must not be exposed to clients.
 
@@ -288,7 +290,7 @@ A process restart drops all instances. Reconnect creates zeroed state under the 
 
 `MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most one instance per open stream. Zero selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
 
-Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Stateful stream initialization uses `{retry:'error'}`. Datastar ignores `Retry-After` and retries after 1s, doubling to a 30s ceiling, for 10 attempts (about three minutes). After retries are exhausted, the next stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. `Server.StateLiveInstances()` reports the live count; servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
+Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Datastar ignores `Retry-After` and retries after 1s, doubling to a 30s ceiling, without a limit; see [Deployments](#deployments). Until the stream connects, a stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. `Server.StateLiveInstances()` reports the live count; servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
 
 **Multi-server routing.** State is process-local. A tab's stream and actions must reach the same backend. Hashing `Datapages-Instance` routes both to the same server; `GET` can reach any server because it has no ID yet. Session or affinity-cookie routing also works. Round-robin routing causes `409` responses and reloads.
 
@@ -432,7 +434,7 @@ session datapages.Session[Data]
 
 See [datapages.go](datapages.go) for method definitions.
 
-Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends at its `ExpiresAt()`. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
+Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends when the session closes or reaches its `ExpiresAt()`. Its page then reloads after 1s and renders for the session the browser holds, if any. The delay lets the tab that signed out follow the sign-out redirect first. A page with only user-addressed events also reloads when its stream reconnects after the session ended. A page that also has public events reconnects to `_$/anon/` and keeps its content. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
 
 An action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions. When a handler renders a document without reading the session, it uses the session cookie to write the CSRF script without reading the store.
 
@@ -735,7 +737,7 @@ See [datapages.go](datapages.go) for field definitions.
 newSession datapages.NewSession[Data]
 ```
 
-Signs in a client when `UserID` is nonempty; otherwise it is a no-op. Datapages generates the token and issuance time. The handler supplies `UserID`, optional `ExpiresAt`, and `Data`. The session the request arrived with is closed first, which ends its streams. See [datapages.go](datapages.go).
+Signs in a client when `UserID` is nonempty; otherwise it is a no-op. Datapages generates the token and issuance time. The handler supplies `UserID`, optional `ExpiresAt`, and `Data`. The session the request arrived with is closed first, which ends its streams and reloads their pages. See [datapages.go](datapages.go).
 
 `ExpiresAt` becomes the `Max-Age` and `Expires` of the session cookie; a zero `ExpiresAt` writes a cookie the browser drops when it closes. The session record stays in the store either way.
 
@@ -822,7 +824,7 @@ Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/W
 
 ### Content Security Policy
 
-Datapages writes inline scripts. It writes the CSRF script in the head of every request-specific document whose actions carry a session cookie. `PageOffline` and page-cache entries omit the script because visitors share them. A stateful page gets the instance ID script. Datastar compiles every `data-*` expression at run time.
+Datapages writes inline scripts. It writes the build script in the head of every document; see [Deployments](#deployments). It writes the CSRF script in the head of every request-specific document whose actions carry a session cookie. `PageOffline` and page-cache entries omit the script because visitors share them. A stateful page gets the instance ID script. Datastar compiles every `data-*` expression at run time.
 
 Without `WithCSPNonce` a policy must allow `script-src 'unsafe-inline' 'unsafe-eval'`.
 
@@ -841,6 +843,30 @@ A nonce in the policy makes the browser ignore `'unsafe-inline'` for that direct
 The nonce must differ per response and must not be guessable. Do not cache a response that contains a nonce: replay would reuse it.
 
 Offline support applies the nonce to scripts written by the server. The nonce cannot reach a page served from the service worker's cache; see [Service Worker](#service-worker).
+
+## Deployments
+
+An open tab keeps its loaded document. A new build may use different element IDs, signals or routes. Datastar drops a morph that targets a missing ID and writes only a console warning. Datapages reloads the old tab before its requests reach the new handlers.
+
+Each document contains its server's build ID in `<meta name="datapages-build">`. An inline script before the Datastar bundle sends the ID in `Datapages-Build` (`datapages.HeaderBuild`) with each same-origin Datastar request. A server with a different ID returns `205 Reset Content` and its own ID in the same header. It does not run the handler. Middleware added with `WithMiddleware` sees the rejected request. The script then reloads the page:
+
+- A stream reconnect waits for a random delay of up to 2s. This spreads page loads from tabs that reconnect together.
+- An action request reloads at once. The action is not applied. The user must repeat it.
+- Repeated reloads without a successful Datastar request wait 1s, 2s, 4s, and up to 30s. `sessionStorage` stores the count.
+- Reload always uses GET. It does not resubmit a form POST.
+- A `beforeunload` handler can cancel the reload. The next stale response more than 10s later reloads again.
+
+A reload loses what the page held only in the browser, such as signals, form input and focus. The browser restores the scroll position.
+
+A request without the header passes. This includes non-page clients and pages from Datapages releases that did not write the script. A request with the header also passes if it is not a Datastar request. Page-cache entries carry the ID of the server that rendered them. Shim hydration replaces the head and build ID before the live body sends a request.
+
+The build ID defaults to the first 16 bytes of the executable's SHA-256 hash, encoded as hex. Replicas that run the same binary share an ID. A rebuild changes it. If the server cannot read the executable, it hashes the embedded Go build information and logs a warning. `datapages.WithBuildID` sets the ID. Replicas that serve the same pages must use the same ID. The ID is public.
+
+Stream initialization uses `{retry:'always',retryMaxCount:Infinity}`. The page reconnects its stream after every end, including an error response such as a reverse proxy's `502` while the application restarts. Datastar retries after 1s and doubles the delay up to 30s. It does not give up. Graceful shutdown resets every open stream, because pages from earlier Datapages releases reconnect only a stream that fails. A connection to the same build resumes the stream. A connection to another build reloads the page. Events published while no process serves the stream are lost; see [Event delivery](#event-delivery).
+
+Shutdown resets a stream by panicking with `http.ErrAbortHandler`. Middleware added with `WithMiddleware` that recovers panics must re-panic this value. Otherwise it receives one panic per open stream at each shutdown, and pages from earlier Datapages releases can stay without a live stream.
+
+During a rolling deployment, route each client to one build until the old servers stop. Otherwise, requests from one tab may alternate between builds and cause repeated reloads. Session affinity is one way to keep the route stable.
 
 ## Dev Mode
 

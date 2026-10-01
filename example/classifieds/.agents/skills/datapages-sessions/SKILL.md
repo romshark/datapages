@@ -22,7 +22,7 @@ Use `struct{}` when the session has no application data. Every handler must use 
 
 ## Read
 
-Pages, actions, event handlers and stream hooks may take `session Session`. It is read-only and provides `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. Datapages treats an expired session as unauthenticated and deletes its cookie. A stream opened with the session ends at `ExpiresAt()`.
+Pages, actions, event handlers and stream hooks may take `session Session`. It is read-only and provides `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. Datapages treats an expired session as unauthenticated and deletes its cookie. A stream opened with the session ends when the session closes or reaches `ExpiresAt()`, and its page reloads after 1s.
 
 Add `session Session` to every action that must reject a closed or expired session. Without this parameter, Datapages checks only that the request has a session cookie. It does not read the session store.
 
@@ -82,4 +82,4 @@ Use `modules/sessions/natskv`. Use `modules/sessions/inmem` only for development
 
 Datapages does not scan the store for expired records. It deletes an expired record only when a client sends that session. Call `mgr.DeleteExpired(ctx)` on a ticker to delete all other expired records.
 
-<!-- written by datapages sha256:cc5621d9daf69b8c -->
+<!-- written by datapages sha256:0a0553acd3e69db5 -->

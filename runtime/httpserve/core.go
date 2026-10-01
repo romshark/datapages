@@ -83,6 +83,10 @@ type Core struct {
 	bodySizeLimit    int64
 	shutdownTimeout  time.Duration
 
+	// An empty buildID disables build checks.
+	buildID       string
+	htmlBuildMeta string
+
 	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
 	lockListen sync.Mutex
 	addr       string
@@ -141,6 +145,10 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		}
 		c.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
 	}
+	c.buildID = cfg.BuildID
+	if c.buildID == "" {
+		c.buildID = defaultBuildID(c.logger)
+	}
 	c.sampledLogger = c.logger
 	if cfg.LogSampling == nil || !cfg.LogSampling.Disabled {
 		var limit int
@@ -198,7 +206,11 @@ func (c *Core) Build() {
 	// The two halves are kept apart as well: a page that must install a script
 	// of its own before Datastar loads writes them around it.
 	c.datastarJSSrcEsc = html.EscapeString(c.datastarJSSrc)
-	c.htmlHead = htmlDoctype + "<html>" + htmlHeadStart
+	if c.buildID != "" {
+		c.htmlBuildMeta = `<meta name="` + buildMetaName + `" content="` +
+			html.EscapeString(c.buildID) + `"/>`
+	}
+	c.htmlHead = htmlDoctype + "<html>" + htmlHeadStart + c.buildHead("<script>")
 	c.htmlDatastar = "\n\t\t" + `<script type="module" src="` +
 		c.datastarJSSrcEsc + `"></script>`
 	c.htmlPrefix = c.htmlHead + c.htmlDatastar
@@ -228,6 +240,11 @@ func (c *Core) Build() {
 	}
 
 	c.handler = http.Handler(c.mux)
+	if c.buildID != "" {
+		// Application middleware wraps [Core.rejectStaleBuild]
+		// and sees the requests it rejects.
+		c.handler = c.rejectStaleBuild(c.handler)
+	}
 	for _, h := range c.middleware {
 		c.handler = h(c.handler)
 	}
@@ -337,15 +354,16 @@ func (c *Core) ScriptTagOpen(r *http.Request) string {
 	return `<script nonce="` + nonce + `">`
 }
 
-// htmlOpening returns the prologue up to the head and the Datastar script tag.
-// Both include the CSP nonce of r when one is configured.
+// htmlOpening returns the document prefix through the build and Datastar scripts.
+// It adds r's CSP nonce when configured.
 // Datastar reads the nonce from the html element and compiles its expressions with it.
 func (c *Core) htmlOpening(r *http.Request) (head, datastarScript string) {
 	nonce := c.CSPNonce(r)
 	if nonce == "" {
 		return c.htmlHead, c.htmlDatastar
 	}
-	return htmlDoctype + `<html data-nonce="` + nonce + `">` + htmlHeadStart,
+	return htmlDoctype + `<html data-nonce="` + nonce + `">` + htmlHeadStart +
+			c.buildHead(`<script nonce="`+nonce+`">`),
 		"\n\t\t" + `<script type="module" nonce="` + nonce + `" src="` +
 			c.datastarJSSrcEsc + `"></script>`
 }
@@ -571,7 +589,9 @@ func WildcardPathValue(r *http.Request, name string) string {
 // The provided context controls graceful shutdown.
 func (c *Core) ListenAndServe(ctx context.Context, addr string) error {
 	return c.listenAndServe(ctx, addr, false, func(ln net.Listener) error {
-		c.logger.Info("listening HTTP", slog.String("addr", c.Addr()))
+		c.logger.Info("listening HTTP",
+			slog.String("addr", c.Addr()),
+			slog.String("build", c.buildID))
 		return c.httpServer.Serve(ln)
 	})
 }
@@ -584,6 +604,7 @@ func (c *Core) ListenAndServeTLS(
 	return c.listenAndServe(ctx, addr, true, func(ln net.Listener) error {
 		c.logger.Info("listening HTTP",
 			slog.String("addr", c.Addr()),
+			slog.String("build", c.buildID),
 			slog.String("tls.cert", certFile),
 			slog.String("tls.key", keyFile))
 		return c.httpServer.ServeTLS(ln, certFile, keyFile)

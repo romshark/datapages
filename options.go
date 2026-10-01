@@ -95,6 +95,10 @@ type ServerConfig struct {
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
 
+	// BuildID identifies the application build, set by [WithBuildID].
+	// Empty selects the hash of the executable.
+	BuildID string
+
 	// sessionManager is what [WithSessionManager] carries.
 	// ServerConfig is not generic, hence the manager travels as any and
 	// [NewServer] asserts it once to the type the application declares.
@@ -486,6 +490,56 @@ func WithShutdownTimeout(d time.Duration) ServerOption {
 		c.ShutdownTimeout = d
 		return nil
 	}
+}
+
+// maxBuildIDLen limits IDs accepted by [WithBuildID].
+const maxBuildIDLen = 128
+
+// WithBuildID sets the ID that distinguishes one application build from another.
+//
+// Optional. The default is a hash of the executable. Replicas that run the same
+// binary share an ID. Set a shared release ID when replicas use different
+// binaries but serve the same pages.
+//
+// Each page sends the ID in [HeaderBuild] with Datastar requests.
+// A server with a different ID returns 205 Reset Content without running the handler.
+// The page then reloads.
+//
+// id must contain 1 to 128 printable ASCII characters without spaces.
+func WithBuildID(id string) ServerOption {
+	return func(c *ServerConfig) error {
+		if err := checkBuildID(id); err != nil {
+			return fmt.Errorf("WithBuildID: %w", err)
+		}
+		c.BuildID = id
+		return nil
+	}
+}
+
+// checkBuildID rejects an id that would not reach the server unchanged in
+// [HeaderBuild]. Fetch rejects control chars and chars above U+00FF,
+// strips surrounding whitespace and sends U+0080 to U+00FF as Latin-1 bytes.
+// A changed ID makes every Datastar request fail or reload its page.
+// An empty ID would select the executable hash,
+// and [maxBuildIDLen] keeps the header short.
+func checkBuildID(id string) error {
+	if id == "" {
+		return errors.New("id is empty")
+	}
+	if len(id) > maxBuildIDLen {
+		return fmt.Errorf("id length (%d) exceeds %d bytes", len(id), maxBuildIDLen)
+	}
+	for i, r := range id {
+		switch {
+		case r == ' ':
+			return fmt.Errorf("id contains a space at byte %d", i)
+		case r < ' ' || r == 0x7f:
+			return fmt.Errorf("id contains control character %q at byte %d", r, i)
+		case r > '~':
+			return fmt.Errorf("id contains non-ASCII character %q at byte %d", r, i)
+		}
+	}
+	return nil
 }
 
 // WithCSRFProtection configures the Cross-Site-Request-Forgery protection of

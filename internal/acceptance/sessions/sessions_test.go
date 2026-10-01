@@ -749,6 +749,79 @@ func TestStreamEndsAtSessionExpiry(t *testing.T) {
 		}
 		require.False(t, time.Now().Before(expiresAt),
 			"the stream ended before its session expired")
+		require.True(t, s.saw("location.reload()"),
+			"the page was not told to reload after its session expired")
+	})
+}
+
+// TestStreamReloadsAtSignOut tests a stream whose session an action closes.
+// The stream ends and tells the page to reload, which renders it for the guest
+// instead of leaving the signed-out user's page in place.
+func TestStreamReloadsAtSignOut(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		alice := srv.client(t)
+		alice.signIn(t, "alice", "Al")
+		s := alice.openStream(t)
+
+		status, body := alice.post(t, "/sign-out/", "")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+
+		select {
+		case <-s.done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("the stream is still open after its session closed")
+		}
+		require.True(t, s.saw("location.reload()"),
+			"the page was not told to reload after its session closed")
+	})
+}
+
+// TestStreamReloadsAfterMissedSessionEnd tests a private stream that reconnects
+// after its session ended while it was disconnected, as after a laptop sleeps.
+// The stream tells the page to reload instead of refusing the guest. The page
+// retries a refused stream without a limit and keeps showing the old session.
+func TestStreamReloadsAfterMissedSessionEnd(t *testing.T) {
+	t.Parallel()
+	ends := map[string]func(t *testing.T, srv server) (token string){
+		"closed": func(t *testing.T, srv server) string {
+			token, err := srv.sessions.CreateSession(context.Background(),
+				sessions.Record[app.SessionData]{UserID: "alice"})
+			require.NoError(t, err)
+			require.NoError(t, srv.sessions.CloseSession(context.Background(), token))
+			return token
+		},
+		"expired": func(t *testing.T, srv server) string {
+			token, err := srv.sessions.CreateSession(context.Background(),
+				sessions.Record[app.SessionData]{
+					UserID: "alice", ExpiresAt: time.Now().Add(-time.Second),
+				})
+			require.NoError(t, err)
+			return token
+		},
+	}
+
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		for name, end := range ends {
+			t.Run(name, func(t *testing.T) {
+				srv := newServer(t, broker)
+				alice := srv.client(t)
+				alice.setSessionCookie(t, end(t, srv))
+
+				// /room/ has no anonymous stream a guest could be sent to.
+				s := alice.openStreamAt(t, "/room/_$/", map[string]string{"calc_id": "c1"})
+				select {
+				case <-s.done:
+				case <-time.After(2 * time.Second):
+					t.Fatal("the stream is still open without a session")
+				}
+				require.True(t, s.saw("location.reload()"),
+					"the page was not told to reload after its session ended")
+				require.True(t, s.saw("retry: 5000"),
+					"the page can reconnect before it reloads")
+			})
+		}
 	})
 }
 

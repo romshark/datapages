@@ -497,7 +497,7 @@ func (s pageStreamPanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/stream-panic/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/stream-panic/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(

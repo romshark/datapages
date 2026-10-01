@@ -484,7 +484,7 @@ func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/inbox/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/inbox/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
@@ -506,7 +506,7 @@ func (s pageInboxHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 

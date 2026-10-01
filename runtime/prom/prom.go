@@ -443,19 +443,24 @@ func Middleware(next http.Handler) http.Handler {
 
 		mInFlightRequests.Inc()
 		defer func() {
-			if !rw.isStream {
-				mInFlightRequests.Dec()
+			// A stream is counted here because shutdown ends it with an
+			// [http.ErrAbortHandler] panic, which skips the code after next.ServeHTTP.
+			if rw.isStream {
+				mHTTPRequestsTotal.WithLabelValues(methodLabel(r.Method),
+					routeLabel(r), strconv.Itoa(rw.status)).Inc()
+				return
 			}
+			mInFlightRequests.Dec()
 		}()
 
 		next.ServeHTTP(rw, r)
+		if rw.isStream {
+			return
+		}
 
 		path, method := routeLabel(r), methodLabel(r.Method)
 		mHTTPRequestsTotal.
 			WithLabelValues(method, path, strconv.Itoa(rw.status)).Inc()
-		if rw.isStream {
-			return
-		}
 		mHTTPRequestDuration.
 			WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 	})

@@ -108,6 +108,27 @@ func TestMarkStreamLeavesRequestLatency(t *testing.T) {
 	requireInFlight(t, "0")
 }
 
+// TestMiddlewareCountsAbortedStream tests a stream that shutdown ends with an
+// [http.ErrAbortHandler] panic. The stream stays counted, and the panic still
+// reaches net/http, which resets the connection.
+func TestMiddlewareCountsAbortedStream(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /aborted/{$}", func(w http.ResponseWriter, r *http.Request) {
+		prom.MarkStream(w)
+		panic(http.ErrAbortHandler)
+	})
+	h := prom.Middleware(mux)
+
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() {
+		h.ServeHTTP(httptest.NewRecorder(),
+			httptest.NewRequest(http.MethodGet, "/aborted/", nil))
+	})
+	require.Equal(t, 1, series(t, "datapages_http_requests_total", map[string]string{
+		"path": "GET /aborted/{$}", "status": "200",
+	}), "the aborted stream was not counted")
+	requireInFlight(t, "0")
+}
+
 // requireInFlight requires the in-flight gauge to read want.
 func requireInFlight(t *testing.T, want string) {
 	t.Helper()

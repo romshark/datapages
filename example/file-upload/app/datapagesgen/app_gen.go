@@ -511,9 +511,9 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('/_$/'`)
 		if enableBackgroundStreaming {
-			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'error'})"`)
+			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `,{retry:'error'})"`)
+			_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 

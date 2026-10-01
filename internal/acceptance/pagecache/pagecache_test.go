@@ -293,8 +293,8 @@ func TestCSPNonceReachesEveryScript(t *testing.T) {
 				"data-nonce enables Datastar CSP mode")
 
 			tags := regexp.MustCompile(`<script[^>]*>`).FindAllString(resp.Body, -1)
-			require.Len(t, tags, 4,
-				"expected one Datastar, two offline, and one cache-write script")
+			require.Len(t, tags, 5,
+				"expected one build, one Datastar, two offline, and one cache-write script")
 			for _, tag := range tags {
 				require.Contains(t, tag, `nonce="`+nonce+`"`,
 					"inline script requires the request nonce")

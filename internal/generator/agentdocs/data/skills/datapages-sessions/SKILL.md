@@ -22,7 +22,7 @@ Use `struct{}` when the session has no application data. Every handler must use 
 
 ## Read
 
-Pages, actions, event handlers and stream hooks may take `session Session`. It is read-only and provides `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. Datapages treats an expired session as unauthenticated and deletes its cookie. A stream opened with the session ends at `ExpiresAt()`.
+Pages, actions, event handlers and stream hooks may take `session Session`. It is read-only and provides `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. Datapages treats an expired session as unauthenticated and deletes its cookie. A stream opened with the session ends when the session closes or reaches `ExpiresAt()`, and its page reloads after 1s.
 
 Add `session Session` to every action that must reject a closed or expired session. Without this parameter, Datapages checks only that the request has a session cookie. It does not read the session store.
 
