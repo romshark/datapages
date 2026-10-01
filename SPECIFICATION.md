@@ -167,7 +167,7 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-`OnXXX` requires exactly one event parameter and `sse datapages.SSE`, and must return exactly one `error`. The event parameter is identified by type; `XXX` must match the event type's name after `Event`. Parameter order and the event parameter's name are unrestricted.
+`OnXXX` requires exactly one event parameter and exactly one `sse datapages.SSE`, takes each optional parameter at most once, and must return exactly one `error`. The event parameter is identified by type; `XXX` must match the event type's name after `Event`. Parameter order and the event parameter's name are unrestricted.
 
 ```go
 func (PageIndex) OnSomethingHappened(

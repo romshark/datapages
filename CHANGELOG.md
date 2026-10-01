@@ -27,6 +27,7 @@ Releases up to v0.10.0 have their notes on
 - Stop `datapages gen` from writing code that does not compile when the session data type or a field type of `datapages.Path`, `datapages.Query` or `datapages.Signals` is an alias declared in a package with the same name as one the generated code imports, such as `stream`. Run `datapages gen`.
 - Reject a page that inherits an action from two embedded types at the same depth, or a handler from an abstract page that it reaches through two embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which overrides the inherited ones.
 - Stop `datapages gen` from writing code that does not compile when `PageError404.GET` takes a path, query, signals or dispatcher parameter. For a URL that no route matches, the handler receives that URL's query and signals and a zero path. Run `datapages gen`.
+- Reject an `OnXXX` handler that takes a second `datapages.SSE`, session or `datapages.StreamID` parameter, as every other handler does. A field with two names, such as `sse, sse2 datapages.SSE`, declares two parameters: `datapages gen` read it as one and wrote a call that did not compile. Two such parameters in separate fields were accepted before and received the same value: remove the second one.
 
 ## [0.10.1] - 2026-09-26
 

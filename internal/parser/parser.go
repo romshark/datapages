@@ -1067,13 +1067,34 @@ func validateAndAttachEventHandler(
 
 	// What is left after the event, the SSE, the session, the stream ID and
 	// the per-tab state, each of which was matched already, is unsupported.
+	// So is a second SSE, session or stream ID, as for every other handler.
+	// Each name of a field is a parameter: `sse, sse2 datapages.SSE` is two.
 	if params != nil {
-		for _, f := range params.List {
+		unsupported := func(f *ast.Field) {
+			p := f.Type.Pos()
+			if len(f.Names) > 0 {
+				p = f.Names[0].Pos()
+			}
+			errs.ErrAt(ctx.pkg.Fset.Position(p), unsupportedInputError(
+				f, nil, ctx.pkg.TypesInfo, recv, fd.Name.Name,
+			))
+		}
+		seen := map[string]bool{}
+		once := func(f *ast.Field, kind string) {
+			if seen[kind] {
+				unsupported(f)
+			}
+			seen[kind] = true
+		}
+		for _, f := range expandFieldList(params.List) {
 			switch {
 			case typecheck.IsEventType(f.Type, ctx.pkg.TypesInfo, evName):
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
+				once(f, model.InputKindSSE)
 			case paramvalidation.IsSessionParam(f, ctx.pkg.TypesInfo):
+				once(f, model.InputKindSession)
 			case typecheck.IsStreamIDType(f.Type, ctx.pkg.TypesInfo):
+				once(f, model.InputKindStreamID)
 			case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
 				// Delegated to parseEventHandler which resolves the
 				// pointer element type against the declared state types.
@@ -1086,13 +1107,7 @@ func validateAndAttachEventHandler(
 					))
 				}
 			default:
-				p := f.Type.Pos()
-				if len(f.Names) > 0 {
-					p = f.Names[0].Pos()
-				}
-				errs.ErrAt(ctx.pkg.Fset.Position(p), unsupportedInputError(
-					f, nil, ctx.pkg.TypesInfo, recv, fd.Name.Name,
-				))
+				unsupported(f)
 			}
 		}
 	}
@@ -2133,7 +2148,8 @@ func parseEventHandler(
 	ctx *parseCtx,
 	recv, name, eventTypeName string,
 ) (*model.EventHandler, error) {
-	params := fd.Type.Params.List
+	// One input per name: the generated call passes an argument for each.
+	params := expandFieldList(fd.Type.Params.List)
 
 	h := &model.EventHandler{
 		Expr:          fd.Name,

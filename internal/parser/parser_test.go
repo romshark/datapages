@@ -749,6 +749,25 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventHandlerMultiName tests that each name of a multi-name field is
+// a parameter of its own, and that an event handler takes the SSE and the stream ID
+// once, as every other handler does. A string next to stateID matches no input.
+func TestParse_ErrEventHandlerMultiName(t *testing.T) {
+	_, err := parse(t, "err_event_handler_multi_name")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureUnsupportedInput, // OnPing: sse2
+		parser.ErrSignatureUnsupportedInput, // OnPong: streamID2
+		parser.ErrSignatureUnsupportedInput, // OnTick: extra
+		parser.ErrSignatureUnsupportedInput, // OnTock: again
+	)
+	for i, want := range [][2]int{{41, 7}, {49, 12}, {58, 11}, {66, 2}} {
+		pos, _ := err.Entry(i)
+		requirePosEqual(t, "app.go", want[0], want[1], pos)
+	}
+}
+
 // TestParse_ErrEventSubjectUserNoSession tests a user-scoped event subject in an
 // application that declares no session. There is no user to scope it to.
 func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {
