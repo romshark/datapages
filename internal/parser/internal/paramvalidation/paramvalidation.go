@@ -114,6 +114,11 @@ var ErrFieldTypeUnexported = errors.New(
 	"struct field type must be exported",
 )
 
+// ErrValuesTypeUnexported is returned for a Path, Query or Signals type argument
+// the generated package cannot name: an unexported defined type, directly or
+// behind an alias. The generator writes an alias as the type it stands for.
+var ErrValuesTypeUnexported = errors.New("type argument must be exported")
+
 // unexportedTypeName returns the name of an unexported type the generator
 // would have to write. It walks what a rendering carries: the type itself,
 // what a pointer, slice, array or map is of, and the fields of an anonymous struct.
@@ -143,6 +148,21 @@ func unexportedTypeName(t types.Type) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// checkValuesTypeExported reports a Values type argument that is an unexported
+// defined type, directly or behind an alias. The fields of an anonymous struct
+// are checked one by one and reported at the field.
+func checkValuesTypeExported(t types.Type, recv, method string) error {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return nil
+	}
+	if name, ok := unexportedTypeName(named); ok {
+		return fmt.Errorf("%w: %s in %s.%s",
+			ErrValuesTypeUnexported, name, recv, method)
+	}
+	return nil
 }
 
 // fieldPosError wraps an error with the AST position of a struct field.
@@ -203,6 +223,9 @@ func ValidatePathStruct(
 			"%w in %s.%s",
 			ErrPathParamNotStruct, recv, method,
 		)
+	}
+	if err := checkValuesTypeExported(t, recv, method); err != nil {
+		return err
 	}
 
 	seen := make(map[string]bool, st.NumFields())
@@ -274,6 +297,9 @@ func ValidateQueryStruct(
 			"%w in %s.%s",
 			ErrQueryParamNotStruct, recv, method,
 		)
+	}
+	if err := checkValuesTypeExported(t, recv, method); err != nil {
+		return err
 	}
 
 	seen := make(map[string]bool, st.NumFields())
@@ -369,6 +395,9 @@ func ValidateSignalsStruct(
 			"%w in %s.%s",
 			ErrSignalsParamNotStruct, recv, method,
 		)
+	}
+	if err := checkValuesTypeExported(t, recv, method); err != nil {
+		return err
 	}
 	return validateSignalsFields(st, recv, method, map[types.Type]bool{})
 }

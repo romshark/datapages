@@ -557,6 +557,25 @@ func TestParse_ErrFieldTypeUnexported(t *testing.T) {
 	)
 }
 
+// TestParse_ErrValuesTypeUnexported tests unexported defined types as path,
+// query and signals type arguments, one of them behind an exported alias.
+// The generated package cannot name them from outside the app package.
+func TestParse_ErrValuesTypeUnexported(t *testing.T) {
+	_, err := parse(t, "err_values_type_unexported")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrValuesTypeUnexported, // Query behind QueryAlias
+		parser.ErrValuesTypeUnexported, // Signals
+		parser.ErrValuesTypeUnexported, // Path
+		parser.ErrValuesTypeUnexported, // Query
+	)
+	for i, want := range [][2]int{{33, 8}, {41, 10}, {51, 7}, {52, 8}} {
+		pos, _ := err.Entry(i)
+		requirePosEqual(t, "app.go", want[0], want[1], pos)
+	}
+}
+
 // TestParse_ErrAppUnsupportedMethod tests the page methods declared on App,
 // where the framework calls none of them.
 // An ordinary method of the application is left alone.

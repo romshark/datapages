@@ -311,7 +311,7 @@ signals datapages.Signals[struct {
 }]
 ```
 
-`Signals` captures [Datastar signals](https://data-star.dev/guide/reactive_signals) in `Values`. The parameter name is unrestricted. Its type argument may be a named or anonymous struct; every field requires a `json` tag. Any JSON-serializable field type is supported, including nested structs, slices, and maps.
+`Signals` captures [Datastar signals](https://data-star.dev/guide/reactive_signals) in `Values`. The parameter name is unrestricted. Its type argument may be a named or anonymous struct. A defined struct type must be exported, including one behind an alias. Every field requires a `json` tag. Any JSON-serializable field type is supported, including nested structs, slices, and maps.
 
 Nested structs map to nested Datastar signals using dot notation:
 
@@ -336,7 +336,7 @@ path datapages.Path[struct {
 }]
 ```
 
-`Path` provides URL path parameters in `Values`. Each must appear in the URL comment. The parameter name is unrestricted; its type argument may be a named or anonymous struct.
+`Path` provides URL path parameters in `Values`. Each must appear in the URL comment. The parameter name is unrestricted; its type argument may be a named or anonymous struct. A defined struct type must be exported, including one behind an alias.
 
 Each field must be exported and tagged with its route variable: `path:"id"` binds to `{id}`.
 
@@ -370,7 +370,7 @@ query datapages.Query[struct {
 }]
 ```
 
-`Query` provides URL query parameters in `Values`. The parameter name is unrestricted; its type argument may be a named or anonymous struct.
+`Query` provides URL query parameters in `Values`. The parameter name is unrestricted; its type argument may be a named or anonymous struct. A defined struct type must be exported, including one behind an alias.
 
 Each field must be exported and tagged with its query key: `query:"f"` reads `?f=...`.
 
