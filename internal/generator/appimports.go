@@ -253,6 +253,19 @@ func collectTypePkgs(
 			}
 		}
 	case *types.Alias:
+		// TypeString writes an alias by its own name, qualified by the package
+		// that declares the alias, which can differ from the target's.
+		if p := t.Obj().Pkg(); p != nil && !seen[p] {
+			seen[p] = true
+			*out = append(*out, p)
+		}
+		if args := t.TypeArgs(); args != nil {
+			for t := range args.Types() {
+				collectTypePkgs(t, seen, out)
+			}
+		}
+		// The target is walked too: renderValuesType
+		// writes a Values alias as its target.
 		collectTypePkgs(types.Unalias(t), seen, out)
 	case *types.Pointer:
 		collectTypePkgs(t.Elem(), seen, out)

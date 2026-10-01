@@ -6,7 +6,7 @@
 //
 // The app package itself is covered by pkgname_collides. This is every other
 // package the model reaches: the session data type, an event type,
-// and the path, query and signals field types.
+// the path, query and signals field types, and the package of an alias.
 package app
 
 import (
@@ -15,6 +15,7 @@ import (
 	"datapagestest/fixture/pkgname_foreign/mytypes"
 	"datapagestest/fixture/pkgname_foreign/stream"
 	"datapagestest/fixture/pkgname_foreign/strings"
+	"datapagestest/fixture/pkgname_foreign/subject"
 
 	"github.com/romshark/datapages"
 )
@@ -97,6 +98,22 @@ type ItemQuery = struct {
 func (PageNamedInputs) GET(
 	r *http.Request,
 	query datapages.Query[ItemQuery],
+) (body datapages.Component, err error) {
+	_ = query
+	return body, err
+}
+
+// PageAliasField is /alias-field
+//
+// The query field type is an alias declared in a package named after one
+// app_gen.go imports. Only the alias reaches that package.
+type PageAliasField struct{ App *App }
+
+func (PageAliasField) GET(
+	r *http.Request,
+	query datapages.Query[struct {
+		Name subject.Name `query:"name"`
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	return body, err
