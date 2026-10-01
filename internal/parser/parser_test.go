@@ -1206,6 +1206,23 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
+// TestParse_ErrEmbedAmbiguous tests an action defined by two embedded types and
+// a GET inherited through two embedding paths. Go treats both selectors as ambiguous.
+// A shallower action may shadow a deeper one.
+func TestParse_ErrEmbedAmbiguous(t *testing.T) {
+	_, err := parse(t, "err_embed_ambiguous")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrPageAmbiguousEmbed, // PageTwo.POSTSave
+		parser.ErrPageAmbiguousEmbed, // PageDiamond.GET
+	)
+	for i, line := range []int{33, 62} {
+		pos, _ := err.Entry(i)
+		requirePosEqual(t, "app.go", line, 6, pos)
+	}
+}
+
 // TestParse_NameCollisions tests the name pairs that concatenate into one
 // identifier when spelled as one. Each pair is accepted:
 // a page name ending in an HTTP verb against another page's action, the same

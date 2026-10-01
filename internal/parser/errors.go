@@ -68,6 +68,7 @@ var (
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)
 	ErrPageConflictingGETEmbed = errors.New("conflicting GET handlers in embedded")
+	ErrPageAmbiguousEmbed      = errors.New("ambiguous handler in embedded")
 	ErrPageNameInvalid         = errors.New("page has invalid name")
 	ErrPageMissingPathComm     = errors.New("page is missing path comment")
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")

@@ -224,6 +224,8 @@ func (PageIndex) StreamClose(
 
 A struct in the app package whose name does not start with `Page` and that declares `App *App` is an abstract page type. Pages may embed it to inherit its handlers.
 
+A handler declared by the page overrides an inherited one. An inherited action at a shallower depth shadows one of the same name at a deeper depth, as Go's promoted methods do. A page is rejected when it inherits one action from two types at the same depth, or a handler from an abstract page that it reaches through two embedded fields at the same depth. Go reports both selectors as ambiguous.
+
 #### Parameter: `datapages.State[T]`
 
 ```go

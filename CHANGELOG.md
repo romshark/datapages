@@ -25,6 +25,7 @@ Releases up to v0.10.0 have their notes on
 - Stop `datapages gen` from writing code that does not compile when the type argument of `datapages.Path`, `datapages.Query` or `datapages.Signals` is an alias of a defined type, as in `type Filter = SearchQuery`. Run `datapages gen`.
 - Stop `datapages gen` from writing code that does not compile when the type argument of `datapages.Path`, `datapages.Query` or `datapages.Signals` is a struct type literal with an embedded field, such as `time.Time`. Run `datapages gen`.
 - Stop `datapages gen` from writing code that does not compile when the session data type or a field type of `datapages.Path`, `datapages.Query` or `datapages.Signals` is an alias declared in a package with the same name as one the generated code imports, such as `stream`. Run `datapages gen`.
+- Reject a page that inherits an action from two embedded types at the same depth, or a handler from an abstract page that it reaches through two embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which overrides the inherited ones.
 
 ## [0.10.1] - 2026-09-26
 

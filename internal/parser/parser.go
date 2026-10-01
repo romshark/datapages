@@ -1350,6 +1350,9 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	}
 
 	visited := map[string]bool{}
+	// conflicted holds the handlers whose conflict is reported here,
+	// which [reportAmbiguousHandlers] then does not report a second time.
+	conflicted := map[string]bool{}
 	ownedMethods := map[string]bool{}
 	handledEvents := map[string]string{}
 	handledEventPos := map[string]token.Pos{}
@@ -1485,6 +1488,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					prevPos = ctx.pkg.Fset.Position(getOwnerPos)
 				}
 
+				conflicted["GET"] = true
 				errs.ErrAt(pos, fmt.Errorf(
 					"%w: %s inherits %s and %s which both define GET (previous at %s)",
 					ErrPageConflictingGETEmbed,
@@ -1524,6 +1528,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if streamOpenOwnerPos != token.NoPos {
 					prevPos = ctx.pkg.Fset.Position(streamOpenOwnerPos)
 				}
+				conflicted["StreamOpen"] = true
 				errs.ErrAt(pos, fmt.Errorf(
 					"%w: %s inherits %s and %s which both "+
 						"define StreamOpen (previous at %s)",
@@ -1555,6 +1560,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if streamClosedOwnerPos != token.NoPos {
 					prevPos = ctx.pkg.Fset.Position(streamClosedOwnerPos)
 				}
+				conflicted["StreamClose"] = true
 				errs.ErrAt(pos, fmt.Errorf(
 					"%w: %s inherits %s and %s which both define StreamClose "+
 						"(previous at %s)",
@@ -1596,6 +1602,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if ppos, ok := handledEventPos[ev]; ok && ppos != token.NoPos {
 					prevPos = ctx.pkg.Fset.Position(ppos)
 				}
+				conflicted[handlerMethodName(h.Expr)] = true
 				errs.ErrAt(pos, fmt.Errorf(
 					"%w: %s inherits %s and %s which both handle %s (previous at %s)",
 					ErrEvHandDuplicateEmbed,
@@ -1616,6 +1623,69 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				h)
 		}
 	}
+
+	reportAmbiguousHandlers(ctx, errs, pg, conflicted)
+}
+
+// reportAmbiguousHandlers reports the handlers a page inherits through more
+// than one embedded field at the same depth. Generated code calls a handler as
+// a method of the page, which Go refuses as an ambiguous selector.
+//
+// [flattenPage] keeps the first action of a name and visits each abstract page once.
+// It therefore accepts two abstracts defining one action at the same depth,
+// and one abstract reached through two embedded fields.
+// [types.LookupFieldOrMethod] applies Go's selector rules, which refuse both
+// and let a shallower method shadow a deeper one.
+func reportAmbiguousHandlers(
+	ctx *parseCtx, errs *Errors, pg *model.Page, conflicted map[string]bool,
+) {
+	obj := ctx.pkg.Types.Scope().Lookup(pg.TypeName)
+	if obj == nil {
+		return
+	}
+	check := func(expr ast.Expr) {
+		name := handlerMethodName(expr)
+		if name == "" || conflicted[name] {
+			return
+		}
+		// The generated handler calls the method on a local variable,
+		// which is addressable.
+		found, index, _ := types.LookupFieldOrMethod(
+			obj.Type(), true, ctx.pkg.Types, name,
+		)
+		if found != nil || index == nil {
+			return
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()), fmt.Errorf(
+			"%w: %s.%s is promoted from more than one embedded field "+
+				"at the same depth",
+			ErrPageAmbiguousEmbed, pg.TypeName, name,
+		))
+	}
+	if pg.GET != nil {
+		check(pg.GET.Expr)
+	}
+	for _, h := range pg.Actions {
+		check(h.Expr)
+	}
+	if pg.StreamOpen != nil {
+		check(pg.StreamOpen.Expr)
+	}
+	if pg.StreamClose != nil {
+		check(pg.StreamClose.Expr)
+	}
+	for _, h := range pg.EventHandlers {
+		check(h.Expr)
+	}
+}
+
+// handlerMethodName returns the Go method name of a handler,
+// or "" for an expression that is not one.
+func handlerMethodName(expr ast.Expr) string {
+	if id, ok := expr.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }
 
 func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
