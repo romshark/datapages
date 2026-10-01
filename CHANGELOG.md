@@ -31,6 +31,7 @@ Releases up to v0.10.0 have their notes on
 - Reject an `OnXXX` handler that takes its event by pointer, as in `event *EventPing`. The generated code for it did not compile. Take the event by value.
 - Reject a route containing `"` or `\` in `datapages lint` and `datapages gen`. For such a route, `datapages gen` failed with a Go syntax error, or the generated server matched a different path when the backslash formed a Go escape such as `\u00e9`. Write the characters as `%22` and `%5C`, which `net/http` decodes before matching the route.
 - Reject a route containing a backtick in `datapages lint` and `datapages gen`. On a page with a stream or a query field that reflects a signal, `datapages gen` failed with a Go syntax error. Write it as `%60`, which `net/http` decodes before matching the route.
+- Stop `datapages gen` from writing code that does not compile when a path, query or signals field type comes from a package named `path`, `query`, `signals` or after another variable the generated handlers declare. Run `datapages gen`.
 
 ## [0.10.1] - 2026-09-26
 

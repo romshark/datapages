@@ -35,6 +35,7 @@ func GenerateCmd(
 			collectSessionDataPkgs(m),
 			skeleton.MainGoTaken(appPkgName, genPkgName),
 			map[string]string{m.PkgPath: appPkg},
+			false,
 		)
 		sessionData = renderTypeIn(imports.Qualifier(), m.Session.Data)
 		for _, imp := range imports.Extra() {

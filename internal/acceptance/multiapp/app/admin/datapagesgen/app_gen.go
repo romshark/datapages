@@ -24,7 +24,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/href"
 
-	"github.com/romshark/datapages/internal/acceptance/multiapp/events"
+	dpEvents "github.com/romshark/datapages/internal/acceptance/multiapp/events"
 
 	"github.com/romshark/datapages/runtime/prom"
 	"github.com/starfederation/datastar-go/datastar"
@@ -297,7 +297,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventReport dpapp.EventReport
-			var eventAnnouncement events.EventAnnouncement
+			var eventAnnouncement dpEvents.EventAnnouncement
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjReport:
@@ -313,7 +313,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("handling PageIndex.OnReport", err)
 					}
 				case EvSubjAnnouncement:
-					eventAnnouncement = events.EventAnnouncement{}
+					eventAnnouncement = dpEvents.EventAnnouncement{}
 					if err := json.Unmarshal(msg.Data, &eventAnnouncement); err != nil {
 						s.LogErr("unmarshaling EventAnnouncement JSON", err)
 						continue
@@ -388,12 +388,12 @@ type dispatcherEventAnnouncement struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventAnnouncement) Dispatch(e events.EventAnnouncement) error {
+func (d dispatcherEventAnnouncement) Dispatch(e dpEvents.EventAnnouncement) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventAnnouncement) DispatchCtx(
-	ctx context.Context, e events.EventAnnouncement,
+	ctx context.Context, e dpEvents.EventAnnouncement,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

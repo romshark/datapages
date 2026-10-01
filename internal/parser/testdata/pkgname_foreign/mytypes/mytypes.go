@@ -1,5 +1,5 @@
-// Package mytypes carries a name app_gen.go does not import, which is the
-// case that must keep the name it declares rather than take an alias.
+// Package mytypes carries a name that nothing in app_gen.go takes.
+// It's aliased like every other package the model reaches.
 package mytypes
 
 type ID string

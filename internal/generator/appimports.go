@@ -12,10 +12,8 @@ import (
 // appFixedImports maps every import path app_gen.go's own block carries to the
 // identifier it binds. [Writer.writeAppHeader] writes that block.
 //
-// A package the model brings along is named against this: one whose path is
-// here keeps the identifier the block already gives it, and one whose declared
-// name is taken by a different path needs an alias, or a single identifier
-// would name two packages and the generated file would not compile.
+// A package the model brings along whose path is here keeps the identifier the
+// block gives it. Every other one takes an alias, see [newAppImports].
 //
 // Listed rather than read back from the writer, since the writer emits some of
 // them only for the models that need them while a name is taken for good once
@@ -86,6 +84,7 @@ type genImport struct {
 // genImports decides what every package a generated file names is called in it.
 // A package keeps the name it declares while that name is free,
 // and takes a "dp" prefix once a fixed import or an earlier package holds it.
+// A file can have every package take the prefix, which app_gen.go does.
 type genImports struct {
 	byPath map[string]string
 	list   []genImport
@@ -113,10 +112,13 @@ func (g genImports) Extra() []genImport { return g.list }
 // file imports itself to the identifier it already uses, which is how the app
 // package keeps [appPkgQual].
 //
+// With aliasAll, every package takes the "dp" prefix, its name free or not.
+//
 // Naming runs over the paths in order, which keeps the result independent of
 // the order the writers emit types in.
 func newGenImports(
 	pkgs []*types.Package, taken map[string]bool, fixed map[string]string,
+	aliasAll bool,
 ) genImports {
 	g := genImports{byPath: maps.Clone(fixed)}
 	if g.byPath == nil {
@@ -134,7 +136,7 @@ func newGenImports(
 	for _, path := range slices.Sorted(maps.Keys(byPath)) {
 		name := byPath[path].Name()
 		ident := name
-		if taken[ident] {
+		if aliasAll || taken[ident] {
 			base := "dp" + upperFirst(name)
 			ident = base
 			for n := 2; taken[ident]; n++ {
@@ -153,12 +155,17 @@ func newGenImports(
 }
 
 // newAppImports builds the table app_gen.go renders every model type with.
+//
+// Every package the model brings along takes the "dp" prefix, its name free or not.
+// The handlers declare locals of their own, such as query, path and r,
+// and a package of one of those names would be shadowed inside the handler.
+// No identifier app_gen.go declares starts with "dp" and an upper-case letter.
 func newAppImports(m *model.App) genImports {
 	fixed := maps.Clone(appFixedImports)
 	// After the clone: the app package keeps its alias even if it sits at a
 	// path the block already imports.
 	fixed[m.PkgPath] = appPkgQual
-	return newGenImports(collectModelPkgs(m), appTakenIdents(), fixed)
+	return newGenImports(collectModelPkgs(m), appTakenIdents(), fixed, true)
 }
 
 // appTakenIdents is every identifier app_gen.go binds before the model brings

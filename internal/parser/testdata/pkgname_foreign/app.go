@@ -1,8 +1,8 @@
 //nolint:all
 
-// Package app takes its types from packages named after ones app_gen.go imports.
-// Unaliased, one identifier in the generated file would name two
-// packages and the type would resolve to nothing.
+// Package app takes its types from packages named after ones app_gen.go imports
+// and after locals its handlers declare. Unaliased, one identifier in the
+// generated file would name two things and the type would resolve to nothing.
 //
 // The app package itself is covered by pkgname_collides. This is every other
 // package the model reaches: the session data type, an event type,
@@ -13,6 +13,8 @@ import (
 	"net/http"
 
 	"datapagestest/fixture/pkgname_foreign/mytypes"
+	"datapagestest/fixture/pkgname_foreign/path"
+	"datapagestest/fixture/pkgname_foreign/query"
 	"datapagestest/fixture/pkgname_foreign/stream"
 	"datapagestest/fixture/pkgname_foreign/strings"
 	"datapagestest/fixture/pkgname_foreign/subject"
@@ -116,5 +118,24 @@ func (PageAliasField) GET(
 	}],
 ) (body datapages.Component, err error) {
 	_ = query
+	return body, err
+}
+
+// PageLocals is /locals/{slug}
+//
+// The path and query field types come from packages named after the path and
+// query locals of the generated handler.
+type PageLocals struct{ App *App }
+
+func (PageLocals) GET(
+	r *http.Request,
+	p datapages.Path[struct {
+		Slug path.Slug `path:"slug"`
+	}],
+	q datapages.Query[struct {
+		Term query.Term `query:"t"`
+	}],
+) (body datapages.Component, err error) {
+	_, _ = p, q
 	return body, err
 }
