@@ -84,6 +84,18 @@ func TestSuggest(t *testing.T) {
 				parser.ErrSignatureEvHandMissingEvent),
 			want: "fix: Add a parameter of an EventXXX type",
 		},
+		"ErrSignatureEvHandEventPointer": {
+			err: &parser.SignatureEvHandEventPointerError{
+				Recv: "PageFoo", MethodName: "OnBar", EventType: "EventBar",
+			},
+			want: "fix: Take the event as `EventBar`, not `*EventBar`",
+		},
+		"ErrSignatureEvHandEventPointer/qualified": {
+			err: &parser.SignatureEvHandEventPointerError{
+				Recv: "PageFoo", MethodName: "OnBar", EventType: "shared.EventBar",
+			},
+			want: "fix: Take the event as `shared.EventBar`, not `*shared.EventBar`",
+		},
 
 		"ErrPageMissingFieldApp": {
 			err:  &parser.PageMissingFieldAppError{TypeName: "PageProfile"},

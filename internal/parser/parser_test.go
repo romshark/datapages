@@ -768,6 +768,21 @@ func TestParse_ErrEventHandlerMultiName(t *testing.T) {
 	}
 }
 
+// TestParse_ErrEventPointer tests an event handler that takes its event by pointer,
+// which is reported at the parameter type with the name of the event.
+func TestParse_ErrEventPointer(t *testing.T) {
+	_, err := parse(t, "err_event_pointer")
+
+	requireParseErrors(t, err, parser.ErrSignatureEvHandEventPointer)
+	pos, e := err.Entry(0)
+	requirePosEqual(t, "app.go", 25, 8, pos)
+	var d *parser.SignatureEvHandEventPointerError
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, parser.SignatureEvHandEventPointerError{
+		Recv: "PageIndex", MethodName: "OnPing", EventType: "EventPing",
+	}, *d)
+}
+
 // TestParse_ErrEventSubjectUserNoSession tests a user-scoped event subject in an
 // application that declares no session. There is no user to scope it to.
 func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {

@@ -38,6 +38,9 @@ var (
 	ErrSignatureEvHandMultipleEvents = errors.New(
 		"event handler must have exactly one parameter of an event type",
 	)
+	ErrSignatureEvHandEventPointer = errors.New(
+		"event handler must take its event by value",
+	)
 	ErrSignatureGETMissingBody = errors.New(
 		"GET handler must return body datapages.Component",
 	)
@@ -878,6 +881,23 @@ func (e *SignatureUnsupportedInputError) Error() string {
 
 func (e *SignatureUnsupportedInputError) Unwrap() error {
 	return ErrSignatureUnsupportedInput
+}
+
+// SignatureEvHandEventPointerError is [ErrSignatureEvHandEventPointer] with
+// the handler and the event type it takes by pointer.
+type SignatureEvHandEventPointerError struct {
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "OnPing"
+	EventType  string // as written without the "*", e.g. "EventPing"
+}
+
+func (e *SignatureEvHandEventPointerError) Error() string {
+	return fmt.Sprintf("%v: %s.%s takes *%s",
+		ErrSignatureEvHandEventPointer, e.Recv, e.MethodName, e.EventType)
+}
+
+func (e *SignatureEvHandEventPointerError) Unwrap() error {
+	return ErrSignatureEvHandEventPointer
 }
 
 // EventTypeNameConflictError is [ErrEventTypeNameConflict] with context.

@@ -126,6 +126,14 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureEvHandMultipleEvents):
 		return "fix: Keep one parameter of an EventXXX type and remove the rest"
 
+	case errors.Is(err, parser.ErrSignatureEvHandEventPointer):
+		var d *parser.SignatureEvHandEventPointerError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Take the event as `%s`, not `*%s`",
+			d.EventType, d.EventType)
+
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.PageMissingFieldAppError
 		if !errors.As(err, &d) {

@@ -296,7 +296,8 @@ func EventNamedOf(expr ast.Expr, info *types.Info) (*types.Named, bool) {
 	if t == nil {
 		return nil, false
 	}
-	// Allow both EventFoo and *EventFoo.
+	// *EventFoo counts as EventFoo, which lets the event handler parser
+	// report the pointer instead of a missing event.
 	if ptr, ok := types.Unalias(t).(*types.Pointer); ok {
 		t = ptr.Elem()
 	}

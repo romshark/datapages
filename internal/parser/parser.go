@@ -1018,6 +1018,22 @@ func validateAndAttachEventHandler(
 			if evName == "" {
 				evName = name
 			}
+			// Passing the address is not the fix: a stream decodes each of its
+			// messages into one variable, which a pointer the handler keeps
+			// would see overwritten by the next event.
+			t := types.Unalias(ctx.pkg.TypesInfo.TypeOf(f.Type))
+			if _, ptr := t.(*types.Pointer); ptr {
+				// Named as written, which keeps the qualifier of an event
+				// declared in another package.
+				elem := named.Obj().Name()
+				if star, ok := f.Type.(*ast.StarExpr); ok {
+					elem = types.ExprString(star.X)
+				}
+				errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()),
+					&SignatureEvHandEventPointerError{
+						Recv: recv, MethodName: fd.Name.Name, EventType: elem,
+					})
+			}
 		}
 	}
 	switch {
