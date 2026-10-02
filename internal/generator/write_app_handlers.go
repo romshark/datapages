@@ -800,19 +800,34 @@ func (w *Writer) writeGETBodyAttrs(
 		streamPath := routepattern.StreamPath(p.Route)
 		tail := streamInitTail(false)
 		tailBg := streamInitTail(true)
+		// writeTailChoice emits the tail the GET's
+		// enableBackgroundStreaming output selects at run time.
+		writeTailChoice := func(indent int) {
+			w.Linef(indent, "if %s {", outputVar(h.OutputEnableBgStream))
+			w.Linef(indent+1, "_, _ = io.WriteString(w, `%s`)", tailBg)
+			w.Line(indent, "} else {")
+			w.Linef(indent+1, "_, _ = io.WriteString(w, `%s`)", tail)
+			w.Line(indent, "}")
+		}
 		if hasPrivate && hasSess {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
 				// Need to handle path variables.
+				// Both streams take the same tail, written after the path
+				// when it depends on enableBackgroundStreaming.
+				mixedTail := tail
+				if hasEnableBgStream {
+					mixedTail = ""
+				}
 				if h.InputPath != nil {
 					// Dynamic path.
 					w.Line(0, "")
 					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", mixedTail)
 					w.Line(2, "} else {")
-					w.Linef(3, "_, _ = io.WriteString(w, `_$/anon/'%s`)", tail)
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/anon/'%s`)", mixedTail)
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -820,12 +835,15 @@ func (w *Writer) writeGETBodyAttrs(
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Rawf("'%s`)\n", tail)
+					w.Rawf("'%s`)\n", mixedTail)
 					w.Line(2, "} else {")
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Rawf("anon/'%s`)\n", tail)
+					w.Rawf("anon/'%s`)\n", mixedTail)
 					w.Line(2, "}")
+				}
+				if hasEnableBgStream {
+					writeTailChoice(2)
 				}
 			} else {
 				// Auth-only stream.
@@ -836,13 +854,7 @@ func (w *Writer) writeGETBodyAttrs(
 					if hasEnableBgStream {
 						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `_$/'`)")
-						w.Raw("\t\t\tif ")
-						w.Raw(outputVar(h.OutputEnableBgStream))
-						w.Raw(" {\n")
-						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
-						w.Line(3, "} else {")
-						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
-						w.Line(3, "}")
+						writeTailChoice(3)
 						w.Line(2, "}")
 					} else {
 						w.Line(2, `if sess.UserID() != "" {`)
@@ -855,13 +867,7 @@ func (w *Writer) writeGETBodyAttrs(
 					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("'`)\n")
-					w.Raw("\t\t\tif ")
-					w.Raw(outputVar(h.OutputEnableBgStream))
-					w.Raw(" {\n")
-					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
-					w.Line(3, "} else {")
-					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
-					w.Line(3, "}")
+					writeTailChoice(3)
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -880,13 +886,7 @@ func (w *Writer) writeGETBodyAttrs(
 				w.writeStreamPathSegments(p.Route, h.InputPath)
 				if hasEnableBgStream {
 					w.Line(2, "_, _ = io.WriteString(w, `_$/'`)")
-					w.Raw("\t\tif ")
-					w.Raw(outputVar(h.OutputEnableBgStream))
-					w.Raw(" {\n")
-					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
-					w.Line(2, "} else {")
-					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
-					w.Line(2, "}")
+					writeTailChoice(2)
 				} else {
 					w.Linef(2, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 				}
@@ -895,13 +895,7 @@ func (w *Writer) writeGETBodyAttrs(
 				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
-				w.Raw("\t\tif ")
-				w.Raw(outputVar(h.OutputEnableBgStream))
-				w.Raw(" {\n")
-				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
-				w.Line(2, "} else {")
-				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
-				w.Line(2, "}")
+				writeTailChoice(2)
 			} else {
 				w.Line(0, "")
 				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")

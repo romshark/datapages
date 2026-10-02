@@ -42,6 +42,24 @@ func External(url string) string {
 	return url
 }
 
+// PageBackground references /background/{$}
+func PageBackground() string { return "/background/" }
+
+// PageBackgroundPost references /background-post/{slug}/{$}
+func PageBackgroundPost(slug string) string {
+	s_slug := url.PathEscape(slug)
+	var b strings.Builder
+	b.Grow(
+		len("/background-post/") +
+			len(s_slug) +
+			len("/"),
+	)
+	b.WriteString("/background-post/")
+	b.WriteString(s_slug)
+	b.WriteString("/")
+	return b.String()
+}
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 

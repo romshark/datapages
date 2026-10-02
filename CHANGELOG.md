@@ -36,6 +36,7 @@ Releases up to v0.10.0 have their notes on
 - Reject an unexported defined type as the type argument of `datapages.Path`, `datapages.Query` or `datapages.Signals`, including one behind an exported alias. The generated code for such a handler did not compile. Export the type.
 - Answer a page load whose handler returns `datapages.ErrBadRequest`, `datapages.ErrForbidden`, `datapages.ErrNotFound` or `datapages.ErrConflict` with that status in an app that defines `PageError500`, as every app created by `datapages init` does. Such a page load got `PageError500` with status 500, and no page could answer 404. `PageError500` now renders for status 500 only. Other statuses get their status text, except 404 in an app that defines `PageError404`. Run `datapages gen`.
 - Keep the action of an embedded type when the page, or the embedded type, declares an action with the same suffix for another HTTP method, such as an embedded `PUTSave` next to `POSTSave`. `datapages gen` dropped the embedded action: the server did not route it and the `action` package had no builder for it. Run `datapages gen`.
+- Keep the SSE streams of a page with both public and user-addressed events open while the tab is hidden when its `GET` returns `enableBackgroundStreaming` set to `true`, for signed-in visitors and guests alike. Such a page dropped its reload on visibility but still closed its stream, which left it without the events published while the tab was hidden. Run `datapages gen`.
 
 ## [0.10.1] - 2026-09-26
 

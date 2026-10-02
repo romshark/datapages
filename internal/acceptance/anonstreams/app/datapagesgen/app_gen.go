@@ -264,6 +264,30 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
+func evSubjPageBackground(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjTicked,
+		}
+	}
+	return []string{
+		EvSubjTicked,
+		"noticed." + subject.Encode(userID),
+	}
+}
+
+func evSubjPageBackgroundPost(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjTicked,
+		}
+	}
+	return []string{
+		EvSubjTicked,
+		"noticed." + subject.Encode(userID),
+	}
+}
+
 func evSubjPagePost(userID string) []string {
 	if userID == "" {
 		return []string{
@@ -451,6 +475,24 @@ func (s *Server) releaseStateTab(id string, slot *stateSlotStateTab) {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /background/{$}",
+		pageBackgroundHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /background/_$/{$}",
+		pageBackgroundHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /background/_$/anon/{$}",
+		pageBackgroundHandlers{s}.GETStreamAnon)
+	s.Mux().HandleFunc(
+		"GET /background-post/{slug}/{$}",
+		pageBackgroundPostHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /background-post/{slug}/_$/{$}",
+		pageBackgroundPostHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /background-post/{slug}/_$/anon/{$}",
+		pageBackgroundPostHandlers{s}.GETStreamAnon)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -507,6 +549,330 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
+}
+
+type pageBackgroundHandlers struct{ *Server }
+
+func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageBackground{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageBackground.GET")
+	body, enableBackgroundStreaming, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageBackground.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		if !enableBackgroundStreaming {
+			httpserve.WriteReloadOnVisibility(w)
+		}
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `/background/_$/'`)
+		} else {
+			_, _ = io.WriteString(w, `/background/_$/anon/'`)
+		}
+		if enableBackgroundStreaming {
+			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
+		} else {
+			_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageBackground", err)
+		return
+	}
+}
+
+func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		// The query carries the signals a stream subscribes by,
+		// which the anonymous route needs as much as this one.
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+
+	p := dpapp.PageBackground{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackground(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageBackground stream")
+			var eventTicked dpapp.EventTicked
+			var eventNoticed dpapp.EventNoticed
+			for msg := range ch {
+				switch {
+				case msg.Subject == EvSubjTicked:
+					eventTicked = dpapp.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(
+						eventTicked,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageBackground.OnTicked", err)
+					}
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					if err := p.OnNoticed(
+						eventNoticed,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageBackground.OnNoticed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageBackgroundHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() != "" {
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	p := dpapp.PageBackground{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackground(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			var eventTicked dpapp.EventTicked
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjTicked:
+					eventTicked = dpapp.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(
+						eventTicked,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageBackground.OnTicked", err)
+					}
+				}
+			}
+		})
+}
+
+type pageBackgroundPostHandlers struct{ *Server }
+
+func (s pageBackgroundPostHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	var path datapages.Path[struct {
+		Slug string `path:"slug"`
+	}]
+	path.Values.Slug = r.PathValue("slug")
+
+	p := dpapp.PageBackgroundPost{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageBackgroundPost.GET")
+	body, enableBackgroundStreaming, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageBackgroundPost.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		if !enableBackgroundStreaming {
+			httpserve.WriteReloadOnVisibility(w)
+		}
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('`)
+		_, _ = io.WriteString(w, `/background-post/`)
+		htmlattr.WritePathValue(w, path.Values.Slug)
+		_, _ = io.WriteString(w, `/`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `_$/'`)
+		} else {
+			_, _ = io.WriteString(w, `_$/anon/'`)
+		}
+		if enableBackgroundStreaming {
+			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
+		} else {
+			_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageBackgroundPost", err)
+		return
+	}
+}
+
+func (s pageBackgroundPostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		// The query carries the signals a stream subscribes by,
+		// which the anonymous route needs as much as this one.
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+
+	p := dpapp.PageBackgroundPost{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageBackgroundPost stream")
+			var eventTicked dpapp.EventTicked
+			var eventNoticed dpapp.EventNoticed
+			for msg := range ch {
+				switch {
+				case msg.Subject == EvSubjTicked:
+					eventTicked = dpapp.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(
+						eventTicked,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageBackgroundPost.OnTicked", err)
+					}
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					if err := p.OnNoticed(
+						eventNoticed,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageBackgroundPost.OnNoticed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageBackgroundPostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() != "" {
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	p := dpapp.PageBackgroundPost{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			var eventTicked dpapp.EventTicked
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjTicked:
+					eventTicked = dpapp.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(
+						eventTicked,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageBackgroundPost.OnTicked", err)
+					}
+				}
+			}
+		})
 }
 
 type pageIndexHandlers struct{ *Server }

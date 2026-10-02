@@ -3,6 +3,7 @@
 package acceptance_test
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/client"
@@ -157,5 +159,58 @@ func TestAnonStreamHoldsPerTabState(t *testing.T) {
 		require.True(t, b.Saw(`<div id="count">count 0</div>`),
 			"the other tab was not rendered from its own state")
 		require.True(t, b.Never("count 2"), "one tab sees the count of another")
+	})
+}
+
+// TestBackgroundStreamingKeepsBothStreamsOpen tests a page with public and
+// private events whose GET returns enableBackgroundStreaming.
+// A signed-in visitor connects to the page's stream and a guest to its anonymous one.
+// Both have to stay open while the tab is hidden: the page does not reload
+// when the tab becomes visible again, which would render what a closed stream missed.
+func TestBackgroundStreamingKeepsBothStreamsOpen(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		tests := map[string]struct {
+			path     string
+			signedIn bool
+			stream   string
+		}{
+			"guest":     {"/background/", false, "/background/_$/anon/"},
+			"signed in": {"/background/", true, "/background/_$/"},
+			"guest, path variable": {
+				"/background-post/x/", false, "/background-post/x/_$/anon/",
+			},
+			"signed in, path variable": {
+				"/background-post/x/", true, "/background-post/x/_$/",
+			},
+		}
+
+		for name, tt := range tests {
+			t.Run(name, func(t *testing.T) {
+				store := sessinmem.New[struct{}](
+					sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+				)
+				c := client.New(t, mustNewServer(t, &app.App{}, broker, store))
+				req := c.Request(t, http.MethodGet, tt.path, "")
+				// A page load, which Datastar does not send.
+				req.Header.Del("Datastar-Request")
+				if tt.signedIn {
+					token, err := store.CreateSession(context.Background(),
+						sessions.Record[struct{}]{UserID: "alice"})
+					require.NoError(t, err)
+					req.AddCookie(&http.Cookie{
+						Name: datapages.DefaultSessionCookieName, Value: token,
+					})
+				}
+				resp := c.Do(t, req)
+
+				require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+				require.Contains(t, resp.Body,
+					`data-init="@get('`+tt.stream+`',{openWhenHidden:true,`,
+					"the page does not keep its stream open while the tab is hidden")
+				require.NotContains(t, resp.Body, "data-on:visibilitychange",
+					"the page reloads when the tab becomes visible again")
+			})
+		}
 	})
 }

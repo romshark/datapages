@@ -239,3 +239,61 @@ func (p PagePost) OnNoticed(event EventNoticed, sse datapages.SSE) error {
 		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
 	)))
 }
+
+// PageBackground is /background
+//
+// Mixed like PageRooms, and its GET keeps the streams open while the tab is hidden.
+// A signed-in visitor and a guest connect to different streams,
+// and both have to stay open.
+type PageBackground struct{ App *App }
+
+func (PageBackground) GET(_ *http.Request) (
+	body datapages.Component,
+	bgStreaming datapages.EnableBackgroundStreaming,
+	err error,
+) {
+	return templ.Raw(`<div id="out">background</div>`), true, nil
+}
+
+func (p PageBackground) OnTicked(event EventTicked, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">tick %d</div>`, event.N,
+	)))
+}
+
+func (p PageBackground) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
+	)))
+}
+
+// PageBackgroundPost is /background-post/{slug}
+//
+// PageBackground with a path variable, which the stream path is built from.
+type PageBackgroundPost struct{ App *App }
+
+func (PageBackgroundPost) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Slug string `path:"slug"`
+	}],
+) (
+	body datapages.Component,
+	bgStreaming datapages.EnableBackgroundStreaming,
+	err error,
+) {
+	return templ.Raw(`<div id="out">background post ` +
+		templ.EscapeString(path.Values.Slug) + `</div>`), true, nil
+}
+
+func (p PageBackgroundPost) OnTicked(event EventTicked, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">tick %d</div>`, event.N,
+	)))
+}
+
+func (p PageBackgroundPost) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
+	)))
+}
