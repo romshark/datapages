@@ -221,6 +221,10 @@ var (
 		"user-addressed subject field must not have a signal tag",
 	)
 
+	ErrEventSubjectUserDuplicate = errors.New(
+		"event must not have more than one datapages.SubjectUser field",
+	)
+
 	ErrEventSubjectJSONExcluded = errors.New(`subject field must not be tagged json:"-"`)
 
 	ErrDispatchDuplicate = errors.New(
@@ -239,6 +243,10 @@ var (
 
 	ErrEventSubjectDerivedType = errors.New(
 		"event subject field must name datapages.Subject or datapages.SubjectUser",
+	)
+
+	ErrEventSubjectContained = errors.New(
+		"event field holds a subject type but is not one",
 	)
 
 	ErrStateTypeArgNotNamed = errors.New(
@@ -853,6 +861,25 @@ func (e *EventSubjectDerivedTypeError) Error() string {
 
 func (e *EventSubjectDerivedTypeError) Unwrap() error {
 	return ErrEventSubjectDerivedType
+}
+
+// EventSubjectContainedError is [ErrEventSubjectContained] with the field
+// and its type. Only a field of the subject type itself routes an event:
+// this one is a payload field, which leaves the event without the segment.
+type EventSubjectContainedError struct {
+	FieldName       string // e.g. "Recipients"
+	TypeName        string // e.g. "EventDirectMessage"
+	FieldType       string // e.g. "[]datapages.SubjectUser"
+	SubjectTypeName string // e.g. "datapages.SubjectUser"
+}
+
+func (e *EventSubjectContainedError) Error() string {
+	return fmt.Sprintf("%v: %s.%s is %s",
+		ErrEventSubjectContained, e.TypeName, e.FieldName, e.FieldType)
+}
+
+func (e *EventSubjectContainedError) Unwrap() error {
+	return ErrEventSubjectContained
 }
 
 // EventSubjectSignalInvalidError is [ErrEventSubjectSignalInvalid]

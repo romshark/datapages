@@ -685,12 +685,13 @@ type EventRoomUpdate struct {
 **Restrictions:**
 
 - A user-addressed subject field must not have a `signal:"..."` tag.
+- An event must not have more than one `datapages.SubjectUser` field. To address several users, dispatch once per user.
 - No two subject fields may share the same `signal:"..."` tag value.
 - `signal` tag values must be period-separated signal names. Each step follows the `Signals` `json` tag rule.
 - Two event types cannot claim the same subject anywhere in a module. `datapages gen` and `datapages lint` report conflicts across applications. To share a subject, use one event declaration; see [Events declared outside the application package](#events-declared-outside-the-application-package).
 - An event with subject fields reserves every subject below its base. `"notify"` with one subject field conflicts with `"notify.user"`.
 
-Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected.
+Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected. So is a field whose type holds a subject-field type in a slice, array, map, pointer or channel, such as `[]datapages.SubjectUser`: it would be a payload field and route nothing. To address several values, dispatch once per value.
 
 Each dispatcher publishes one event type. A handler may declare one dispatcher per event type, but cannot declare two for the same type. Events publish in dispatch order. Failure does not undo earlier publishes or prevent later ones.
 

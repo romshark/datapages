@@ -54,7 +54,7 @@ The event and `sse` are required. `On` handlers cannot accept signals. Put requi
 
 ## Subjects
 
-A subject field must have the exact type `datapages.Subject` or `datapages.SubjectUser`. The generator rejects a defined type such as `type Recipient datapages.SubjectUser`. Subject fields must be exported and must precede payload fields. Their values extend the base subject in field order, separated by periods. `EventDirectMessage{Recipient: "u1"}` publishes to `messaging.direct.u1`. A subject field must not be tagged `json:"-"`: the payload carries its value, the subject only routes the event.
+A subject field must have the exact type `datapages.Subject` or `datapages.SubjectUser`. The generator rejects a defined type such as `type Recipient datapages.SubjectUser`, and a field that holds a subject type, such as `[]datapages.SubjectUser`, which would route nothing. Subject fields must be exported and must precede payload fields. Their values extend the base subject in field order, separated by periods. `EventDirectMessage{Recipient: "u1"}` publishes to `messaging.direct.u1`. A subject field must not be tagged `json:"-"`: the payload carries its value, the subject only routes the event.
 
 ```go
 // EventDirectMessage is "messaging.direct"
@@ -68,7 +68,7 @@ type EventDirectMessage struct {
 - One dispatch targets one subject. To notify several recipients, dispatch once per recipient. Each publish can fail independently.
 - Two events must not share a subject. An event with subject fields also claims every subject below its base subject. For example, `"chat"` with fields conflicts with `"chat.msg"`.
 - A subject value may contain any byte. Datapages escapes bytes that are not valid in a subject, so an email address works. An empty value fails the dispatch and publishes nothing.
-- `SubjectUser` sends only to the client authenticated as that user and requires a session type. Validate an ID with `datapages.ValidateUserID` before returning it in a new session.
+- `SubjectUser` sends only to the client authenticated as that user and requires a session type. An event may have one `SubjectUser` field: the generator rejects a second one, such as `To, Cc datapages.SubjectUser`. Validate an ID with `datapages.ValidateUserID` before returning it in a new session.
 - A `signal:"name"` tag on a `datapages.Subject` field gets the value from the client signal. An empty value returns 400. Datapages escapes `*` as a literal segment, not a wildcard. The tag is a period-separated signal path. Each segment must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. Two fields must not use the same signal. A `SubjectUser` field cannot have this tag because it is already bound to the authenticated user.
 
 ## Delivery
@@ -98,4 +98,4 @@ Datapages serves the stream at the page route plus `_$/`. A page with both publi
 
 Share a handler across pages by embedding: see `datapages-pages`.
 
-<!-- written by datapages sha256:7f8acb7a674887c8 -->
+<!-- written by datapages sha256:d20f674e4a4f21fa -->

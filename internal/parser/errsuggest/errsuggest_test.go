@@ -389,6 +389,21 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
 				" is always bound to the authenticated user's ID",
 		},
+		"ErrEventSubjectContained": {
+			err: &parser.EventSubjectContainedError{
+				FieldName: "Recipients", TypeName: "EventDirectMessage",
+				FieldType:       "[]datapages.SubjectUser",
+				SubjectTypeName: "datapages.SubjectUser",
+			},
+			want: "fix: Type Recipients in EventDirectMessage as " +
+				"datapages.SubjectUser and dispatch the event once per value",
+		},
+		"ErrEventSubjectUserDuplicate": {
+			err: fmt.Errorf("%w: EventDM.Cc next to EventDM.To",
+				parser.ErrEventSubjectUserDuplicate),
+			want: "fix: Keep one datapages.SubjectUser field " +
+				"and dispatch the event once per user.",
+		},
 
 		"ErrTemplHrefRelative/simple": {
 			err:  &parser.TemplHrefRelativeError{URL: "/login"},

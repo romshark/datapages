@@ -56,9 +56,12 @@ type EventThreeField struct {
 	Payload string `json:"payload"`
 }
 
-// EventMultiUser is "multi"
-type EventMultiUser struct {
-	To, Cc datapages.SubjectUser
+// EventMultiField is "multi"
+//
+// Two subject fields share one declaration line.
+type EventMultiField struct {
+	Recipient   datapages.SubjectUser
+	Room, Topic datapages.Subject
 
 	Text string `json:"text"`
 }
@@ -102,9 +105,9 @@ func (PageIndex) OnThreeField(
 	return nil
 }
 
-func (PageIndex) OnMultiUser(
+func (PageIndex) OnMultiField(
 	sse datapages.SSE,
-	event EventMultiUser,
+	event EventMultiField,
 	session Session,
 ) error {
 	return nil

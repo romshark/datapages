@@ -197,27 +197,8 @@ func (pagePanic_Fault) POST(options ...Option) string {
 var PageRooms pageRooms
 
 type pageRooms struct {
-	DM     pageRooms_DM
 	Notice pageRooms_Notice
 	Post   pageRooms_Post
-}
-
-type pageRooms_DM struct{}
-
-// POST references /rooms/dm/
-func (pageRooms_DM) POST(options ...Option) string {
-	if len(options) == 0 {
-		return "@post('/rooms/dm/')"
-	}
-	var b strings.Builder
-	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/rooms/dm/'") + actionexpr.OptionsLen(options) + len(")") + al)
-	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/rooms/dm/'")
-	actionexpr.WriteOptions(&b, options)
-	b.WriteByte(')')
-	actionexpr.WriteAfter(&b, options)
-	return b.String()
 }
 
 type pageRooms_Notice struct{}

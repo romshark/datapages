@@ -1172,6 +1172,71 @@ func TestParse_ErrEventSubjectFieldUnexported(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectUserDuplicate tests events with two
+// datapages.SubjectUser fields, on one declaration line and on two.
+// A stream subscribes by one user position, which leaves a user named
+// in the second field without the event.
+func TestParse_ErrEventSubjectUserDuplicate(t *testing.T) {
+	_, err := parse(t, "err_event_subject_user_duplicate")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectUserDuplicate, // EventDMed.Cc
+		parser.ErrEventSubjectUserDuplicate, // EventPaid.To
+	)
+	for i, want := range map[int]string{
+		0: "EventDMed.Cc next to EventDMed.To",
+		1: "EventPaid.To next to EventPaid.From",
+	} {
+		_, e := err.Entry(i)
+		require.ErrorContains(t, e, want)
+	}
+}
+
+// TestParse_ErrEventSubjectContained tests event fields whose types hold a subject type:
+// a slice, an array, a map value and key, a pointer, a channel, a type declared from
+// a slice and a slice of a type declared from a subject type. Each would be
+// a payload field that looks like a list of recipients and routes nothing.
+func TestParse_ErrEventSubjectContained(t *testing.T) {
+	_, err := parse(t, "err_event_subject_contained")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectContained, // EventSlice.Recipients
+		parser.ErrEventSubjectContained, // EventArray.Pair
+		parser.ErrEventSubjectContained, // EventMapValue.ByIndex
+		parser.ErrEventSubjectContained, // EventMapKey.ByRoom
+		parser.ErrEventSubjectContained, // EventPointer.Maybe
+		parser.ErrEventSubjectContained, // EventNamed.To
+		parser.ErrEventSubjectContained, // EventDerived.IDs
+		parser.ErrEventSubjectContained, // EventStateIDs.Tabs
+		parser.ErrEventSubjectContained, // EventCascade.Recipients
+		parser.ErrEventSubjectContained, // EventChan.Feed
+	)
+	const user = "datapages.SubjectUser"
+	for i, want := range map[int]struct {
+		field, fieldType, subjectType string
+	}{
+		0: {"EventSlice.Recipients", "[]datapages.SubjectUser", user},
+		1: {"EventArray.Pair", "[2]datapages.SubjectUser", user},
+		2: {"EventMapValue.ByIndex", "map[int]datapages.SubjectUser", user},
+		3: {"EventMapKey.ByRoom", "map[datapages.Subject]string", "datapages.Subject"},
+		4: {"EventPointer.Maybe", "*datapages.SubjectUser", user},
+		5: {"EventNamed.To", "Recipients", user},
+		6: {"EventDerived.IDs", "[]UserID", user},
+		7: {"EventStateIDs.Tabs", "[]datapages.SubjectStateID", "datapages.SubjectStateID"},
+		8: {"EventCascade.Recipients", "[]datapages.SubjectUser", user},
+		9: {"EventChan.Feed", "chan datapages.Subject", "datapages.Subject"},
+	} {
+		var d *parser.EventSubjectContainedError
+		_, e := err.Entry(i)
+		require.ErrorAs(t, e, &d)
+		require.Equal(t, want.field, d.TypeName+"."+d.FieldName)
+		require.Equal(t, want.fieldType, d.FieldType, want.field)
+		require.Equal(t, want.subjectType, d.SubjectTypeName, want.field)
+	}
+}
+
 // TestParse_SignalSubjectFields tests subject fields filled from signals:
 // the subscription a page opens is built from what the client sends,
 // one wildcard per field left unbound.
@@ -1227,12 +1292,13 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 			isSignalScoped: true,
 		},
 		// Two names on one declaration line are two subject fields.
-		// Reading only the first drops the rest and publishes to the bare subject.
-		"EventMultiUser": {
+		// Reading only the first drops the rest from the subject.
+		"EventMultiField": {
 			subject: "multi",
 			subjectFields: []model.SubjectField{
-				{FieldName: "To", Kind: model.SubjectKindUser},
-				{FieldName: "Cc", Kind: model.SubjectKindUser},
+				{FieldName: "Recipient", Kind: model.SubjectKindUser},
+				{FieldName: "Room", Kind: model.SubjectKindValue},
+				{FieldName: "Topic", Kind: model.SubjectKindValue},
 			},
 			isPrivate:      true,
 			isSignalScoped: false,

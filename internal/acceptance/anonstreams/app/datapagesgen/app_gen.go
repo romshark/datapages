@@ -240,7 +240,6 @@ func (s *Server) Init(
 }
 
 const (
-	EvSubjDMed    = "dmed.*.*"
 	EvSubjNoticed = "noticed.*"
 
 	// Public events:
@@ -251,14 +250,12 @@ const (
 )
 
 const (
-	EvPrefixDMed       = "dmed."
 	EvPrefixNoticed    = "noticed."
 	EvPrefixRoomPosted = "room.posted."
 )
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
-		EvSubjDMed,
 		EvSubjFaulted,
 		EvSubjNoticed,
 		EvSubjRoomPosted,
@@ -322,7 +319,6 @@ func evSubjPageRooms(userID string, subjRoom string) []string {
 	}
 	return []string{
 		"noticed." + subject.Encode(userID),
-		"dmed." + subject.Encode(userID) + ".*",
 		"room.posted." + subject.Encode(subjRoom),
 	}
 }
@@ -554,9 +550,6 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /rooms/notice/{$}",
 		pageRoomsHandlers{s}.POSTNotice)
-	s.Mux().HandleFunc(
-		"POST /rooms/dm/{$}",
-		pageRoomsHandlers{s}.POSTDM)
 	s.Mux().HandleFunc(
 		"POST /tabs/bump/{$}",
 		pageTabsHandlers{s}.POSTBump)
@@ -1389,7 +1382,6 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			defer s.recoverPanic(w, r, sse, "PageRooms stream")
 			var eventRoomPosted dpapp.EventRoomPosted
 			var eventNoticed dpapp.EventNoticed
-			var eventDMed dpapp.EventDMed
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvPrefixRoomPosted):
@@ -1415,18 +1407,6 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						dpsse.New(sse),
 					); err != nil {
 						s.LogErr("handling PageRooms.OnNoticed", err)
-					}
-				case strings.HasPrefix(msg.Subject, EvPrefixDMed):
-					eventDMed = dpapp.EventDMed{}
-					if err := json.Unmarshal(msg.Data, &eventDMed); err != nil {
-						s.LogErr("unmarshaling EventDMed JSON", err)
-						continue
-					}
-					if err := p.OnDMed(
-						eventDMed,
-						dpsse.New(sse),
-					); err != nil {
-						s.LogErr("handling PageRooms.OnDMed", err)
 					}
 				}
 			}
@@ -1551,39 +1531,6 @@ func (s pageRoomsHandlers) POSTNotice(
 	err := p.POSTNotice(r, signals, dispatchNoticed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Notice", err)
-		return
-	}
-}
-
-func (s pageRoomsHandlers) POSTDM(
-	w http.ResponseWriter, r *http.Request,
-) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-	// CheckCSRFOnly validates against the cookie without reading the session store.
-	if !s.CheckCSRFOnly(w, r) {
-		return
-	}
-	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
-	var signals datapages.Signals[struct {
-		To   string `json:"to"`
-		Cc   string `json:"cc"`
-		Text string `json:"text"`
-	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-
-	dispatchDMed := dispatcherEventDMed{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageRooms.DM")
-	p := dpapp.PageRooms{
-		App: s.app,
-	}
-	err := p.POSTDM(r, signals, dispatchDMed)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageRooms.DM", err)
 		return
 	}
 }
@@ -1938,36 +1885,6 @@ func (d dispatcherEventNoticed) DispatchCtx(
 		return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
 	}
 	subj := "noticed." + subject.Encode(string(e.Recipient))
-	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
-	if err != nil {
-		return fmt.Errorf("publishing subject %q: %w", subj, err)
-	}
-	return nil
-}
-
-type dispatcherEventDMed struct {
-	s   *Server
-	ctx context.Context
-}
-
-func (d dispatcherEventDMed) Dispatch(e dpapp.EventDMed) error {
-	return d.DispatchCtx(d.ctx, e)
-}
-
-func (d dispatcherEventDMed) DispatchCtx(
-	ctx context.Context, e dpapp.EventDMed,
-) error {
-	if e.To == "" {
-		return errors.New("EventDMed.To must not be empty")
-	}
-	if e.Cc == "" {
-		return errors.New("EventDMed.Cc must not be empty")
-	}
-	j, err := json.Marshal(e)
-	if err != nil {
-		return fmt.Errorf("marshaling EventDMed JSON: %w", err)
-	}
-	subj := "dmed." + subject.Encode(string(e.To)) + "." + subject.Encode(string(e.Cc))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

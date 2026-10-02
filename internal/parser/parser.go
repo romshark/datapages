@@ -453,6 +453,21 @@ func registerEventType(
 			},
 		)
 	}
+	// A stream subscribes by one user position.
+	// A user named in a second SubjectUser field would never receive the event.
+	firstUser := ""
+	for _, sf := range sfResult.Fields {
+		switch {
+		case !sf.Kind.IsUser():
+		case firstUser == "":
+			firstUser = sf.FieldName
+		default:
+			errs.ErrAt(ctx.pkg.Fset.Position(sf.Pos),
+				fmt.Errorf("%w: %s.%s next to %s.%s",
+					ErrEventSubjectUserDuplicate,
+					name, sf.FieldName, name, firstUser))
+		}
+	}
 	for _, sf := range sfResult.Fields {
 		if !sf.Kind.IsStateID() {
 			continue
@@ -501,6 +516,17 @@ func registerEventType(
 				FieldName:       sf.FieldName,
 				TypeName:        name,
 				DeclTypeName:    sf.DeclTypeName,
+				SubjectTypeName: sf.SubjectTypeName,
+			},
+		)
+	}
+	for _, sf := range sfResult.Contained {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			&EventSubjectContainedError{
+				FieldName:       sf.FieldName,
+				TypeName:        name,
+				FieldType:       sf.FieldType,
 				SubjectTypeName: sf.SubjectTypeName,
 			},
 		)

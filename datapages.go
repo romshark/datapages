@@ -494,7 +494,8 @@ var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 //
 // All subject fields must be declared before any payload field.
 //
-// A field must name this type directly, not a type declared from it:
+// A subject field must have this exact type. A type declared from it and
+// a slice, array, map, pointer or channel of it are rejected:
 //
 //	type DeviceID datapages.Subject
 //
@@ -505,8 +506,9 @@ var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 //
 //	// EventAlert is "alert"
 //	type EventAlert struct {
-//		Device DeviceID   `json:"device"` // rejected
-//		Sensor devices.ID `json:"sensor"` // rejected
+//		Device  DeviceID            `json:"device"`  // rejected
+//		Sensor  devices.ID          `json:"sensor"`  // rejected
+//		Devices []datapages.Subject `json:"devices"` // rejected
 //	}
 type Subject string
 
@@ -525,11 +527,11 @@ type Subject string
 // since the stream subscribes with the ID of the authenticated user.
 // That same binding is why the field must not carry a signal:"<name>" tag.
 //
-// One dispatch publishes to one subject. To address several users,
-// dispatch once per user, which leaves the handler in control of
-// what happens when one of the publishes fails.
+// An event declares at most one field of this type, and one dispatch
+// publishes to one subject. To address several users, dispatch once per user,
+// which leaves the handler in control of what happens when one of the publishes fails.
 //
-// As with [Subject], a field must name this type itself.
+// As with [Subject], a field must have this exact type.
 type SubjectUser string
 
 // SubjectStateID is a subject segment carrying the state ID of the tab
@@ -604,22 +606,25 @@ func ValidateUserID(userID string) error {
 //		if err != nil {
 //			return err
 //		}
+//		// One dispatch addresses one user: each event goes out once per participant.
 //		var errs []error
-//		for _, name := range signals.Values.Attachments {
-//			errs = append(errs, attachmentAdded.Dispatch(EventAttachmentAdded{
-//				Recipients: room.ParticipantIDs,
-//				Name:       name,
-//			}))
+//		for _, id := range room.ParticipantIDs {
+//			to := datapages.SubjectUser(id)
+//			for _, name := range signals.Values.Attachments {
+//				errs = append(errs, attachmentAdded.Dispatch(EventAttachmentAdded{
+//					Recipient: to,
+//					Name:      name,
+//				}))
+//			}
+//			errs = append(errs,
+//				writingStopped.Dispatch(EventWritingStopped{Recipient: to}),
+//				messageSent.Dispatch(EventMessageSent{
+//					Recipient: to,
+//					Message:   signals.Values.Text,
+//				}),
+//			)
 //		}
-//		return errors.Join(append(errs,
-//			writingStopped.Dispatch(EventWritingStopped{
-//				Recipients: room.ParticipantIDs,
-//			}),
-//			messageSent.Dispatch(EventMessageSent{
-//				Recipients: room.ParticipantIDs,
-//				Message:    signals.Values.Text,
-//			}),
-//		)...)
+//		return errors.Join(errs...)
 //	}
 //
 // The events go out in the order the handler dispatches them,

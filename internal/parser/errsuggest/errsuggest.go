@@ -362,6 +362,10 @@ func Suggest(err error) string {
 		return "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
 			" is always bound to the authenticated user's ID"
 
+	case errors.Is(err, parser.ErrEventSubjectUserDuplicate):
+		return "fix: Keep one datapages.SubjectUser field " +
+			"and dispatch the event once per user."
+
 	case errors.Is(err, parser.ErrEventSubjectPrefixedField):
 		var d *parser.EventSubjectPrefixedFieldError
 		if !errors.As(err, &d) {
@@ -381,6 +385,16 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Type %s in %s as %s instead of %s",
 			d.FieldName, d.TypeName, d.SubjectTypeName, d.DeclTypeName,
+		)
+
+	case errors.Is(err, parser.ErrEventSubjectContained):
+		var d *parser.EventSubjectContainedError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Type %s in %s as %s and dispatch the event once per value",
+			d.FieldName, d.TypeName, d.SubjectTypeName,
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectSignalInvalid):

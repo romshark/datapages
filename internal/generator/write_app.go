@@ -1067,21 +1067,20 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 	}
 }
 
-// writeEvSubExpr writes one event subscription expression with the first user
+// writeEvSubExpr writes one event subscription expression with the user
 // field and every signal field bound. Keeping the bindings in one subject
 // prevents cross-user matches and duplicate NATS deliveries.
+// The parser refuses a second user field.
 func (w *Writer) writeEvSubExpr(
 	ev *model.Event, identBySignal map[string]string,
 ) {
 	lit := ev.Subject
 	wrote := false
-	userBound := false
 	for _, sf := range ev.SubjectFields {
 		lit += "."
 		var val string
 		switch {
-		case sf.Kind.IsUser() && !userBound:
-			userBound = true
+		case sf.Kind.IsUser():
 			val = "userID"
 		case sf.SignalName != "":
 			val = "subj" + identBySignal[sf.SignalName]
