@@ -1754,9 +1754,7 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	w.Rawf("func (s %s) %s%s(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType("App"), strings.ToUpper(h.HTTPMethod), h.Name)
 
-	// An action delivering its page cache writes over a stream answers with an
-	// event stream, which only a Datastar request can read.
-	if h.InputSSE != nil || h.InputSignals != nil || pageCacheViaStream(h) {
+	if needsDatastarRequest(h) {
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")

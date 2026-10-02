@@ -137,7 +137,7 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-An action with neither `signals` nor `sse` does not require `Datastar-Request: true` and can receive HTML form submissions. It is guarded by [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection): requests reported as same-site or cross-site by `Sec-Fetch-Site`, or with an `Origin` that differs from `Host`, receive 403. Requests with neither header are allowed. Authenticated forms also fail the CSRF check when sessions and CSRF protection are enabled. All other actions require `Datastar-Request: true`; requests without it receive 406 Not Acceptable.
+An action that takes `datapages.Signals`, `datapages.SSE` or [`datapages.PageCacheWriter`](#parameter-pagecache-datapagespagecachewriter) requires `Datastar-Request: true`. Requests without it receive 406 Not Acceptable. Any other action can receive HTML form submissions. It is guarded by [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection): requests reported as same-site or cross-site by `Sec-Fetch-Site`, or with an `Origin` that differs from `Host`, receive 403. Requests with neither header are allowed. Authenticated forms also fail the CSRF check when sessions and CSRF protection are enabled.
 
 **Actions with `sse` cannot return `newSession` or `closeSession`.** The SSE stream sends headers before the handler returns. A `redirect` return value navigates through the stream, as `sse.Redirect` does.
 
@@ -526,7 +526,9 @@ page method and an action declared on `App`:
 - Action with `sse`: sends the writes over that stream.
 - Action with a redirect: sends the writes in the `text/javascript` response. Navigation waits up to 500ms for the worker to apply them. This rule also applies when the action can return a body.
 - Action with only a body: embeds the writes in the rendered document.
-- Action with neither: sends the writes over an SSE stream opened by Datapages. Only a Datastar request can read this response.
+- Action with neither: sends the writes over an SSE stream opened by Datapages.
+
+An action taking `datapages.PageCacheWriter` answers a request without `Datastar-Request: true` with 406 Not Acceptable. Datapages could answer a plain form submission to an action that redirects only with an HTTP redirect, which carries no writes.
 
 A page can lazily cache itself on visit, versioned by its own data so it
 refreshes whenever that data changes:
@@ -960,7 +962,7 @@ The directive applies to the next non-whitespace sibling element. It suppresses 
 
 ### Plain Forms and CSRF
 
-With sessions and CSRF protection enabled, authenticated plain form submissions fail the CSRF check. Guest forms can reach actions that declare neither `signals` nor `sse`. CSRF tokens are injected for Datastar `fetch` requests with `Datastar-Request: true`; authenticated forms must use Datastar actions.
+With sessions and CSRF protection enabled, authenticated plain form submissions fail the CSRF check. Guest forms can reach actions that do not require `Datastar-Request: true`. CSRF tokens are injected for Datastar `fetch` requests with `Datastar-Request: true`; authenticated forms must use Datastar actions.
 
 ### Absolute URLs in Href Linting
 

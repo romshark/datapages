@@ -586,7 +586,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckSameOrigin(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 

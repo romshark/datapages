@@ -445,6 +445,9 @@ func setupHandlers(s *Server) {
 		"POST /app-body/{$}",
 		appHandlers{s}.POSTAppBody)
 	s.Mux().HandleFunc(
+		"POST /app-redirect/{$}",
+		appHandlers{s}.POSTAppRedirect)
+	s.Mux().HandleFunc(
 		"POST /stream-write/{$}",
 		pageIndexHandlers{s}.POSTStream)
 	s.Mux().HandleFunc(
@@ -544,7 +547,7 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckSameOrigin(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
@@ -559,6 +562,23 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of App.POSTAppBody", err)
+		return
+	}
+}
+
+func (s appHandlers) POSTAppRedirect(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.AppRedirect")
+	pageCache := newPageCache(w, s.Server, r, nil)
+	redirect, err := s.app.POSTAppRedirect(r, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.AppRedirect", err)
+		return
+	}
+	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
 }

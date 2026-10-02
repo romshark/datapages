@@ -1681,16 +1681,16 @@ func (w *Writer) writePageActionHandler(
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
-	if h.InputSSE != nil || h.InputSignals != nil || h.InputPageCache != nil {
+	if needsDatastarRequest(h) {
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	} else {
-		// The Datastar header is what keeps the other actions unreachable from
-		// another origin: a fetch that sets it is preflighted and a form cannot
-		// set it at all. An action that needs neither signals nor an SSE
-		// connection is a plain form target, which a page on another site can
-		// host as well, hence the origin check in its place.
+		// The Datastar header is what keeps the actions [needsDatastarRequest]
+		// reports unreachable from another origin: a fetch that sets it is
+		// preflighted and a form cannot set it at all. Any other action is a
+		// plain form target, which a page on another site can host as well,
+		// hence the origin check in its place.
 		w.Line(1, "if !s.CheckSameOrigin(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1779,6 +1779,16 @@ func (w *Writer) writePageActionHandler(
 	}
 
 	w.Line(0, "}")
+}
+
+// needsDatastarRequest reports whether h serves only Datastar requests:
+// it reads signals, answers with an event stream or takes a page cache.
+// Page cache writes reach the worker through a script in the response, which an
+// HTTP redirect, the answer to a plain request, cannot carry. A plain request
+// for a body could receive them and is refused too, which keeps one rule for
+// every page cache action. Any other action is a plain form target.
+func needsDatastarRequest(h *model.Handler) bool {
+	return h.InputSSE != nil || h.InputSignals != nil || h.InputPageCache != nil
 }
 
 // pageCacheViaRedirect reports whether h sends offline writes in a JavaScript
