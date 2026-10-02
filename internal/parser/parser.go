@@ -1385,6 +1385,10 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	// conflicted holds the handlers whose conflict is reported here,
 	// which [reportAmbiguousHandlers] then does not report a second time.
 	conflicted := map[string]bool{}
+	// ownedMethods holds the Go method names the page has so far. A handler of an
+	// embedded type is dropped when its method name is taken, the way a method declared
+	// on a shallower type shadows it in Go. A handler's Name is only its suffix:
+	// keyed by it, POSTSave would drop an embedded PUTSave.
 	ownedMethods := map[string]bool{}
 	handledEvents := map[string]string{}
 	handledEventPos := map[string]token.Pos{}
@@ -1404,7 +1408,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		}
 	}
 	for _, a := range pg.Actions {
-		ownedMethods[a.Name] = true
+		ownedMethods[a.HTTPMethod+a.Name] = true
 	}
 	if pg.StreamOpen != nil {
 		streamOpenOwner = "page"
@@ -1425,7 +1429,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				handledEventPos[h.EventTypeName] = h.Expr.Pos()
 			}
 		} else {
-			ownedMethods[h.Name] = true
+			ownedMethods["On"+h.Name] = true
 		}
 	}
 
@@ -1532,11 +1536,10 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				continue
 			}
 
-			// Non-GET methods: name-based dedup.
-			if ownedMethods[m.Name] {
+			if ownedMethods[m.HTTPMethod+m.Name] {
 				continue
 			}
-			ownedMethods[m.Name] = true
+			ownedMethods[m.HTTPMethod+m.Name] = true
 			pg.Actions = append(pg.Actions,
 				m)
 		}
@@ -1608,10 +1611,10 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		for _, h := range ap.EventHandlers {
 			ev := h.EventTypeName
 			if ev == "" {
-				if ownedMethods[h.Name] {
+				if ownedMethods["On"+h.Name] {
 					continue
 				}
-				ownedMethods[h.Name] = true
+				ownedMethods["On"+h.Name] = true
 				pg.EventHandlers = append(pg.EventHandlers,
 					h)
 				continue
@@ -1663,9 +1666,9 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 // than one embedded field at the same depth. Generated code calls a handler as
 // a method of the page, which Go refuses as an ambiguous selector.
 //
-// [flattenPage] keeps the first action of a name and visits each abstract page once.
-// It therefore accepts two abstracts defining one action at the same depth,
-// and one abstract reached through two embedded fields.
+// [flattenPage] keeps the first action of a method name and visits each
+// abstract page once. It therefore accepts two abstracts defining one action
+// at the same depth, and one abstract reached through two embedded fields.
 // [types.LookupFieldOrMethod] applies Go's selector rules, which refuse both
 // and let a shallower method shadow a deeper one.
 func reportAmbiguousHandlers(

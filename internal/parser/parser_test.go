@@ -178,7 +178,8 @@ func TestParse_Basic(t *testing.T) {
 }
 
 // TestParse_Embed tests a page embedding a struct: the embedded GET, actions and
-// event handlers become the page's own.
+// event handlers become the page's own. A method the page declares shadows the embedded
+// method of that name only, not one sharing its suffix under another HTTP method.
 func TestParse_Embed(t *testing.T) {
 	app, err := parse(t, "embed")
 	require := require.New(t)
@@ -248,6 +249,25 @@ func TestParse_Embed(t *testing.T) {
 
 		require.NotNil(p.GET)
 		require.Empty(p.Actions)
+	}
+
+	// PageVerbs
+	// - Own: POSTSave
+	// - Saver: POSTSave (shadowed), PUTSave
+	{
+		p := findPage(app, "PageVerbs")
+		require.NotNil(p)
+		require.ElementsMatch([]string{"POSTSave", "PUTSave"},
+			actionMethodNames(p.Actions))
+	}
+
+	// PageArchive
+	// - Archiver: POSTArchive, DELETEArchive
+	{
+		p := findPage(app, "PageArchive")
+		require.NotNil(p)
+		require.ElementsMatch([]string{"POSTArchive", "DELETEArchive"},
+			actionMethodNames(p.Actions))
 	}
 }
 
@@ -2575,6 +2595,15 @@ func getHandlerNames(hs []*model.EventHandler) []string {
 	names := make([]string, 0, len(hs))
 	for _, h := range hs {
 		names = append(names, h.Name)
+	}
+	return names
+}
+
+// actionMethodNames returns the Go method names of actions, such as "PUTSave".
+func actionMethodNames(actions []*model.Handler) []string {
+	names := make([]string, 0, len(actions))
+	for _, a := range actions {
+		names = append(names, a.HTTPMethod+a.Name)
 	}
 	return names
 }

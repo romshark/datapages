@@ -222,9 +222,9 @@ func (PageIndex) StreamClose(
 
 #### Abstract Page Types
 
-A struct in the app package whose name does not start with `Page` and that declares `App *App` is an abstract page type. Pages may embed it to inherit its handlers.
+A struct in the app package whose name does not start with `Page` and that declares `App *App` is an abstract page type. Pages may embed it to share its handlers.
 
-A handler declared by the page overrides an inherited one. An inherited action at a shallower depth shadows one of the same name at a deeper depth, as Go's promoted methods do. A page is rejected when it inherits one action from two types at the same depth, or a handler from an abstract page that it reaches through two embedded fields at the same depth. Go reports both selectors as ambiguous.
+A handler declared by the page shadows an embedded one with the same method name. A page declaring `POSTSave` keeps an embedded `PUTSave`. An action embedded at a shallower depth shadows one with the same method name at a deeper depth, as Go's promoted methods do. A page is rejected when two types embedded at the same depth declare one action, or when it reaches an abstract page through two embedded fields at the same depth. Go reports both selectors as ambiguous.
 
 #### Parameter: `datapages.State[T]`
 
@@ -255,7 +255,7 @@ func (PageIndex) StreamOpen(r *http.Request, state datapages.State[StateIndex]) 
 
 - `T` must be an exported struct declared at the source package level.
 - The parameter name is unrestricted. `T` must directly name the app package's struct. Pointers, struct literals, and types from other packages are rejected.
-- All handlers on a page, including inherited handlers, must use the same `T`.
+- All handlers on a page, including those of embedded types, must use the same `T`.
 - State used by an abstract page binds every page that embeds it.
 - Global `*App` actions may take `datapages.State[T]`. The caller must be bound to a page using the same `T`; otherwise the action receives `409 Conflict` with `Datapages-Retry: reconnect`. A global action callable from every page must be stateless.
 - `GET` cannot take state because no instance exists at render time.
