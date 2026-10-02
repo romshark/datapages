@@ -63,6 +63,9 @@ func PageBackgroundPost(slug string) string {
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 
+// PagePanic references /panic/{$}
+func PagePanic() string { return "/panic/" }
+
 // PagePost references /post/{slug}/{$}
 func PagePost(slug string) string {
 	s_slug := url.PathEscape(slug)

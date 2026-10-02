@@ -10,13 +10,42 @@ package app
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
 )
 
-type App struct{}
+type App struct {
+	lock sync.Mutex
+	// opened and closed count the streams of PagePanic.
+	opened, closed int
+	recovered      []error
+}
+
+// PanicStreams reports how many streams of PagePanic ran StreamOpen and StreamClose.
+func (a *App) PanicStreams() (opened, closed int) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	return a.opened, a.closed
+}
+
+// Recovered returns the errors RecoverError received.
+func (a *App) Recovered() []error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	return append([]error(nil), a.recovered...)
+}
+
+// RecoverError records the error and writes it into the page.
+func (a *App) RecoverError(err error, sse datapages.SSE) error {
+	a.lock.Lock()
+	a.recovered = append(a.recovered, err)
+	a.lock.Unlock()
+	return sse.PatchElement(templ.Raw(`<div id="out">recovered: ` +
+		templ.EscapeString(err.Error()) + `</div>`))
+}
 
 // Session is the app's session type. A handler that takes one is what
 // gives the pages below a second, anonymous stream route.
@@ -296,4 +325,50 @@ func (p PageBackgroundPost) OnNoticed(event EventNoticed, sse datapages.SSE) err
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
 		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
 	)))
+}
+
+// EventFaulted is "faulted"
+//
+// Public: the anonymous stream of PagePanic receives it.
+type EventFaulted struct{}
+
+// PagePanic is /panic
+//
+// Mixed like PageRooms, which gives it an anonymous stream.
+// Its public event handler panics, the way a handler fails on data it does not expect.
+type PagePanic struct{ App *App }
+
+func (PagePanic) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="out">panic</div>`), nil
+}
+
+func (p PagePanic) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
+	p.App.lock.Lock()
+	defer p.App.lock.Unlock()
+	p.App.opened++
+	return nil
+}
+
+func (p PagePanic) StreamClose(_ *http.Request, _ datapages.StreamID) error {
+	p.App.lock.Lock()
+	defer p.App.lock.Unlock()
+	p.App.closed++
+	return nil
+}
+
+func (PagePanic) OnFaulted(event EventFaulted, sse datapages.SSE) error {
+	panic("the faulted handler panicked")
+}
+
+func (PagePanic) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
+	)))
+}
+
+// POSTFault is /panic/fault
+func (PagePanic) POSTFault(
+	_ *http.Request, faulted datapages.Dispatcher[EventFaulted],
+) error {
+	return faulted.Dispatch(EventFaulted{})
 }

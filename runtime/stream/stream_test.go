@@ -204,6 +204,32 @@ func TestHandleFailedOpenDelaysReconnect(t *testing.T) {
 	}
 }
 
+// TestHandleClosesAfterPanic tests a stream whose message loop panics.
+// The panic leaves Handle for its caller, net/http in a server, and the close
+// hook runs on the way: it gives back what the open hook took.
+func TestHandleClosesAfterPanic(t *testing.T) {
+	t.Parallel()
+
+	h, _, _ := newHandler(t, nil, nil)
+	opened, closed := false, false
+	require.PanicsWithValue(t, "the message loop panicked", func() {
+		h.Handle(httptest.NewRecorder(), streamRequest(t.Context()),
+			"", "", time.Time{}, []string{"notice"},
+			func(datapages.StreamID, *datastar.ServerSentEventGenerator) error {
+				opened = true
+				return nil
+			},
+			func(datapages.StreamID) { closed = true },
+			func(datapages.StreamID, *datastar.ServerSentEventGenerator,
+				<-chan messaging.Message,
+			) {
+				panic("the message loop panicked")
+			})
+	})
+	require.True(t, opened, "the open hook did not run")
+	require.True(t, closed, "the close hook did not run after the panic")
+}
+
 // newHandler returns a handler that watches sessions with notifier, which may be nil.
 // A nil onErr fails the test on any error the handler reports.
 func newHandler(

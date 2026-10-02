@@ -545,6 +545,7 @@ func (s pageIndexHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageIndex anonymous stream")
 			var eventBroadcast dpapp.EventBroadcast
 			for msg := range ch {
 				switch msg.Subject {

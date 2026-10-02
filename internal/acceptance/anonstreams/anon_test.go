@@ -214,3 +214,37 @@ func TestBackgroundStreamingKeepsBothStreamsOpen(t *testing.T) {
 		}
 	})
 }
+
+// TestAnonStreamRecoversHandlerPanic tests a public event handler that panics
+// on the stream of a visitor with no session. As on the signed-in stream,
+// RecoverError receives a datapages.PanicError and StreamClose runs.
+func TestAnonStreamRecoversHandlerPanic(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		a := &app.App{}
+		store := sessinmem.New[struct{}](
+			sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+		)
+		c := client.New(t, mustNewServer(t, a, broker, store))
+
+		s := c.OpenStream(t, "/panic/_$/anon/", nil)
+		resp := c.Action(t, http.MethodPost, "/panic/fault/", "")
+		require.Equal(t, http.StatusOK, resp.Status)
+
+		require.True(t, s.Saw(`<div id="out">recovered: panic: the faulted handler panicked</div>`),
+			"RecoverError did not answer on the stream")
+		require.True(t, client.WaitFor(func() bool {
+			_, closed := a.PanicStreams()
+			return closed > 0
+		}, client.Await), "StreamClose did not run")
+		opened, closed := a.PanicStreams()
+		require.Equal(t, 1, opened, "StreamOpen")
+		require.Equal(t, 1, closed, "StreamClose")
+
+		recovered := a.Recovered()
+		require.Len(t, recovered, 1)
+		var pe datapages.PanicError
+		require.ErrorAs(t, recovered[0], &pe)
+		require.Equal(t, "the faulted handler panicked", pe.Value)
+	})
+}

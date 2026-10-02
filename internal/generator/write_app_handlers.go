@@ -1233,10 +1233,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
 	if len(p.EventHandlers) > 0 {
-		// A panic here would reach net/http through the stream. Recovering it
-		// ends this stream, which the client reopens, and leaves the rest
-		// running.
-		w.Linef(2, "defer s.recoverPanic(w, r, sse, %q)", p.TypeName+" stream")
+		w.writeStreamRecover(p.TypeName + " stream")
 	}
 	if len(p.EventHandlers) == 0 {
 		w.Line(2, "for range ch {")
@@ -1274,6 +1271,12 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 	w.Line(1, "})")
 	w.Line(0, "}")
+}
+
+// writeStreamRecover emits the deferred recover of a stream's message loop. A panic in
+// an event handler then takes the handler error path instead of dropping the connection.
+func (w *Writer) writeStreamRecover(handler string) {
+	w.Linef(2, "defer s.recoverPanic(w, r, sse, %q)", handler)
 }
 
 // writeStreamEventVars declares the event of every case of the message loop.
@@ -1644,6 +1647,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		}
 	}
 
+	if len(publicHandlers) > 0 {
+		w.writeStreamRecover(p.TypeName + " anonymous stream")
+	}
 	w.writeStreamEventVars(publicHandlers, appPkg)
 	w.Line(2, "for msg := range ch {")
 

@@ -90,6 +90,7 @@ func NewHandler(
 //
 // Handle recovers panics from onClose because no other caller can report them.
 // The caller owns panics from fn; generated implementations recover them.
+// A panic from fn runs onClose on its way out of Handle.
 //
 // The page reconnects its stream whenever the stream ends. On shutdown, Handle runs
 // onClose and then aborts the stream with [http.ErrAbortHandler]:
@@ -147,6 +148,9 @@ func (h *Handler) Handle(
 			return
 		}
 	}
+	// onClose gives back what onOpen took, such as a per-tab state instance.
+	// The defer runs it after fn, a panic in fn included.
+	defer h.runCloseHook(onClose, streamID)
 
 	// A nil channel never fires, which is what a stream without a session selects on.
 	var sessionClosed chan struct{}
@@ -159,9 +163,6 @@ func (h *Handler) Handle(
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
 			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
-			// The open hook already ran. This stream holds whatever it took:
-			// on a stateful page an instance, which only onClose gives back.
-			h.runCloseHook(onClose, streamID)
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
 			delayReconnect(sse)
 			return
@@ -213,10 +214,6 @@ func (h *Handler) Handle(
 	}()
 
 	fn(streamID, sse, subC)
-
-	// fn may drain buffered messages through handlers that need state released
-	// by onClose. Run onClose synchronously after fn so [http.Server.Shutdown] waits.
-	h.runCloseHook(onClose, streamID)
 
 	switch {
 	case shutdown.Load():
