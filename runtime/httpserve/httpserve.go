@@ -133,19 +133,24 @@ func (f notBrowsableFS) Open(name string) (http.File, error) {
 	return file, nil
 }
 
-// WriteErrStatus writes the HTTP error response err maps to.
+// ErrStatus returns the HTTP status err maps to.
 // The datapages error sentinels select the status, anything else is a 500.
-func WriteErrStatus(w http.ResponseWriter, err error) {
-	code := http.StatusInternalServerError
+func ErrStatus(err error) int {
 	switch {
 	case errors.Is(err, datapages.ErrBadRequest):
-		code = http.StatusBadRequest
+		return http.StatusBadRequest
 	case errors.Is(err, datapages.ErrForbidden):
-		code = http.StatusForbidden
+		return http.StatusForbidden
 	case errors.Is(err, datapages.ErrNotFound):
-		code = http.StatusNotFound
+		return http.StatusNotFound
 	case errors.Is(err, datapages.ErrConflict):
-		code = http.StatusConflict
+		return http.StatusConflict
 	}
+	return http.StatusInternalServerError
+}
+
+// WriteErrStatus writes the status [ErrStatus] maps err to and its standard text.
+func WriteErrStatus(w http.ResponseWriter, err error) {
+	code := ErrStatus(err)
 	http.Error(w, http.StatusText(code), code)
 }

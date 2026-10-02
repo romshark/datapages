@@ -21,6 +21,13 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
+// newFailing404Client returns a client of a server whose 404 page fails with ErrNotFound.
+func newFailing404Client(t *testing.T) *client.Client {
+	t.Helper()
+	return client.New(t, mustNewServer(t, &app.App{Error404Fails: true},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
+}
+
 // TestNotFoundPage tests the page an app supplies for URLs nothing claims,
 // reached both ways: by such a URL and by its own route.
 func TestNotFoundPage(t *testing.T) {
@@ -51,17 +58,67 @@ func TestServerErrorPageRoute(t *testing.T) {
 	require.Equal(t, "server error", resp.Element(t, "echo"))
 }
 
-// TestFailedPageLoad tests a page load whose handler fails.
-// Whatever the visitor is given, it cannot be the error the handler produced:
-// that text is written for the operator's log.
+// TestFailedPageLoad tests the status and the page a page load gets for the
+// error its handler returns. The app supplies pages for 404 and 500, and any
+// other status gets its status text. Whatever the visitor is given, it cannot be
+// the error the handler produced: that text is written for the operator's log.
 func TestFailedPageLoad(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	tests := map[string]struct {
+		path   string
+		status int
+		page   string // the echo of the error page, empty for the status text
+	}{
+		"plain error": {"/boom/", http.StatusInternalServerError, "server error"},
+		"not found":   {"/gone/", http.StatusNotFound, "not found: /gone/"},
+		"forbidden":   {"/denied/", http.StatusForbidden, ""},
+	}
 
-	resp := c.Get(t, "/boom/")
-	require.Equal(t, http.StatusInternalServerError, resp.Status)
-	require.NotContains(t, resp.Body, "the page could not be built",
-		"the error message reached the visitor")
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := newClient(t)
+			resp := c.Get(t, tt.path)
+
+			require.Equal(t, tt.status, resp.Status, resp.Body)
+			if tt.page == "" {
+				require.Equal(t, http.StatusText(tt.status)+"\n", resp.Body)
+			} else {
+				require.Equal(t, tt.page, resp.Element(t, "echo"))
+			}
+			for _, leaked := range []string{
+				"the page could not be built", "no such item", "not the owner",
+			} {
+				require.NotContains(t, resp.Body, leaked,
+					"the error message reached the visitor")
+			}
+		})
+	}
+}
+
+// TestFailingError404PageStillAnswers tests a 404 page that fails with
+// ErrNotFound itself, reached each way the server renders it.
+//
+// The server answers ErrNotFound on a page load by rendering the 404 page.
+// Answering the page's own ErrNotFound the same way renders it again until the
+// stack is gone, which takes the process with it rather than the request.
+// The server has to stop at the status text instead.
+func TestFailingError404PageStillAnswers(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"unknown url":                "/no-such-page/",
+		"failed page load":           "/gone/",
+		"the error page's own route": "/not-found/",
+	}
+
+	for name, path := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := newFailing404Client(t)
+			resp := c.Get(t, path)
+
+			require.Equal(t, http.StatusNotFound, resp.Status, resp.Body)
+			require.Equal(t, http.StatusText(http.StatusNotFound)+"\n", resp.Body)
+		})
+	}
 }
 
 // TestActionErrorStatus tests the status an action's error becomes.

@@ -90,6 +90,8 @@ It also rejects a JSON type mismatch between a query field and its signal. The c
 `PageError404`, `PageError500` and `PageOffline` are reserved page names. All
 three are optional. Datapages serves defaults when they are absent.
 
+`PageError404` renders with status 404 for a URL that no route matches and for a page load whose handler returns `datapages.ErrNotFound`. `PageError500` renders with status 500 for a page load whose handler panics or returns an error without a sentinel.
+
 ```go
 // PageError404 is /not-found
 type PageError404 struct{ App *App }

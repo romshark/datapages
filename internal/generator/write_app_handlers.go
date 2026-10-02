@@ -442,6 +442,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 		if isPageError500(p, m) {
 			// httpErrIntern renders PageError500. The error page can't use it.
 			w.Raw("\t\ts.httpErrFinal(w, \"handling ")
+		} else if isPageError404(p, m) {
+			// httpErrIntern answers ErrNotFound by rendering this page again.
+			w.Raw("\t\ts.httpErr404(w, r, \"handling ")
 		} else {
 			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
 		}
@@ -522,9 +525,14 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Line(1, "}")
 }
 
-// isPageError500 reports whether p is the page httpErrIntern renders.
+// isPageError500 reports whether p is the page httpErrIntern renders for a 500.
 func isPageError500(p *model.Page, m *model.App) bool {
 	return m.PageError500 != nil && p == m.PageError500
+}
+
+// isPageError404 reports whether p is the page httpErrIntern renders for a 404.
+func isPageError404(p *model.Page, m *model.App) bool {
+	return hasRender404(m) && p == m.PageError404
 }
 
 func hasSessionInput(h *model.Handler) bool {

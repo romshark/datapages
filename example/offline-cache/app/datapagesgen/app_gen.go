@@ -505,6 +505,24 @@ func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	httpserve.WriteErrStatus(w, err)
 }
 
+// httpErr404 reports an error of PageError404.GET.
+// It answers ErrNotFound on a page load with the plain status
+// so PageError404 can't render itself.
+func (s *Server) httpErr404(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	if httpserve.IsDatastarRequest(r.Header) ||
+		httpserve.ErrStatus(err) != http.StatusNotFound {
+		s.httpErrIntern(w, r, nil, msg, err)
+		return
+	}
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
@@ -515,8 +533,15 @@ func (s *Server) httpErrIntern(
 			// An error page after a half-written one sends two documents.
 			return
 		}
-		// The page serves 200 on its own route. Reached from here it carries 500.
-		pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+		case http.StatusInternalServerError:
+			// The page serves 200 on its own route. Reached from here it carries 500.
+			pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
 		return
 	}
 	if sse != nil {
@@ -545,7 +570,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -604,7 +629,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
 	genericHead := s.app.Head(r)

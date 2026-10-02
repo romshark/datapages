@@ -169,6 +169,9 @@ func setupHandlers(s *Server) {
 		"GET /server-error/{$}",
 		pageError500Handlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /gone/{$}",
+		pageGoneHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 }
@@ -193,8 +196,13 @@ func (s *Server) httpErrIntern(
 			// An error page after a half-written one sends two documents.
 			return
 		}
-		// The page serves 200 on its own route. Reached from here it carries 500.
-		pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		switch httpserve.ErrStatus(err) {
+		case http.StatusInternalServerError:
+			// The page serves 200 on its own route. Reached from here it carries 500.
+			pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
 		return
 	}
 	if sse != nil {
@@ -251,6 +259,27 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
+		return
+	}
+}
+
+type pageGoneHandlers struct{ *Server }
+
+func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageGone{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageGone.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageGone.GET", err)
+		return
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageGone", err)
 		return
 	}
 }

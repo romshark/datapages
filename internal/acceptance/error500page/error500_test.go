@@ -39,3 +39,15 @@ func TestError500PageIsRendered(t *testing.T) {
 	require.NotContains(t, resp.Body, "the page could not be built",
 		"the error message reached the visitor")
 }
+
+// TestSentinelPageLoadSkipsError500Page tests a page load failing with ErrNotFound
+// in an app that supplies PageError500 and no PageError404. PageError500 stands
+// for 500 only: the visitor gets 404 and its status text.
+func TestSentinelPageLoadSkipsError500Page(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/gone/")
+	require.Equal(t, http.StatusNotFound, resp.Status, resp.Body)
+	require.Equal(t, http.StatusText(http.StatusNotFound)+"\n", resp.Body)
+}

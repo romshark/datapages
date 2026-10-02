@@ -79,7 +79,7 @@ return datapages.ErrConflict                              // 409
 return fmt.Errorf("%w: %w", datapages.ErrNotFound, err)   // 404, keeps err
 ```
 
-Any other error returns 500. The response body is the standard status text. Wrap at most one sentinel. If an error contains several sentinels, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` sets the status.
+Any other error returns 500. The response body is the standard status text. A page load gets `PageError404` for 404 and `PageError500` for 500 instead when the app defines them. A Datastar request gets status 200 when the app defines `RecoverError`, and a handler with `sse` sends 200 before it runs. Wrap at most one sentinel. If an error contains several sentinels, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` sets the status.
 
 ## RecoverError
 
@@ -91,10 +91,10 @@ func (*App) RecoverError(err error, sse datapages.SSE) error {
 }
 ```
 
-Only Datastar requests call this hook. It receives every handler error, including sentinels. Use `errors.Is` to identify sentinels. For a page load, Datapages renders `PageError500` if the app defines it. Otherwise it writes a plain HTTP error if the response has not started. The hook writes an event stream, so do not use it as a page response.
+Only Datastar requests call this hook. It receives every handler error, including sentinels. Use `errors.Is` to identify sentinels. The response has status 200 whatever the error. For a page load, Datapages renders `PageError404` for a 404 and `PageError500` for a 500 if the app defines them. Otherwise it writes the status and its standard text if the response has not started. The hook writes an event stream, so do not use it as a page response.
 
 A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.PanicError`. It contains the panic value and stack. Use `errors.As` to inspect it. Datapages logs the stack before it calls the hook, then ends the request.
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:a72dccb119a8391d -->
+<!-- written by datapages sha256:fc4cfabf383c3c5f -->

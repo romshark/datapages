@@ -448,8 +448,16 @@ const (
 //	}
 //	return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidInput)
 //
-// The response body always uses the standard status text
+// The response body is the standard status text
 // (for example "Bad Request" for 400), no matter what the error message says.
+// A request that the Datastar client didn't send, such as a page load,
+// gets PageError404 for 404 and PageError500 for 500 instead
+// when the app defines them.
+//
+// A Datastar request to an app that defines RecoverError gets status 200 and
+// the events RecoverError writes. RecoverError receives the sentinel:
+// use [errors.Is] to identify it. A handler that takes an [SSE] sends status 200
+// before it runs, which leaves no status for its error.
 //
 // Don't wrap multiple sentinels in one error. If you do, the first of
 // ErrBadRequest, ErrForbidden, ErrNotFound, ErrConflict wins.

@@ -15,6 +15,7 @@ Releases up to v0.10.0 have their notes on
 ### Changed
 
 - Reload a page when the session of its SSE stream closes or expires. A page with only user-addressed events also reloads when its stream reconnects after the session ended. The page previously kept showing the old session's content without updates. Run `datapages gen`.
+- Render `PageError404` with status 404 for a page load whose handler returns `datapages.ErrNotFound`, as for a URL that no route matches. For such a page load, `PageError404.GET` receives the request's query and signals and a zero path. An app without `PageError500` previously answered with the status text. Run `datapages gen`.
 
 ### Fixed
 
@@ -33,6 +34,7 @@ Releases up to v0.10.0 have their notes on
 - Reject a route containing a backtick in `datapages lint` and `datapages gen`. On a page with a stream or a query field that reflects a signal, `datapages gen` failed with a Go syntax error. Write it as `%60`, which `net/http` decodes before matching the route.
 - Stop `datapages gen` from writing code that does not compile when a path, query or signals field type comes from a package named `path`, `query`, `signals` or after another variable the generated handlers declare. Run `datapages gen`.
 - Reject an unexported defined type as the type argument of `datapages.Path`, `datapages.Query` or `datapages.Signals`, including one behind an exported alias. The generated code for such a handler did not compile. Export the type.
+- Answer a page load whose handler returns `datapages.ErrBadRequest`, `datapages.ErrForbidden`, `datapages.ErrNotFound` or `datapages.ErrConflict` with that status in an app that defines `PageError500`, as every app created by `datapages init` does. Such a page load got `PageError500` with status 500, and no page could answer 404. `PageError500` now renders for status 500 only. Other statuses get their status text, except 404 in an app that defines `PageError404`. Run `datapages gen`.
 
 ## [0.10.1] - 2026-09-26
 

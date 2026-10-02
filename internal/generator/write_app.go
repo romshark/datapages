@@ -68,8 +68,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	w.writeSetupHandlers(m)
 	w.writeAppErrHelpers(m)
 
-	if m.PageError404 != nil &&
-		m.PageError404.GET != nil && m.PageError404.GET.OutputBody != nil {
+	if hasRender404(m) {
 		w.writeRender404(m, appPkg)
 	}
 
@@ -1438,20 +1437,44 @@ func (w *Writer) writeCSRFOnlyCheck() {
 }
 
 // writeAppErrHelpers emits httpErrIntern for handler errors.
-// Non-Datastar requests use PageError500 when defined;
+// Non-Datastar requests get the page for the status the error maps to when the
+// app defines one: PageError404 for 404, PageError500 for 500.
 // Datastar requests use RecoverError when defined. RecoverError writes SSE frames,
 // which a browser navigation would render as the document.
 func (w *Writer) writeAppErrHelpers(m *model.App) {
-	hasPage := m.PageError500 != nil
+	has404 := hasRender404(m)
+	has500 := m.PageError500 != nil
+	hasPage := has404 || has500
 	hasRecover := m.RecoverError != nil
 
-	if hasPage {
+	if has500 {
 		// httpErrIntern answers a page load by rendering PageError500.
 		// The handler of that page therefore can't report through it.
 		w.Raw(`
 // httpErrFinal writes the error response without rendering PageError500.
 // The PageError500 handler uses it so it can't render itself.
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.LogErr(msg, err)
+`)
+		w.writeHTTPErrFallback()
+		w.Raw(`}
+`)
+	}
+	if has404 && m.PageError404.GET.OutputErr != nil {
+		// httpErrIntern answers ErrNotFound on a page load by rendering
+		// PageError404, which would render it again for its own ErrNotFound.
+		w.Raw(`
+// httpErr404 reports an error of PageError404.GET.
+// It answers ErrNotFound on a page load with the plain status
+// so PageError404 can't render itself.
+func (s *Server) httpErr404(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	if httpserve.IsDatastarRequest(r.Header) ||
+		httpserve.ErrStatus(err) != http.StatusNotFound {
+		s.httpErrIntern(w, r, nil, msg, err)
+		return
+	}
 	s.LogErr(msg, err)
 `)
 		w.writeHTTPErrFallback()
@@ -1479,10 +1502,24 @@ func (s *Server) httpErrIntern(
 			// An error page after a half-written one sends two documents.
 			return
 		}
-		// The page serves 200 on its own route. Reached from here it carries 500.
-		`)
-			w.Rawf("%s{s}.render(w, r, http.StatusInternalServerError)\n",
-				handlerRecvType(m.PageError500.TypeName))
+		switch httpserve.ErrStatus(err) {
+`)
+			if has404 {
+				w.Raw(`		case http.StatusNotFound:
+			s.render404(w, r)
+`)
+			}
+			if has500 {
+				w.Raw(`		case http.StatusInternalServerError:
+			// The page serves 200 on its own route. Reached from here it carries 500.
+`)
+				w.Rawf("\t\t\t%s{s}.render(w, r, http.StatusInternalServerError)\n",
+					handlerRecvType(m.PageError500.TypeName))
+			}
+			w.Raw(`		default:
+			httpserve.WriteErrStatus(w, err)
+		}
+`)
 		} else {
 			w.writeHTTPErrFallbackAt(2)
 		}
@@ -1621,6 +1658,12 @@ func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
 `)
 }
 
+// hasRender404 reports whether the app renders PageError404 through render404.
+func hasRender404(m *model.App) bool {
+	return m.PageError404 != nil &&
+		m.PageError404.GET != nil && m.PageError404.GET.OutputBody != nil
+}
+
 func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	p := m.PageError404
 
@@ -1639,8 +1682,9 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 		w.writeReadQuery(h404.InputQuery, m)
 	}
 	if h404.InputPath != nil {
-		// render404 handles PageIndex's fallback route, not PageError404's
-		// declared route. Its path input therefore has the zero value.
+		// render404 answers PageIndex's fallback route and page loads failing
+		// with ErrNotFound, never PageError404's declared route.
+		// Its path input therefore has the zero value.
 		w.Line(0, "")
 		w.Raw("\tvar path ")
 		w.Raw(w.renderPathType(h404.InputPath, m))
@@ -2146,7 +2190,12 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
-		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
+		if context == "render404" {
+			// httpErrIntern answers ErrNotFound by calling render404.
+			w.Raw("\t\ts.httpErr404(w, r, \"handling ")
+		} else {
+			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
+		}
 		w.Raw(p.TypeName)
 		w.Raw(".GET\", err)\n")
 		w.Line(2, "return")
@@ -2174,8 +2223,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	if context == "render404" {
 		// Write the status here, not when render404 starts. The branches
-		// above send a status of their own, 302 for a redirect and 500 for
-		// an error or a panic, and ReadSession may still clear the cookie.
+		// above send a status of their own, 302 for a redirect and an error
+		// status for an error or a panic, and ReadSession may still clear the cookie.
 		w.Line(1, "w.WriteHeader(http.StatusNotFound)")
 	}
 

@@ -21,7 +21,7 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError500` when defined or writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written.
+`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error path. When `RecoverError` handles it, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
@@ -71,7 +71,7 @@ URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/
 
 Each declares its route by comment like any other page. `PageOffline` always renders with a zero `Session`: the worker precaches one copy and serves it to every visitor, which means it cannot depend on who is signed in.
 
-The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document. For a URL that no route matches, `PageError404.GET` receives that URL's query and signals and a zero path.
+The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document. For a URL that no route matches and for a page load that fails with `datapages.ErrNotFound`, `PageError404.GET` receives that URL's query and signals and a zero path. When `PageError500.GET` fails, or `PageError404.GET` fails with `datapages.ErrNotFound`, the server writes a plain HTTP error instead of rendering the failing page again.
 
 A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
 
@@ -766,7 +766,7 @@ If `true`, closes the session and removes its cookie. Otherwise it is a no-op.
 
 #### Return Value `error` or `err error`
 
-Ordinary errors are logged and produce 500 unless `RecoverError` handles them. Sentinels select the status of plain HTTP error responses.
+Ordinary errors are logged and produce 500 unless `RecoverError` handles them. Sentinels select the status of plain HTTP error responses and error pages.
 
 To specify an HTTP status, return a datapages sentinel:
 
@@ -794,7 +794,7 @@ Sentinels:
 
 Do not wrap multiple sentinels into one error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
-Sentinels may be returned directly or wrapped. `RecoverError` handles errors from Datastar requests when defined. Other requests use `PageError500` with status 500 if defined and the response has not started. When neither handler applies and the response has not started, the server writes the corresponding status and standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
+Sentinels may be returned directly or wrapped. `RecoverError` handles errors from Datastar requests when defined, and the response keeps status 200. If the response has not started, other requests get `PageError404` for status 404 and `PageError500` for status 500 when defined. In every other case where the response has not started, the server writes the status and its standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 #### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 

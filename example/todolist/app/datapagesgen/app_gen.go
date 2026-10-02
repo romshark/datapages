@@ -474,10 +474,23 @@ func setupHandlers(s *Server) {
 }
 
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
+	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if !httpserve.IsDatastarRequest(r.Header) {
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
+		return
+	}
 	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
