@@ -2098,6 +2098,14 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		events[e.TypeName] = e
 	}
 
+	// PageIndex is registered at "/", which also answers the paths no other
+	// route matches, and renders "/" alone. Another page at "/" is registered
+	// at "/{$}", which net/http accepts as the more specific pattern: it would
+	// take every request for "/". Claimed first, the error lands on that page.
+	if p := ctx.app.PageIndex; p != nil && p.GET != nil && p.GET.Handler != nil {
+		claim(http.MethodGet, "/{$}", p.Expr, p.TypeName)
+	}
+
 	for _, p := range ctx.app.Pages {
 		if p.GET != nil && p.GET.Handler != nil {
 			claim(http.MethodGet, pageRoutePattern(p), p.Expr, p.TypeName)

@@ -42,6 +42,7 @@ Releases up to v0.10.0 have their notes on
 - Recover a panic in an `OnXXX` handler on the stream that a page with both public and user-addressed events serves to signed-out visitors, as the stream of signed-in visitors does. The panic dropped the connection, skipped `StreamClose` and never reached `RecoverError`, which leaked per-tab state that `StreamOpen` registered for every such guest. Run `datapages gen`.
 - Reject an event with more than one `datapages.SubjectUser` field, such as `To, Cc datapages.SubjectUser`, in `datapages lint` and `datapages gen`. Only the first field routed the event: a user named in a later field never received it, and the user in the first field received it whatever the others held. Keep one `SubjectUser` field and dispatch the event once per user.
 - Reject an error-prone event field that holds a subject type, such as `Recipients []datapages.SubjectUser`, in `datapages lint` and `datapages gen`. It looks like a list of recipients, but it was a payload field, and the event went to every stream of the pages handling it. Declare one `datapages.SubjectUser` field and dispatch once per user.
+- Reject a page other than `PageIndex` at `/`, as in `// PageHome is /`, in `datapages lint` and `datapages gen`. The router sent every request for `/` to that page, and `PageIndex` never rendered. Give the page another route, or move its handlers to `PageIndex`.
 
 ## [0.10.1] - 2026-09-26
 

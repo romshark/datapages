@@ -551,6 +551,28 @@ func TestParse_ErrRouteDuplicatePage(t *testing.T) {
 	)
 }
 
+// TestParse_ErrRouteIndexShadowed tests pages besides PageIndex at "/".
+// The router gives "/" to the more specific "/{$}" such a page is registered at,
+// which leaves PageIndex unreachable. The error lands on the other page,
+// whatever their names sort as.
+func TestParse_ErrRouteIndexShadowed(t *testing.T) {
+	_, err := parse(t, "err_route_index_shadowed")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteConflict, // PageHome
+		parser.ErrRouteConflict, // PageRoot
+	)
+	for i, owner := range map[int]string{0: "PageHome", 1: "PageRoot"} {
+		var conflict *parser.RouteConflictError
+		_, e := err.Entry(i)
+		require.ErrorAs(t, e, &conflict)
+		require.Equal(t, owner, conflict.Owner)
+		require.Equal(t, "GET /{$}", conflict.Pattern)
+		require.Equal(t, "PageIndex", conflict.OtherOwner)
+	}
+}
+
 // TestParse_ErrRouteDuplicateAction tests two actions declaring one path.
 func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	require := require.New(t)

@@ -86,7 +86,7 @@ The parser reads names and doc comments. Both decide behaviour.
 
 Do not use underscores or a lowercase letter after the prefix. The word `is` is required. Quote event subjects but not routes. If a route comment has more text, add a blank `//` line after its first line.
 
-`PageIndex`, the page for `/`, is required. A page struct declares `App *App` and no other named field. It may also embed types. Page methods use value receivers. App methods such as `Head`, `RecoverError` and app actions use `*App`.
+`PageIndex`, the page for `/`, is required. No other page may use `/`. A page struct declares `App *App` and no other named field. It may also embed types. Page methods use value receivers. App methods such as `Head`, `RecoverError` and app actions use `*App`.
 
 The generator matches handler parameters and return values by type, not by position. Parameter names are unrestricted except for `stateID`. Declare only the values that the handler needs.
 
@@ -109,4 +109,4 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:5f418b761bcd4855 -->
+<!-- written by datapages sha256:5515bc56cafd213e -->
