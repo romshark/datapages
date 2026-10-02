@@ -61,6 +61,124 @@ func PageItem(name string) string {
 	return b.String()
 }
 
+// PageQuoted references /o'reilly/{$}
+func PageQuoted(query QueryPageQuoted) string {
+	var (
+		termStr string
+	)
+
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.Term != ""
+
+	var b strings.Builder
+	l := len("/o'reilly/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/o'reilly/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageQuoted is the query parameters for PageQuoted
+type QueryPageQuoted struct {
+	Term string `query:"q"`
+}
+
+// PageQuotedItem references /o'reilly/{name}/{$}
+func PageQuotedItem(
+	name string,
+	query QueryPageQuotedItem,
+) string {
+	s_name := url.PathEscape(name)
+	var (
+		termStr string
+	)
+
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.Term != ""
+
+	var b strings.Builder
+	l := len("/o'reilly/") +
+		len(s_name) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/o'reilly/")
+	b.WriteString(s_name)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageQuotedItem is the query parameters for PageQuotedItem
+type QueryPageQuotedItem struct {
+	Term string `query:"q"`
+}
+
 // PageSearch references /search/{$}
 func PageSearch(query QueryPageSearch) string {
 	var (

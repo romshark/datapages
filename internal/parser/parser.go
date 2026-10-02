@@ -1965,22 +1965,47 @@ func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
 	})
 }
 
-// validateRouteChars reports a double quote, a backslash or a backtick in a route.
-// Generated code writes routes into Go string literals unescaped:
+// validateRouteChars reports a character in a route that generated code cannot
+// write as it stands. Generated code writes routes into Go string literals unescaped:
 // a backtick ends a raw literal, a quote ends an interpreted one, and a backslash starts
 // an escape sequence, which can turn the route into another one, as `\u00e9` does.
+// The links, actions and stream URLs it generates carry the route as written:
+// a "?" starts the query there, a "#" the fragment, and a "%" without two hex
+// digits after it makes net/http answer 400.
 //
-// None of the three may stand unencoded in a URL path (RFC 3986, section 3.3).
+// None of these may stand unencoded in a URL path (RFC 3986, section 3.3).
 // Their percent-encoded forms work: net/http decodes them before matching.
 func validateRouteChars(ctx *parseCtx, errs *Errors) {
 	eachRoute(ctx, func(route string, expr ast.Expr, owner string) {
-		if i := strings.IndexAny(route, "\"\\`"); i >= 0 {
+		i := strings.IndexAny(route, "\"\\`?#")
+		if j := strayPercent(route); j >= 0 && (i < 0 || j < i) {
+			i = j
+		}
+		if i >= 0 {
 			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
 				&RouteCharInvalidError{
 					Owner: owner, Route: route, Char: rune(route[i]),
 				})
 		}
 	})
+}
+
+// strayPercent returns the index of the first "%" in route that
+// doesn't start a percent-encoding, or -1.
+func strayPercent(route string) int {
+	isHex := func(c byte) bool {
+		return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+	}
+	for i := 0; i < len(route); i++ {
+		if route[i] != '%' {
+			continue
+		}
+		if i+2 >= len(route) || !isHex(route[i+1]) || !isHex(route[i+2]) {
+			return i
+		}
+		i += 2
+	}
+	return -1
 }
 
 // eachRoute calls fn for every page, page action and app action route.

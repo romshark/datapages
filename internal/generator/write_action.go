@@ -3,6 +3,7 @@ package generator
 import (
 	_ "embed"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/romshark/datapages/internal/parser/model"
@@ -179,6 +180,31 @@ func (w *Writer) writeActionMethodHead(recv, name string) {
 	w.Rawf("func (%s) %s", recv, name)
 }
 
+// jsQuoteEscaper escapes what ends a single-quoted JavaScript string
+// or starts an escape sequence in it.
+var jsQuoteEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+
+// actionLiteral returns lit, a literal part of a route, the way it stands in an
+// action expression: in a single-quoted JavaScript string in a Go string literal.
+// A route may contain a quote, as /o'reilly does, which would end the JavaScript string.
+// The expression needs no escaping for HTML here:
+// templ escapes it for the attribute, and the browser decodes the attribute
+// before Datastar evaluates the expression.
+func actionLiteral(lit string) string {
+	q := strconv.Quote(jsQuoteEscaper.Replace(lit))
+	return q[1 : len(q)-1]
+}
+
+// actionLiterals returns the literals of [routepattern.Segments] for route,
+// each passed through [actionLiteral].
+func actionLiterals(route string) []string {
+	literals, _ := routepattern.Segments(route)
+	for i, lit := range literals {
+		literals[i] = actionLiteral(lit)
+	}
+	return literals
+}
+
 func (w *Writer) writeActionFunc(
 	recv, methodName string,
 	httpMethod string,
@@ -204,6 +230,7 @@ func (w *Writer) writeActionFunc(
 	w.writeActionRouteComment(methodName, route)
 
 	if !hasPathVars && !hasQuery {
+		lit := actionLiteral(routepattern.WithTrailingSlash(route))
 		w.writeActionMethodHead(recv, methodName)
 		w.writeParamList([]string{"options ...Option"})
 		w.Raw(" string {\n")
@@ -211,7 +238,7 @@ func (w *Writer) writeActionFunc(
 		w.Raw("\t\treturn \"@")
 		w.Raw(method)
 		w.Raw("('")
-		w.Raw(routepattern.WithTrailingSlash(route))
+		w.Raw(lit)
 		w.Raw("')\"\n")
 		w.Line(1, "}")
 		w.Line(1, "var b strings.Builder")
@@ -219,14 +246,14 @@ func (w *Writer) writeActionFunc(
 		w.Raw("\tb.Grow(bl + len(\"@")
 		w.Raw(method)
 		w.Raw("('")
-		w.Raw(routepattern.WithTrailingSlash(route))
+		w.Raw(lit)
 		w.Raw("'\") + actionexpr.OptionsLen(options) + len(\")\") + al")
 		w.Raw(")\n")
 		w.Line(1, "actionexpr.WriteBefore(&b, options)")
 		w.Raw("\tb.WriteString(\"@")
 		w.Raw(method)
 		w.Raw("('")
-		w.Raw(routepattern.WithTrailingSlash(route))
+		w.Raw(lit)
 		w.Raw("'\")\n")
 		w.Line(1, "actionexpr.WriteOptions(&b, options)")
 		w.Line(1, "b.WriteByte(')')")
@@ -263,7 +290,7 @@ func (w *Writer) writeActionFuncPathOnly(
 	params []pathParamInfo,
 ) {
 	lo := newHrefLocals(params, nil)
-	literals, _ := routepattern.Segments(route)
+	literals := actionLiterals(route)
 
 	w.writeActionMethodHead(recv, methodName)
 	w.writeParamList(append(typedParams(params), lo.options+" ...Option"))
@@ -329,6 +356,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	fields []structFieldInfo,
 ) {
 	lo := newHrefLocals(nil, fields)
+	lit := actionLiteral(routepattern.WithTrailingSlash(route))
 	w.writeActionMethodHead(recv, methodName)
 	w.writeParamList([]string{
 		lo.query + " " + queryType,
@@ -350,7 +378,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Rawf("\t%s := %s + len(\"@", lo.length, lo.beforeLen)
 	w.Raw(method)
 	w.Raw("('")
-	w.Raw(routepattern.WithTrailingSlash(route))
+	w.Raw(lit)
 	w.Rawf("'\") + actionexpr.OptionsLen(%s) + len(\")\") + %s\n",
 		lo.options, lo.afterLen)
 	w.Linef(1, "if %s {", lo.anyQuery)
@@ -380,7 +408,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
-	w.Raw(routepattern.WithTrailingSlash(route))
+	w.Raw(lit)
 	w.Raw("\")\n")
 	w.Linef(1, "if %s {", lo.anyQuery)
 	w.Linef(2, "%s.WriteString(\"?\")", lo.builder)
@@ -419,7 +447,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	fields []structFieldInfo,
 ) {
 	lo := newHrefLocals(params, fields)
-	literals, _ := routepattern.Segments(route)
+	literals := actionLiterals(route)
 
 	w.writeActionMethodHead(recv, methodName)
 	w.writeParamList(append(typedParams(params),

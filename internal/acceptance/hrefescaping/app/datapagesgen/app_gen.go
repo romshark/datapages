@@ -185,6 +185,14 @@ var evSubjPageItem = []string{
 	EvSubjRenamed,
 }
 
+var evSubjPageQuoted = []string{
+	EvSubjRenamed,
+}
+
+var evSubjPageQuotedItem = []string{
+	EvSubjRenamed,
+}
+
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
@@ -197,11 +205,35 @@ func setupHandlers(s *Server) {
 		"GET /item/{name}/_$/{$}",
 		pageItemHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
+		"GET /o'reilly/{$}",
+		pageQuotedHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /o'reilly/_$/{$}",
+		pageQuotedHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /o'reilly/{name}/{$}",
+		pageQuotedItemHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /o'reilly/{name}/_$/{$}",
+		pageQuotedItemHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /search/{$}",
 		pageSearchHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /item/{name}/rename/{$}",
 		pageItemHandlers{s}.POSTRename)
+	s.Mux().HandleFunc(
+		"POST /o'reilly/ping/{$}",
+		pageQuotedHandlers{s}.POSTPing)
+	s.Mux().HandleFunc(
+		"POST /o'reilly/find/{$}",
+		pageQuotedHandlers{s}.POSTFind)
+	s.Mux().HandleFunc(
+		"POST /o'reilly/{name}/rename/{$}",
+		pageQuotedItemHandlers{s}.POSTRename)
+	s.Mux().HandleFunc(
+		"POST /o'reilly/{name}/move/{$}",
+		pageQuotedItemHandlers{s}.POSTMove)
 }
 
 func (s *Server) httpErrIntern(
@@ -346,6 +378,279 @@ func (s pageItemHandlers) POSTRename(
 	err := p.POSTRename(r, dpsse.New(sse), path, query)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageItem.Rename", err)
+		return
+	}
+}
+
+type pageQuotedHandlers struct{ *Server }
+
+func (s pageQuotedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"q" reflectsignal:"q"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
+
+	p := dpapp.PageQuoted{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageQuoted.GET")
+	body, err := p.GET(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageQuoted.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:q="'`)
+		htmlattr.WriteSignalString(w, query.Values.Term)
+		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/o\&#39;reilly/_$/',{retry:'always',retryMaxCount:Infinity})"`)
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($q) params.set('q', $q); else params.delete('q');
+			const query = params.toString();
+			window.history.replaceState(null, '', (query ? '/o\&#39;reilly?' + query : '/o\&#39;reilly') + location.hash);
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageQuoted", err)
+		return
+	}
+}
+
+func (s pageQuotedHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := dpapp.PageQuoted{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageQuoted,
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageQuoted stream")
+			var eventRenamed dpapp.EventRenamed
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjRenamed:
+					eventRenamed = dpapp.EventRenamed{}
+					if err := json.Unmarshal(msg.Data, &eventRenamed); err != nil {
+						s.LogErr("unmarshaling EventRenamed JSON", err)
+						continue
+					}
+					if err := p.OnRenamed(
+						eventRenamed,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageQuoted.OnRenamed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageQuotedHandlers) POSTPing(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageQuoted.Ping")
+	p := dpapp.PageQuoted{
+		App: s.app,
+	}
+	err := p.POSTPing(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageQuoted.Ping", err)
+		return
+	}
+}
+
+func (s pageQuotedHandlers) POSTFind(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	var query datapages.Query[struct {
+		Term string `query:"term"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "term")
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageQuoted.Find")
+	p := dpapp.PageQuoted{
+		App: s.app,
+	}
+	err := p.POSTFind(r, dpsse.New(sse), query)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageQuoted.Find", err)
+		return
+	}
+}
+
+type pageQuotedItemHandlers struct{ *Server }
+
+func (s pageQuotedItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"q" reflectsignal:"q"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
+
+	var path datapages.Path[struct {
+		Name string `path:"name"`
+	}]
+	path.Values.Name = r.PathValue("name")
+
+	p := dpapp.PageQuotedItem{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageQuotedItem.GET")
+	body, err := p.GET(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageQuotedItem.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:q="'`)
+		htmlattr.WriteSignalString(w, query.Values.Term)
+		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('`)
+		_, _ = io.WriteString(w, `/o\&#39;reilly/`)
+		htmlattr.WritePathValue(w, path.Values.Name)
+		_, _ = io.WriteString(w, `/`)
+		_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($q) params.set('q', $q); else params.delete('q');
+			const query = params.toString();
+			window.history.replaceState(null, '', (query ? '/o\&#39;reilly/`)
+		htmlattr.WritePathValue(w, path.Values.Name)
+		_, _ = io.WriteString(w, `?' + query : '/o\&#39;reilly/`)
+		htmlattr.WritePathValue(w, path.Values.Name)
+		_, _ = io.WriteString(w, `') + location.hash);
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageQuotedItem", err)
+		return
+	}
+}
+
+func (s pageQuotedItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := dpapp.PageQuotedItem{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageQuotedItem,
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageQuotedItem stream")
+			var eventRenamed dpapp.EventRenamed
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjRenamed:
+					eventRenamed = dpapp.EventRenamed{}
+					if err := json.Unmarshal(msg.Data, &eventRenamed); err != nil {
+						s.LogErr("unmarshaling EventRenamed JSON", err)
+						continue
+					}
+					if err := p.OnRenamed(
+						eventRenamed,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageQuotedItem.OnRenamed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageQuotedItemHandlers) POSTRename(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	var path datapages.Path[struct {
+		Name string `path:"name"`
+	}]
+	path.Values.Name = r.PathValue("name")
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageQuotedItem.Rename")
+	p := dpapp.PageQuotedItem{
+		App: s.app,
+	}
+	err := p.POSTRename(r, dpsse.New(sse), path)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageQuotedItem.Rename", err)
+		return
+	}
+}
+
+func (s pageQuotedItemHandlers) POSTMove(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	var query datapages.Query[struct {
+		To string `query:"to"`
+	}]
+	query.Values.To = httpread.QueryValue(r.URL.RawQuery, "to")
+
+	var path datapages.Path[struct {
+		Name string `path:"name"`
+	}]
+	path.Values.Name = r.PathValue("name")
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageQuotedItem.Move")
+	p := dpapp.PageQuotedItem{
+		App: s.app,
+	}
+	err := p.POSTMove(r, dpsse.New(sse), path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageQuotedItem.Move", err)
 		return
 	}
 }

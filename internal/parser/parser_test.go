@@ -670,7 +670,8 @@ func TestParse_ErrRouteUnparsablePatternHasNoOwner(t *testing.T) {
 }
 
 // TestParse_ErrRouteChar tests that page, page action and app action routes
-// refuse double quotes, backslashes and backticks and accept their
+// refuse double quotes, backslashes, backticks, question marks, number signs
+// and percent signs that start no percent-encoding, and accept their
 // percent-encoded forms.
 func TestParse_ErrRouteChar(t *testing.T) {
 	_, err := parse(t, "err_route_char")
@@ -683,6 +684,10 @@ func TestParse_ErrRouteChar(t *testing.T) {
 		parser.ErrRouteCharInvalid, // App.POSTQuote
 		parser.ErrRouteCharInvalid, // PageTick
 		parser.ErrRouteCharInvalid, // PageTick.POSTPing
+		parser.ErrRouteCharInvalid, // PageSearch
+		parser.ErrRouteCharInvalid, // PageSharp
+		parser.ErrRouteCharInvalid, // PagePercent
+		parser.ErrRouteCharInvalid, // App.POSTRate
 	)
 	for i, want := range map[int]struct {
 		char  rune
@@ -690,6 +695,10 @@ func TestParse_ErrRouteChar(t *testing.T) {
 	}{
 		2: {'\\', `/back\slash/save`},
 		5: {'`', "/back`tick/ping"},
+		6: {'?', "/search?q"},
+		7: {'#', "/c#"},
+		8: {'%', "/100%"},
+		9: {'%', "/rate%2"},
 	} {
 		var d *parser.RouteCharInvalidError
 		_, e := err.Entry(i)
@@ -697,6 +706,12 @@ func TestParse_ErrRouteChar(t *testing.T) {
 		require.Equal(t, want.char, d.Char)
 		require.Equal(t, want.route, d.Route)
 	}
+
+	// A route may hold accepted percent-encodings,
+	// which a report of '%' alone would contradict.
+	_, e := err.Entry(8)
+	require.ErrorContains(t, e,
+		`'%' without two hex digits after it in PagePercent route "/100%"`)
 }
 
 // TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard

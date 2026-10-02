@@ -227,6 +227,27 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Write '`' as %60. " +
 				"net/http decodes it before matching the route.",
 		},
+		"ErrRouteCharInvalid/question mark": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageSearch", Route: "/search?q", Char: '?',
+			},
+			want: "fix: Write '?' as %3F. " +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/number sign": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageSharp", Route: "/c#", Char: '#',
+			},
+			want: "fix: Write '#' as %23. " +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/percent sign": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PagePercent", Route: "/100%", Char: '%',
+			},
+			want: "fix: Write '%' as %25. " +
+				"net/http decodes it before matching the route.",
+		},
 
 		"ErrEventCommMissing": {
 			err:  &parser.EventCommMissingError{TypeName: "EventUserCreated"},

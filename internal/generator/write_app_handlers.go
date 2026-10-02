@@ -797,7 +797,9 @@ func (w *Writer) writeGETBodyAttrs(
 	// Fun fact: this is a writer writing a writer writing an attribute.
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
-		streamPath := routepattern.StreamPath(p.Route)
+		// The path stands in a JavaScript string in an HTML attribute.
+		// A route may contain a quote, as /o'reilly does, or an ampersand.
+		streamPath := htmlattr.SignalString(routepattern.StreamPath(p.Route))
 		tail := streamInitTail(false)
 		tailBg := streamInitTail(true)
 		// writeTailChoice emits the tail the GET's
@@ -946,7 +948,8 @@ func (w *Writer) writeGETBodyAttrs(
 			// The values sit in a JavaScript string inside an HTML attribute.
 			// The browser decodes HTML entities before evaluating JavaScript,
 			// so [htmlattr.WritePathValue] percent-encodes each value before
-			// escaping it for the attribute.
+			// escaping it for the attribute. The literals keep their characters,
+			// which [htmlattr.SignalString] escapes for the string and the attribute.
 			writeRoute := func(r string) {
 				literals, vars := routepattern.Segments(r)
 				for i, lit := range literals {
@@ -955,7 +958,7 @@ func (w *Writer) writeGETBodyAttrs(
 						// route carries none: the caller trimmed it.
 						lit = strings.TrimSuffix(lit, "/")
 					}
-					w.Raw(lit)
+					w.Raw(htmlattr.SignalString(lit))
 					if i >= len(vars) {
 						continue
 					}
@@ -976,9 +979,9 @@ func (w *Writer) writeGETBodyAttrs(
 			w.Line(2, "\"`)")
 		} else {
 			w.Raw("\t\t\twindow.history.replaceState(null, '', (query ? '")
-			w.Raw(route)
+			w.Raw(htmlattr.SignalString(route))
 			w.Raw("?' + query : '")
-			w.Raw(route)
+			w.Raw(htmlattr.SignalString(route))
 			w.Raw("') + location.hash);\n")
 			w.Line(2, "\"`)")
 		}
@@ -988,7 +991,8 @@ func (w *Writer) writeGETBodyAttrs(
 	return hasBodyAttrs, true
 }
 
-// writeStreamPathSegments writes the page route with its path values filled in.
+// writeStreamPathSegments writes the page route with its path values filled in,
+// escaped for a JavaScript string in an HTML attribute.
 // The last literal of [routepattern.Segments] carries a trailing slash,
 // which is why the caller appends the stream suffix without one.
 func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
@@ -1004,7 +1008,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	literals, vars := routepattern.Segments(route)
 	for i, lit := range literals {
 		w.Raw("\t\t_, _ = io.WriteString(w, `")
-		w.Raw(lit)
+		w.Raw(htmlattr.SignalString(lit))
 		w.Raw("`)\n")
 		if i < len(vars) {
 			f := tagToField[vars[i]]

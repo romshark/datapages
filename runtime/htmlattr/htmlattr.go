@@ -33,8 +33,9 @@ func WriteSignalString(w io.Writer, s string) {
 }
 
 // SignalString returns s escaped the way [WriteSignalString] writes it.
-// The generator calls it on what it knows at generation time,
-// a query parameter name for one, and writes the result as a literal.
+// The generator calls it on what it knows at generation time, such as a query
+// parameter name or a route, and writes the result as a literal into a
+// single-quoted JavaScript string in an attribute.
 func SignalString(s string) string {
 	return html.EscapeString(signalStringEscaper.Replace(s))
 }

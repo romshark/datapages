@@ -244,3 +244,188 @@ func (pageItem_Rename) POSTQuery(vTo string) pageItem_Rename_POSTQuery {
 		To: vTo,
 	}
 }
+
+var PageQuoted pageQuoted
+
+type pageQuoted struct {
+	Find pageQuoted_Find
+	Ping pageQuoted_Ping
+}
+
+type pageQuoted_Find struct{}
+
+// POST references /o'reilly/find/
+func (pageQuoted_Find) POST(
+	query pageQuoted_Find_POSTQuery,
+	options ...Option,
+) string {
+	var (
+		termStr string
+	)
+
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.Term != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/o\\'reilly/find/'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("term=") + len(termStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/o\\'reilly/find/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("term=")
+		b.WriteString(termStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type pageQuoted_Find_POSTQuery struct {
+	Term string `query:"term"`
+}
+
+func (pageQuoted_Find) POSTQuery(vTerm string) pageQuoted_Find_POSTQuery {
+	return pageQuoted_Find_POSTQuery{
+		Term: vTerm,
+	}
+}
+
+type pageQuoted_Ping struct{}
+
+// POST references /o'reilly/ping/
+func (pageQuoted_Ping) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/o\\'reilly/ping/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/o\\'reilly/ping/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/o\\'reilly/ping/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+var PageQuotedItem pageQuotedItem
+
+type pageQuotedItem struct {
+	Move   pageQuotedItem_Move
+	Rename pageQuotedItem_Rename
+}
+
+type pageQuotedItem_Move struct{}
+
+// POST references /o'reilly/{name}/move/
+func (pageQuotedItem_Move) POST(
+	name string,
+	query pageQuotedItem_Move_POSTQuery,
+	options ...Option,
+) string {
+	s_name := url.PathEscape(name)
+	var (
+		toStr string
+	)
+
+	if query.To != "" {
+		toStr = url.QueryEscape(query.To)
+	}
+
+	anyQuery := query.To != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/o\\'reilly/") + len(s_name) + len("/move/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.To != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("to=") + len(toStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/o\\'reilly/")
+	b.WriteString(s_name)
+	b.WriteString("/move/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.To != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("to=")
+		b.WriteString(toStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type pageQuotedItem_Move_POSTQuery struct {
+	To string `query:"to"`
+}
+
+func (pageQuotedItem_Move) POSTQuery(vTo string) pageQuotedItem_Move_POSTQuery {
+	return pageQuotedItem_Move_POSTQuery{
+		To: vTo,
+	}
+}
+
+type pageQuotedItem_Rename struct{}
+
+// POST references /o'reilly/{name}/rename/
+func (pageQuotedItem_Rename) POST(
+	name string,
+	options ...Option,
+) string {
+	s_name := url.PathEscape(name)
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/o\\'reilly/") + len(s_name) + len("/rename/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/o\\'reilly/")
+	b.WriteString(s_name)
+	b.WriteString("/rename/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}

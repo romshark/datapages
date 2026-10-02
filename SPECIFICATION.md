@@ -63,7 +63,7 @@ A `Page*` declaration must use a struct type literal. An alias to a struct liter
 
 A page type must declare exactly one named field: `App *App`. Embedded types are permitted under [Abstract Page Types](#abstract-page-types).
 
-URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux). A route must not contain `"`, `\` or `` ` ``. Write them as `%22`, `%5C` and `%60`, which ServeMux decodes before matching.
+URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux). A route must not contain `"`, `\`, `` ` ``, `?` or `#`, nor a `%` that does not start a percent-encoding. Write them as `%22`, `%5C`, `%60`, `%3F`, `%23` and `%25`, which ServeMux decodes before matching.
 
 `PageIndex` is required for `/`.
 

@@ -712,8 +712,13 @@ type RouteCharInvalidError struct {
 }
 
 func (e *RouteCharInvalidError) Error() string {
-	return fmt.Sprintf("%v: %q in %s route %q",
-		ErrRouteCharInvalid, e.Char, e.Owner, e.Route)
+	char := strconv.QuoteRune(e.Char)
+	if e.Char == '%' {
+		// The same route may hold a percent-encoding, which is accepted.
+		char += " without two hex digits after it"
+	}
+	return fmt.Sprintf("%v: %s in %s route %q",
+		ErrRouteCharInvalid, char, e.Owner, e.Route)
 }
 
 func (e *RouteCharInvalidError) Unwrap() error { return ErrRouteCharInvalid }
