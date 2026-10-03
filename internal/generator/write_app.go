@@ -48,9 +48,6 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 		}
 		w.writePageCache(m)
 	}
-	if w.usage.auth && w.usage.hasSession {
-		w.writeAppCheckCSRF()
-	}
 	w.writeAppWriteHTML(m)
 	if w.usage.stream {
 		w.writeAppHandleStreamRequest()
@@ -509,11 +506,6 @@ func (w *Writer) brokerMetricsType() string {
 		return "brokerMetrics"
 	}
 	return "messaging.NoopMetrics"
-}
-
-func (w *Writer) writeAppCheckCSRF() {
-	w.Raw(`
-`)
 }
 
 func (w *Writer) writeAppWriteHTML(m *model.App) {

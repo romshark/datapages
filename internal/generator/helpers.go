@@ -6,7 +6,6 @@ import (
 	"go/format"
 	"go/token"
 	"go/types"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -353,83 +352,21 @@ func (w *Writer) structFields(t types.Type) []structFieldInfo {
 type appUsage struct {
 	// hasSession: whether the app defines a Session type.
 	hasSession bool
-	// auth: func (s *Server) auth(...)
-	auth bool
-	// createSession: func (s *Server) createSession(...)
-	createSession bool
-	// closeSession: func (s *Server) closeSession(...)
-	closeSession bool
-	// httpRedirect: func httpRedirect(...)
+	// httpRedirect: whether any handler returns a datapages.Redirect,
+	// which, with a page cache, needs func httpRedirectOffline(...).
 	httpRedirect bool
 	// stream: func (s *Server) handleStreamRequest(...)
 	stream bool
 	// streamAuth: whether any stream handler needs auth (page has private events).
-	streamAuth bool
-	// recoverError: httpErrIntern asks httpserve.IsDatastarRequest for an app that has
-	// PageError500, RecoverError, or both. The two features are independent
-	// and either one makes the helper's answer decide what the response is.
-	recoverError bool
-	// datapagesSSE: whether any handler takes a datapages.SSE param
-	// (needs the datapages import and the generated sseWrapper).
-	datapagesSSE bool
-	pageCache    bool
-	offlinePage  bool
+	streamAuth  bool
+	pageCache   bool
+	offlinePage bool
 	// stateRuntime: whether any page (including via embedded abstract pages)
 	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
-	// signalSubjects: subject.Encode is called by any page that builds
-	// a subscription subject from a client-provided signal.
-	signalSubjects bool
-	// dispatchSubjects: subject.Encode is called by any dispatch that
-	// builds a publish subject from the subject fields of its event.
-	dispatchSubjects bool
-	// userSubjects: whether any event addresses a user, which makes the ID of
-	// the session owner name a subject.
-	userSubjects bool
 	// actions: whether the application defines any action, which is what makes
 	// the generated action package carry helpers and its own reporter.
 	actions bool
-}
-
-// dispatchesSubjectFields reports whether any handler dispatches an event whose
-// subject carries field values. Such a dispatch builds its subject at runtime
-// and needs every value guarded: one that is not a single token produces a
-// subject no subscription matches and the event reaches nobody.
-func dispatchesSubjectFields(
-	m *model.App, eventByName map[string]*model.Event,
-) bool {
-	dispatches := func(h *model.Handler) bool {
-		if h == nil {
-			return false
-		}
-		for _, d := range h.InputDispatches {
-			ev := eventByName[d.EventTypeName]
-			if ev != nil && ev.HasSubjectFields() {
-				return true
-			}
-		}
-		return false
-	}
-	if slices.ContainsFunc(m.Actions, dispatches) {
-		return true
-	}
-	for _, p := range m.Pages {
-		if p.GET != nil && dispatches(p.GET.Handler) {
-			return true
-		}
-		if dispatches(p.StreamOpen) || dispatches(p.StreamClose) {
-			return true
-		}
-		if slices.ContainsFunc(p.Actions, dispatches) {
-			return true
-		}
-	}
-	for _, p := range []*model.Page{m.PageError404, m.PageError500} {
-		if p != nil && p.GET != nil && dispatches(p.GET.Handler) {
-			return true
-		}
-	}
-	return false
 }
 
 // computeAppUsage scans the model to determine which optional helpers are needed.
@@ -437,41 +374,11 @@ func computeAppUsage(m *model.App) appUsage {
 	var u appUsage
 
 	u.hasSession = m.Session != nil
-
-	// A global Head that takes a session has every page handler read one,
-	// whatever the handler itself asks for.
-	if m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession {
-		u.auth = true
-	}
-
-	if m.RecoverError != nil || m.PageError500 != nil {
-		u.recoverError = true
-	}
-	if m.RecoverError != nil {
-		// RecoverError always receives a datapages.SSE.
-		u.datapagesSSE = true
-	}
 	u.offlinePage = m.PageOffline != nil
 
 	checkHandler := func(h *model.Handler) {
-		if h.InputSession != nil {
-			u.auth = true
-		}
-		if needsCSRFOnly(h, m) {
-			// The handler calls the session helper for its CSRF check.
-			u.auth = true
-		}
-		if h.OutputNewSession != nil {
-			u.createSession = true
-		}
-		if h.OutputCloseSession != nil {
-			u.closeSession = true
-		}
 		if h.OutputRedirect != nil {
 			u.httpRedirect = true
-		}
-		if h.InputSSE != nil {
-			u.datapagesSSE = true
 		}
 		if h.InputPageCache != nil {
 			u.pageCache = true
@@ -482,14 +389,6 @@ func computeAppUsage(m *model.App) appUsage {
 	eventByName := make(map[string]*model.Event, len(m.Events))
 	for _, e := range m.Events {
 		eventByName[e.TypeName] = e
-	}
-
-	u.dispatchSubjects = dispatchesSubjectFields(m, eventByName)
-	for _, e := range m.Events {
-		if e.HasSubjectUser() {
-			u.userSubjects = true
-			break
-		}
 	}
 
 	u.actions = len(m.Actions) > 0
@@ -505,14 +404,8 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		if pageHasStream(p) {
 			u.stream = true
-			// Event handlers and stream hooks receive a datapages.SSE.
-			u.datapagesSSE = true
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
-				u.auth = true
-			}
-			if pageHasSignalScopedEvent(p, eventByName) {
-				u.signalSubjects = true
 			}
 		}
 		for _, h := range p.Actions {
