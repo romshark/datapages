@@ -165,14 +165,19 @@ func Check(
 // resolveConstValues builds a map from package-level constant names to their
 // string values. This allows the linter to detect hardcoded URLs hidden behind
 // named constants. Only constants are trusted (variables can be reassigned).
+//
+// A template expression is matched by name alone. A function-local constant of
+// the same name would compete with the package-level one for the entry,
+// and which one won would change from run to run.
 func resolveConstValues(pkg *packages.Package) map[string]string {
 	m := map[string]string{}
-	for ident, obj := range pkg.TypesInfo.Defs {
-		c, ok := obj.(*types.Const)
+	scope := pkg.Types.Scope()
+	for _, name := range scope.Names() {
+		c, ok := scope.Lookup(name).(*types.Const)
 		if !ok || c.Val().Kind() != constant.String {
 			continue
 		}
-		m[ident.Name] = constant.StringVal(c.Val())
+		m[name] = constant.StringVal(c.Val())
 	}
 	return m
 }

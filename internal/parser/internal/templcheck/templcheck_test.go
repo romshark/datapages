@@ -323,6 +323,21 @@ func TestCheck_OKHref(t *testing.T) {
 	requireNoErrs(t, errs)
 }
 
+// TestCheck_OKHrefShadowedConst tests an href naming a package-level constant
+// that a function-local constant of the same name shadows in another function.
+// The package-level value decides in every check, each of which used to read
+// the constants from a map in a new order.
+func TestCheck_OKHrefShadowedConst(t *testing.T) {
+	pkg := loadPkg(t, "ok_templ_href")
+	for range 20 {
+		var errs []posErr
+		templcheck.Check(pkg, nil, func(pos token.Position, err error) {
+			errs = append(errs, posErr{pos: pos, err: err})
+		})
+		requireNoErrs(t, errs)
+	}
+}
+
 // TestCheck_OKHrefAlias tests the same through an import alias.
 func TestCheck_OKHrefAlias(t *testing.T) {
 	errs := check(t, "ok_templ_href_alias", nil)
