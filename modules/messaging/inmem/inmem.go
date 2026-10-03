@@ -1,5 +1,5 @@
 // Package inmem provides an in-memory message broker with fan-out delivery semantics.
-// Slow subscribers are dropped (matching NATS core behavior).
+// A message to a subscriber whose buffer is full is dropped, as in NATS core.
 //
 // WARNING: Do not use this in multi-instance deployments;
 // messages are not shared across process boundaries.
