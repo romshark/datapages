@@ -205,6 +205,14 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Use `// DELETEItem is /items/item`",
 		},
+		"ErrActionPathNotUnderPage/query": {
+			err: &parser.ActionPathNotUnderPageError{
+				PagePath:   "/items/",
+				Recv:       "PageItems",
+				MethodName: "QUERYSearch",
+			},
+			want: "fix: Use `// QUERYSearch is /items/search`",
+		},
 		"ErrActionRouteWildcard": {
 			err: &parser.ActionRouteWildcardError{
 				Recv:       "App",

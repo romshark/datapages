@@ -91,6 +91,28 @@ func (PageActions) DELETEWithoutSSE(r *http.Request) error {
 	return nil
 }
 
+// QUERYWithSSE is /actions/query-with-sse
+func (PageActions) QUERYWithSSE(
+	r *http.Request,
+	sse datapages.SSE,
+) error {
+	_ = r
+	_ = sse
+	return nil
+}
+
+// QUERYSamePath is /actions
+func (PageActions) QUERYSamePath(r *http.Request) error {
+	_ = r
+	return nil
+}
+
+// QUERYLookup is /lookup
+func (*App) QUERYLookup(r *http.Request) error {
+	_ = r
+	return nil
+}
+
 // EventFoo is "foo"
 type EventFoo struct {
 	Foo string `json:"foo"`

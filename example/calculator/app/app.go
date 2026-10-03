@@ -30,8 +30,8 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return pageCalculator("", false), nil
 }
 
-// POSTInput is /input/{$}
-func (PageIndex) POSTInput(
+// QUERYInput is /input/{$}
+func (PageIndex) QUERYInput(
 	r *http.Request,
 	sse datapages.SSE,
 	query datapages.Query[struct {

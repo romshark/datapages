@@ -30,7 +30,7 @@ type App struct {
 
 	Pages   []*Page
 	Events  []*Event
-	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
+	Actions []*Handler // App-level POST/PUT/PATCH/DELETE/QUERY actions.
 
 	// States are all state types the source package declares, keyed by type name.
 	// Pages reference them directly or through embedded abstract pages.

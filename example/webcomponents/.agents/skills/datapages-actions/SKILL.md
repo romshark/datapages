@@ -1,7 +1,7 @@
 ---
 name: datapages-actions
 description: >-
-  Write Datapages action handlers (POST, PUT, PATCH, DELETE): parameters,
+  Write Datapages action handlers (POST, PUT, PATCH, DELETE, QUERY): parameters,
   return values, Datastar signals, SSE patching, HTTP error status codes and
   the RecoverError hook.
 ---
@@ -19,6 +19,8 @@ func (PageLogin) POSTSubmit(r *http.Request) error { return nil }
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request) error { return nil }
 ```
+
+Use a `QUERYXXX` action for a read that sends data in the body, such as a search with a large filter. It skips the CSRF check because `QUERY` is a safe method. Never change state in it.
 
 ## Parameters
 
@@ -97,4 +99,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:ff42f945437e90db -->
+<!-- written by datapages sha256:d5beeb51d502ba33 -->

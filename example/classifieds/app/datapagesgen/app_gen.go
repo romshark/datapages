@@ -606,8 +606,8 @@ func setupHandlers(s *Server) {
 		"POST /post/{slug}/send-message/{$}",
 		pagePostHandlers{s}.POSTSendMessage)
 	s.Mux().HandleFunc(
-		"POST /search/paramchange/{$}",
-		pageSearchHandlers{s}.POSTParamChange)
+		"QUERY /search/paramchange/{$}",
+		pageSearchHandlers{s}.QUERYParamChange)
 	s.Mux().HandleFunc(
 		"POST /settings/save/{$}",
 		pageSettingsHandlers{s}.POSTSave)
@@ -1882,7 +1882,7 @@ func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		})
 }
 
-func (s pageSearchHandlers) POSTParamChange(
+func (s pageSearchHandlers) QUERYParamChange(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1907,7 +1907,7 @@ func (s pageSearchHandlers) POSTParamChange(
 			App: s.app,
 		},
 	}
-	err := p.POSTParamChange(r, dpsse.New(sse), sess, signals)
+	err := p.QUERYParamChange(r, dpsse.New(sse), sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageSearch.ParamChange", err)
 		return

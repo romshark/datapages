@@ -1419,7 +1419,7 @@ func needsCSRFOnly(h *model.Handler, m *model.App) bool {
 		return false
 	}
 	switch strings.ToUpper(h.HTTPMethod) {
-	case "GET", "HEAD", "OPTIONS":
+	case "GET", "HEAD", "OPTIONS", "QUERY":
 		// Nothing to protect: these change nothing.
 		return false
 	}

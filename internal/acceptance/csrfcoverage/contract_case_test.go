@@ -49,7 +49,9 @@ func TestContract(t *testing.T) {
 			action.PageIndex.Delete.POST(),
 			action.PageInbox.MarkRead.POST(),
 			action.PageAbout.Preview.POST(),
+			action.PageIndex.Count.QUERY(),
 			action.App.Ping.POST(),
+			action.App.Status.QUERY(),
 		},
 		SignalActions: []string{action.PageIndex.SignIn.POST()},
 		OptionedAction: action.PageIndex.SignIn.POST(

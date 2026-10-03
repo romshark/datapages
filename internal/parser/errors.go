@@ -84,13 +84,13 @@ var (
 
 	ErrAppUnsupportedMethod = errors.New(
 		"unsupported method on App; App takes Head, RecoverError and " +
-			"POST*/PUT*/PATCH*/DELETE* (actions). " +
+			"POST*/PUT*/PATCH*/DELETE*/QUERY* (actions). " +
 			"GET, On* and StreamOpen/StreamClose belong on a page",
 	)
 
 	ErrUnsupportedMethod = errors.New(
 		"unsupported public method on page type; " +
-			"use GET, POST*/PUT*/PATCH*/DELETE* (actions), " +
+			"use GET, POST*/PUT*/PATCH*/DELETE*/QUERY* (actions), " +
 			"On* (event handlers), or StreamOpen/StreamClose (stream hooks)",
 	)
 

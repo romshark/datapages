@@ -168,6 +168,20 @@ func TestMiddlewareLabelsAreBounded(t *testing.T) {
 	}), "the raw path must not appear as a label")
 }
 
+// TestMiddlewareLabelsQuery tests a QUERY request, which an action can answer.
+// It keeps its method as the label instead of [prom.LabelOtherMethod].
+func TestMiddlewareLabelsQuery(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("QUERY /search/", func(http.ResponseWriter, *http.Request) {})
+	h := prom.Middleware(mux)
+
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("QUERY", "/search/", nil))
+
+	require.Equal(t, 1, series(t, "datapages_http_requests_total", map[string]string{
+		"method": "QUERY", "path": "QUERY /search/",
+	}))
+}
+
 // series counts the series of the metric family name carrying every label of want.
 func series(t *testing.T, name string, want map[string]string) int {
 	t.Helper()

@@ -485,8 +485,8 @@ func setupHandlers(s *Server) {
 		"POST /sign-out/{$}",
 		appHandlers{s}.POSTSignOut)
 	s.Mux().HandleFunc(
-		"POST /search/{$}",
-		pageIndexHandlers{s}.POSTSearch)
+		"QUERY /search/{$}",
+		pageIndexHandlers{s}.QUERYSearch)
 	s.Mux().HandleFunc(
 		"POST /login/submit/{$}",
 		pageLoginHandlers{s}.POSTSubmit)
@@ -725,14 +725,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s pageIndexHandlers) POSTSearch(
+func (s pageIndexHandlers) QUERYSearch(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-	// CheckCSRFOnly validates against the cookie without reading the session store.
-	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
@@ -750,7 +746,7 @@ func (s pageIndexHandlers) POSTSearch(
 			App: s.app,
 		},
 	}
-	err := p.POSTSearch(r, dpsse.New(sse), signals)
+	err := p.QUERYSearch(r, dpsse.New(sse), signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Search", err)
 		return

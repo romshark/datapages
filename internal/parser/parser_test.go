@@ -292,12 +292,12 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		p := findPage(app, "PageActions")
 		require.NotNil(p)
 		require.Equal("/actions", p.Route)
-		require.Len(p.Actions, 9)
+		require.Len(p.Actions, 11)
 		require.Len(p.EventHandlers, 1)
 
 		// Actions at same path as page
-		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-			a := findAction(p.Actions, "SamePath")
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE", "QUERY"} {
+			a := findActionByMethod(p.Actions, method, "SamePath")
 			require.NotNil(a, "missing %sSamePath", method)
 			require.Equal("/actions", a.Route)
 		}
@@ -333,11 +333,25 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		require.Equal("DELETE", deleteWithout.HTTPMethod)
 		require.Nil(deleteWithout.InputSSE)
 
+		// QUERY with SSE
+		queryWith := findActionByMethod(p.Actions, "QUERY", "WithSSE")
+		require.NotNil(queryWith)
+		require.Equal("/actions/query-with-sse", queryWith.Route)
+		require.NotNil(queryWith.InputSSE)
+
 		// Event handler MUST have SSE
 		evHandler := p.EventHandlers[0]
 		require.Equal("EventFoo", evHandler.Name)
 		require.NotNil(evHandler.InputSSE)
 		require.Equal("sse", evHandler.InputSSE.Name)
+	}
+
+	{ // App-level QUERY action
+		require.Len(app.Actions, 1)
+		a := app.Actions[0]
+		require.Equal("QUERY", a.HTTPMethod)
+		require.Equal("Lookup", a.Name)
+		require.Equal("/lookup", a.Route)
 	}
 }
 
@@ -486,6 +500,7 @@ func TestParse_ErrActionHandlerNoName(t *testing.T) {
 		parser.ErrActionNameMissing, // DELETE
 		parser.ErrActionNameMissing, // PATCH
 		parser.ErrActionNameMissing, // PUT
+		parser.ErrActionNameMissing, // QUERY
 	)
 }
 
@@ -3163,7 +3178,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 
 		require.Len(p.Actions, 1)
 		a := p.Actions[0]
-		require.Equal("POST", a.HTTPMethod)
+		require.Equal("QUERY", a.HTTPMethod)
 		require.Equal("ParamChange", a.Name)
 		require.Equal("/search/paramchange/{$}", a.Route)
 		require.NotNil(a.InputSSE)

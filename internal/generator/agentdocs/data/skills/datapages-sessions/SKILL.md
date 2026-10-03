@@ -66,7 +66,7 @@ navigation after login. See `datapages-offline`.
 
 ## CSRF
 
-CSRF protection is enabled for every app with a session type. Datapages derives the token from the session. Do not set a CSRF header in a template. A normal browser form submission does not include the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection.
+CSRF protection is enabled for every app with a session type. Datapages derives the token from the session. Do not set a CSRF header in a template. A normal browser form submission does not include the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection. A `QUERYXXX` action skips the check. Never change state in it.
 
 ## Manager
 

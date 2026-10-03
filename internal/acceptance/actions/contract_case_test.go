@@ -42,16 +42,19 @@ func TestContract(t *testing.T) {
 			action.PageForm.Replace.PUT(),
 			action.PageForm.Touch.PATCH(),
 			action.PageForm.Remove.DELETE(),
+			action.PageForm.Search.QUERY(),
 			action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)),
 			action.PageForm.Render.POST(),
 			action.PageForm.Go.POST(),
 			action.PageForm.Patch.POST(),
 			action.App.Ping.POST(),
+			action.App.Lookup.QUERY(),
 			action.App.All.DELETE(),
 		},
 		SignalActions: []string{
 			action.PageForm.Submit.POST(),
 			action.PageForm.Patch.POST(),
+			action.PageForm.Search.QUERY(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.

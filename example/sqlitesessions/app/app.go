@@ -86,7 +86,7 @@ func (p PageIndex) OnSessionClosed(
 }
 
 // validateLogin returns "" if the input is acceptable, otherwise a
-// user-facing error message. Shared by POSTValidate and POSTSubmit.
+// user-facing error message. Shared by QUERYValidate and POSTSubmit.
 func validateLogin(email, password string) string {
 	if strings.TrimSpace(email) == "" {
 		return "Email is required"
@@ -128,10 +128,10 @@ func (p PageLogin) GET(r *http.Request, session Session) (
 	return pageLogin("", false), pageLoginHead(), redirect, nil
 }
 
-// POSTValidate is /login/validate
+// QUERYValidate is /login/validate
 //
 // Fired on every keystroke via data-on:input for live feedback.
-func (p PageLogin) POSTValidate(
+func (p PageLogin) QUERYValidate(
 	r *http.Request,
 	session Session,
 	signals datapages.Signals[struct {
@@ -205,10 +205,10 @@ func (p PageRegister) GET(r *http.Request, session Session) (
 	return pageRegister("", false), pageRegisterHead(), redirect, nil
 }
 
-// POSTValidate is /register/validate
+// QUERYValidate is /register/validate
 //
 // Fired on every keystroke via data-on:input for live feedback.
-func (p PageRegister) POSTValidate(
+func (p PageRegister) QUERYValidate(
 	r *http.Request,
 	session Session,
 	signals datapages.Signals[struct {

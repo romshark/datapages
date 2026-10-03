@@ -495,7 +495,7 @@ func hasAttrPrefix(name, prefix string) bool {
 // hardcodedActionRE matches Datastar action calls with literal URL arguments,
 // e.g. @post('/login') or @get("/api/data").
 var hardcodedActionRE = regexp.MustCompile(
-	`@(?:post|get|put|delete|patch)\s*\(\s*['"]([^'"]*)['"]\s*\)`,
+	`@(?:post|get|put|delete|patch|query)\s*\(\s*['"]([^'"]*)['"]\s*\)`,
 )
 
 // extractHardcodedActionURLs returns the URLs from hardcoded Datastar action

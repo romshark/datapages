@@ -99,6 +99,19 @@ func (p PageForm) DELETERemove(_ *http.Request) error {
 	return nil
 }
 
+// QUERYSearch is /form/search
+//
+// Datastar sends the signals of a QUERY in the body, as it does for a POST.
+func (p PageForm) QUERYSearch(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		Term string `json:"term"`
+	}],
+) error {
+	p.App.record("search term=%q", signals.Values.Term)
+	return nil
+}
+
 // POSTBump is /form/{id}/bump
 //
 // Path variables and query parameters reach actions the same way they reach page loads.
@@ -223,6 +236,14 @@ func (p PageForm) POSTRemove(_ *http.Request, sse datapages.SSE) error {
 // It is reachable from every page and belongs to none.
 func (a *App) POSTPing(_ *http.Request) error {
 	a.record("ping")
+	return nil
+}
+
+// QUERYLookup is /lookup
+//
+// It takes no signals, which leaves it reachable without the Datastar header.
+func (a *App) QUERYLookup(_ *http.Request) error {
+	a.record("lookup")
 	return nil
 }
 

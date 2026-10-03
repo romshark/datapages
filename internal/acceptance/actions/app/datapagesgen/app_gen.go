@@ -165,6 +165,9 @@ func setupHandlers(s *Server) {
 		"POST /ping/{$}",
 		appHandlers{s}.POSTPing)
 	s.Mux().HandleFunc(
+		"QUERY /lookup/{$}",
+		appHandlers{s}.QUERYLookup)
+	s.Mux().HandleFunc(
 		"DELETE /all/{$}",
 		appHandlers{s}.DELETEAll)
 	s.Mux().HandleFunc(
@@ -179,6 +182,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"DELETE /form/remove/{$}",
 		pageFormHandlers{s}.DELETERemove)
+	s.Mux().HandleFunc(
+		"QUERY /form/search/{$}",
+		pageFormHandlers{s}.QUERYSearch)
 	s.Mux().HandleFunc(
 		"POST /form/{id}/bump/{$}",
 		pageFormHandlers{s}.POSTBump)
@@ -237,6 +243,19 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 	err := s.app.POSTPing(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Ping", err)
+		return
+	}
+}
+
+func (s appHandlers) QUERYLookup(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.Lookup")
+	err := s.app.QUERYLookup(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Lookup", err)
 		return
 	}
 }
@@ -349,6 +368,31 @@ func (s pageFormHandlers) DELETERemove(
 	err := p.DELETERemove(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageForm.Remove", err)
+		return
+	}
+}
+
+func (s pageFormHandlers) QUERYSearch(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Term string `json:"term"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageForm.Search")
+	p := dpapp.PageForm{
+		App: s.app,
+	}
+	err := p.QUERYSearch(r, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageForm.Search", err)
 		return
 	}
 }

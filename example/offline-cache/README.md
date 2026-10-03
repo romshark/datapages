@@ -61,7 +61,7 @@ datapages watch
 ## How it works
 
 - `app/domain` is the thread-safe, in-memory data store: shows, users, tickets.
-- `app/*.go` holds one page struct per route with its `GET` and `POST` handlers.
+- `app/*.go` holds one page struct per route with its `GET` and action handlers.
 - `app/app.templ` holds every templ template: navbar, cards, ticket, forms.
 - `cmd/server` wires up the in-memory session manager and message broker and
   seeds the mock data (`testdata.go`).

@@ -652,7 +652,7 @@ func removeRouteEnd(typeName, route string) string {
 // by stripping the HTTP method prefix and lowercasing the remainder.
 // E.g., "POSTFoo" -> "foo", "DELETEFooBar" -> "foobar".
 func methodPathSuffix(method string) string {
-	for _, prefix := range []string{"DELETE", "PATCH", "POST", "PUT", "GET"} {
+	for _, prefix := range []string{"DELETE", "PATCH", "POST", "PUT", "QUERY", "GET"} {
 		if after, ok := strings.CutPrefix(method, prefix); ok && after != "" {
 			return strings.ToLower(after)
 		}

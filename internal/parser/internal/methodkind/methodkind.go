@@ -1,5 +1,5 @@
 // Package methodkind classifies handler method names into
-// HTTP method kinds (GET, POST, PUT, PATCH, DELETE) or event handlers.
+// HTTP method kinds (GET, POST, PUT, PATCH, DELETE, QUERY) or event handlers.
 package methodkind
 
 import "strings"
@@ -15,19 +15,21 @@ const (
 	ActionPUTHandler
 	ActionPATCHHandler
 	ActionDELETEHandler
+	ActionQUERYHandler
 	StreamOpenHook
 	StreamCloseHook
 	EventHandler
 )
 
 // IsAction reports whether the kind is an action
-// (POST, PUT, PATCH, or DELETE).
+// (POST, PUT, PATCH, DELETE or QUERY).
 func (k Kind) IsAction() bool {
 	switch k {
 	case ActionPOSTHandler,
 		ActionPUTHandler,
 		ActionPATCHHandler,
-		ActionDELETEHandler:
+		ActionDELETEHandler,
+		ActionQUERYHandler:
 		return true
 	}
 	return false
@@ -46,6 +48,8 @@ func (k Kind) HTTPMethod() string {
 		return "PATCH"
 	case ActionDELETEHandler:
 		return "DELETE"
+	case ActionQUERYHandler:
+		return "QUERY"
 	}
 	return ""
 }
@@ -74,6 +78,8 @@ func Classify(name string) (kind Kind, suffix string) {
 		return ActionPATCHHandler, name[len("PATCH"):]
 	case strings.HasPrefix(name, "DELETE"):
 		return ActionDELETEHandler, name[len("DELETE"):]
+	case strings.HasPrefix(name, "QUERY"):
+		return ActionQUERYHandler, name[len("QUERY"):]
 	case name == "StreamOpen":
 		return StreamOpenHook, ""
 	case name == "StreamClose":

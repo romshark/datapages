@@ -39,8 +39,8 @@ func (p PageIndex) GET(
 	return pageShows(session, query.Values, shows, baseData), nil
 }
 
-// POSTSearch is /search/{$}
-func (p PageIndex) POSTSearch(
+// QUERYSearch is /search/{$}
+func (p PageIndex) QUERYSearch(
 	r *http.Request,
 	sse datapages.SSE,
 	signals datapages.Signals[SearchParams],

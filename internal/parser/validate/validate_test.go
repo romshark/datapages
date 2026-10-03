@@ -70,6 +70,8 @@ func TestActionMethodName(t *testing.T) {
 	f(nil, "PATCHThing")
 	f(nil, "DELETEA")
 	f(nil, "DELETEThing99")
+	f(nil, "QUERYA")
+	f(nil, "QUERYSearch2")
 	// missing suffix
 	f(validate.ErrActionMethodNameInvalid, "POST")
 	// missing suffix
@@ -78,8 +80,12 @@ func TestActionMethodName(t *testing.T) {
 	f(validate.ErrActionMethodNameInvalid, "PATCH")
 	// missing suffix
 	f(validate.ErrActionMethodNameInvalid, "DELETE")
+	// missing suffix
+	f(validate.ErrActionMethodNameInvalid, "QUERY")
 	// suffix must start with A-Z
 	f(validate.ErrActionMethodNameInvalid, "POSTdoThing")
+	// suffix must start with A-Z
+	f(validate.ErrActionMethodNameInvalid, "QUERYsearch")
 	// invalid char
 	f(validate.ErrActionMethodNameInvalid, "PUT_do")
 	// whitespace

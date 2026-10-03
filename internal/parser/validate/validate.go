@@ -66,6 +66,7 @@ func PageTypeName(name string) error {
 //	PUTX...
 //	PATCHX...
 //	DELETEX...
+//	QUERYX...
 //
 // where X is [A-Z], followed by [A-Za-z0-9]*.
 func ActionMethodName(name string) error {
@@ -105,6 +106,10 @@ func ActionMethodName(name string) error {
 		}
 	case strings.HasPrefix(name, "DELETE"):
 		if isValidActionSuffix(name, 6) {
+			return nil
+		}
+	case strings.HasPrefix(name, "QUERY"):
+		if isValidActionSuffix(name, 5) {
 			return nil
 		}
 	}

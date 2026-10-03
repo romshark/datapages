@@ -175,8 +175,9 @@ func WithRequestCancellationController(expr string) Option {
 var App app
 
 type app struct {
-	All  app_All
-	Ping app_Ping
+	All    app_All
+	Lookup app_Lookup
+	Ping   app_Ping
 }
 
 type app_All struct{}
@@ -191,6 +192,24 @@ func (app_All) DELETE(options ...Option) string {
 	b.Grow(bl + len("@delete('/all/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@delete('/all/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type app_Lookup struct{}
+
+// QUERY references /lookup/
+func (app_Lookup) QUERY(options ...Option) string {
+	if len(options) == 0 {
+		return "@query('/lookup/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@query('/lookup/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@query('/lookup/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
@@ -226,6 +245,7 @@ type pageForm struct {
 	Remove         pageForm_Remove
 	Render         pageForm_Render
 	Replace        pageForm_Replace
+	Search         pageForm_Search
 	SignalsBad     pageForm_SignalsBad
 	SignalsMissing pageForm_SignalsMissing
 	SignalsRaw     pageForm_SignalsRaw
@@ -437,6 +457,24 @@ func (pageForm_Replace) PUT(options ...Option) string {
 	b.Grow(bl + len("@put('/form/replace/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@put('/form/replace/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageForm_Search struct{}
+
+// QUERY references /form/search/
+func (pageForm_Search) QUERY(options ...Option) string {
+	if len(options) == 0 {
+		return "@query('/form/search/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@query('/form/search/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@query('/form/search/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

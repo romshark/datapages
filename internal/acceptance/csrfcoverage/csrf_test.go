@@ -149,6 +149,50 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	require.NotContains(t, string(b), "deleted=1", "the refused action took effect")
 }
 
+// TestQueryNeedsNoCSRFToken tests the QUERY actions of a visitor with a session.
+// They send no CSRF token, as a page that was rendered for a guest or before
+// a sign-in in another tab does. QUERY is safe and both are served:
+// the action that reads the session and the action that takes none.
+func TestQueryNeedsNoCSRFToken(t *testing.T) {
+	t.Parallel()
+	sessions := sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)
+
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), sessions,
+	))
+	t.Cleanup(srv.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "building cookie jar")
+	client := &http.Client{Jar: jar}
+
+	require.Equal(t, http.StatusOK,
+		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+
+	for name, tc := range map[string]struct{ path, want string }{
+		"reading the session": {path: "/count/", want: "user=alice"},
+		"taking no session":   {path: "/status/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(context.Background(),
+				"QUERY", srv.URL+tc.path, strings.NewReader("{}"))
+			require.NoError(t, err, "building QUERY %s", tc.path)
+			req.Header.Set("Datastar-Request", "true")
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			require.NoError(t, err, "QUERY %s", tc.path)
+			defer func() { _ = resp.Body.Close() }()
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading QUERY %s", tc.path)
+			require.Equal(t, http.StatusOK, resp.StatusCode, "QUERY %s:\n%s", tc.path, b)
+			require.Contains(t, string(b), tc.want)
+		})
+	}
+}
+
 // TestErrorPagesCarryTheCSRFScript tests the documents the 404 and the 500
 // page write for a signed-in visitor. Written from the zero session,
 // WriteCSRFScript writes nothing and every action reachable from them answers 403.

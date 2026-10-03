@@ -51,6 +51,7 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `PUTXXX`: handles `PUT` action requests.
 - `PATCHXXX`: handles `PATCH` action requests.
 - `DELETEXXX`: handles `DELETE` action requests.
+- `QUERYXXX`: handles `QUERY` action requests.
 - `StreamOpen`: runs when the page SSE stream opens.
 - `StreamClose`: runs when the page SSE stream closes.
 - `OnXXX`: subscribes to events in the SSE listener.
@@ -115,7 +116,7 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 }
 ```
 
-Page action handlers (`POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`) require
+Page action handlers (`POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, `QUERYXXX`) require
 `r *http.Request` and permit these optional parameters. A handler returning
 only `error` may use this signature:
 
@@ -138,6 +139,8 @@ func (PageIndex) POSTActionName(
 ```
 
 An action that takes `datapages.Signals`, `datapages.SSE` or [`datapages.PageCacheWriter`](#parameter-pagecache-datapagespagecachewriter) requires `Datastar-Request: true`. Requests without it receive 406 Not Acceptable. Any other action can receive HTML form submissions. It is guarded by [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection): requests reported as same-site or cross-site by `Sec-Fetch-Site`, or with an `Origin` that differs from `Host`, receive 403. Requests with neither header are allowed. Authenticated forms also fail the CSRF check when sessions and CSRF protection are enabled.
+
+A `QUERYXXX` action answers the `QUERY` method of [RFC 10008](https://www.rfc-editor.org/rfc/rfc10008): a safe, idempotent request with a body. Datastar sends it with `@query`, which puts the signals in the body, as `@post` does. It takes the parameters and return values of the other actions. It skips the CSRF check, as a `GET` page load does, and must not change server state. The `Datastar-Request` requirement and the cross-origin check above apply to it.
 
 **Actions with `sse` cannot return `newSession` or `closeSession`.** The SSE stream sends headers before the handler returns. A `redirect` return value navigates through the stream, as `sse.Redirect` does.
 
@@ -438,7 +441,7 @@ See [datapages.go](datapages.go) for method definitions.
 
 Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends when the session closes or reaches its `ExpiresAt()`. Its page then reloads after 1s and renders for the session the browser holds, if any. The delay lets the tab that signed out follow the sign-out redirect first. A page with only user-addressed events also reloads when its stream reconnects after the session ended. A page that also has public events reconnects to `_$/anon/` and keeps its content. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
 
-An action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions. When a handler renders a document without reading the session, it uses the session cookie to write the CSRF script without reading the store.
+A `POST`, `PUT`, `PATCH` or `DELETE` action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions. When a handler renders a document without reading the session, it uses the session cookie to write the CSRF script without reading the store.
 
 Expired sessions are removed on read. Datapages does not call the session manager's `DeleteExpired`; applications must schedule cleanup for abandoned sessions.
 
@@ -480,7 +483,7 @@ See [datapages.go](datapages.go) for method definitions.
 pageCache datapages.PageCacheWriter
 ```
 
-This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` action methods, including app-level actions. It queues writes to the client's [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) cache. A cached body is a component supplied by the handler and need not match the live body. Datapages registers the service worker.
+This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, and `QUERYXXX` action methods, including app-level actions. It queues writes to the client's [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) cache. A cached body is a component supplied by the handler and need not match the live body. Datapages registers the service worker.
 
 The interface (from `github.com/romshark/datapages`):
 

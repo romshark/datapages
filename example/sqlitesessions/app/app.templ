@@ -181,7 +181,7 @@ templ pageLogin(errorMsg string, valid bool) {
 		class="card"
 		data-signals:email="''"
 		data-signals:password="''"
-		data-on:input__debounce.300ms={ action.PageLogin.Validate.POST() }
+		data-on:input__debounce.300ms={ action.PageLogin.Validate.QUERY() }
 		data-on:submit__prevent={ action.PageLogin.Submit.POST() }
 	>
 		<h1>Login</h1>
@@ -228,7 +228,7 @@ templ pageRegister(errorMsg string, valid bool) {
 		data-signals:name="''"
 		data-signals:email="''"
 		data-signals:password="''"
-		data-on:input__debounce.300ms={ action.PageRegister.Validate.POST() }
+		data-on:input__debounce.300ms={ action.PageRegister.Validate.QUERY() }
 		data-on:submit__prevent={ action.PageRegister.Submit.POST() }
 	>
 		<h1>Create account</h1>

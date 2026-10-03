@@ -400,16 +400,16 @@ type pageSearch struct {
 
 type pageSearch_ParamChange struct{}
 
-// POST references /search/paramchange/
-func (pageSearch_ParamChange) POST(options ...Option) string {
+// QUERY references /search/paramchange/
+func (pageSearch_ParamChange) QUERY(options ...Option) string {
 	if len(options) == 0 {
-		return "@post('/search/paramchange/')"
+		return "@query('/search/paramchange/')"
 	}
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/search/paramchange/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@query('/search/paramchange/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/search/paramchange/'")
+	b.WriteString("@query('/search/paramchange/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

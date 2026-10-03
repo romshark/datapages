@@ -78,7 +78,7 @@ The parser reads names and doc comments. Both decide behaviour.
 | kind | name | doc comment |
 | ---- | ---- | ----------- |
 | page | `Page` + uppercase + alnum | `// PageX is /route` |
-| action | `POST`/`PUT`/`PATCH`/`DELETE` + uppercase + alnum | `// POSTX is /route` |
+| action | `POST`/`PUT`/`PATCH`/`DELETE`/`QUERY` + uppercase + alnum | `// POSTX is /route` |
 | event | `Event` + uppercase + alnum | `// EventX is "subject.name"` |
 | event handler | `On` + the event name after `Event`: `OnFoo` for `EventFoo` | none |
 | stream hook | `StreamOpen`, `StreamClose` | none |
@@ -100,7 +100,7 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | ----- | ------------ |
 | `datapages-architecture` | a new app, or a feature whose constructs are not decided |
 | `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
-| `datapages-actions` | POST/PUT/PATCH/DELETE handlers, signals, SSE, errors |
+| `datapages-actions` | POST/PUT/PATCH/DELETE/QUERY handlers, signals, SSE, errors |
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
 | `datapages-state` | per-tab state, state IDs and state-scoped events |
 | `datapages-sessions` | authentication, session data, CSRF |
@@ -109,4 +109,4 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:5515bc56cafd213e -->
+<!-- written by datapages sha256:82f6b7c1df960db0 -->

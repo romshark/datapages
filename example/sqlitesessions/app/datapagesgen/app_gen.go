@@ -218,14 +218,14 @@ func setupHandlers(s *Server) {
 		"POST /signout/{$}",
 		appHandlers{s}.POSTSignOut)
 	s.Mux().HandleFunc(
-		"POST /login/validate/{$}",
-		pageLoginHandlers{s}.POSTValidate)
+		"QUERY /login/validate/{$}",
+		pageLoginHandlers{s}.QUERYValidate)
 	s.Mux().HandleFunc(
 		"POST /login/submit/{$}",
 		pageLoginHandlers{s}.POSTSubmit)
 	s.Mux().HandleFunc(
-		"POST /register/validate/{$}",
-		pageRegisterHandlers{s}.POSTValidate)
+		"QUERY /register/validate/{$}",
+		pageRegisterHandlers{s}.QUERYValidate)
 	s.Mux().HandleFunc(
 		"POST /register/submit/{$}",
 		pageRegisterHandlers{s}.POSTSubmit)
@@ -395,7 +395,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s pageLoginHandlers) POSTValidate(
+func (s pageLoginHandlers) QUERYValidate(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -418,7 +418,7 @@ func (s pageLoginHandlers) POSTValidate(
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	body, err := p.POSTValidate(r, sess, signals)
+	body, err := p.QUERYValidate(r, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Validate", err)
 		return
@@ -427,7 +427,7 @@ func (s pageLoginHandlers) POSTValidate(
 	if err := s.writeHTML(
 		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
-		s.LogErr("rendering response of PageLogin.POSTValidate", err)
+		s.LogErr("rendering response of PageLogin.QUERYValidate", err)
 		return
 	}
 }
@@ -510,7 +510,7 @@ func (s pageRegisterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s pageRegisterHandlers) POSTValidate(
+func (s pageRegisterHandlers) QUERYValidate(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -534,7 +534,7 @@ func (s pageRegisterHandlers) POSTValidate(
 	p := dpapp.PageRegister{
 		App: s.app,
 	}
-	body, err := p.POSTValidate(r, sess, signals)
+	body, err := p.QUERYValidate(r, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRegister.Validate", err)
 		return
@@ -543,7 +543,7 @@ func (s pageRegisterHandlers) POSTValidate(
 	if err := s.writeHTML(
 		w, r, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
-		s.LogErr("rendering response of PageRegister.POSTValidate", err)
+		s.LogErr("rendering response of PageRegister.QUERYValidate", err)
 		return
 	}
 }

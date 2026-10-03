@@ -42,8 +42,8 @@ func (p PageSearch) GET(
 	return pageSearch(session, query.Values, categories, posts, baseData), nil
 }
 
-// POSTParamChange is /search/paramchange/{$}
-func (p PageSearch) POSTParamChange(
+// QUERYParamChange is /search/paramchange/{$}
+func (p PageSearch) QUERYParamChange(
 	r *http.Request,
 	sse datapages.SSE,
 	session Session,

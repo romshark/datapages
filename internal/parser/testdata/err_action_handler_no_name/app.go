@@ -52,3 +52,9 @@ func (PageForm) PUT(
 	_ = sse
 	return nil
 }
+
+// QUERY is /form/query/{$}
+func (PageForm) QUERY(r *http.Request) error {
+	_ = r
+	return nil
+}

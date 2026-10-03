@@ -10,8 +10,8 @@ and paste.
 ## How it works
 
 `GET /` renders the calculator with two Datastar signals: `input` and `fresh`.
-A button press or number paste sends the signals to `POST /input/` with a button
-or number in the query. `PageIndex.POSTInput` calculates the next values and
+A button press or number paste sends the signals to `QUERY /input/` with a button
+or number in the URL query. `PageIndex.QUERYInput` calculates the next values and
 returns an SSE patch. The patch updates the calculator and its signals.
 
 The server stores no calculator state between requests. Each tab sends its own

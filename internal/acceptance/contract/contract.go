@@ -551,6 +551,8 @@ func parseAction(t *testing.T, expr string) (method, target string) {
 		method = http.MethodPatch
 	case "delete":
 		method = http.MethodDelete
+	case "query":
+		method = "QUERY"
 	case "get":
 		method = http.MethodGet
 	default:

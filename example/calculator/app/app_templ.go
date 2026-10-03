@@ -160,8 +160,8 @@ func pageCalculator(input string, fresh bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Input.POST(
-			action.PageIndex.Input.POSTQuery(0, true),
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Input.QUERY(
+			action.PageIndex.Input.QUERYQuery(0, true),
 			action.WithBefore("var v=calcPaste(evt);if(v===null)return;$num=v")))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 99, Col: 71}
@@ -211,10 +211,10 @@ func pageCalculator(input string, fresh bool) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Input.POST(
-				action.PageIndex.Input.POSTQuery(int(b.Btn), false)))
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Input.QUERY(
+				action.PageIndex.Input.QUERYQuery(int(b.Btn), false)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 108, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 108, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 			if templ_7745c5c3_Err != nil {

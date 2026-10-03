@@ -120,7 +120,7 @@ templ pageShows(
 					id="shows-search"
 					value={ query.Term }
 					data-bind="q"
-					data-on:input__debounce.250ms={ action.PageIndex.Search.POST() }
+					data-on:input__debounce.250ms={ action.PageIndex.Search.QUERY() }
 					placeholder="Search by title, genre, venue or city..."
 					autocomplete="off"
 				/>

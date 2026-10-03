@@ -47,7 +47,7 @@ Datastar applies attributes depth first in DOM order. It applies them again when
 
 ## Actions
 
-`@get(url, opts)`, `@post`, `@put`, `@patch` and `@delete` send a fetch request. In a Datapages app, use them through the generated `action` package. See `datapages-templates`.
+`@get(url, opts)`, `@post`, `@put`, `@patch`, `@delete` and `@query` send a fetch request. In a Datapages app, use them through the generated `action` package. See `datapages-templates`.
 
 `@peek(fn)` reads signals without subscribing to them. `@setAll(value, {include, exclude})` and `@toggleAll({include, exclude})` write every matching signal. The filters are regular expressions over signal paths.
 

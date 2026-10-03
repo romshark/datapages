@@ -241,6 +241,9 @@ func setupHandlers(s *Server) {
 		"POST /ping/{$}",
 		appHandlers{s}.POSTPing)
 	s.Mux().HandleFunc(
+		"QUERY /status/{$}",
+		appHandlers{s}.QUERYStatus)
+	s.Mux().HandleFunc(
 		"POST /about/preview/{$}",
 		pageAboutHandlers{s}.POSTPreview)
 	s.Mux().HandleFunc(
@@ -252,6 +255,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /delete/{$}",
 		pageIndexHandlers{s}.POSTDelete)
+	s.Mux().HandleFunc(
+		"QUERY /count/{$}",
+		pageIndexHandlers{s}.QUERYCount)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -353,6 +359,19 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 	err := s.app.POSTPing(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Ping", err)
+		return
+	}
+}
+
+func (s appHandlers) QUERYStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.Status")
+	err := s.app.QUERYStatus(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Status", err)
 		return
 	}
 }
@@ -678,6 +697,33 @@ func (s pageIndexHandlers) POSTDelete(
 	err := p.POSTDelete(r, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Delete", err)
+		return
+	}
+}
+
+func (s pageIndexHandlers) QUERYCount(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Count")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	body, err := p.QUERYCount(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Count", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, sess.Token(), nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of PageIndex.QUERYCount", err)
 		return
 	}
 }

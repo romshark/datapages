@@ -18,7 +18,7 @@ type Component interface {
 }
 
 // Signals carries the client-side Datastar signals.
-// GET, action (POST/PUT/PATCH/DELETE) and StreamOpen handlers may
+// GET, action (POST/PUT/PATCH/DELETE/QUERY) and StreamOpen handlers may
 // receive it as a parameter.
 //
 // Values is a struct whose exported fields each name a signal with a json:"<name>" tag:
@@ -34,7 +34,7 @@ type Component interface {
 type Signals[Values any] struct{ Values Values }
 
 // Path carries the URL path variables of the route.
-// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+// GET and action (POST/PUT/PATCH/DELETE/QUERY) handlers may receive it as a parameter.
 //
 // Values is a struct whose exported fields each name a route variable with a
 // path:"<name>" tag:
@@ -53,7 +53,7 @@ type Signals[Values any] struct{ Values Values }
 type Path[Values any] struct{ Values Values }
 
 // Query carries the URL query parameters.
-// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+// GET and action (POST/PUT/PATCH/DELETE/QUERY) handlers may receive it as a parameter.
 //
 // Values is a struct whose exported fields each name a parameter with a
 // query:"<name>" tag.
@@ -94,7 +94,7 @@ type Query[Values any] struct{ Values Values }
 //   - StreamOpen
 //   - StreamClose
 //   - event handlers (OnXXX)
-//   - action handlers (POST/PUT/PATCH/DELETE)
+//   - action handlers (POST/PUT/PATCH/DELETE/QUERY)
 //
 // GET handlers may not: the server allocates state only when the tab connects
 // its stream, before StreamOpen runs.

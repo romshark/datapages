@@ -157,8 +157,8 @@ func setupHandlers(s *Server) {
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
-		"POST /input/{$}",
-		pageIndexHandlers{s}.POSTInput)
+		"QUERY /input/{$}",
+		pageIndexHandlers{s}.QUERYInput)
 }
 
 func (s *Server) httpErrIntern(
@@ -203,7 +203,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s pageIndexHandlers) POSTInput(
+func (s pageIndexHandlers) QUERYInput(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -250,7 +250,7 @@ func (s pageIndexHandlers) POSTInput(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTInput(r, dpsse.New(sse), query, signals)
+	err := p.QUERYInput(r, dpsse.New(sse), query, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Input", err)
 		return

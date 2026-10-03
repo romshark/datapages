@@ -33,7 +33,7 @@ Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that mat
 | `datapages-architecture` | a new app, or a feature whose constructs are not decided |
 | `datapages` | any Datapages work: rules, workflow, naming |
 | `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
-| `datapages-actions` | POST/PUT/PATCH/DELETE handlers, signals, SSE, errors |
+| `datapages-actions` | POST/PUT/PATCH/DELETE/QUERY handlers, signals, SSE, errors |
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
 | `datapages-state` | per-tab server state and state-scoped events |
 | `datapages-sessions` | authentication, session data, CSRF |
@@ -44,4 +44,4 @@ Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that mat
 
 Full reference: https://github.com/romshark/datapages/blob/main/SPECIFICATION.md
 
-<!-- written by datapages sha256:ad95ca1c8e15b40d -->
+<!-- written by datapages sha256:286c12ff69dddea6 -->

@@ -1,7 +1,7 @@
 ---
 name: datapages-actions
 description: >-
-  Write Datapages action handlers (POST, PUT, PATCH, DELETE): parameters,
+  Write Datapages action handlers (POST, PUT, PATCH, DELETE, QUERY): parameters,
   return values, Datastar signals, SSE patching, HTTP error status codes and
   the RecoverError hook.
 ---
@@ -19,6 +19,8 @@ func (PageLogin) POSTSubmit(r *http.Request) error { return nil }
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request) error { return nil }
 ```
+
+Use a `QUERYXXX` action for a read that sends data in the body, such as a search with a large filter. It skips the CSRF check because `QUERY` is a safe method. Never change state in it.
 
 ## Parameters
 

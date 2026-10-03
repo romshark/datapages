@@ -221,16 +221,16 @@ func (pageLogin_Submit) POST(options ...Option) string {
 
 type pageLogin_Validate struct{}
 
-// POST references /login/validate/
-func (pageLogin_Validate) POST(options ...Option) string {
+// QUERY references /login/validate/
+func (pageLogin_Validate) QUERY(options ...Option) string {
 	if len(options) == 0 {
-		return "@post('/login/validate/')"
+		return "@query('/login/validate/')"
 	}
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/login/validate/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@query('/login/validate/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/login/validate/'")
+	b.WriteString("@query('/login/validate/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
@@ -264,16 +264,16 @@ func (pageRegister_Submit) POST(options ...Option) string {
 
 type pageRegister_Validate struct{}
 
-// POST references /register/validate/
-func (pageRegister_Validate) POST(options ...Option) string {
+// QUERY references /register/validate/
+func (pageRegister_Validate) QUERY(options ...Option) string {
 	if len(options) == 0 {
-		return "@post('/register/validate/')"
+		return "@query('/register/validate/')"
 	}
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/register/validate/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@query('/register/validate/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/register/validate/'")
+	b.WriteString("@query('/register/validate/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
