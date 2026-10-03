@@ -175,6 +175,34 @@ func Suggest(err error) string {
 		path := urlpath.Clean(d.PagePath) + "/" + suffix
 		return fmt.Sprintf("fix: Use `// %s is %s`", d.MethodName, path)
 
+	case errors.Is(err, parser.ErrRouteWildcardStream):
+		var d *parser.RouteWildcardStreamError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
+	case errors.Is(err, parser.ErrRouteWildcardAction):
+		var d *parser.RouteWildcardActionError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
+	case errors.Is(err, parser.ErrRouteExactMatchStream):
+		var d *parser.RouteExactMatchStreamError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
+	case errors.Is(err, parser.ErrRouteExactMatchAction):
+		var d *parser.RouteExactMatchActionError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
 	case errors.Is(err, parser.ErrPageMissingGET):
 		var d *parser.PageMissingGETError
 		if !errors.As(err, &d) {
@@ -603,6 +631,13 @@ func pageTypePath(typeName string) string {
 		return "/"
 	}
 	return "/" + strings.ToLower(suffix) + "/"
+}
+
+// removeRouteEnd suggests removing the {$} or {name...} wildcard a page route
+// ends in, which limits the page to GET. Without {$} the page keeps its URL.
+func removeRouteEnd(typeName, route string) string {
+	return fmt.Sprintf("fix: Remove %s from the route of %s",
+		route[strings.LastIndex(route, "/")+1:], typeName)
 }
 
 // methodPathSuffix derives a suggested URL path segment from an action method name

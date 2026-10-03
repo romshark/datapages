@@ -205,6 +205,18 @@ var (
 		"page route ending in a wildcard cannot have a stream",
 	)
 
+	ErrRouteWildcardAction = errors.New(
+		"page route ending in a wildcard cannot have actions",
+	)
+
+	ErrRouteExactMatchStream = errors.New(
+		"page route ending in {$} cannot have a stream",
+	)
+
+	ErrRouteExactMatchAction = errors.New(
+		"page route ending in {$} cannot have actions",
+	)
+
 	ErrRouteVarNameInvalid = validate.ErrRouteVarNameInvalid
 
 	ErrRouteCharInvalid = errors.New("route contains an unsupported character")
@@ -694,6 +706,50 @@ func (e *RouteWildcardStreamError) Error() string {
 }
 
 func (e *RouteWildcardStreamError) Unwrap() error { return ErrRouteWildcardStream }
+
+// RouteWildcardActionError is [ErrRouteWildcardAction] with the page and the action.
+// An action is served at the page route or below it, with {$} after its own route.
+// A {name...} wildcard must end a pattern, which leaves no action route net/http accepts.
+type RouteWildcardActionError struct {
+	TypeName   string // e.g. "PageFiles"
+	Route      string // e.g. "/files/{rest...}"
+	MethodName string // e.g. "POSTDelete"
+}
+
+func (e *RouteWildcardActionError) Error() string {
+	return fmt.Sprintf("%v: %s is %q and has %s",
+		ErrRouteWildcardAction, e.TypeName, e.Route, e.MethodName)
+}
+
+func (e *RouteWildcardActionError) Unwrap() error { return ErrRouteWildcardAction }
+
+// RouteExactMatchStreamError is [ErrRouteExactMatchStream] with the page.
+// A {$} at the end of a page route declares a page that serves only GET.
+type RouteExactMatchStreamError struct {
+	TypeName string // e.g. "PageUser"
+	Route    string // e.g. "/user/{name}/{$}"
+}
+
+func (e *RouteExactMatchStreamError) Error() string {
+	return fmt.Sprintf("%v: %s is %q", ErrRouteExactMatchStream, e.TypeName, e.Route)
+}
+
+func (e *RouteExactMatchStreamError) Unwrap() error { return ErrRouteExactMatchStream }
+
+// RouteExactMatchActionError is [ErrRouteExactMatchAction] with the page and the action.
+// A {$} at the end of a page route declares a page that serves only GET.
+type RouteExactMatchActionError struct {
+	TypeName   string // e.g. "PageSettings"
+	Route      string // e.g. "/settings/{$}"
+	MethodName string // e.g. "POSTSave"
+}
+
+func (e *RouteExactMatchActionError) Error() string {
+	return fmt.Sprintf("%v: %s is %q and has %s",
+		ErrRouteExactMatchAction, e.TypeName, e.Route, e.MethodName)
+}
+
+func (e *RouteExactMatchActionError) Unwrap() error { return ErrRouteExactMatchAction }
 
 // RouteVarNameInvalidError is [ErrRouteVarNameInvalid] with the wildcard,
 // the route it sits in and what claims that route.

@@ -750,6 +750,59 @@ func TestParse_ErrRouteWildcardStream(t *testing.T) {
 	)
 }
 
+// TestParse_ErrRouteWildcardAction tests a page whose path ends in a wildcard
+// and which has actions. Each action is reported once,
+// whatever its path comment says, the adopted one included.
+func TestParse_ErrRouteWildcardAction(t *testing.T) {
+	_, err := parse(t, "err_route_wildcard_action")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteWildcardAction, // Archiver.POSTArchive
+		parser.ErrRouteWildcardAction, // POSTDelete
+		parser.ErrRouteWildcardAction, // POSTSave
+		parser.ErrRouteWildcardAction, // POSTMove
+	)
+	var d *parser.RouteWildcardActionError
+	_, e := err.Entry(0)
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, "PageFiles", d.TypeName)
+	require.Equal(t, "/files/{rest...}", d.Route)
+	require.Equal(t, "POSTArchive", d.MethodName)
+}
+
+// TestParse_ErrRouteExactMatchStream tests a page whose path ends in {$} and
+// which handles an event. The {$} declares a page that serves only GET.
+func TestParse_ErrRouteExactMatchStream(t *testing.T) {
+	_, err := parse(t, "err_route_exact_match_stream")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteExactMatchStream,
+	)
+}
+
+// TestParse_ErrRouteExactMatchAction tests a page whose path ends in {$} and
+// which has actions. The {$} declares a page that serves only GET. Each action
+// is reported once, whatever its path comment says, the adopted one included.
+func TestParse_ErrRouteExactMatchAction(t *testing.T) {
+	_, err := parse(t, "err_route_exact_match_action")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteExactMatchAction, // Archiver.POSTArchive
+		parser.ErrRouteExactMatchAction, // POSTSave
+		parser.ErrRouteExactMatchAction, // POSTReset
+		parser.ErrRouteExactMatchAction, // POSTMove
+	)
+	var d *parser.RouteExactMatchActionError
+	_, e := err.Entry(1)
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, "PageSettings", d.TypeName)
+	require.Equal(t, "/settings/{$}", d.Route)
+	require.Equal(t, "POSTSave", d.MethodName)
+}
+
 // TestParse_ErrPages tests every way a page declaration can be wrong:
 // the missing App field, extra fields, no GET, a name off the convention,
 // and a path comment that is missing, unparseable or names a path outside the page.
@@ -3067,7 +3120,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 	{
 		p := findPage(app, "PageUser")
 		require.NotNil(p)
-		require.Equal("/user/{name}/{$}", p.Route)
+		require.Equal("/user/{name}", p.Route)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
 		require.NotNil(p.GET.OutputHead)

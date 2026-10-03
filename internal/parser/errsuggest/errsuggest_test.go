@@ -205,6 +205,36 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Use `// DELETEItem is /items/item`",
 		},
+		"ErrRouteWildcardStream": {
+			err: &parser.RouteWildcardStreamError{
+				TypeName: "PageFiles",
+				Route:    "/files/{rest...}",
+			},
+			want: "fix: Remove {rest...} from the route of PageFiles",
+		},
+		"ErrRouteWildcardAction": {
+			err: &parser.RouteWildcardActionError{
+				TypeName:   "PageFiles",
+				Route:      "/files/{rest...}",
+				MethodName: "POSTDelete",
+			},
+			want: "fix: Remove {rest...} from the route of PageFiles",
+		},
+		"ErrRouteExactMatchStream": {
+			err: &parser.RouteExactMatchStreamError{
+				TypeName: "PageUser",
+				Route:    "/user/{name}/{$}",
+			},
+			want: "fix: Remove {$} from the route of PageUser",
+		},
+		"ErrRouteExactMatchAction": {
+			err: &parser.RouteExactMatchActionError{
+				TypeName:   "PageSettings",
+				Route:      "/settings/{$}",
+				MethodName: "POSTSave",
+			},
+			want: "fix: Remove {$} from the route of PageSettings",
+		},
 
 		"ErrRouteCharInvalid/quote": {
 			err: &parser.RouteCharInvalidError{

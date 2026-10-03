@@ -17,6 +17,7 @@ Releases up to v0.10.0 have their notes on
 - Reload a page when the session of its SSE stream closes or expires. A page with only user-addressed events also reloads when its stream reconnects after the session ended. The page previously kept showing the old session's content without updates. Run `datapages gen`.
 - Render `PageError404` with status 404 for a page load whose handler returns `datapages.ErrNotFound`, as for a URL that no route matches. For such a page load, `PageError404.GET` receives the request's query and signals and a zero path. An app without `PageError500` previously answered with the status text. Run `datapages gen`.
 - Answer 406 Not Acceptable to a request without `Datastar-Request: true`, such as a plain form submission, on an action declared on `App` that takes `datapages.PageCacheWriter`, as on a page. Such an action that redirects answered a plain form with an HTTP redirect and dropped the queued writes, such as `ClearAll`. Submit those forms through a Datastar action. Run `datapages gen`.
+- Reject actions, `OnXXX` handlers, `StreamOpen`, `StreamClose` and `State[T]` on a page whose route ends in `{$}`, as `// PageUser is /user/{name}/{$}`, in `datapages lint` and `datapages gen`. A `{$}` at the end of a page route declares a page that serves only `GET`. An action below such a route got an error saying that it was not under its page, with a suggested route that net/http rejects. Remove `{$}` from the route of such a page: it keeps its URL.
 
 ### Fixed
 
@@ -44,6 +45,7 @@ Releases up to v0.10.0 have their notes on
 - Reject an event with more than one `datapages.SubjectUser` field, such as `To, Cc datapages.SubjectUser`, in `datapages lint` and `datapages gen`. Only the first field routed the event: a user named in a later field never received it, and the user in the first field received it whatever the others held. Keep one `SubjectUser` field and dispatch the event once per user.
 - Reject an error-prone event field that holds a subject type, such as `Recipients []datapages.SubjectUser`, in `datapages lint` and `datapages gen`. It looks like a list of recipients, but it was a payload field, and the event went to every stream of the pages handling it. Declare one `datapages.SubjectUser` field and dispatch once per user.
 - Reject a page other than `PageIndex` at `/`, as in `// PageHome is /`, in `datapages lint` and `datapages gen`. The router sent every request for `/` to that page, and `PageIndex` never rendered. Give the page another route, or move its handlers to `PageIndex`.
+- Report an action of a page whose route ends in a `{name...}` wildcard, as in `// PageFiles is /files/{rest...}`, with an error saying that such a page cannot have actions, in `datapages lint` and `datapages gen`. The report was a route conflict about a pattern the app does not declare, or a missing path comment with a suggested route that failed the same way. Remove the wildcard from the page route to add actions.
 
 ## [0.10.1] - 2026-09-26
 

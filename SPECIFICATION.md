@@ -73,7 +73,7 @@ Each declares its route by comment like any other page. `PageOffline` always ren
 
 The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document. For a URL that no route matches and for a page load that fails with `datapages.ErrNotFound`, `PageError404.GET` receives that URL's query and signals and a zero path. When `PageError500.GET` fails, or `PageError404.GET` fails with `datapages.ErrNotFound`, the server writes a plain HTTP error instead of rendering the failing page again.
 
-A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
+A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in `{$}` serves only `GET`: it cannot have actions or a stream. Without `{$}` it is served at the same URL. A page whose route ends in a `{name...}` wildcard cannot have actions or a stream either: the wildcard takes the rest of the path.
 
 Handler parameters and return values may appear in any order. Unsupported names or types are generator errors.
 

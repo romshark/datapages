@@ -21,7 +21,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 }
 ```
 
-Routes use `net/http.ServeMux` patterns. `/item/{id}` captures one segment. `/{path...}` captures the remaining path. `/{$}` matches only that path. Datapages serves a page's SSE stream below `_$`. Do not define a route that claims that path.
+Routes use `net/http.ServeMux` patterns. `/item/{id}` captures one segment. `/{path...}` captures the remaining path. `/{$}` matches only that path. Datapages serves a page's SSE stream below `_$`. Do not define a route that claims that path. A page whose route ends in `{$}` or `{name...}` serves only `GET`: it cannot have actions or an SSE stream. Leave out `{$}` to give a page actions or a stream: the page keeps its URL.
 
 If a route comment has a description, separate it from the route with a blank `//` line:
 
@@ -139,4 +139,4 @@ type PageChat struct {
 
 A method declared on a page replaces the embedded method only for that page. The replacement can call `p.Base.OnMessageSent(event, sse)` to wrap the embedded method.
 
-<!-- written by datapages sha256:2e107ca00c4bfd90 -->
+<!-- written by datapages sha256:68dcf33d3f1cab21 -->

@@ -1268,11 +1268,18 @@ func attachHTTPHandler(
 	}
 	ctx.handlerOutputs[h] = outputs
 
+	// [validateRouteConflicts] refuses every action of a page that serves only GET.
+	// No path comment fixes that, and checking the comment or the path parameter
+	// against the route it holds would only add to the report.
+	getOnly := kind.IsAction() && pg != nil && servesOnlyGET(pg.Route)
+
 	if kind.IsAction() {
 		r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
 		h.Route = r
 
-		if !found {
+		switch {
+		case getOnly:
+		case !found:
 			pagePath := ""
 			if pg != nil {
 				pagePath = pg.Route
@@ -1281,10 +1288,10 @@ func attachHTTPHandler(
 				&ActionMissingPathCommError{
 					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
 				})
-		} else if !valid {
+		case !valid:
 			errs.ErrAt(pos,
 				&ActionInvalidPathCommError{Recv: recv, MethodName: fd.Name.Name})
-		} else if pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r) {
+		case pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r):
 			errs.ErrAt(pos,
 				&ActionPathNotUnderPageError{
 					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
@@ -1295,7 +1302,7 @@ func attachHTTPHandler(
 	}
 
 	// Validate path struct fields against route variables.
-	if herr == nil && h.Route != "" {
+	if herr == nil && h.Route != "" && !getOnly {
 		if err := paramvalidation.ValidatePathAgainstRoute(
 			h, recv, fd.Name.Name,
 		); err != nil {
@@ -2117,6 +2124,9 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 			// which is what this reports. Claiming it would report it a second time.
 			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
 				&RouteWildcardStreamError{TypeName: p.TypeName, Route: p.Route})
+		case strings.HasSuffix(p.Route, "{$}"):
+			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
+				&RouteExactMatchStreamError{TypeName: p.TypeName, Route: p.Route})
 		default:
 			stream := routepattern.StreamPath(p.Route)
 			claim(http.MethodGet, stream+"{$}", p.Expr, "the stream of "+p.TypeName)
@@ -2126,6 +2136,26 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 			}
 		}
 		for _, h := range p.Actions {
+			switch {
+			case routepattern.EndsInWildcard(p.Route):
+				// Every action pattern of such a page puts the wildcard in the middle.
+				// Claiming one would report a pattern the app never wrote.
+				errs.ErrAt(ctx.pkg.Fset.Position(h.Expr.Pos()),
+					&RouteWildcardActionError{
+						TypeName:   p.TypeName,
+						Route:      p.Route,
+						MethodName: h.HTTPMethod + h.Name,
+					})
+				continue
+			case strings.HasSuffix(p.Route, "{$}"):
+				errs.ErrAt(ctx.pkg.Fset.Position(h.Expr.Pos()),
+					&RouteExactMatchActionError{
+						TypeName:   p.TypeName,
+						Route:      p.Route,
+						MethodName: h.HTTPMethod + h.Name,
+					})
+				continue
+			}
 			claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr,
 				p.TypeName+"."+h.Name)
 		}
@@ -3345,6 +3375,13 @@ func typeStruct(ctx *parseCtx, typeName string) *ast.StructType {
 	}
 	st, _ := ts.Type.(*ast.StructType)
 	return st
+}
+
+// servesOnlyGET reports whether a page at route can have neither actions nor a stream.
+// A {$} at the end of the route declares such a page. A {name...} wildcard at the end
+// takes the rest of the path, which leaves no route below the page that net/http accepts.
+func servesOnlyGET(route string) bool {
+	return strings.HasSuffix(route, "{$}") || routepattern.EndsInWildcard(route)
 }
 
 // actionIsUnderPage reports whether action is under page. Rules:
