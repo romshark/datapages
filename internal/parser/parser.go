@@ -320,7 +320,10 @@ func collectSessionType(ctx *parseCtx, errs *Errors) {
 			}
 		}
 	}
-	for _, p := range ctx.pages {
+	// The first session type noted is the one the others conflict with.
+	// Read by name, it is the same on every run, and so are the errors.
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
+		p := ctx.pages[name]
 		if p.GET != nil {
 			noteHandler(p.GET.Handler)
 		}

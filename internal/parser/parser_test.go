@@ -1935,17 +1935,45 @@ func TestParse_SessionCloseOnly(t *testing.T) {
 	require.Equal("struct{}", app.Session.Data.Resolved.String())
 }
 
-// TestParse_ErrSessionTypeConflict tests two handlers naming
-// different session data types. One application has one.
+// TestParse_ErrSessionTypeConflict tests handlers naming different session data types.
+// One application has one: the first page by name declares it,
+// and the others conflict with it in every parse.
 func TestParse_ErrSessionTypeConflict(t *testing.T) {
-	require := require.New(t)
-	_, err := parse(t, "err_session_conflict")
-	require.NotZero(err.Error())
+	// Each parse reads the pages in a new map order.
+	for range 3 {
+		_, err := parse(t, "err_session_conflict")
 
-	requireParseErrors(
-		t, err,
-		parser.ErrSessionTypeConflict,
-	)
+		requireParseErrors(
+			t, err,
+			parser.ErrSessionTypeConflict, // PageIndex
+			parser.ErrSessionTypeConflict, // PageItem
+			parser.ErrSessionTypeConflict, // PageOther
+		)
+	}
+}
+
+// TestParse_ErrEventSharedFieldOrder tests a field that four events reach
+// through one struct type. Each event reports it at the same position,
+// and the reports follow the event names in every parse.
+func TestParse_ErrEventSharedFieldOrder(t *testing.T) {
+	// Each parse reads the events in a new map order.
+	for range 10 {
+		_, err := parse(t, "err_event_shared_field")
+
+		requireParseErrors(
+			t, err,
+			parser.ErrEventFieldMissingTag,
+			parser.ErrEventFieldMissingTag,
+			parser.ErrEventFieldMissingTag,
+			parser.ErrEventFieldMissingTag,
+		)
+		for i, event := range []string{"EventA", "EventB", "EventC", "EventD"} {
+			var d *parser.EventFieldMissingTagError
+			_, e := err.Entry(i)
+			require.ErrorAs(t, e, &d)
+			require.Equal(t, event, d.TypeName)
+		}
+	}
 }
 
 // TestParse_Redirect tests a handler returning datapages.Redirect,
