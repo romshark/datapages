@@ -10,7 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action one route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`.
+Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action one route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`. An action route cannot end in a `{name...}` wildcard. Pass that value in a query parameter or a signal.
 
 ```go
 // POSTSubmit is /login/submit
@@ -97,4 +97,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:fc4cfabf383c3c5f -->
+<!-- written by datapages sha256:ff42f945437e90db -->

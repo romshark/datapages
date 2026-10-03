@@ -203,6 +203,14 @@ func Suggest(err error) string {
 		}
 		return removeRouteEnd(d.TypeName, d.Route)
 
+	case errors.Is(err, parser.ErrActionRouteWildcard):
+		var d *parser.ActionRouteWildcardError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Pass %s in a query parameter or a signal instead",
+			d.Route[strings.LastIndex(d.Route, "/")+1:])
+
 	case errors.Is(err, parser.ErrPageMissingGET):
 		var d *parser.PageMissingGETError
 		if !errors.As(err, &d) {

@@ -205,6 +205,14 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Use `// DELETEItem is /items/item`",
 		},
+		"ErrActionRouteWildcard": {
+			err: &parser.ActionRouteWildcardError{
+				Recv:       "App",
+				MethodName: "POSTUpload",
+				Route:      "/upload/{path...}",
+			},
+			want: "fix: Pass {path...} in a query parameter or a signal instead",
+		},
 		"ErrRouteWildcardStream": {
 			err: &parser.RouteWildcardStreamError{
 				TypeName: "PageFiles",

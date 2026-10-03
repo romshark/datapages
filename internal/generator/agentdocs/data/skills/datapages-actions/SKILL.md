@@ -10,7 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action one route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`.
+Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action one route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`. An action route cannot end in a `{name...}` wildcard. Pass that value in a query parameter or a signal.
 
 ```go
 // POSTSubmit is /login/submit

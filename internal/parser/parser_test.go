@@ -804,6 +804,26 @@ func TestParse_ErrRouteExactMatchAction(t *testing.T) {
 	require.Equal(t, "POSTSave", d.MethodName)
 }
 
+// TestParse_ErrActionRouteWildcard tests actions whose route ends in a
+// wildcard, on App, adopted from an embedded type and on a page. Each is
+// reported once, and none as a conflict on the pattern it is registered under.
+func TestParse_ErrActionRouteWildcard(t *testing.T) {
+	_, err := parse(t, "err_action_route_wildcard")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrActionRouteWildcard, // App.POSTUpload
+		parser.ErrActionRouteWildcard, // Dropper.POSTDrop
+		parser.ErrActionRouteWildcard, // PageItem.POSTAttach
+	)
+	var d *parser.ActionRouteWildcardError
+	_, e := err.Entry(0)
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, "App", d.Recv)
+	require.Equal(t, "POSTUpload", d.MethodName)
+	require.Equal(t, "/upload/{path...}", d.Route)
+}
+
 // TestParse_ErrPages tests every way a page declaration can be wrong:
 // the missing App field, extra fields, no GET, a name off the convention,
 // and a path comment that is missing, unparseable or names a path outside the page.

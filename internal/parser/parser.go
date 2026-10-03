@@ -1294,6 +1294,10 @@ func attachHTTPHandler(
 		case !valid:
 			errs.ErrAt(pos,
 				&ActionInvalidPathCommError{Recv: recv, MethodName: fd.Name.Name})
+		case routepattern.EndsInWildcard(r):
+			errs.ErrAt(pos, &ActionRouteWildcardError{
+				Recv: recv, MethodName: fd.Name.Name, Route: r,
+			})
 		case pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r):
 			errs.ErrAt(pos,
 				&ActionPathNotUnderPageError{
@@ -1381,6 +1385,10 @@ func attachAppAction(
 	} else if !valid {
 		errs.ErrAt(pos,
 			&ActionInvalidPathCommError{Recv: "App", MethodName: fd.Name.Name})
+	} else if routepattern.EndsInWildcard(r) {
+		errs.ErrAt(pos, &ActionRouteWildcardError{
+			Recv: "App", MethodName: fd.Name.Name, Route: r,
+		})
 	}
 
 	// Validate path struct fields against route variables.
@@ -2158,12 +2166,18 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 						MethodName: h.HTTPMethod + h.Name,
 					})
 				continue
+			case routepattern.EndsInWildcard(h.Route):
+				// [ActionRouteWildcardError] reports it where the route is read.
+				continue
 			}
 			claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr,
 				p.TypeName+"."+h.Name)
 		}
 	}
 	for _, h := range ctx.app.Actions {
+		if routepattern.EndsInWildcard(h.Route) {
+			continue
+		}
 		claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr, "App."+h.Name)
 	}
 }

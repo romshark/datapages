@@ -217,6 +217,8 @@ var (
 		"page route ending in {$} cannot have actions",
 	)
 
+	ErrActionRouteWildcard = errors.New("action route cannot end in a wildcard")
+
 	ErrRouteVarNameInvalid = validate.ErrRouteVarNameInvalid
 
 	ErrRouteCharInvalid = errors.New("route contains an unsupported character")
@@ -750,6 +752,22 @@ func (e *RouteExactMatchActionError) Error() string {
 }
 
 func (e *RouteExactMatchActionError) Unwrap() error { return ErrRouteExactMatchAction }
+
+// ActionRouteWildcardError is [ErrActionRouteWildcard] with the action.
+// An action is served at its route alone, registered with {$} after it,
+// and a {name...} wildcard must end a pattern.
+type ActionRouteWildcardError struct {
+	Recv       string // e.g. "App"
+	MethodName string // e.g. "POSTUpload"
+	Route      string // e.g. "/upload/{path...}"
+}
+
+func (e *ActionRouteWildcardError) Error() string {
+	return fmt.Sprintf("%v: %s.%s is %q",
+		ErrActionRouteWildcard, e.Recv, e.MethodName, e.Route)
+}
+
+func (e *ActionRouteWildcardError) Unwrap() error { return ErrActionRouteWildcard }
 
 // RouteVarNameInvalidError is [ErrRouteVarNameInvalid] with the wildcard,
 // the route it sits in and what claims that route.
