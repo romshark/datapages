@@ -192,16 +192,21 @@ func IsStateIDParam(f *ast.Field) bool {
 	return len(f.Names) > 0 && f.Names[0].Name == "stateID"
 }
 
-// StateParamElementName returns the state type name referenced by a
-// datapages.State[T] parameter. Returns "" when the type argument is not a
-// plain identifier, which is what a pointer, an anonymous struct or a
-// qualified type gives.
-func StateParamElementName(f *ast.Field) string {
-	id, ok := typecheck.TypeArgExpr(f.Type).(*ast.Ident)
+// StateParamElementName returns the name of the type argument T of a
+// datapages.State[T] parameter, also through an alias of the parameter type,
+// as in type TabState = datapages.State[Counter]. It returns "" when T is not
+// a type defined in pkg, which is what a pointer, an anonymous struct, an alias
+// or a type of another package gives.
+func StateParamElementName(f *ast.Field, info *types.Info, pkg *types.Package) string {
+	t, ok := typecheck.StateValuesType(f.Type, info)
 	if !ok {
 		return ""
 	}
-	return id.Name
+	named, ok := t.(*types.Named)
+	if !ok || named.Obj().Pkg() != pkg {
+		return ""
+	}
+	return named.Obj().Name()
 }
 
 // IsPathParam reports whether the AST field is typed datapages.Path[Values].
@@ -210,13 +215,10 @@ func IsPathParam(f *ast.Field, info *types.Info) bool {
 	return ok
 }
 
-// ValidatePathStruct validates that the Values type argument of a datapages.Path
-// parameter is a struct with exported fields of supported types (string, bool, integers,
+// ValidatePathStruct validates that t, the Values type argument of a datapages.Path
+// parameter, is a struct with exported fields of supported types (string, bool, integers,
 // floats, or encoding.TextUnmarshaler) each carrying a `path:"..."` tag.
-func ValidatePathStruct(
-	values ast.Expr, info *types.Info, recv, method string,
-) error {
-	t := info.TypeOf(values)
+func ValidatePathStruct(t types.Type, recv, method string) error {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return fmt.Errorf(
@@ -284,13 +286,10 @@ func IsQueryParam(f *ast.Field, info *types.Info) bool {
 	return ok
 }
 
-// ValidateQueryStruct validates that the Values type argument of a
-// datapages.Query parameter is a struct with exported fields each
+// ValidateQueryStruct validates that t, the Values type argument of a
+// datapages.Query parameter, is a struct with exported fields each
 // carrying a `query:"..."` tag.
-func ValidateQueryStruct(
-	values ast.Expr, info *types.Info, recv, method string,
-) error {
-	t := info.TypeOf(values)
+func ValidateQueryStruct(t types.Type, recv, method string) error {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return fmt.Errorf(
@@ -382,13 +381,10 @@ func IsSignalsParam(f *ast.Field, info *types.Info) bool {
 	return ok
 }
 
-// ValidateSignalsStruct validates that the Values type argument of a
-// datapages.Signals parameter is a struct with exported fields each
+// ValidateSignalsStruct validates that t, the Values type argument of a
+// datapages.Signals parameter, is a struct with exported fields each
 // carrying a `json:"..."` tag.
-func ValidateSignalsStruct(
-	values ast.Expr, info *types.Info, recv, method string,
-) error {
-	t := info.TypeOf(values)
+func ValidateSignalsStruct(t types.Type, recv, method string) error {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return fmt.Errorf(

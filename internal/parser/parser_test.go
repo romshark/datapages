@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1561,6 +1562,44 @@ func TestParse_Path(t *testing.T) {
 			p.GET.InputPath.Type.Resolved.String(),
 		)
 	}
+}
+
+// TestParse_WrapperAlias tests parameters typed with an alias of
+// datapages.Path, datapages.Query, datapages.Signals and datapages.State.
+// Each is read as the type the alias stands for, with its type argument,
+// and not as the wrapper struct with its Values field.
+func TestParse_WrapperAlias(t *testing.T) {
+	app, err := parse(t, "wrapper_alias")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
+
+	requireFields := func(t *testing.T, in *model.Input, want ...string) {
+		t.Helper()
+		require.NotNil(t, in)
+		st, ok := in.Type.Resolved.Underlying().(*types.Struct)
+		require.True(t, ok, "Values type %s is not a struct", in.Type.Resolved)
+		var got []string
+		for field := range st.Fields() {
+			got = append(got, field.Name())
+		}
+		require.Equal(t, want, got)
+	}
+
+	requireFields(t, app.PageIndex.GET.InputQuery, "Term")
+
+	p := findPage(app, "PageItem")
+	require.NotNil(t, p)
+	requireFields(t, p.GET.InputPath, "ID")
+	requireFields(t, p.StreamOpen.InputSignals, "Text")
+	require.NotNil(t, p.State)
+	require.Equal(t, "Counter", p.State.TypeName)
+
+	a := findAction(p.Actions, "Save")
+	require.NotNil(t, a)
+	requireFields(t, a.InputPath, "ID")
+	requireFields(t, a.InputSignals, "Text")
+	require.NotNil(t, a.InputState)
+	require.Equal(t, "Counter", a.InputState.StateTypeName)
 }
 
 // TestParse_ErrPath tests every refused path parameter: not a struct,

@@ -48,6 +48,7 @@ Releases up to v0.10.0 have their notes on
 - Report an action of a page whose route ends in a `{name...}` wildcard, as in `// PageFiles is /files/{rest...}`, with an error saying that such a page cannot have actions, in `datapages lint` and `datapages gen`. The report was a route conflict about a pattern the app does not declare, or a missing path comment with a suggested route that failed the same way. Remove the wildcard from the page route to add actions.
 - Report the same conflicts on every run of `datapages lint` and `datapages gen` when handlers take `datapages.Session` with different data types. The data type of whichever page was read first won, which changed from run to run which handlers were reported. The first page by name now declares the type.
 - Report the errors of a struct type that several events share, such as a field without a `json` tag, in the same order on every run of `datapages lint` and `datapages gen`: by event name.
+- Accept a handler parameter typed with an alias of `datapages.Path`, `datapages.Query`, `datapages.Signals` or `datapages.State`, as in `type FormSignals = datapages.Signals[struct{...}]`. `datapages lint` and `datapages gen` checked the `Values` field of the wrapper instead of its type argument and reported errors located in `datapages.go`, and refused an alias of `datapages.State` as not a struct.
 
 ## [0.10.1] - 2026-09-26
 

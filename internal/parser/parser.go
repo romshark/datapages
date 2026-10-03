@@ -2449,15 +2449,15 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			values := typecheck.TypeArgExpr(f.Type)
+			values, _ := typecheck.SignalsValuesType(f.Type, info)
 			sigErr := paramvalidation.ValidateSignalsStruct(
-				values, info, recv, fd.Name.Name,
+				values, recv, fd.Name.Name,
 			)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
 				continue
 			}
-			h.InputSignals = parseInput(f, values, info)
+			h.InputSignals = parseValuesInput(f, values)
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
@@ -2884,7 +2884,7 @@ func parseStateParam(
 	if !paramvalidation.IsStateParam(f, info) {
 		return nil, nil
 	}
-	elemName := paramvalidation.StateParamElementName(f)
+	elemName := paramvalidation.StateParamElementName(f, info, ctx.pkg.Types)
 	if elemName == "" {
 		return nil, fmt.Errorf("%w in %s.%s",
 			ErrStateTypeArgNotNamed, recv, method)
@@ -2904,8 +2904,7 @@ func parseStateParam(
 
 // registerStateType validates that name refers to a declared exported
 // struct in the app source package and records it in ctx.app.States.
-// Returns a descriptive error when the type is missing, unexported,
-// or not a struct.
+// Returns a descriptive error when the type is missing, unexported, or not a struct.
 func registerStateType(ctx *parseCtx, name string) error {
 	if ctx.app.States != nil {
 		if _, ok := ctx.app.States[name]; ok {
@@ -2949,6 +2948,25 @@ func parseInput(f *ast.Field, typeExpr ast.Expr, info *types.Info) *model.Input 
 		Name: name,
 		Type: makeType(typeExpr, info),
 	}
+}
+
+// parseValuesInput builds the model input for a Path, Query or Signals parameter,
+// typed as its Values type argument. The type checker reads that type also through
+// an alias of the parameter type, as in
+//
+//	type FormSignals = datapages.Signals[struct{...}]
+//
+// Only a type argument written in the signature has an expression.
+func parseValuesInput(f *ast.Field, values types.Type) *model.Input {
+	in := &model.Input{Type: model.Type{Resolved: values}}
+	if len(f.Names) > 0 {
+		in.Name = f.Names[0].Name
+		in.Expr = f.Names[0]
+	}
+	if arg := typecheck.TypeArgExpr(f.Type); arg != f.Type {
+		in.Type.TypeExpr = arg
+	}
+	return in
 }
 
 func makeType(typeExpr ast.Expr, info *types.Info) model.Type {
@@ -3077,15 +3095,15 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			values := typecheck.TypeArgExpr(f.Type)
+			values, _ := typecheck.PathValuesType(f.Type, info)
 			pathErr := paramvalidation.ValidatePathStruct(
-				values, info, recv, fd.Name.Name,
+				values, recv, fd.Name.Name,
 			)
 			if pathErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), pathErr)
 				continue
 			}
-			h.InputPath = parseInput(f, values, info)
+			h.InputPath = parseValuesInput(f, values)
 			h.InputPath.Kind = model.InputKindPath
 			h.OrderedInputs = append(h.OrderedInputs, h.InputPath)
 
@@ -3095,15 +3113,15 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			values := typecheck.TypeArgExpr(f.Type)
+			values, _ := typecheck.QueryValuesType(f.Type, info)
 			queryErr := paramvalidation.ValidateQueryStruct(
-				values, info, recv, fd.Name.Name,
+				values, recv, fd.Name.Name,
 			)
 			if queryErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), queryErr)
 				continue
 			}
-			h.InputQuery = parseInput(f, values, info)
+			h.InputQuery = parseValuesInput(f, values)
 			h.InputQuery.Kind = model.InputKindQuery
 			h.OrderedInputs = append(h.OrderedInputs, h.InputQuery)
 
@@ -3113,15 +3131,13 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			values := typecheck.TypeArgExpr(f.Type)
-			sigErr := paramvalidation.ValidateSignalsStruct(
-				values, info, recv, fd.Name.Name,
-			)
+			values, _ := typecheck.SignalsValuesType(f.Type, info)
+			sigErr := paramvalidation.ValidateSignalsStruct(values, recv, fd.Name.Name)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
 				continue
 			}
-			h.InputSignals = parseInput(f, values, info)
+			h.InputSignals = parseValuesInput(f, values)
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
