@@ -122,7 +122,8 @@ type parseCtx struct {
 	// recv -> event type name -> first handler position
 	seenEvHandlerByRecv map[string]map[string]token.Pos
 
-	// Non-error outputs per handler, used by buildHandlerGET.
+	// Non-error outputs per handler that parsed without error,
+	// used by buildHandlerGET. A handler missing from it failed to parse.
 	handlerOutputs map[*model.Handler][]*model.Output
 
 	app          *model.App
@@ -1268,8 +1269,9 @@ func attachHTTPHandler(
 		// herr may contain multiple joined errors (e.g. several unsupported params);
 		// report each one separately.
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
+	} else {
+		ctx.handlerOutputs[h] = outputs
 	}
-	ctx.handlerOutputs[h] = outputs
 
 	// [validateRouteConflicts] refuses every action of a page that serves only GET.
 	// No path comment fixes that, and checking the comment or the path parameter
@@ -1373,8 +1375,9 @@ func attachAppAction(
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
+	} else {
+		ctx.handlerOutputs[h] = outputs
 	}
-	ctx.handlerOutputs[h] = outputs
 
 	r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
 	h.Route = r
@@ -1523,7 +1526,15 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
-					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m])
+					// A GET that failed to parse is adopted bare, as a page's
+					// own GET is. Its errors are reported where it is declared,
+					// and its outputs and path were never read.
+					get := &model.HandlerGET{Handler: m}
+					var getErr error
+					outputs, parsed := ctx.handlerOutputs[m]
+					if parsed {
+						get, getErr = buildHandlerGET(m, outputs)
+					}
 					// An abstract page carries no route of its own,
 					// so the handler is only complete once a page adopts it.
 					// The handler is copied first: pages with different routes may
@@ -1533,12 +1544,14 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					hc.Route = pg.Route
 					get.Handler = &hc
 					pg.GET = get
-					if getErr != nil {
+					switch {
+					case !parsed:
+					case getErr != nil:
 						fallback := ctx.pkg.Fset.Position(m.Expr.Pos())
 						p := resolveErrorPos(getErr, ctx.pkg.Fset, fallback)
 						errs.ErrAt(p, fmt.Errorf("%w in %s.%s",
 							unwrapPositioned(getErr), ap.TypeName, m.Name))
-					} else if hc.Route != "" {
+					case hc.Route != "":
 						if err := paramvalidation.ValidatePathAgainstRoute(
 							&hc, ap.TypeName, "GET",
 						); err != nil {

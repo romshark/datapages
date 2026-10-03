@@ -50,6 +50,7 @@ Releases up to v0.10.0 have their notes on
 - Report the errors of a struct type that several events share, such as a field without a `json` tag, in the same order on every run of `datapages lint` and `datapages gen`: by event name.
 - Accept a handler parameter typed with an alias of `datapages.Path`, `datapages.Query`, `datapages.Signals` or `datapages.State`, as in `type FormSignals = datapages.Signals[struct{...}]`. `datapages lint` and `datapages gen` checked the `Values` field of the wrapper instead of its type argument and reported errors located in `datapages.go`, and refused an alias of `datapages.State` as not a struct.
 - Report an action route that ends in a `{name...}` wildcard, as in `// POSTUpload is /upload/{path...}`, with an error saying that an action route cannot end in a wildcard, in `datapages lint` and `datapages gen`. The error was a route conflict on `POST /upload/{path...}/{$}`, a pattern the app does not declare. Pass the value in a query parameter or a signal instead.
+- Stop `datapages lint` and `datapages gen` from reporting "GET handler must return body datapages.Component" next to the actual error when a `GET` declared on an embedded type has an invalid parameter.
 
 ## [0.10.1] - 2026-09-26
 

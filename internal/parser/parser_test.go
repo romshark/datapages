@@ -824,6 +824,18 @@ func TestParse_ErrActionRouteWildcard(t *testing.T) {
 	require.Equal(t, "/upload/{path...}", d.Route)
 }
 
+// TestParse_ErrEmbedGETInput tests a GET declared on an embedded type that
+// fails to parse. Its parameter is the one error: the page adopts it without
+// checking its return values or its path against the page route.
+func TestParse_ErrEmbedGETInput(t *testing.T) {
+	_, err := parse(t, "err_embed_get_input")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureUnsupportedInput,
+	)
+}
+
 // TestParse_ErrPages tests every way a page declaration can be wrong:
 // the missing App field, extra fields, no GET, a name off the convention,
 // and a path comment that is missing, unparseable or names a path outside the page.
