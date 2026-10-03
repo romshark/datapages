@@ -3257,3 +3257,18 @@ func TestParse_ErrAssets(t *testing.T) {
 	_, errs := parse(t, "err_assets")
 	requireParseErrors(t, errs, validate.ErrAssetsURLPrefixNoTrailingSlash)
 }
+
+// TestParse_ErrAssetsEmbedNotDir tests go:embed patterns that name files
+// rather than one directory. The server would serve the pattern as its root,
+// a directory that does not exist.
+func TestParse_ErrAssetsEmbedNotDir(t *testing.T) {
+	for name, fixture := range map[string]string{
+		"glob": "err_assets_embed_glob",
+		"file": "err_assets_embed_file",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, errs := parse(t, fixture)
+			requireParseErrors(t, errs, parser.ErrAssetsEmbedPatterns)
+		})
+	}
+}

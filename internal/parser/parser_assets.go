@@ -5,6 +5,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -116,7 +118,9 @@ func readAssets(
 		errs.ErrAt(pos, err)
 		return model.Assets{}
 	}
-	dir, err := embedDir(vs.Doc)
+	// A go:embed pattern is relative to the directory of its source file.
+	srcDir := filepath.Dir(pos.Filename)
+	dir, err := embedDir(vs.Doc, srcDir)
 	if err != nil {
 		errs.ErrAt(pos, err)
 		return model.Assets{}
@@ -139,10 +143,13 @@ func urlPrefixOf(doc *ast.CommentGroup, name string) (string, bool) {
 }
 
 // embedDir reads the directory out of the go:embed directive of the variable.
+// srcDir is the directory the pattern is relative to.
 //
 // Exactly one directory is named. The generator serves it from the embed.FS in
 // production and from disk in dev mode, both of which need one root.
-func embedDir(doc *ast.CommentGroup) (string, error) {
+// A glob such as static/*.css or a single file names none: used as the root,
+// it is a directory that doesn't exist, and every asset answers 404.
+func embedDir(doc *ast.CommentGroup, srcDir string) (string, error) {
 	for _, c := range doc.List {
 		rest, ok := strings.CutPrefix(c.Text, embedDirective)
 		if !ok {
@@ -157,13 +164,18 @@ func embedDir(doc *ast.CommentGroup) (string, error) {
 			p = unquoted
 		}
 		// A pattern addresses the files, the generator needs their root.
-		p = strings.TrimSuffix(strings.TrimSuffix(p, "*"), "/")
 		p = strings.TrimPrefix(p, "all:")
+		p = strings.TrimSuffix(p, "/*")
 		switch {
 		case p == "" || p == "." || strings.HasPrefix(p, "/"):
 			return "", ErrAssetsEmbedOutside
 		case strings.HasPrefix(p, "../") || strings.Contains(p, "/../"):
 			return "", ErrAssetsEmbedOutside
+		case strings.ContainsAny(p, "*?["):
+			return "", ErrAssetsEmbedPatterns
+		}
+		if info, err := os.Stat(filepath.Join(srcDir, p)); err == nil && !info.IsDir() {
+			return "", ErrAssetsEmbedPatterns
 		}
 		return p, nil
 	}

@@ -5,6 +5,7 @@
 package hrefcheck
 
 import (
+	"net/url"
 	"path"
 	"strings"
 )
@@ -16,12 +17,23 @@ import (
 // Join does not confine the result to prefix. AssetPath("/static/", "../x") is "/x".
 // The result is a URL the router resolves, not a file system path.
 // It reaches the asset handler only while it keeps the prefix.
+//
+// p is a file name, not a URL. Characters a URL path cannot hold,
+// such as '#', '?', '%' and spaces, are percent-encoded:
+//
+//	AssetPath("/static/", "a#b.css") // "/static/a%23b.css"
 func AssetPath(prefix, p string) string {
 	if p == "" || p == "." || p[0] == '/' ||
 		strings.HasPrefix(p, "..") || p != path.Clean(p) {
-		return path.Join(prefix, p)
+		return escapePath(path.Join(prefix, p))
 	}
-	return prefix + p
+	return prefix + escapePath(p)
+}
+
+// escapePath percent-encodes p as a URL path.
+func escapePath(p string) string {
+	u := url.URL{Path: p}
+	return u.EscapedPath()
 }
 
 // templURLSchemes are the schemes the templ sanitizer keeps.

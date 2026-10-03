@@ -83,7 +83,7 @@ An `embed.FS` in the app package enables file serving. Its doc comment defines t
 var StaticFS embed.FS
 ```
 
-Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. The directive must name exactly one directory inside the app package.
+Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. It may contain only ASCII letters, digits, `-`, `.`, `_`, `~` and `/`: the server matches it against the decoded request path, which a percent-encoded prefix never matches. The directive must name exactly one directory inside the app package.
 
 `datapages.WithAssets(app.StaticFS, false)` supplies the filesystem and the directory-browsing setting. Generated code supplies the URL prefix, source directory and development disk path. In development mode, Datapages reads files from disk and disables caching. Asset changes then need no rebuild. The server rejects `WithAssets` when the app declares no assets.
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 )
 
@@ -16,11 +17,11 @@ templ head() {
 	<meta name="description" content="Browse shows and buy tickets in a Datapages demo app."/>
 	<meta property="og:title" content="Showtime - Datapages Demo"/>
 	<meta property="og:description" content="Demo: Go + Templ + Datastar + Datapages"/>
-	<link rel="icon" href="/static/favicon.svg"/>
+	<link rel="icon" href={ assets.Path("favicon.svg") }/>
 	// Load Basecoat before style.css so the application overrides its variables.
-	<link rel="stylesheet" href="/static/basecoat.css"/>
-	<script src="/static/basecoat.js" defer></script>
-	<link rel="stylesheet" href="/static/style.css"/>
+	<link rel="stylesheet" href={ assets.Path("basecoat.css") }/>
+	<script src={ assets.Path("basecoat.js") } defer></script>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
 }
 
 // page reloads when the browser goes offline so the service worker can return

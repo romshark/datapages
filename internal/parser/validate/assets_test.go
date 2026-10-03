@@ -6,11 +6,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAssetsURLPrefix tests the prefix an application may serve assets under.
-// It has to be one absolute directory path, and everything that could make the
-// file server resolve outside it is refused at parse time: dot segments,
-// a backslash, and their percent-encoded spellings, which the router decodes
-// before the path is matched.
+// TestAssetsURLPrefix tests the prefix an application may serve assets under:
+// an absolute directory path of letters, digits, '-', '.', '_', '~' and '/',
+// without dot segments.
 func TestAssetsURLPrefix(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input   string
@@ -28,10 +26,15 @@ func TestAssetsURLPrefix(t *testing.T) {
 		"dot segment":             {input: "/static/../secret/", wantErr: ErrAssetsURLPrefixDotSegment},
 		"dot segment current dir": {input: "/static/./css/", wantErr: ErrAssetsURLPrefixDotSegment},
 		"backslash":               {input: `/static\css/`, wantErr: ErrAssetsURLPrefixBackslash},
-		"encoded dot":             {input: "/static/%2e%2e/", wantErr: ErrAssetsURLPrefixEncodedTraversal},
-		"encoded slash":           {input: "/static/%2f/", wantErr: ErrAssetsURLPrefixEncodedTraversal},
-		"encoded backslash":       {input: "/static/%5C/", wantErr: ErrAssetsURLPrefixEncodedTraversal},
-		"valid percent encoding":  {input: "/my%20files/"},
+		"encoded dot":             {input: "/static/%2e%2e/", wantErr: ErrAssetsURLPrefixInvalidChar},
+		"encoded slash":           {input: "/static/%2f/", wantErr: ErrAssetsURLPrefixInvalidChar},
+		"encoded backslash":       {input: "/static/%5C/", wantErr: ErrAssetsURLPrefixInvalidChar},
+		"encoded space":           {input: "/my%20files/", wantErr: ErrAssetsURLPrefixInvalidChar},
+		"quote":                   {input: `/my"files/`, wantErr: ErrAssetsURLPrefixInvalidChar},
+		"apostrophe":              {input: "/my'files/", wantErr: ErrAssetsURLPrefixInvalidChar},
+		"valid with dot":          {input: "/static/v1.2/"},
+		"valid with tilde":        {input: "/~assets/"},
+		"valid dot-led segment":   {input: "/.well-known/"},
 		"space":                   {input: "/my static/", wantErr: ErrAssetsURLPrefixInvalidChar},
 		"control char":            {input: "/static/\x00/", wantErr: ErrAssetsURLPrefixInvalidChar},
 		"non-ascii":               {input: "/données/", wantErr: ErrAssetsURLPrefixInvalidChar},
