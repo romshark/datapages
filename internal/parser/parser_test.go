@@ -1652,6 +1652,8 @@ func TestParse_WrapperAlias(t *testing.T) {
 // TestParse_ErrPath tests every refused path parameter: not a struct,
 // an unexported field, a type that cannot be parsed from a URL segment, a missing or
 // duplicated tag, and a field or route variable the other side has no match for.
+// An App action reports each mismatch on its own, as a page does.
+// [TestParse_ErrorPositions] checks where each one is reported.
 func TestParse_ErrPath(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_path")
@@ -1666,6 +1668,9 @@ func TestParse_ErrPath(t *testing.T) {
 		parser.ErrPathFieldNotInRoute,
 		parser.ErrPathMissingRouteVar,
 		parser.ErrPathFieldDuplicateTag,
+		parser.ErrPathMissingRouteVar, // App.POSTMove {id}
+		parser.ErrPathMissingRouteVar, // App.POSTMove {slug}
+		parser.ErrPathFieldNotInRoute, // App.POSTMove Name
 	)
 }
 
@@ -2504,6 +2509,9 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrPathFieldNotInRoute, "app.go", 85, 3},
 			{parser.ErrPathMissingRouteVar, "app.go", 97, 23},
 			{parser.ErrPathFieldDuplicateTag, "app.go", 110, 3},
+			{parser.ErrPathMissingRouteVar, "app.go", 124, 2},
+			{parser.ErrPathMissingRouteVar, "app.go", 124, 2},
+			{parser.ErrPathFieldNotInRoute, "app.go", 125, 3},
 		},
 		"err_query": {
 			{parser.ErrQueryParamNotStruct, "app.go", 26, 25},

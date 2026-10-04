@@ -1399,7 +1399,11 @@ func attachAppAction(
 		if err := paramvalidation.ValidatePathAgainstRoute(
 			h, "App", fd.Name.Name,
 		); err != nil {
-			errs.ErrAt(pos, err)
+			p := pos
+			if h.InputPath != nil {
+				p = ctx.pkg.Fset.Position(h.InputPath.Expr.Pos())
+			}
+			reportErrorsWithFset(errs, ctx.pkg.Fset, p, err)
 		}
 	}
 

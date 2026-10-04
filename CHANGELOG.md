@@ -59,6 +59,7 @@ Releases up to v0.10.0 have their notes on
 - Reject a `//go:embed` pattern on the assets variable that is a glob or names a single file, as in `//go:embed static/*.css` or `//go:embed static/app.css`, in `datapages lint` and `datapages gen`. The server used the pattern as the directory to serve and answered 404 for every asset. Embed the directory, as in `//go:embed static` or `//go:embed static/*`.
 - Percent-encode the characters a URL path cannot carry, such as `#`, `?` and `%`, in the file names that `assets.Path` and `href.Asset` turn into URLs. `assets.Path("a#b.css")` returned `/static/a#b.css`, which a browser requests as `/static/a`, and a `%` in a file name made the server answer 400.
 - Stop `datapages lint` and `datapages gen` from reporting a valid `href={ LoginURL }` as relative on some runs when a function also declares a local `LoginURL` constant.
+- Report each mismatch between the route and the `datapages.Path` struct of an action on `App` as its own error, at the path parameter or the field, in `datapages lint` and `datapages gen`, as for a page. They were joined into one error at the method name.
 
 ## [0.10.1] - 2026-09-26
 
