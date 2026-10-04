@@ -10,7 +10,6 @@ package inmem
 import (
 	"bytes"
 	"context"
-	"slices"
 	"strings"
 	"sync"
 
@@ -70,20 +69,14 @@ func (b *MessageBroker) Publish(
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
-	var matched []*memSub
-	for sub := range b.subs[subject] {
-		matched = append(matched, sub)
+	// The subscriptions of each subject that matches: the literal one and each pattern.
+	matched := make([]map[*memSub]struct{}, 0, 4)
+	if subs, ok := b.subs[subject]; ok {
+		matched = append(matched, subs)
 	}
 	for pattern, subs := range b.wildcards {
-		if !Matches(pattern, subject) {
-			continue
-		}
-		for sub := range subs {
-			// A subscription may hold several patterns that match the same subject.
-			// It receives the message once.
-			if !slices.Contains(matched, sub) {
-				matched = append(matched, sub)
-			}
+		if Matches(pattern, subject) {
+			matched = append(matched, subs)
 		}
 	}
 
@@ -96,15 +89,32 @@ func (b *MessageBroker) Publish(
 		Data:    bytes.Clone(data),
 	}
 
-	for _, sub := range matched {
-		select {
-		case sub.ch <- msg:
-		default: // Drop if subscriber is slow (matches NATS core semantics).
-			metrics.OnDeliveryDropped()
+	for i, subs := range matched {
+		for sub := range subs {
+			// A subscription with several subjects that match is in several sets.
+			// It receives the message once, from the first of them.
+			if inAny(matched[:i], sub) {
+				continue
+			}
+			select {
+			case sub.ch <- msg:
+			default: // Drop if subscriber is slow (matches NATS core semantics).
+				metrics.OnDeliveryDropped()
+			}
 		}
 	}
 
 	return nil
+}
+
+// inAny reports whether any of sets holds sub.
+func inAny(sets []map[*memSub]struct{}, sub *memSub) bool {
+	for _, s := range sets {
+		if _, ok := s[sub]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Matches reports whether a NATS subject pattern matches a subject.

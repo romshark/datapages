@@ -39,6 +39,7 @@ Run `datapages gen` to apply these.
 - Refuse a URL passed to `datapages.WithDatastarJS` that is invalid according to RFC 3986.
 - Require a custom `messaging.Broker` to deliver messages in the order they were published, whatever their subjects. A broker that delivers each subject on a goroutine of its own breaks this.
 - Require a custom `messaging.Broker` to close a subscription's channel when the subscription can no longer receive messages, such as when its connection closes. Otherwise the page stops receiving events.
+- Publish through the `inmem` broker in time linear in the open streams of a page that handles an event with a `datapages.Subject` field without a `signal` tag. Such streams subscribe with a wildcard, and a publish to them took quadratic time: 12.8ms with 10,000 streams, where it takes 86us now. A stream that opened or closed meanwhile waited for it.
 
 ### Fixed
 

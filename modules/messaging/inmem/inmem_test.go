@@ -207,28 +207,44 @@ func TestLiteralSubscriptionIsUnaffected(t *testing.T) {
 	}
 }
 
-// TestOneMessagePerSubscription tests a subscription whose patterns overlap.
-// Two matches are still one message.
+// TestOneMessagePerSubscription tests subscriptions with several subjects that
+// match the published one. Each receives the message once, whichever other
+// subscriptions share its subjects.
 func TestOneMessagePerSubscription(t *testing.T) {
-	b := inmem.New(messaging.DefaultBrokerChanBuffer)
-	t.Cleanup(func() { require.NoError(t, b.Close()) })
+	for name, subscriptions := range map[string][][]string{
+		"two patterns":        {{"note.*", "note.>"}},
+		"literal and pattern": {{"note.one", "note.*"}},
+		"shared subjects": {
+			{"note.*"},
+			{"note.*", "note.>"},
+			{"note.>"},
+			{"note.one", "note.>"},
+			{"note.one"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := inmem.New(messaging.DefaultBrokerChanBuffer)
+			t.Cleanup(func() { require.NoError(t, b.Close()) })
 
-	ctx := context.Background()
-	sub, err := b.Subscribe(ctx, noMetrics{}, "note.*", "note.>")
-	require.NoError(t, err)
-	t.Cleanup(sub.Close)
+			ctx := context.Background()
+			subs := make([]messaging.Subscription, len(subscriptions))
+			for i, subjects := range subscriptions {
+				sub, err := b.Subscribe(ctx, noMetrics{}, subjects...)
+				require.NoError(t, err)
+				t.Cleanup(sub.Close)
+				subs[i] = sub
+			}
 
-	require.NoError(t,
-		b.Publish(ctx, noMetrics{}, "note.one", []byte("x")))
+			require.NoError(t,
+				b.Publish(ctx, noMetrics{}, "note.one", []byte("x")))
 
-	// Publish delivers into the subscription before it returns,
-	// hence whatever the channel holds now is everything it will ever hold.
-	// Waiting for a second message would only be waiting.
-	<-sub.C()
-	select {
-	case msg := <-sub.C():
-		t.Fatalf("the message arrived twice: %s", msg.Subject)
-	default:
+			// Publish delivers into the subscription before it returns,
+			// hence whatever the channel holds now is everything it will ever hold.
+			// Waiting for a second message would only be waiting.
+			for i, sub := range subs {
+				require.Len(t, sub.C(), 1, "subscription to %q", subscriptions[i])
+			}
+		})
 	}
 }
 
