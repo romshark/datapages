@@ -60,6 +60,9 @@ Releases up to v0.10.0 have their notes on
 - Percent-encode the characters a URL path cannot carry, such as `#`, `?` and `%`, in the file names that `assets.Path` and `href.Asset` turn into URLs. `assets.Path("a#b.css")` returned `/static/a#b.css`, which a browser requests as `/static/a`, and a `%` in a file name made the server answer 400.
 - Stop `datapages lint` and `datapages gen` from reporting a valid `href={ LoginURL }` as relative on some runs when a function also declares a local `LoginURL` constant.
 - Report each mismatch between the route and the `datapages.Path` struct of an action on `App` as its own error, at the path parameter or the field, in `datapages lint` and `datapages gen`, as for a page. They were joined into one error at the method name.
+- Accept a `datapages.NewServer` call with its fifth type argument written out, as in `datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server, *gen.Server]`, in `datapages lint` and `datapages gen`. They reported "datapages.NewServer needs four type arguments, got 5".
+- Accept an app package whose name differs from its directory, as `package app` in `go-app/`, when the file calling `datapages.NewServer` imports it without an alias. `datapages lint` and `datapages gen` reported that the app type "must live in its own package".
+- Report a problem in a `datapages.NewServer` call with a path relative to the module root in `datapages lint` and `datapages gen`, as every other error is. A wrong number of type arguments, a wrong `Metrics` type argument and a file that does not parse were reported with an absolute path.
 
 ## [0.10.1] - 2026-09-26
 

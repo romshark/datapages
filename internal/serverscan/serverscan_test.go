@@ -105,6 +105,25 @@ func main() {}
 			appDirs:    []string{"app"},
 			hasSession: true,
 		},
+		"explicit pointer type argument": {
+			files: map[string]string{
+				"app/app.go":                  "package app\n\ntype App struct{}\n",
+				"app/datapagesgen/app_gen.go": genPkg(true),
+				"cmd/server/main.go": mainGo("app",
+					"app.App, datapages.DisableSessions, datapages.DisablePrometheus, "+
+						"gen.Server, *gen.Server", ""),
+			},
+			appDirs: []string{"app"},
+		},
+		"package name other than the directory": {
+			files: map[string]string{
+				"go-app/app.go":                  "package app\n\ntype App struct{}\n",
+				"go-app/datapagesgen/app_gen.go": genPkg(true),
+				"cmd/server/main.go": mainGo("go-app",
+					"app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server", ""),
+			},
+			appDirs: []string{"go-app"},
+		},
 		"destination not generated yet": {
 			files: map[string]string{
 				"app/app.go": "package app\n",
@@ -316,7 +335,7 @@ func main() {
 				"cmd/server/main.go": mainGo("app",
 					"app.App, datapages.DisableSessions", ""),
 			},
-			msg: "datapages.NewServer needs four type arguments, got 2",
+			msg: "datapages.NewServer needs 4 or 5 type arguments, got 2",
 		},
 		"call without a metrics mode": {
 			files: map[string]string{
@@ -324,7 +343,7 @@ func main() {
 				"cmd/server/main.go": mainGo("app",
 					"app.App, datapages.DisableSessions, gen.Server", ""),
 			},
-			msg: "datapages.NewServer needs four type arguments, got 3",
+			msg: "datapages.NewServer needs 4 or 5 type arguments, got 3",
 		},
 		"metrics mode is another type": {
 			files: map[string]string{
@@ -432,6 +451,8 @@ func main() {}
 			_, err := serverscan.Scan(root, modulePath)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tt.msg)
+			// Positions are relative to the module root, as the parser's are.
+			require.NotContains(t, err.Error(), root)
 		})
 	}
 }
