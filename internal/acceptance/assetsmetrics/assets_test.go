@@ -30,17 +30,19 @@ import (
 // process and a second registry would come up empty.
 var registry = prometheus.NewRegistry()
 
-func newServer(t *testing.T) *httptest.Server {
+func newServer(t *testing.T, opts ...datapages.ServerOption) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithPrometheus(datapages.PrometheusConfig{
-			Host:       "127.0.0.1:0",
-			Registerer: registry,
-			Gatherer:   registry,
-		}),
+		append([]datapages.ServerOption{
+			datapages.WithAssets(app.StaticFS, false),
+			datapages.WithPrometheus(datapages.PrometheusConfig{
+				Host:       "127.0.0.1:0",
+				Registerer: registry,
+				Gatherer:   registry,
+			}),
+		}, opts...)...,
 	))
 	t.Cleanup(srv.Close)
 	return srv
@@ -339,6 +341,30 @@ func TestMetrics(t *testing.T) {
 
 	require.Contains(t, byName, "datapages_http_request_duration_seconds",
 		"the request duration histogram was not registered")
+}
+
+// TestMetricsLabelThroughDerivedRequest tests application middleware that
+// stores a CSP nonce in the request context, as the WithCSPNonce docs advise.
+// The router receives a copy of the request and sets the matched route on the copy.
+func TestMetricsLabelThroughDerivedRequest(t *testing.T) {
+	t.Parallel()
+	type nonceKey struct{}
+	srv := newServer(t, datapages.WithMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), nonceKey{}, "nonce")
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}))
+
+	// PageQuiet's page route, which no other test requests.
+	resp := get(t, srv, "/quiet/")
+	_, err := io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err, "reading /quiet/")
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /quiet/")
+
+	require.Equal(t, uint64(1), histogramCount(t, "GET /quiet/{$}"),
+		"the request was not observed under its route")
 }
 
 // TestStreamStaysOutOfRequestLatency tests the request metrics a stream leaves behind.

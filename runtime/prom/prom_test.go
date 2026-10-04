@@ -1,6 +1,7 @@
 package prom_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -126,6 +127,49 @@ func TestMiddlewareCountsAbortedStream(t *testing.T) {
 	require.Equal(t, 1, series(t, "datapages_http_requests_total", map[string]string{
 		"path": "GET /aborted/{$}", "status": "200",
 	}), "the aborted stream was not counted")
+	requireInFlight(t, "0")
+}
+
+type nonceKey struct{}
+
+// withNonce stores a value in the request context, as an application storing
+// a CSP nonce does. The next handler receives a copy of the request.
+func withNonce(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), nonceKey{}, "nonce")
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// TestRecordRoute tests a middleware between Middleware and the router that
+// derives the request. The router sets the route on the copy, and both the
+// request and a stream that shutdown aborts keep their route label.
+func TestRecordRoute(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /derived/{id}/", func(http.ResponseWriter, *http.Request) {})
+	mux.HandleFunc("GET /derived-stream/{$}", func(w http.ResponseWriter, r *http.Request) {
+		prom.MarkStream(w)
+		panic(http.ErrAbortHandler)
+	})
+	h := prom.Middleware(withNonce(prom.RecordRoute(mux)))
+
+	h.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/derived/1/", nil))
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() {
+		h.ServeHTTP(httptest.NewRecorder(),
+			httptest.NewRequest(http.MethodGet, "/derived-stream/", nil))
+	})
+
+	const total = "datapages_http_requests_total"
+	require.Equal(t, 1, series(t, total, map[string]string{
+		"path": "GET /derived/{id}/", "status": "200",
+	}), "the request was not counted under its route")
+	require.Equal(t, 1, series(t, "datapages_http_request_duration_seconds",
+		map[string]string{"path": "GET /derived/{id}/"},
+	), "the request latency was not observed under its route")
+	require.Equal(t, 1, series(t, total, map[string]string{
+		"path": "GET /derived-stream/{$}",
+	}), "the aborted stream was not counted under its route")
 	requireInFlight(t, "0")
 }
 

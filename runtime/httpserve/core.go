@@ -240,6 +240,11 @@ func (c *Core) Build() {
 	}
 
 	c.handler = http.Handler(c.mux)
+	if c.metricsServer != nil {
+		// The application middleware between the mux and the outermost
+		// [prom.Middleware] may hand the mux a copy of the request.
+		c.handler = prom.RecordRoute(c.handler)
+	}
 	if c.buildID != "" {
 		// Application middleware wraps [Core.rejectStaleBuild]
 		// and sees the requests it rejects.
