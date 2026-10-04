@@ -92,6 +92,7 @@ Run `datapages gen` to apply these.
 - Label the HTTP metrics with the route when a middleware added with `datapages.WithMiddleware` passes on a new request, as `r.WithContext` returns when storing a CSP nonce. The request counter and the latency histogram labelled every request through such a middleware `<unmatched>`.
 - Accept `&` and `'` in the URL passed to `datapages.WithDatastarJS`, as in `https://cdn.example.com/datastar.js?v=1&min=1`. RFC 3986 allows both, and the page writes the URL escaped. Such a URL was refused.
 - Deliver events through the `natscore` broker in the order they were dispatched, as `inmem` does. Two events of different types dispatched one after the other often arrived in reverse order.
+- Return from `natskv.SessionManager.UserSessions` and `CloseAllUserSessions` the token the session's cookie carries, as `inmem` does. In v0.10.0 and v0.10.1, each call returned a new token for the same session, and an application that compares a listed token with `Session.Token()` to find the current session never found it. A session created before the upgrade, or under one of the `PreviousEncryptionKeys`, keeps a cookie that differs from its listed token until the user signs in again.
 
 #### `datapages init`
 

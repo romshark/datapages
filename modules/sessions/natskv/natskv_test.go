@@ -726,11 +726,8 @@ func TestCloseAllUserSessions(t *testing.T) {
 			}
 			require.NoError(t, err)
 			// The tokens are rebuilt from the keys, not read back from the bucket,
-			// so they carry a fresh nonce and are not the bytes
-			// CreateSession returned. What has to match is the count.
-			require.Len(t, result, len(wantTokens))
-			require.Len(t, slices.Compact(slices.Sorted(slices.Values(result))),
-				len(wantTokens), "duplicate tokens")
+			// and are the ones CreateSession put into the cookies.
+			require.ElementsMatch(t, wantTokens, result)
 			if tc.userID != "" {
 				m := maps.Collect(sm.UserSessions(ctx, tc.userID))
 				require.Len(t, m, 0)
@@ -790,6 +787,29 @@ func TestUserSessions(t *testing.T) {
 	}
 }
 
+// TestUserSessionsYieldsCookieTokens tests the tokens UserSessions hands out.
+// Each is the token CreateSession put into the cookie, which a settings page
+// compares with Session.Token() to tell the current session from the others.
+func TestUserSessionsYieldsCookieTokens(t *testing.T) {
+	conn := setupNATS(t)
+	sm := newManager(t, conn, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "USERSESS_TOKENS"},
+	})
+	ctx := context.Background()
+
+	var created []string
+	for range 2 {
+		tok, err := sm.CreateSession(ctx, "alice", testSession{})
+		require.NoError(t, err)
+		created = append(created, tok)
+	}
+	for range 2 {
+		listed := slices.Collect(maps.Keys(maps.Collect(sm.UserSessions(ctx, "alice"))))
+		require.ElementsMatch(t, created, listed)
+	}
+}
+
 // TestUserSessionsReportsStoreFailure tests the store being unreachable.
 // Yielding nothing makes it indistinguishable from "this user has no sessions",
 // which is what a settings page then renders while the user is signed in elsewhere.
@@ -812,6 +832,8 @@ func TestUserSessionsReportsStoreFailure(t *testing.T) {
 
 // TestIterateAndCloseSessions tests that a token the iterator yields works with
 // the rest of the API. Closing a session while iterating must leave nothing behind.
+// The token is the cookie, rebuilt from the key: the bucket holds none, which
+// keeps read access to the bucket from yielding a working cookie.
 func TestIterateAndCloseSessions(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -824,11 +846,20 @@ func TestIterateAndCloseSessions(t *testing.T) {
 	created, err := sm.CreateSession(ctx, "alice", want)
 	require.NoError(t, err)
 
+	kv := kvFor(t, conn, "ITER_AND_CLOSE")
+	keys, err := kv.Keys()
+	require.NoError(t, err)
+	for _, k := range keys {
+		entry, err := kv.Get(k)
+		require.NoError(t, err)
+		require.NotContains(t, k+string(entry.Value()), created,
+			"the bucket holds the cookie the client carries")
+	}
+
 	// Token from UserSessions must be usable with Session and CloseSession.
 	for tok, rec := range sm.UserSessions(ctx, "alice") {
 		require.Equal(t, want, rec.Data)
-		require.NotEqual(t, created, tok,
-			"the bucket handed back the cookie the client carries")
+		require.Equal(t, created, tok, "the listed token is not the cookie")
 
 		got, err := sm.Session(ctx, tok)
 		require.NoError(t, err)

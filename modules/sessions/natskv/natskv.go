@@ -5,6 +5,10 @@
 // ({encodedUserID}.{encodedSessionID}) to enable efficient per-user prefix lookups.
 // The cookie value is the composite key encrypted with AES-128-GCM,
 // such that the userID is never exposed to the client.
+// The nonce is derived from the composite key, which gives a session the same
+// token wherever it is handed out: [SessionManager.UserSessions] and
+// [SessionManager.CloseAllUserSessions] yield the token its cookie carries,
+// unless the cookie was issued under a previous key or by an earlier release.
 //
 // The bucket holds the session data and nothing the client sends:
 // a token is rebuilt from the key when one is asked for,
@@ -15,12 +19,13 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
+	"crypto/hkdf"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"iter"
 	"strings"
 	"time"
@@ -89,6 +94,13 @@ func New[Data any](
 		}
 	}
 
+	nonceKey, err := hkdf.Key(
+		sha256.New, conf.EncryptionKey, nil, nonceKeyInfo, sha256.Size,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("deriving the nonce key: %w", err)
+	}
+
 	kvConfig := conf.KVConfig
 	if kvConfig.Bucket == "" {
 		kvConfig.Bucket = DefaultBucket
@@ -112,6 +124,7 @@ func New[Data any](
 		conf:                  conf,
 		kv:                    kv,
 		aeads:                 aeads,
+		nonceKey:              nonceKey,
 		sessionTokenGenerator: sessionTokenGenerator,
 	}, nil
 }
@@ -122,9 +135,12 @@ type Config struct {
 	// encrypt session tokens stored in cookies. Required.
 	EncryptionKey []byte
 
-	// PreviousEncryptionKeys is a list of previous 16-byte AES-128 keys used only for
-	// decrypting existing cookies during key rotation.
-	// New cookies are always encrypted with EncryptionKey.
+	// PreviousEncryptionKeys is a list of previous 16-byte AES-128 keys
+	// used only for decrypting existing cookies during key rotation.
+	// New cookies are always encrypted with [Config.EncryptionKey],
+	// and so are the tokens [SessionManager.UserSessions] and
+	// [SessionManager.CloseAllUserSessions] hand out: for a session
+	// created under a previous key, they differ from its cookie.
 	PreviousEncryptionKeys [][]byte
 
 	KVConfig nats.KeyValueConfig
@@ -135,6 +151,7 @@ type SessionManager[Data any] struct {
 	conf                  Config
 	kv                    nats.KeyValue
 	aeads                 []cipher.AEAD // [0] is primary
+	nonceKey              []byte        // derives the nonce of aeads[0]
 	sessionTokenGenerator SessionTokenGenerator
 }
 
@@ -336,10 +353,7 @@ func (s *SessionManager[Data]) CreateSession(
 	}
 
 	kvKey := compositeKey(rec.UserID, uniqueSessionID)
-	token, err = encrypt(s.aeads[0], kvKey)
-	if err != nil {
-		return "", fmt.Errorf("encrypting session token: %w", err)
-	}
+	token = encrypt(s.aeads[0], s.nonceKey, kvKey)
 
 	value, err := marshalRecord(rec)
 	if err != nil {
@@ -374,6 +388,7 @@ func (s *SessionManager[Data]) CloseSession(
 
 // CloseAllUserSessions closes all sessions for a user and appends the encrypted
 // tokens of the closed ones to buffer, which may be nil.
+// They are the tokens [SessionManager.UserSessions] yields.
 // Only sees sessions that exist at call time;
 // sessions created during iteration are not closed.
 func (s *SessionManager[Data]) CloseAllUserSessions(
@@ -403,14 +418,7 @@ func (s *SessionManager[Data]) CloseAllUserSessions(
 			errs = append(errs, fmt.Errorf("deleting session %q: %w", kvKey, err))
 			continue
 		}
-		token, err := encrypt(s.aeads[0], []byte(kvKey))
-		if err != nil {
-			errs = append(errs, fmt.Errorf(
-				"encrypting token for session %q: %w", kvKey, err,
-			))
-			continue
-		}
-		buffer = append(buffer, token)
+		buffer = append(buffer, encrypt(s.aeads[0], s.nonceKey, []byte(kvKey)))
 	}
 
 	return buffer, errors.Join(errs...)
@@ -453,8 +461,11 @@ func (s *SessionManager[Data]) Session(
 
 // UserSessions returns an iterator over all current
 // sessions for a given user (snapshot, not streaming).
-// Yields (token, session) pairs where token is the encrypted
-// session token usable with CloseSession, Session, and NotifyClosed.
+// Yields (token, session) pairs where token is the encrypted session token
+// usable with [SessionManager.CloseSession], [SessionManager.Session] and
+// [SessionManager.NotifyClosed]. It's the token the session's cookie carries,
+// unless the cookie was encrypted under one of the [Config.PreviousEncryptionKeys]
+// or with a random nonce, the format of earlier releases.
 //
 // The watch is set up before the iterator so that an unreachable store is an
 // error rather than a user with no sessions.
@@ -491,13 +502,7 @@ func (s *SessionManager[Data]) UserSessions(
 			// cannot name another one without the list contradicting itself.
 			rec.UserID = userID
 
-			// A fresh nonce per call gives a different ciphertext that
-			// decrypts back to the same key, which is all a token is.
-			token, err := encrypt(s.aeads[0], []byte(entry.Key()))
-			if err != nil {
-				continue
-			}
-
+			token := encrypt(s.aeads[0], s.nonceKey, []byte(entry.Key()))
 			if !yield(token, rec) {
 				return
 			}
@@ -542,14 +547,25 @@ func parseCompositeKeyUserID(kvKey string) (string, error) {
 	return string(uid), nil
 }
 
+// nonceKeyInfo separates the key that derives nonces from
+// [Config.EncryptionKey], which also keys the cipher.
+const nonceKeyInfo = "datapages natskv token nonce"
+
 // encrypt encrypts plaintext using AES-128-GCM and returns a base64url-encoded string.
-func encrypt(aead cipher.AEAD, plaintext []byte) (string, error) {
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("generating nonce: %w", err)
-	}
+//
+// The nonce is an HMAC of plaintext under nonceKey, which makes the token of a
+// session key the same on every call. GCM forbids one nonce for two plaintexts,
+// which here takes two session keys whose HMACs share their first 96 bits.
+// Like random nonces, these stay within the limit of NIST SP 800-38D,
+// section 8.3, for up to 2^32 sessions under one [Config.EncryptionKey].
+func encrypt(aead cipher.AEAD, nonceKey, plaintext []byte) string {
+	mac := hmac.New(sha256.New, nonceKey)
+	mac.Write(plaintext)
+	n := aead.NonceSize()
+	nonce := make([]byte, n, n+len(plaintext)+aead.Overhead())
+	copy(nonce, mac.Sum(nil))
 	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
-	return base64.RawURLEncoding.EncodeToString(ciphertext), nil
+	return base64.RawURLEncoding.EncodeToString(ciphertext)
 }
 
 // decrypt decodes a base64url string and decrypts it using AES-128-GCM,

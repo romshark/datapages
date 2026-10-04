@@ -87,8 +87,11 @@ type Closer interface {
 // which lets an application swap one for another seamlessly.
 type UserSessionIterator[Data any] interface {
 	// UserSessions iterates the live sessions of userID as (token, record) pairs,
-	// a snapshot rather than a stream. The token is the one CloseSession, Session and
-	// NotifyClosed take. An empty userID yields nothing.
+	// a snapshot rather than a stream. The token is the one [Closer.CloseSession],
+	// [CloseNotifier.NotifyClosed] and the Session method of the built-in stores
+	// take. It is also the one the session's cookie carries, which lets an application
+	// tell the current session apart. A store documents any exception, such as a cookie
+	// issued under an earlier key or format. An empty userID yields nothing.
 	//
 	// The error reports that the store could not be read. It exists so that
 	// an unreachable store is not the same answer as a user with no sessions.
@@ -105,6 +108,8 @@ type UserSessionIterator[Data any] interface {
 type UserSessionCloser interface {
 	// CloseAllUserSessions closes the sessions of userID that exist at call
 	// time and appends their tokens to buffer, which may be nil.
+	// The tokens are the ones their cookies carry,
+	// except where the store documents otherwise.
 	// An empty userID is an error; which error to return is up to the store.
 	CloseAllUserSessions(
 		ctx context.Context, buffer []string, userID string,
