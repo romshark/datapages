@@ -425,8 +425,9 @@ type fakeError struct{}
 
 func (*fakeError) Error() string { return "fake error" }
 
-// TestSession tests the payload read by token: a live session, a closed one
-// reported as not found, and a token that does not decrypt at all.
+// TestSession tests the payload read by token. A token that names no session,
+// whether closed, malformed or encrypted under a key the manager does not hold,
+// matches sessions.ErrSessionNotFound: the one check that works on every store.
 func TestSession(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -454,27 +455,39 @@ func TestSession(t *testing.T) {
 				require.NoError(t, sm.CloseSession(ctx, tok))
 				return tok
 			},
-			wantErr: natskv.ErrSessionNotFound,
+			wantErr: sessions.ErrSessionNotFound,
 		},
 		"invalid token": {
 			setup: func(*testing.T) string {
 				return "not-valid-encrypted-token!!!"
 			},
+			wantErr: sessions.ErrSessionNotFound,
+		},
+		// A cookie from before a rotation that dropped its key
+		// from PreviousEncryptionKeys.
+		"other key": {
+			setup: func(t *testing.T) string {
+				other := newManager(t, conn, natskv.Config{
+					EncryptionKey: []byte("otherkey01234567"),
+					KVConfig:      nats.KeyValueConfig{Bucket: "SESS"},
+				})
+				tok, err := other.CreateSession(ctx, "alice", testSession{})
+				require.NoError(t, err)
+				return tok
+			},
+			wantErr: sessions.ErrSessionNotFound,
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			token := tc.setup(t)
-			sess, err := sm.Session(ctx, token)
+			sess, err := sm.Session(ctx, tc.setup(t))
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
-			} else if name == "ok" {
-				require.NoError(t, err)
-				require.Equal(t, "alice", sess.Username)
-				require.Equal(t, "admin", sess.Role)
-			} else {
-				require.Error(t, err)
+				return
 			}
+			require.NoError(t, err)
+			require.Equal(t, "alice", sess.Username)
+			require.Equal(t, "admin", sess.Role)
 		})
 	}
 }

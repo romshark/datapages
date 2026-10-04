@@ -98,6 +98,7 @@ Run `datapages gen` to apply these.
 - Return from `natskv.SessionManager.UserSessions` and `CloseAllUserSessions` the token the session's cookie carries, as `inmem` does. In v0.10.0 and v0.10.1, each call returned a new token for the same session, and an application that compares a listed token with `Session.Token()` to find the current session never found it. A session created before the upgrade, or under one of the `PreviousEncryptionKeys`, keeps a cookie that differs from its listed token until the user signs in again.
 - Return from `natskv.SessionManager.UserSessions` an iterator that yields the sessions on every range, as `inmem` does. A second range yielded nothing, and an iterator never ranged kept a KV watcher subscribed until the context passed to `UserSessions` ended.
 - Return an error from `natskv.SessionManager.UserSessions` and `DeleteExpired` when their context ends, NATS stalls for 5s or the connection closes during the call. `UserSessions` returned the sessions read by then as the complete list, and `DeleteExpired` returned nil with expired sessions left in the bucket.
+- Report a token that can't be decrypted as `sessions.ErrSessionNotFound` in `natskv.SessionManager.Session`, as `inmem` does. This includes forged tokens and cookies encrypted with a key that is no longer in `PreviousEncryptionKeys`. Before, `errors.Is(err, sessions.ErrSessionNotFound)` was false for them.
 
 #### `datapages init`
 

@@ -457,16 +457,20 @@ func replay(w nats.KeyWatcher, fn func(nats.KeyValueEntry)) error {
 }
 
 // Session retrieves a session record by its encrypted token.
+// It returns an error matching [ErrSessionNotFound] for a token that names no session,
+// including one that does not decrypt.
 func (s *SessionManager[Data]) Session(
 	_ context.Context, token string,
 ) (rec sessions.Record[Data], err error) {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return rec, fmt.Errorf("decrypting session token: %w", err)
+		return rec, fmt.Errorf("%w: decrypting session token: %w",
+			ErrSessionNotFound, err)
 	}
 	uid, err := parseCompositeKeyUserID(kvKey)
 	if err != nil {
-		return rec, fmt.Errorf("parsing composite key: %w", err)
+		return rec, fmt.Errorf("%w: parsing composite key: %w",
+			ErrSessionNotFound, err)
 	}
 
 	entry, err := s.kv.Get(kvKey)
