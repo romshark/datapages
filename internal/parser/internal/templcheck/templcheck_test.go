@@ -220,6 +220,47 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	require.ElementsMatch(t, expect, toPosErrors(errs))
 }
 
+// TestCheck_ErrSubpackage tests templates outside the app package, in a package
+// of its module that it imports. Their elements are checked, and a page owns the
+// templates it reaches in any package: SaveButton, which uses an action of
+// PageProfile, renders in PageSettings through its GET and in PageIndex through
+// a templ call in the app package.
+func TestCheck_ErrSubpackage(t *testing.T) {
+	get := func() *model.HandlerGET {
+		return &model.HandlerGET{Handler: &model.Handler{}}
+	}
+	app := &model.App{
+		Pages: []*model.Page{
+			{TypeName: "PageIndex", GET: get()},
+			{
+				TypeName: "PageProfile",
+				GET:      get(),
+				Actions:  []*model.Handler{{HTTPMethod: "post", Name: "Save"}},
+			},
+			{TypeName: "PageSettings", GET: get()},
+		},
+	}
+
+	errs := check(t, "err_templ_subpackage", app)
+
+	wrongPage := func(page string) templcheck.ActionWrongPageError {
+		return templcheck.ActionWrongPageError{
+			ActionFunc: "PageProfile.Save.POST",
+			PageType:   page,
+			OwnerPage:  "PageProfile",
+		}
+	}
+	expect := []posError{
+		{12, 5, templcheck.HrefRelativeError{URL: "/profile"}},
+		{17, 26, wrongPage("PageIndex")},
+		{17, 26, wrongPage("PageSettings")},
+	}
+	require.ElementsMatch(t, expect, toPosErrors(errs))
+	for _, pe := range errs {
+		require.Equal(t, "template.templ", pe.pos.Filename)
+	}
+}
+
 // TestCheck_ErrContext tests an action or href used in the wrong attribute: an
 // action in href, an href in a data-on expression. It also tests an action expression
 // concatenated with something else, which is reported apart by whether the extra part
@@ -355,10 +396,11 @@ func TestCheck_OKHrefAlias(t *testing.T) {
 }
 
 // TestCheck_OKHrefDot tests the same for a template package in a subdirectory of
-// the app package.
+// the app package, checked on its own and through the app package.
 func TestCheck_OKHrefDot(t *testing.T) {
-	errs := check(t, "ok_templ_href_dot/template", nil)
-	requireNoErrs(t, errs)
+	for _, fixture := range []string{"ok_templ_href_dot/template", "ok_templ_href_dot"} {
+		requireNoErrs(t, check(t, fixture, nil))
+	}
 }
 
 // BenchmarkCheck_ErrHref measures the linter on a package where every href is a finding,

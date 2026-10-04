@@ -898,7 +898,7 @@ Generated asset URLs do not contain a content hash. With a positive `MaxAge`, br
 
 `datapages lint` reports application model errors without generating code. It applies the same rules as `datapages gen`.
 
-It also checks `.templ` files:
+It also checks the `.templ` files of the app package and of the packages of its module that the app package imports, directly or not:
 
 - **Hardcoded href**: an `<a>` href such as `href="/path"`, `href={ "/path" }`, or a constant resolving to a disallowed URL.
 - **Unverifiable href expression**: an `<a>` href calling a function outside the `href` package, such as `templ.SafeURL(...)` or `fmt.Sprintf(...)`.
@@ -909,7 +909,7 @@ It also checks `.templ` files:
 - **Form action attribute**: any `<form action=...>` attribute.
 - **Action context**: an `action.XXX()` call outside a Datastar action context.
 - **Href context**: an `href.XXX()` call in a Datastar action context.
-- **Action on wrong page**: a page action in another page's template. App-level actions are allowed on every page.
+- **Action on wrong page**: a page action in a template that another page renders. A page renders the templates its `GET` handler calls and the templates those call, in any of these packages. App-level actions are allowed on every page.
 
 Datastar action contexts are:
 

@@ -1,0 +1,9 @@
+package app
+
+import "datapagestest/fixture/err_templ_subpackage/template"
+
+templ indexPage() {
+	<h1>Index</h1>
+	/* ErrTemplActionWrongPage: SaveButton uses an action of PageProfile */
+	@template.SaveButton()
+}
