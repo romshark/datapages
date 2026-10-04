@@ -1016,4 +1016,4 @@ Serving a navigation works as follows:
 
 Cached pages also require their assets. The worker caches same-origin requests on first load except Datastar actions, page hydration and event streams, which always use the network. For cross-origin requests, it caches only destinations enabled by the application. The defaults are stylesheets, scripts, fonts and images. `Config.ExcludePaths` excludes same-origin path prefixes. Files listed in `Config.Assets` are cached during worker installation. Any other asset must load once while online before it is available offline.
 
-For a cached same-origin asset, the worker returns the cached response and then updates it from the network. A later request receives the update. The worker does not update opaque cross-origin responses because it cannot compare them.
+For a cached same-origin asset, the worker returns the cached response and then updates it from the network. A later request receives the update. The worker never updates a cached cross-origin asset: a changed one needs a new URL or a new `offline.Config.WorkerVersion`.

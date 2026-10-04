@@ -302,7 +302,7 @@ Apply these rules when choosing what to cache:
 - Cache a separate body when offline interactions cannot work. A snapshot does not need to match the live page.
 - Treat the cache as origin-readable browser storage that outlives a session. Do not store secrets or data that must disappear at sign-out. Call `ClearAll` during sign-in and sign-out, then repopulate entries from later handlers.
 - Update or clear affected URLs when an action changes their data.
-- Increment `WorkerVersion` after a Datapages upgrade or a change to `Assets`, `ExcludePaths`, `CrossOriginDestinations`, `OfflineClass`, or `PageOffline`. A file update at an unchanged asset URL refreshes behind the cached copy and does not require a new worker version.
+- Increment `WorkerVersion` after a Datapages upgrade or a change to `Assets`, `ExcludePaths`, `CrossOriginDestinations`, `OfflineClass`, or `PageOffline`. A same-origin file updated at an unchanged URL refreshes behind the cached copy and does not require a new worker version. A cross-origin file never refreshes: give a changed one a new URL or increment `WorkerVersion`.
 
 Same-origin assets are cached on their first online load unless excluded. `Config.Assets` makes required files available immediately after worker installation. `Config.CrossOriginDestinations` controls which cross-origin asset types may be cached. Use the default `is-offline` class on `<html>` to disable controls that require the network.
 
