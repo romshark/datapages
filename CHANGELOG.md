@@ -95,6 +95,7 @@ Run `datapages gen` to apply these.
 - Deliver events through the `natscore` broker in the order they were dispatched, as `inmem` does. Two events of different types dispatched one after the other often arrived in reverse order.
 - End the SSE streams subscribed through the `natscore` broker when its NATS connection closes, which nats.go does after the last failed reconnect attempt: 60 attempts 2s apart with the defaults of `nats.Connect`. Open pages kept their streams and received no more events, without an error. They now reconnect, and the server logs each reconnect that fails on the closed connection.
 - Return from `natskv.SessionManager.UserSessions` and `CloseAllUserSessions` the token the session's cookie carries, as `inmem` does. In v0.10.0 and v0.10.1, each call returned a new token for the same session, and an application that compares a listed token with `Session.Token()` to find the current session never found it. A session created before the upgrade, or under one of the `PreviousEncryptionKeys`, keeps a cookie that differs from its listed token until the user signs in again.
+- Return from `natskv.SessionManager.UserSessions` an iterator that yields the sessions on every range, as `inmem` does. A second range yielded nothing, and an iterator never ranged kept a KV watcher subscribed until the context passed to `UserSessions` ended.
 
 #### `datapages init`
 

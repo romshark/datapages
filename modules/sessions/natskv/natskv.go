@@ -459,16 +459,12 @@ func (s *SessionManager[Data]) Session(
 	return rec, nil
 }
 
-// UserSessions returns an iterator over all current
-// sessions for a given user (snapshot, not streaming).
-// Yields (token, session) pairs where token is the encrypted session token
-// usable with [SessionManager.CloseSession], [SessionManager.Session] and
+// UserSessions reads the current sessions of userID before it returns.
+// Its iterator yields them as (token, record) pairs on every range.
+// The token works with [SessionManager.CloseSession], [SessionManager.Session] and
 // [SessionManager.NotifyClosed]. It's the token the session's cookie carries,
 // unless the cookie was encrypted under one of the [Config.PreviousEncryptionKeys]
 // or with a random nonce, the format of earlier releases.
-//
-// The watch is set up before the iterator so that an unreachable store is an
-// error rather than a user with no sessions.
 func (s *SessionManager[Data]) UserSessions(
 	ctx context.Context, userID string,
 ) (iter.Seq2[string, sessions.Record[Data]], error) {
@@ -480,30 +476,40 @@ func (s *SessionManager[Data]) UserSessions(
 	if err != nil {
 		return nil, fmt.Errorf("watching user sessions: %w", err)
 	}
+	defer func() { _ = watcher.Stop() }()
+
+	type userSession struct {
+		token string
+		rec   sessions.Record[Data]
+	}
+	var list []userSession
+	for entry := range watcher.Updates() {
+		if entry == nil {
+			break
+		}
+
+		var kvRec kvRecord
+		if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
+			continue
+		}
+
+		var rec sessions.Record[Data]
+		if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
+			continue
+		}
+		// The prefix this scan runs over is the user, so the payload
+		// cannot name another one without the list contradicting itself.
+		rec.UserID = userID
+
+		list = append(list, userSession{
+			token: encrypt(s.aeads[0], s.nonceKey, []byte(entry.Key())),
+			rec:   rec,
+		})
+	}
 
 	return func(yield func(string, sessions.Record[Data]) bool) {
-		defer func() { _ = watcher.Stop() }()
-
-		for entry := range watcher.Updates() {
-			if entry == nil {
-				break
-			}
-
-			var kvRec kvRecord
-			if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
-				continue
-			}
-
-			var rec sessions.Record[Data]
-			if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
-				continue
-			}
-			// The prefix this scan runs over is the user, so the payload
-			// cannot name another one without the list contradicting itself.
-			rec.UserID = userID
-
-			token := encrypt(s.aeads[0], s.nonceKey, []byte(entry.Key()))
-			if !yield(token, rec) {
+		for _, us := range list {
+			if !yield(us.token, us.rec) {
 				return
 			}
 		}

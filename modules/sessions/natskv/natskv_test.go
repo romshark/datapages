@@ -810,6 +810,32 @@ func TestUserSessionsYieldsCookieTokens(t *testing.T) {
 	}
 }
 
+// TestUserSessionsSnapshot tests that UserSessions reads the sessions before it returns.
+// Its iterator yields them on every range, and one never ranged leaves
+// no KV watcher subscribed.
+func TestUserSessionsSnapshot(t *testing.T) {
+	conn := setupNATS(t)
+	sm := newManager(t, conn, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "USERSESS_SNAPSHOT"},
+	})
+	ctx := context.Background()
+
+	for range 3 {
+		_, err := sm.CreateSession(ctx, "alice", testSession{})
+		require.NoError(t, err)
+	}
+	subscriptions := conn.NumSubscriptions()
+
+	seq, err := sm.SessionManager.UserSessions(ctx, "alice")
+	require.NoError(t, err)
+	require.Equal(t, subscriptions, conn.NumSubscriptions(),
+		"the watcher is still subscribed")
+	for range 2 {
+		require.Len(t, maps.Collect(seq), 3)
+	}
+}
+
 // TestUserSessionsReportsStoreFailure tests the store being unreachable.
 // Yielding nothing makes it indistinguishable from "this user has no sessions",
 // which is what a settings page then renders while the user is signed in elsewhere.
@@ -874,7 +900,6 @@ func TestIterateAndCloseSessions(t *testing.T) {
 }
 
 // TestUserSessionsBreakEarly tests a caller that stops after the first entry.
-// The iterator has to return rather than keep pulling from the KV watcher.
 func TestUserSessionsBreakEarly(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
