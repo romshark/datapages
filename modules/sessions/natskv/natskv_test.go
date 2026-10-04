@@ -900,10 +900,16 @@ func TestUserSessionsConnectionClosed(t *testing.T) {
 // when no key arrives within the JetStream request timeout. nats.go ends
 // such a replay with the nil entry that ends a complete one, and puts
 // nats.ErrKeyWatcherTimeout on the error channel of the watcher.
+//
+// UserSessions is left out. Its timer waits for the watcher's mutex, and a reader
+// that does not block between keys lets nats.go deliver the rest of the replay first:
+// with one CPU, the replay completes. The calls here make a NATS round trip per key,
+// and UserSessions reads through the same [natskv] replay function.
 func TestReplayStall(t *testing.T) {
 	conn := setupNATS(t)
 	// A stall lasts as long as the request timeout, 5s by default.
-	const timeout = 200 * time.Millisecond
+	// The timeout also bounds every other JetStream request of the test.
+	const timeout = 500 * time.Millisecond
 	js, err := conn.JetStream(nats.MaxWait(timeout))
 	require.NoError(t, err)
 	ctx := t.Context()
@@ -911,10 +917,6 @@ func TestReplayStall(t *testing.T) {
 	for name, call := range map[string]func(*natskv.SessionManager[testSession]) error{
 		"CloseAllUserSessions": func(sm *natskv.SessionManager[testSession]) error {
 			_, err := sm.CloseAllUserSessions(ctx, nil, "alice")
-			return err
-		},
-		"UserSessions": func(sm *natskv.SessionManager[testSession]) error {
-			_, err := sm.UserSessions(ctx, "alice")
 			return err
 		},
 		"DeleteExpired": func(sm *natskv.SessionManager[testSession]) error {
@@ -934,9 +936,13 @@ func TestReplayStall(t *testing.T) {
 			kv, err := js.KeyValue(bucket)
 			require.NoError(t, err)
 			natskv.WrapKV(sm, func(nats.KeyValue) nats.KeyValue {
-				return &watchHookKV{KeyValue: kv, fn: func(nats.KeyWatcher) {
-					// Nothing reads the watcher meanwhile: its buffer fills up,
-					// and no key arrives for longer than the timeout.
+				return &watchHookKV{KeyValue: kv, fn: func(w nats.KeyWatcher) {
+					// Nothing reads the watcher meanwhile. Once its buffer is full,
+					// no key arrives: the replay stalls from then on,
+					// however long the server took to fill it.
+					require.Eventually(t, func() bool {
+						return len(w.Updates()) == cap(w.Updates())
+					}, 10*time.Second, time.Millisecond, "the watcher buffer never filled")
 					time.Sleep(2 * timeout)
 				}}
 			})
