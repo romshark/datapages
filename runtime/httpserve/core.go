@@ -280,7 +280,7 @@ func (c *Core) LogErr(msg string, err error) {
 	c.logger.Error(msg, slog.Any("err", err))
 }
 
-// HTTPErrBad answers r with 400 and logs msg as the cause.
+// HTTPErrBad answers 400 with msg as the body and logs msg as the cause.
 func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
 	c.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
 	http.Error(w, msg, http.StatusBadRequest)

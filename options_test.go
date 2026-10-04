@@ -12,9 +12,8 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// TestWithDatastarJS tests the URL that goes into the src attribute of a script
-// tag in the head of every page. A quote in it closes the attribute and turns
-// the rest of the value into further attributes on that tag.
+// TestWithDatastarJS tests the URLs the page shell may load the Datastar
+// bundle from: http, https and relative URLs according to RFC 3986.
 func TestWithDatastarJS(t *testing.T) {
 	t.Parallel()
 
@@ -27,13 +26,18 @@ func TestWithDatastarJS(t *testing.T) {
 		"root relative":     {"/static/ds.js", true},
 		"relative":          {"static/ds.js", true},
 		"protocol relative": {"//cdn.example.com/ds.js", true},
+		"query":             {"https://cdn.example.com/ds.js?v=1&min=1", true},
+		"single quote":      {"https://cdn.example.com/o'neil/ds.js", true},
+		"percent-encoded":   {"https://cdn.example.com/d%20s.js", true},
 		"empty":             {"", false},
 		"other scheme":      {"javascript:alert(1)", false},
-		"double quote":      {`https://x/ds.js" onload="alert(1)`, false},
-		"single quote":      {"https://x/ds.js' onload='alert(1)", false},
-		"angle bracket":     {"https://x/ds.js></script><script>", false},
+		"double quote":      {`https://x/ds.js"`, false},
+		"angle bracket":     {"https://x/ds.js<", false},
 		"space":             {"https://x/d s.js", false},
 		"control character": {"https://x/ds.js\nfoo", false},
+		"brace":             {"https://x/{version}/ds.js", false},
+		"non-ASCII":         {"https://x/dätastar.js", false},
+		"bad escape":        {"https://x/ds%zz.js", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var cfg datapages.ServerConfig

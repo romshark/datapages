@@ -36,6 +36,7 @@ Run `datapages gen` to apply these.
 #### Runtime and modules
 
 - Label requests with the `QUERY` method as `QUERY` in the `method` label of the HTTP metrics. They were counted as `<other>`.
+- Refuse a URL passed to `datapages.WithDatastarJS` that is invalid according to RFC 3986.
 
 ### Fixed
 
@@ -88,6 +89,7 @@ Run `datapages gen` to apply these.
 
 - Percent-encode the characters a URL path cannot carry, such as `#`, `?` and `%`, in the file names that `assets.Path` and `href.Asset` turn into URLs. `assets.Path("a#b.css")` returned `/static/a#b.css`, which a browser requests as `/static/a`, and a `%` in a file name made the server answer 400.
 - Label the HTTP metrics with the route when a middleware added with `datapages.WithMiddleware` passes on a new request, as `r.WithContext` returns when storing a CSP nonce. The request counter and the latency histogram labelled every request through such a middleware `<unmatched>`.
+- Accept `&` and `'` in the URL passed to `datapages.WithDatastarJS`, as in `https://cdn.example.com/datastar.js?v=1&min=1`. RFC 3986 allows both, and the page writes the URL escaped. Such a URL was refused.
 
 #### `datapages init`
 

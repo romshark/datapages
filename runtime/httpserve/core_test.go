@@ -339,17 +339,26 @@ func TestBuildDefaults(t *testing.T) {
 	require.Nil(t, c.AssetsFS())
 }
 
-// TestDatastarJSOption tests that a custom script URL replaces the bundled one
-// in the HTML prefix, which is where every page picks it up.
+// TestDatastarJSOption tests that a custom script URL replaces the
+// bundled one in the HTML prefix, which is where every page picks it up.
+// The URL is HTML-escaped there: RFC 3986 allows & and ' in it.
 func TestDatastarJSOption(t *testing.T) {
 	t.Parallel()
 
-	c := mustCore(t, datapages.ServerConfig{
-		DatastarJS: "/static/ds.js",
-	}, "")
-	c.Build()
+	for name, tc := range map[string]struct{ src, want string }{
+		"path":  {"/static/ds.js", `src="/static/ds.js"`},
+		"query": {"/static/ds.js?v=1&min=1", `src="/static/ds.js?v=1&amp;min=1"`},
+		"quote": {"/o'neil/ds.js", `src="/o&#39;neil/ds.js"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Contains(t, c.HTMLPrefix(), `src="/static/ds.js"`)
+			c := mustCore(t, datapages.ServerConfig{DatastarJS: tc.src}, "")
+			c.Build()
+
+			require.Contains(t, c.HTMLPrefix(), tc.want)
+		})
+	}
 }
 
 // TestShutdownEndsListenAndServe tests that the context ends the server

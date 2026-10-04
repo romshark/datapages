@@ -161,6 +161,7 @@ Avoid:
 - A verbless lead-in before a colon: "One dispatch, three streams: ...", "Two values, one subject: ...". In running text, the words before a colon must stand alone as a sentence. Labels such as `TODO:` and `BREAKING:`, and a line that introduces a code block or a list, are exempt.
 - Figurative language where a plain word fits: "buys", "drives", "unlocks", "wins", "kills", "shines", "leaves the reader hunting". These are examples, not the whole set. The test is whether the sentence says what literally happens: nothing buys, drives or hunts (unless it literally does). Write "a value receiver prevents mutation", not "a value receiver buys us immutability". Write "the pointer saves no allocation here", not "the pointer buys nothing here". Write "the tests that send it requests over HTTP", not "the tests that drive it over HTTP". Write "the reader cannot tell what is meant", not "it leaves the reader hunting for what was meant".
 - Restating a general principle the facts already show. Start with the example.
+- Paraphrasing a standard or another document the reader can look up. Refer to it: "invalid according to RFC 3986", not "contains a character RFC 3986 does not allow, such as `{`, `|` or a non-ASCII letter".
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth noting that", "as we can see".
 - Praise of the user or of the question: "great question", "you're absolutely right".

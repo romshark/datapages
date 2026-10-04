@@ -236,8 +236,7 @@ func WithHTTPServer(server *http.Server) ServerOption {
 // Without it the page shell loads
 // [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
 //
-// src stands unescaped in a src attribute, hence it must be an http/https or
-// relative URL, valid per RFC 3986.
+// src must be an http, https or relative URL according to RFC 3986.
 func WithDatastarJS(src string) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := validateDatastarJS(src); err != nil {
@@ -248,7 +247,9 @@ func WithDatastarJS(src string) ServerOption {
 	}
 }
 
-// validateDatastarJS holds src to what may stand unescaped in a src attribute.
+// validateDatastarJS refuses a src that is not a URL according to RFC 3986,
+// which is a configuration mistake to report at startup.
+// The checks do not protect the page: the page shell writes src HTML-escaped.
 // net/url takes characters RFC 3986 has no place for, a quote and a space among them,
 // hence the check of its own.
 func validateDatastarJS(src string) error {
@@ -256,11 +257,8 @@ func validateDatastarJS(src string) error {
 		return errors.New("empty URL")
 	}
 	for _, r := range src {
-		switch {
-		case r == '"' || r == '\'' || r == '<' || r == '>' || r == '&':
-			return fmt.Errorf("URL contains %q", r)
-		case r <= 0x20 || r == 0x7f:
-			return fmt.Errorf("URL contains the control character %q", r)
+		if !isURLChar(r) {
+			return fmt.Errorf("URL contains %q, which RFC 3986 does not allow", r)
 		}
 	}
 	u, err := url.Parse(src)
@@ -273,6 +271,16 @@ func validateDatastarJS(src string) error {
 		return nil
 	}
 	return fmt.Errorf("URL scheme %q is neither http nor https", u.Scheme)
+}
+
+// isURLChar reports whether RFC 3986 allows r in a URL: the unreserved and the
+// reserved characters, and the % of a percent-encoding, which [url.Parse] checks.
+func isURLChar(r rune) bool {
+	switch {
+	case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z', '0' <= r && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("-._~:/?#[]@!$&'()*+,;=%", r)
 }
 
 // WithAssets serves the static files embedded in fsys.
