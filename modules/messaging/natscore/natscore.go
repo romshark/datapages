@@ -3,14 +3,14 @@
 //
 // Delivery is at-most-once: a message reaches only the subscribers that are
 // connected when it's published and there's no replay. Datapages events carry
-// live UI updates. A lost event means a stale UI until the next render,
-// which is why the durability and the ack round trip of JetStream are not worth
-// their cost here.
+// live UI updates. A lost event means a stale UI until the next render, which is why
+// the durability and the ack round trip of JetStream are not worth their cost here.
 package natscore
 
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/nats-io/nats.go"
 
@@ -19,10 +19,9 @@ import (
 
 var _ messaging.Broker = (*MessageBroker)(nil)
 
-// readLoopBuffer is the least capacity of the channel the nats.go read loop
-// delivers a subscription into. The read loop parses up to 32 KiB per read,
-// hundreds of small messages, before forward gets to run. It drops a message
-// the channel has no room for and prints a slow consumer error.
+// readLoopBuffer is the minimum capacity of the channel nats.go delivers into.
+// Its read loop parses up to 32 KiB per read, hundreds of small messages,
+// before forward runs, and drops what the channel has no room for.
 const readLoopBuffer = 256
 
 type MessageBroker struct {
@@ -45,8 +44,12 @@ type natsSub struct {
 	stop chan struct{} // closed by Close
 	done chan struct{} // closed by forward after it closed ch
 
-	// natsDropped is how many of the drops nats.go counted on subs forward has reported.
-	// Only forward uses it.
+	// open counts the subscriptions in subs that nats.go has not closed.
+	// The last one to close closes [natsSub.closed].
+	open   atomic.Int64
+	closed chan struct{}
+
+	// natsDropped counts the nats.go drops reported so far. Only forward uses it.
 	natsDropped int
 }
 
@@ -57,10 +60,8 @@ func New(nc *nats.Conn, conf Config) *MessageBroker {
 	return &MessageBroker{nc: nc, conf: conf}
 }
 
-// Publish implements messaging.Broker.
-//
-// ctx is ignored: a core NATS publish appends to the connection's local write
-// buffer and returns, there's no round trip to cancel.
+// Publish implements messaging.Broker. It ignores ctx: a core NATS publish
+// appends to the write buffer of the connection, with no round trip to cancel.
 func (b *MessageBroker) Publish(
 	_ context.Context,
 	metrics messaging.Metrics,
@@ -76,10 +77,9 @@ func (b *MessageBroker) Publish(
 
 // Subscribe implements messaging.Broker.
 //
-// Every subject delivers into one channel, which nats.go fills from the read
-// loop of the connection in the order the messages arrive. A callback
-// subscription per subject would lose that order: nats.go runs the callbacks
-// of each subscription on a goroutine of its own.
+// All subjects deliver into one channel, which the read loop of the connection
+// fills in arrival order. Callback subscriptions would lose that order:
+// nats.go runs the callbacks of each one on a goroutine of its own.
 func (b *MessageBroker) Subscribe(
 	_ context.Context, metrics messaging.Metrics, subjects ...string,
 ) (messaging.Subscription, error) {
@@ -97,32 +97,52 @@ func (b *MessageBroker) Subscribe(
 	}
 
 	ns := &natsSub{
-		ch:   make(chan messaging.Message, b.conf.ChanBuffer),
-		subs: subs,
-		stop: make(chan struct{}),
-		done: make(chan struct{}),
+		ch:     make(chan messaging.Message, b.conf.ChanBuffer),
+		subs:   subs,
+		stop:   make(chan struct{}),
+		done:   make(chan struct{}),
+		closed: make(chan struct{}),
+	}
+	ns.open.Store(int64(len(subs)))
+	for _, sub := range subs {
+		var once sync.Once
+		onClosed := func(string) { once.Do(ns.subClosed) }
+		sub.SetClosedHandler(onClosed)
+		// nats.go calls no handler for a subscription it closed before SetClosedHandler.
+		if !sub.IsValid() {
+			onClosed("")
+		}
 	}
 	go ns.forward(msgs, metrics)
 	return ns, nil
 }
 
-// forward moves the messages of msgs to the subscription channel in their order
-// until Close stops it. It is the only sender on ch, which is why it closes ch.
+// subClosed counts a subscription that nats.go closed. nats.go calls it
+// with the connection locked: a call to Close from it would deadlock.
+func (s *natsSub) subClosed() {
+	if s.open.Add(-1) == 0 {
+		close(s.closed)
+	}
+}
+
+// forward moves the messages of msgs to ch in their order until Close stops it.
+// Once nats.go has closed every subscription in subs, as it does when the connection
+// closes or drains, forward passes on what msgs and queue hold and returns.
 //
 // forward never blocks while msgs holds messages. It keeps up to cap(ch)
 // messages in queue, offers the oldest to ch in the same select and drops a
 // message only while both are full. Dropping what ch cannot take at once
 // would lose most of a burst that the page reads in time.
 //
-// nats.go gives every message a payload of its own, which forward passes on
-// without a copy.
+// nats.go gives every message a payload of its own,
+// which forward passes on without a copy.
 func (s *natsSub) forward(msgs <-chan *nats.Msg, metrics messaging.Metrics) {
 	defer close(s.done)
 	defer close(s.ch)
 
-	// queue holds n messages from index first on, wrapping around.
-	// It has a slot even for an unbuffered ch: select evaluates queue[first] on every
-	// pass, also while out is nil, and the slot keeps a message until a reader waits.
+	// queue holds n messages from index first on, wrapping around. It has a slot even
+	// for an unbuffered ch: select evaluates queue[first] on every pass, also while
+	// out is nil, and the slot keeps a message until a reader waits.
 	queue := make([]messaging.Message, max(1, cap(s.ch)))
 	first, n := 0, 0
 	pop := func() {
@@ -130,6 +150,7 @@ func (s *natsSub) forward(msgs <-chan *nats.Msg, metrics messaging.Metrics) {
 		first = (first + 1) % len(queue)
 		n--
 	}
+	closed := s.closed
 	for {
 		var out chan<- messaging.Message
 		if n > 0 {
@@ -138,18 +159,20 @@ func (s *natsSub) forward(msgs <-chan *nats.Msg, metrics messaging.Metrics) {
 		select {
 		case <-s.stop:
 			return
+		case <-closed:
+			closed = nil
 		case m := <-msgs:
 			if len(msgs) >= cap(msgs)-1 {
 				// msgs was full, which is when nats.go drops a message.
 				s.reportNATSDrops(metrics)
 			}
 			if n == len(queue) {
-				// select picks a ready case at random. It may have taken from
-				// msgs while ch has room for the oldest message.
+				// select may have taken from msgs while
+				// ch has room for the oldest message.
 				select {
 				case s.ch <- queue[first]:
 					pop()
-				default: // drop if subscriber is slow
+				default:
 					metrics.OnDeliveryDropped()
 					continue
 				}
@@ -162,12 +185,14 @@ func (s *natsSub) forward(msgs <-chan *nats.Msg, metrics messaging.Metrics) {
 		case out <- queue[first]:
 			pop()
 		}
+		// nats.go delivers nothing to msgs once it closed every subscription.
+		if closed == nil && n == 0 && len(msgs) == 0 {
+			return
+		}
 	}
 }
 
 // reportNATSDrops reports the drops nats.go counted on subs since the last call.
-// nats.go drops a message when msgs is full and counts it only on the
-// subscription the message came in on.
 func (s *natsSub) reportNATSDrops(metrics messaging.Metrics) {
 	dropped := 0
 	for _, sub := range s.subs {
@@ -185,8 +210,6 @@ func (s *natsSub) C() <-chan messaging.Message {
 }
 
 // Close stops the deliveries and waits for forward to close the channel.
-// nats.go never closes msgs: a message it delivers after forward returned
-// stays in msgs, which nothing reads.
 func (s *natsSub) Close() {
 	s.once.Do(func() {
 		for _, sub := range s.subs {

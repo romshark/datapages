@@ -69,6 +69,11 @@ type StreamInitializer interface {
 // SubscriptionReader reads messages from an active subscription.
 type SubscriptionReader interface {
 	// C returns the channel to receive messages.
+	//
+	// The channel must close once the subscription can receive no more messages,
+	// as after the connection to the broker closed. The stream reading the channel
+	// then ends and the page reconnects it. A channel left open keeps the page
+	// connected to a stream that receives nothing.
 	C() <-chan Message
 }
 

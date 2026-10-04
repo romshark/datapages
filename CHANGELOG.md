@@ -38,6 +38,7 @@ Run `datapages gen` to apply these.
 - Label requests with the `QUERY` method as `QUERY` in the `method` label of the HTTP metrics. They were counted as `<other>`.
 - Refuse a URL passed to `datapages.WithDatastarJS` that is invalid according to RFC 3986.
 - Require a custom `messaging.Broker` to deliver messages in the order they were published, whatever their subjects. A broker that delivers each subject on a goroutine of its own breaks this.
+- Require a custom `messaging.Broker` to close a subscription's channel when the subscription can no longer receive messages, such as when its connection closes. Otherwise the page stops receiving events.
 
 ### Fixed
 
@@ -92,6 +93,7 @@ Run `datapages gen` to apply these.
 - Label the HTTP metrics with the route when a middleware added with `datapages.WithMiddleware` passes on a new request, as `r.WithContext` returns when storing a CSP nonce. The request counter and the latency histogram labelled every request through such a middleware `<unmatched>`.
 - Accept `&` and `'` in the URL passed to `datapages.WithDatastarJS`, as in `https://cdn.example.com/datastar.js?v=1&min=1`. RFC 3986 allows both, and the page writes the URL escaped. Such a URL was refused.
 - Deliver events through the `natscore` broker in the order they were dispatched, as `inmem` does. Two events of different types dispatched one after the other often arrived in reverse order.
+- End the SSE streams subscribed through the `natscore` broker when its NATS connection closes, which nats.go does after the last failed reconnect attempt: 60 attempts 2s apart with the defaults of `nats.Connect`. Open pages kept their streams and received no more events, without an error. They now reconnect, and the server logs each reconnect that fails on the closed connection.
 - Return from `natskv.SessionManager.UserSessions` and `CloseAllUserSessions` the token the session's cookie carries, as `inmem` does. In v0.10.0 and v0.10.1, each call returned a new token for the same session, and an application that compares a listed token with `Session.Token()` to find the current session never found it. A session created before the upgrade, or under one of the `PreviousEncryptionKeys`, keeps a cookie that differs from its listed token until the user signs in again.
 
 #### `datapages init`
