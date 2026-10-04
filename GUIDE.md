@@ -7,14 +7,14 @@ Declaration rules, valid handler signatures, lifecycle details, and error behavi
 ## Requirements
 
 - The latest [Go toolchain](https://go.dev/dl/).
-- [templ](https://templ.guide) `v0.3.1020`, which matches the scaffold and its CI workflow.
+- [templ](https://templ.guide) `v0.3.1070`, which matches the scaffold and its CI workflow.
 - [Docker](https://www.docker.com/) for the scaffold's NATS service. A single-process application can use the in-memory modules instead.
 
 Install the CLI and templ:
 
 ```sh
 go install github.com/romshark/datapages/cmd/datapages@latest
-go install github.com/a-h/templ/cmd/templ@v0.3.1020
+go install github.com/a-h/templ/cmd/templ@v0.3.1070
 ```
 
 ## Create and run a project

@@ -41,6 +41,10 @@ Run `datapages gen` to apply these.
 - Require a custom `messaging.Broker` to close a subscription's channel when the subscription can no longer receive messages, such as when its connection closes. Otherwise the page stops receiving events.
 - Publish through the `inmem` broker in time linear in the open streams of a page that handles an event with a `datapages.Subject` field without a `signal` tag. Such streams subscribe with a wildcard, and a publish to them took quadratic time: 12.8ms with 10,000 streams, where it takes 86us now. A stream that opened or closed meanwhile waited for it.
 
+#### `datapages init`
+
+- Generate a new project's templates with templ v0.3.1070 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
+
 ### Fixed
 
 #### `datapages lint` and `datapages gen`

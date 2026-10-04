@@ -37,7 +37,7 @@ var ciWorkflowTmpl string
 // and keeps the CI of a scaffolded project on the version its committed
 // *_templ.go files were written by. Move it together with toolTempl in magefiles,
 // which is the version this repository generates with.
-const TemplVersion = "v0.3.1020"
+const TemplVersion = "v0.3.1070"
 
 // TemplCmd is the templ command with its version, for `go run` and `go install`.
 const TemplCmd = "github.com/a-h/templ/cmd/templ@" + TemplVersion

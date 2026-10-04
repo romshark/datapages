@@ -6,7 +6,7 @@ replace github.com/romshark/datapages => ../../../
 
 // Required by Datapages
 require (
-	github.com/a-h/templ v0.3.1020
+	github.com/a-h/templ v0.3.1070
 	github.com/nats-io/nats.go v1.54.0
 	github.com/romshark/datapages v0.10.1
 	github.com/starfederation/datastar-go v1.2.2
