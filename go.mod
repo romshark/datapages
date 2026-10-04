@@ -3,13 +3,13 @@ module github.com/romshark/datapages
 go 1.27.1
 
 require (
-	github.com/a-h/templ v0.3.1020
+	github.com/a-h/templ v0.3.1070
 	github.com/charmbracelet/huh v1.0.0
 	github.com/fatih/color v1.19.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.54.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/romshark/templier v0.13.0
+	github.com/romshark/templier v0.13.1
 	github.com/romshark/yamagiconf v1.1.1
 	github.com/spf13/cobra v1.10.2
 	github.com/starfederation/datastar-go v1.2.2
@@ -17,7 +17,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/nats v0.44.0
 	golang.org/x/mod v0.41.0
 	golang.org/x/sync v0.23.0
-	golang.org/x/tools v0.50.0
+	golang.org/x/tools v0.51.0
 )
 
 require (
@@ -110,10 +110,11 @@ require (
 	github.com/xo/terminfo v1.2.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0 // indirect
-	go.opentelemetry.io/otel v1.46.0 // indirect
-	go.opentelemetry.io/otel/metric v1.46.0 // indirect
-	go.opentelemetry.io/otel/trace v1.46.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
+	go.opentelemetry.io/otel v1.47.0 // indirect
+	go.opentelemetry.io/otel/log v1.47.0 // indirect
+	go.opentelemetry.io/otel/metric v1.47.0 // indirect
+	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
