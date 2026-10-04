@@ -96,10 +96,17 @@ Run `datapages gen` to apply these.
 - End the SSE streams subscribed through the `natscore` broker when its NATS connection closes, which nats.go does after the last failed reconnect attempt: 60 attempts 2s apart with the defaults of `nats.Connect`. Open pages kept their streams and received no more events, without an error. They now reconnect, and the server logs each reconnect that fails on the closed connection.
 - Return from `natskv.SessionManager.UserSessions` and `CloseAllUserSessions` the token the session's cookie carries, as `inmem` does. In v0.10.0 and v0.10.1, each call returned a new token for the same session, and an application that compares a listed token with `Session.Token()` to find the current session never found it. A session created before the upgrade, or under one of the `PreviousEncryptionKeys`, keeps a cookie that differs from its listed token until the user signs in again.
 - Return from `natskv.SessionManager.UserSessions` an iterator that yields the sessions on every range, as `inmem` does. A second range yielded nothing, and an iterator never ranged kept a KV watcher subscribed until the context passed to `UserSessions` ended.
+- Return an error from `natskv.SessionManager.UserSessions` and `DeleteExpired` when their context ends, NATS stalls for 5s or the connection closes during the call. `UserSessions` returned the sessions read by then as the complete list, and `DeleteExpired` returned nil with expired sessions left in the bucket.
 
 #### `datapages init`
 
 - Shut down gracefully on SIGTERM in the `cmd/server/main.go` it writes. Docker, Kubernetes and systemd stop a process with SIGTERM, which previously ended the server without waiting for requests, SSE streams and `StreamClose` hooks. It does not rewrite an existing `main.go`: add `syscall.SIGTERM` to its `signal.NotifyContext` call.
+
+### Security
+
+#### Runtime and modules
+
+- Prevent `natskv.SessionManager.CloseAllUserSessions` from returning nil while sessions of the user stay signed in. When its context ended during the call, as a request context does when the client disconnects, it closed only the sessions read by then. Whoever held a cookie of the others, such as an attacker the user meant to sign out, stayed signed in. A NATS stall of 5s during the call and a closed connection did the same. The end of the context no longer stops the call, and the other two return an error. Applications calling `CloseAllUserSessions` are affected in v0.1.0 through v0.10.1. Upgrade and redeploy. Until then, pass it `context.WithoutCancel(r.Context())`, which covers the client that disconnects.
 
 ## [0.10.1] - 2026-09-26
 

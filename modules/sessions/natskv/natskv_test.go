@@ -736,6 +736,202 @@ func TestCloseAllUserSessions(t *testing.T) {
 	}
 }
 
+// beyondWatchBuffer is more sessions than the 256 entries nats.go buffers for a watcher.
+// Ending such a watch early cuts its replay short however fast the keys arrive,
+// and not reading from it stalls the replay.
+const beyondWatchBuffer = 300
+
+// createSessions creates n sessions of alice expiring at expiresAt
+// and returns their cookies.
+func createSessions(
+	t *testing.T, sm *natskv.SessionManager[testSession], n int, expiresAt time.Time,
+) []string {
+	t.Helper()
+	cookies := make([]string, n)
+	for i := range cookies {
+		var err error
+		cookies[i], err = sm.CreateSession(t.Context(), sessions.Record[testSession]{
+			UserID: "alice", ExpiresAt: expiresAt,
+		})
+		require.NoError(t, err)
+	}
+	return cookies
+}
+
+// watchHookKV calls fn with every watcher before handing it on.
+type watchHookKV struct {
+	nats.KeyValue
+	fn func(nats.KeyWatcher)
+}
+
+func (kv *watchHookKV) Watch(
+	keys string, opts ...nats.WatchOpt,
+) (nats.KeyWatcher, error) {
+	w, err := kv.KeyValue.Watch(keys, opts...)
+	if err == nil {
+		kv.fn(w)
+	}
+	return w, err
+}
+
+// WatchAll goes through [watchHookKV.Watch]:
+// the embedded WatchAll calls the Watch of the embedded handle.
+func (kv *watchHookKV) WatchAll(opts ...nats.WatchOpt) (nats.KeyWatcher, error) {
+	return kv.Watch(nats.AllKeys, opts...)
+}
+
+// cancelOnWatch returns a context that ends once the next call of sm has started
+// its watch. If the watch carries the context, the call continues after nats.go
+// has ended the watch, which it does on a goroutine of its own.
+func cancelOnWatch(
+	t *testing.T, conn *nats.Conn, sm *natskv.SessionManager[testSession],
+) context.Context {
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	subscriptions := conn.NumSubscriptions()
+	natskv.WrapKV(sm, func(kv nats.KeyValue) nats.KeyValue {
+		return &watchHookKV{KeyValue: kv, fn: func(w nats.KeyWatcher) {
+			cancel()
+			if w.Context() == nil {
+				return
+			}
+			require.Eventually(t, func() bool {
+				return conn.NumSubscriptions() == subscriptions
+			}, time.Second, time.Millisecond)
+		}}
+	})
+	return ctx
+}
+
+// TestCloseAllUserSessionsOutlivesContext tests a revocation whose context ends
+// during the call, as a request context does when the client disconnects.
+// A watch that carries the context ends with the keys nats.go has buffered by then,
+// and every session after them would keep authenticating.
+func TestCloseAllUserSessionsOutlivesContext(t *testing.T) {
+	conn := setupNATS(t)
+	sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "CLOSEALL_CTX"},
+	})
+	require.NoError(t, err)
+	cookies := createSessions(t, sm, beyondWatchBuffer, time.Time{})
+
+	closed, err := sm.CloseAllUserSessions(cancelOnWatch(t, conn, sm), nil, "alice")
+	require.NoError(t, err)
+	require.Len(t, closed, len(cookies))
+	for _, c := range cookies {
+		_, _, ok, err := sm.ReadSessionFromCookie(c)
+		require.NoError(t, err)
+		require.False(t, ok, "a session the revocation reported closed still authenticates")
+	}
+}
+
+// TestContextEndsDuringReplay tests the calls that read every session of a user,
+// or of the bucket, when their context ends during the read. nats.go ends the
+// watch with the keys it has buffered by then and no error of its own.
+func TestContextEndsDuringReplay(t *testing.T) {
+	conn := setupNATS(t)
+
+	for name, tc := range map[string]struct {
+		expiresAt time.Time
+		call      func(context.Context, *natskv.SessionManager[testSession]) error
+	}{
+		"UserSessions": {
+			call: func(ctx context.Context, sm *natskv.SessionManager[testSession]) error {
+				_, err := sm.UserSessions(ctx, "alice")
+				return err
+			},
+		},
+		"DeleteExpired": {
+			expiresAt: time.Now().Add(-time.Hour),
+			call: func(ctx context.Context, sm *natskv.SessionManager[testSession]) error {
+				_, err := sm.DeleteExpired(ctx)
+				return err
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{
+				EncryptionKey: validKey(),
+				KVConfig:      nats.KeyValueConfig{Bucket: "REPLAY_CTX_" + name},
+			})
+			require.NoError(t, err)
+			createSessions(t, sm, beyondWatchBuffer, tc.expiresAt)
+
+			err = tc.call(cancelOnWatch(t, conn, sm), sm)
+			require.ErrorIs(t, err, context.Canceled)
+		})
+	}
+}
+
+// TestUserSessionsConnectionClosed tests UserSessions when the NATS connection
+// closes during the read. nats.go ends the watch with the keys it has buffered
+// by then and no error of its own.
+func TestUserSessionsConnectionClosed(t *testing.T) {
+	conn := setupNATS(t)
+	sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "USERSESS_CONN_CLOSED"},
+	})
+	require.NoError(t, err)
+	createSessions(t, sm, beyondWatchBuffer, time.Time{})
+
+	natskv.WrapKV(sm, func(kv nats.KeyValue) nats.KeyValue {
+		return &watchHookKV{KeyValue: kv, fn: func(nats.KeyWatcher) { conn.Close() }}
+	})
+	_, err = sm.UserSessions(t.Context(), "alice")
+	require.Error(t, err)
+}
+
+// TestReplayStall tests the calls that read every session of a user, or of the bucket,
+// when no key arrives within the JetStream request timeout. nats.go ends
+// such a replay with the nil entry that ends a complete one, and puts
+// nats.ErrKeyWatcherTimeout on the error channel of the watcher.
+func TestReplayStall(t *testing.T) {
+	conn := setupNATS(t)
+	// A stall lasts as long as the request timeout, 5s by default.
+	const timeout = 200 * time.Millisecond
+	js, err := conn.JetStream(nats.MaxWait(timeout))
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	for name, call := range map[string]func(*natskv.SessionManager[testSession]) error{
+		"CloseAllUserSessions": func(sm *natskv.SessionManager[testSession]) error {
+			_, err := sm.CloseAllUserSessions(ctx, nil, "alice")
+			return err
+		},
+		"UserSessions": func(sm *natskv.SessionManager[testSession]) error {
+			_, err := sm.UserSessions(ctx, "alice")
+			return err
+		},
+		"DeleteExpired": func(sm *natskv.SessionManager[testSession]) error {
+			_, err := sm.DeleteExpired(ctx)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bucket := "REPLAY_STALL_" + name
+			sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{
+				EncryptionKey: validKey(),
+				KVConfig:      nats.KeyValueConfig{Bucket: bucket},
+			})
+			require.NoError(t, err)
+			createSessions(t, sm, beyondWatchBuffer, time.Now().Add(-time.Hour))
+
+			kv, err := js.KeyValue(bucket)
+			require.NoError(t, err)
+			natskv.WrapKV(sm, func(nats.KeyValue) nats.KeyValue {
+				return &watchHookKV{KeyValue: kv, fn: func(nats.KeyWatcher) {
+					// Nothing reads the watcher meanwhile: its buffer fills up,
+					// and no key arrives for longer than the timeout.
+					time.Sleep(2 * timeout)
+				}}
+			})
+			require.ErrorIs(t, call(sm), nats.ErrKeyWatcherTimeout)
+		})
+	}
+}
+
 // TestUserSessions tests the iterator a settings page reads: one entry per live
 // session of the user, and nothing for an unknown or empty user ID.
 func TestUserSessions(t *testing.T) {

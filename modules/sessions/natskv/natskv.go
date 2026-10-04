@@ -391,17 +391,20 @@ func (s *SessionManager[Data]) CloseSession(
 // They are the tokens [SessionManager.UserSessions] yields.
 // Only sees sessions that exist at call time;
 // sessions created during iteration are not closed.
+//
+// The end of ctx does not stop it. A request context ends when the client
+// disconnects, and a revocation cut short leaves the remaining sessions signed in.
+// The JetStream request timeout bounds each NATS request and each wait for the
+// next key of the user.
 func (s *SessionManager[Data]) CloseAllUserSessions(
-	ctx context.Context, buffer []string, userID string,
+	_ context.Context, buffer []string, userID string,
 ) ([]string, error) {
 	if userID == "" {
 		return buffer, ErrEmptyUserID
 	}
 	prefix := userKeyPattern(userID)
 	// The token is rebuilt from the key, so the payload is never read here.
-	opts := []nats.WatchOpt{
-		nats.IgnoreDeletes(), nats.Context(ctx), nats.MetaOnly(),
-	}
+	opts := []nats.WatchOpt{nats.IgnoreDeletes(), nats.MetaOnly()}
 	watcher, err := s.kv.Watch(prefix, opts...)
 	if err != nil {
 		return buffer, fmt.Errorf("watching user sessions: %w", err)
@@ -409,19 +412,48 @@ func (s *SessionManager[Data]) CloseAllUserSessions(
 	defer func() { _ = watcher.Stop() }()
 
 	var errs []error
-	for entry := range watcher.Updates() {
-		if entry == nil {
-			break
-		}
+	err = replay(watcher, func(entry nats.KeyValueEntry) {
 		kvKey := entry.Key()
 		if err := s.kv.Delete(kvKey); err != nil {
 			errs = append(errs, fmt.Errorf("deleting session %q: %w", kvKey, err))
-			continue
+			return
 		}
 		buffer = append(buffer, encrypt(s.aeads[0], s.nonceKey, []byte(kvKey)))
+	})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("watching user sessions: %w", err))
 	}
-
 	return buffer, errors.Join(errs...)
+}
+
+// errWatchEnded reports a watch that ended before its replay did,
+// which nats.go does when the connection closes.
+var errWatchEnded = errors.New("watch ended before replaying every key")
+
+// replay calls fn with each entry w replays: what the bucket holds under the
+// watched keys when the watch starts. It returns an error unless the replay ran
+// to its end. nats.go closes the updates channel when the context of w ends or
+// the connection closes. It also ends the replay early, with
+// [nats.ErrKeyWatcherTimeout] on [nats.KeyWatcher.Error], when no key arrives
+// within the JetStream request timeout.
+func replay(w nats.KeyWatcher, fn func(nats.KeyValueEntry)) error {
+	for entry := range w.Updates() {
+		if entry != nil {
+			fn(entry)
+			continue
+		}
+		// nats.go sends the error of a stalled replay before its nil entry.
+		select {
+		case err := <-w.Error():
+			return err
+		default:
+			return nil
+		}
+	}
+	if ctx := w.Context(); ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return errWatchEnded
 }
 
 // Session retrieves a session record by its encrypted token.
@@ -483,19 +515,15 @@ func (s *SessionManager[Data]) UserSessions(
 		rec   sessions.Record[Data]
 	}
 	var list []userSession
-	for entry := range watcher.Updates() {
-		if entry == nil {
-			break
-		}
-
+	err = replay(watcher, func(entry nats.KeyValueEntry) {
 		var kvRec kvRecord
 		if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
-			continue
+			return
 		}
 
 		var rec sessions.Record[Data]
 		if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
-			continue
+			return
 		}
 		// The prefix this scan runs over is the user, so the payload
 		// cannot name another one without the list contradicting itself.
@@ -505,6 +533,9 @@ func (s *SessionManager[Data]) UserSessions(
 			token: encrypt(s.aeads[0], s.nonceKey, []byte(entry.Key())),
 			rec:   rec,
 		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("watching user sessions: %w", err)
 	}
 
 	return func(yield func(string, sessions.Record[Data]) bool) {
@@ -609,29 +640,28 @@ func (s *SessionManager[Data]) DeleteExpired(ctx context.Context) (int, error) {
 	now := time.Now()
 	deleted := 0
 	var errs []error
-	for entry := range watcher.Updates() {
-		if entry == nil {
-			break // The replay of what the bucket holds ended.
-		}
-
+	err = replay(watcher, func(entry nats.KeyValueEntry) {
 		var kvRec kvRecord
 		if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
-			continue
+			return
 		}
 		var rec sessions.Record[Data]
 		if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
-			continue
+			return
 		}
 		if rec.ExpiresAt.IsZero() || now.Before(rec.ExpiresAt) {
-			continue
+			return
 		}
 
 		if err := s.kv.Delete(entry.Key()); err != nil {
 			errs = append(errs,
 				fmt.Errorf("deleting session %q: %w", entry.Key(), err))
-			continue
+			return
 		}
 		deleted++
+	})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("watching sessions: %w", err))
 	}
 	return deleted, errors.Join(errs...)
 }
