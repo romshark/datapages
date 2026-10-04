@@ -189,6 +189,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 			Addr:              p.Host,
 			Handler:           mux,
 			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
+			ErrorLog:          slog.NewLogLogger(c.logger.Handler(), slog.LevelError),
 		}
 	}
 	return c, nil
@@ -216,10 +217,7 @@ func (c *Core) Build() {
 	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
 	if c.httpServer.ErrorLog == nil {
-		c.httpServer.ErrorLog = slog.NewLogLogger(
-			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),
-			slog.LevelInfo,
-		)
+		c.httpServer.ErrorLog = slog.NewLogLogger(c.logger.Handler(), slog.LevelError)
 	}
 
 	if c.assetsFS != nil && c.assetsURLPrefix != "" {

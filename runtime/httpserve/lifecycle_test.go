@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
@@ -90,6 +91,68 @@ func TestListenAndServeTLS(t *testing.T) {
 		awaitGET(t, client, "https://"+addr+"/served/"))
 
 	shutdownAndWait(t, c, done, "ListenAndServeTLS")
+}
+
+// TestNetHTTPErrorsReachLogger tests that what net/http logs, here a panic it
+// recovered from a handler, reaches the logger of the core at error level.
+// Both servers of the core log this way: the application one and the metrics one.
+func TestNetHTTPErrorsReachLogger(t *testing.T) {
+	t.Parallel()
+
+	panicWith := func(v string) http.Handler {
+		return http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic(v) })
+	}
+	// The metrics server binds the address it is given and reports none back.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	metricsAddr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	var log buffer
+	reg := prometheus.NewRegistry()
+	c := mustCore(t, datapages.ServerConfig{
+		Logger: slog.New(slog.NewJSONHandler(&log, nil)),
+		Prometheus: &datapages.PrometheusConfig{
+			Host: metricsAddr, Registerer: reg, Gatherer: reg,
+			Handler: panicWith("metrics"),
+		},
+	}, "")
+	c.Mux().Handle("/panic/", panicWith("app"))
+	c.Build()
+
+	done := make(chan error, 1)
+	go func() { done <- c.ListenAndServe(t.Context(), "127.0.0.1:0") }()
+	addr := awaitAddr(t, c, done)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	// The metrics mux answers 404 off /metrics, which tells that the metrics
+	// server listens without running its handler.
+	require.Eventually(t, func() bool {
+		resp, err := client.Get("http://" + metricsAddr + "/")
+		if err != nil {
+			return false
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode == http.StatusNotFound
+	}, 5*time.Second, 10*time.Millisecond, "the metrics server never listened")
+
+	for _, url := range []string{
+		"http://" + addr + "/panic/",
+		"http://" + metricsAddr + "/metrics",
+	} {
+		resp, err := client.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		require.Error(t, err, "net/http answered %s, whose handler panics", url)
+	}
+
+	shutdownAndWait(t, c, done, "ListenAndServe")
+	logged := log.String()
+	for _, v := range []string{"app", "metrics"} {
+		require.Regexp(t,
+			`"level":"ERROR","msg":"http: panic serving [0-9.:]+: `+v+`\\n`, logged)
+	}
 }
 
 // awaitAddr returns the address the core bound. The bind happens before

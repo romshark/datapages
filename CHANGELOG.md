@@ -103,6 +103,7 @@ Run `datapages gen` to apply these.
 - Return from `natskv.SessionManager.UserSessions` an iterator that yields the sessions on every range, as `inmem` does. A second range yielded nothing, and an iterator never ranged kept a KV watcher subscribed until the context passed to `UserSessions` ended.
 - Return an error from `natskv.SessionManager.UserSessions` and `DeleteExpired` when their context ends, NATS stalls for 5s or the connection closes during the call. `UserSessions` returned the sessions read by then as the complete list, and `DeleteExpired` returned nil with expired sessions left in the bucket.
 - Report a token that can't be decrypted as `sessions.ErrSessionNotFound` in `natskv.SessionManager.Session`, as `inmem` does. This includes forged tokens and cookies encrypted with a key that is no longer in `PreviousEncryptionKeys`. Before, `errors.Is(err, sessions.ErrSessionNotFound)` was false for them.
+- Send what net/http logs, such as a panic in a handler or a failed TLS handshake, to the logger set with `datapages.WithLogger`, at error level. It went to stderr as JSON at info level, and the metrics server of `datapages.WithPrometheus` wrote it as plain text. A server passed to `datapages.WithHTTPServer` keeps its own `ErrorLog` if it sets one.
 
 #### `datapages init`
 
