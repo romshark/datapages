@@ -352,34 +352,38 @@ func earliestPkgPos(pkg *packages.Package) token.Position {
 	return best
 }
 
-// posFromPackagesError reads the "file:line:col" of a [packages.Error].
+// posFromPackagesError reads the "file:line:col" or "file:line" of a [packages.Error].
 // A field it cannot read stays zero.
 //
-// The parse cuts from the right, hence a Windows drive letter in
+// The parse cuts numbers from the right, hence a Windows drive letter in
 // "C:\x\y\z.go:12:3" is not mistaken for the line.
 func posFromPackagesError(pe packages.Error) token.Position {
-	s := pe.Pos
-	if s == "" {
+	if pe.Pos == "" {
 		return token.Position{}
 	}
+	file, last, ok := cutNumber(pe.Pos)
+	if !ok {
+		return normPos(token.Position{Filename: file})
+	}
+	file, line, ok := cutNumber(file)
+	if !ok {
+		// A single number is the line: the column is what go/packages leaves out.
+		return normPos(token.Position{Filename: file, Line: last})
+	}
+	return normPos(token.Position{Filename: file, Line: line, Column: last})
+}
 
+// cutNumber cuts a ":n" suffix off s. ok is false when s ends in anything else.
+func cutNumber(s string) (rest string, n int, ok bool) {
 	i := strings.LastIndexByte(s, ':')
 	if i < 0 {
-		return normPos(token.Position{Filename: s})
+		return s, 0, false
 	}
-	colStr := s[i+1:]
-	s = s[:i]
-
-	j := strings.LastIndexByte(s, ':')
-	if j < 0 {
-		return normPos(token.Position{Filename: s})
+	n, err := strconv.Atoi(s[i+1:])
+	if err != nil {
+		return s, 0, false
 	}
-	lineStr := s[j+1:]
-	file := s[:j]
-
-	line, _ := strconv.Atoi(lineStr)
-	col, _ := strconv.Atoi(colStr)
-	return normPos(token.Position{Filename: file, Line: line, Column: col})
+	return s[:i], n, true
 }
 
 type errorEntry struct {

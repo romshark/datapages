@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -606,7 +607,8 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	require.Equal(
 		`conflicting route: PageIndex.POSTOther cannot serve "POST /same/{$}", `+
 			"PageIndex.POSTSame already serves it",
-		conflict.Error())
+		conflict.Error(),
+	)
 }
 
 // TestParse_ErrFieldTypeUnexported tests a path, query and signals field of
@@ -3303,6 +3305,31 @@ func TestParse_ErrAssetsEmbedNotDir(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, errs := parse(t, fixture)
 			requireParseErrors(t, errs, parser.ErrAssetsEmbedPatterns)
+		})
+	}
+}
+
+// TestPosFromPackagesError tests the positions go/packages reports a load error at,
+// "file:line:col", "file:line" and a file alone, on Unix and Windows paths.
+// A single number is the line, and a drive letter is part of the file name.
+func TestPosFromPackagesError(t *testing.T) {
+	for name, tt := range map[string]struct {
+		pos       string
+		file      string
+		line, col int
+	}{
+		"line and column":         {"/a/b/app.go:12:3", "/a/b/app.go", 12, 3},
+		"line":                    {"/a/b/app.go:12", "/a/b/app.go", 12, 0},
+		"file":                    {"/a/b/app.go", "/a/b/app.go", 0, 0},
+		"windows line and column": {`C:\a\b\app.go:12:3`, `C:\a\b\app.go`, 12, 3},
+		"windows line":            {`C:\a\b\app.go:12`, `C:\a\b\app.go`, 12, 0},
+		"windows file":            {`C:\a\b\app.go`, `C:\a\b\app.go`, 0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t,
+				// Errors carry the base name, which depends on the OS for a Windows path.
+				token.Position{Filename: filepath.Base(tt.file), Line: tt.line, Column: tt.col},
+				parser.PosFromPackagesError(packages.Error{Pos: tt.pos}))
 		})
 	}
 }

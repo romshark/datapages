@@ -75,6 +75,7 @@ Run `datapages gen` to apply these.
 - Report a problem in a `datapages.NewServer` call with a path relative to the module root, as every other error is. A wrong number of type arguments, a wrong `Metrics` type argument and a file that does not parse were reported with an absolute path.
 - Check the attributes inside a conditional attribute of a `.templ` file, as in `<a if ok { href="/login" }>`, in both branches. A hardcoded `href`, a form `action`, a hardcoded Datastar action URL or an action of another page went unreported there.
 - Include the HTTP method in the action names that route errors show, as in `PageUser.DELETEFollow`. Before, they showed `PageUser.Follow`, which could also mean `PageUser.POSTFollow`.
+- Show the line number of a Go build error that comes without a column. Before, it showed line 0, and on Windows the drive letter as the file name.
 
 #### Generated code
 
