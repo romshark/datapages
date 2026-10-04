@@ -16,6 +16,10 @@ type CSRFScriptWriter interface {
 
 // HTMLDocument is the page [Core.WriteHTML] writes. Every field may be zero.
 type HTMLDocument struct {
+	// Status is the status code [Core.WriteHTML] writes after the headers it sets.
+	// Zero leaves it to the first write, which sends 200.
+	Status int
+
 	// CSRF writes the CSRF script into the head.
 	// Nil for an application that declares no session type.
 	CSRF CSRFScriptWriter
@@ -23,6 +27,8 @@ type HTMLDocument struct {
 	// SessionToken is the token the CSRF script sends with actions from this document.
 	// It must match the session cookie those actions will send. Leave it empty when
 	// the actions will send no session cookie or when visitors share the document.
+	// A document with a token is sent with Cache-Control: private,
+	// unless the response already has a Cache-Control header.
 	SessionToken string
 
 	// HeadGeneric is what the application-wide head generator renders.
@@ -50,6 +56,15 @@ type HTMLDocument struct {
 func (c *Core) WriteHTML(
 	w http.ResponseWriter, r *http.Request, doc HTMLDocument,
 ) error {
+	if doc.SessionToken != "" && w.Header().Get("Cache-Control") == "" {
+		// The CSRF script carries a token derived from the session.
+		// A shared cache would serve it to the next visitor, whose actions
+		// it fails with 403.
+		w.Header().Set("Cache-Control", "private")
+	}
+	if doc.Status != 0 {
+		w.WriteHeader(doc.Status)
+	}
 	head, datastarScript := c.htmlOpening(r)
 	if doc.WriteHeadPrologue == nil {
 		if _, err := io.WriteString(w, head+datastarScript); err != nil {

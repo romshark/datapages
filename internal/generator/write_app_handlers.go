@@ -492,11 +492,12 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	}
 
 	w.Line(0, "")
+	status := "http.StatusOK"
 	if isPageError500(p, m) {
-		w.Line(1, "w.WriteHeader(status)")
+		status = "status"
 	}
 	w.Line(1, "if err := s.writeHTML(")
-	w.Raw("\t\tw, r, ")
+	w.Raw("\t\tw, r, " + status + ", ")
 	if m.Session != nil {
 		w.Raw(getSessArg)
 		w.Raw(", ")
@@ -1898,7 +1899,7 @@ func (w *Writer) writeActionMethodCall(
 				actionSessionInScope(h, m))
 		}
 		w.Line(1, "if err := s.writeHTML(")
-		w.Raw("\t\tw, r, ")
+		w.Raw("\t\tw, r, http.StatusOK, ")
 		if m.Session != nil {
 			w.Raw(actSessArg)
 			w.Raw(", ")

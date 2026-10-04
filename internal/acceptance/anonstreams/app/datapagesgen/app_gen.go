@@ -51,6 +51,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	sessionToken string,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
@@ -58,6 +59,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:       status,
 		CSRF:         s.Manager,
 		SessionToken: sessionToken,
 		HeadGeneric:  headGeneric,
@@ -623,7 +625,7 @@ func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageBackground", err)
 		return
@@ -790,7 +792,7 @@ func (s pageBackgroundPostHandlers) GET(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageBackgroundPost", err)
 		return
@@ -933,7 +935,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -974,7 +976,7 @@ func (s pagePanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PagePanic", err)
 		return
@@ -1175,7 +1177,7 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PagePost", err)
 		return
@@ -1327,7 +1329,7 @@ func (s pageRoomsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageRooms", err)
 		return
@@ -1578,7 +1580,7 @@ func (s pageTabsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageTabs", err)
 		return

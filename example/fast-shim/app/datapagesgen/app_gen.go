@@ -152,7 +152,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 			body = withShimHydrate(body)
 		}
 		if err := c.s.writeHTML(
-			&buf, c.r, c.s.pageCacheHead(c.r), nil, body, nil, nil,
+			&buf, c.r, http.StatusOK, c.s.pageCacheHead(c.r), nil, body, nil, nil,
 		); err != nil {
 			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
 		}
@@ -267,12 +267,14 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		HeadGeneric:     headGeneric,
 		Head:            head,
 		Body:            body,
@@ -428,7 +430,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -450,7 +452,7 @@ func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageNoShim", err)
 		return
@@ -472,7 +474,7 @@ func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageNoShim2", err)
 		return
@@ -495,7 +497,7 @@ func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSubpage", err)
 		return

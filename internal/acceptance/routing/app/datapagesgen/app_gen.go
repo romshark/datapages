@@ -53,12 +53,14 @@ func textOf(v encoding.TextMarshaler) string {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -259,7 +261,7 @@ func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageConflict", err)
 		return
@@ -286,7 +288,7 @@ func (s pageFilesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageFiles", err)
 		return
@@ -316,7 +318,7 @@ func (s pageFilesEmbeddedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageFilesEmbedded", err)
 		return
@@ -342,7 +344,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -437,7 +439,7 @@ func (s pageIntsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageInts", err)
 		return
@@ -490,7 +492,7 @@ func (s pageMixedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageMixed", err)
 		return
@@ -557,7 +559,7 @@ func (s pagePathHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PagePath", err)
 		return
@@ -650,7 +652,7 @@ func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageQuery", err)
 		return
@@ -739,7 +741,7 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageReflect", err)
 		return
@@ -791,7 +793,7 @@ func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageShop", err)
 		return
@@ -836,7 +838,7 @@ func (s pageSlugHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSlug", err)
 		return
@@ -861,7 +863,7 @@ func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, head, body, nil, nil,
+		w, r, http.StatusOK, head, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageTitled", err)
 		return
@@ -927,7 +929,7 @@ func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageWhen", err)
 		return

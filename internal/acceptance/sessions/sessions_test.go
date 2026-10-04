@@ -85,6 +85,13 @@ func (s server) client(t *testing.T) *client {
 
 func (c *client) get(t *testing.T, path string) (int, string) {
 	t.Helper()
+	status, _, body := c.getResponse(t, path)
+	return status, body
+}
+
+// getResponse is get with the header of the response.
+func (c *client) getResponse(t *testing.T, path string) (int, http.Header, string) {
+	t.Helper()
 	req, err := http.NewRequestWithContext(
 		context.Background(), http.MethodGet, c.srv.URL+path, nil,
 	)
@@ -101,7 +108,7 @@ func (c *client) get(t *testing.T, path string) (int, string) {
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
 	}
-	return resp.StatusCode, string(b)
+	return resp.StatusCode, resp.Header, string(b)
 }
 
 // post sends an action request carrying the visitor's CSRF token.
@@ -261,6 +268,32 @@ func TestAnonymous(t *testing.T) {
 		}
 		if c.cookie(t) != nil {
 			t.Error("a visitor with no session was given a session cookie")
+		}
+	})
+}
+
+// TestDocumentCacheControl tests the cache header of a document. One rendered
+// for a session carries a CSRF token derived from it, which a shared cache would
+// serve to the next visitor, whose actions then fail with 403: it is private.
+// The 404 page, which has a status of its own to send, is private too.
+// A guest's document carries no token and stays cacheable.
+func TestDocumentCacheControl(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+
+		_, header, _ := srv.client(t).getResponse(t, "/")
+		require.Empty(t, header.Get("Cache-Control"), "the page of a guest")
+
+		c := srv.client(t)
+		c.signIn(t, "alice", "Alice")
+		for path, wantStatus := range map[string]int{
+			"/":         http.StatusOK,
+			"/missing/": http.StatusNotFound,
+		} {
+			status, header, body := c.getResponse(t, path)
+			require.Equal(t, wantStatus, status, "%s\n%s", path, body)
+			require.Equal(t, "private", header.Get("Cache-Control"), path)
 		}
 	})
 }

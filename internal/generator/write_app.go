@@ -332,7 +332,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 			body = withShimHydrate(body)
 		}
 		if err := c.s.writeHTML(
-			&buf, c.r, `)
+			&buf, c.r, http.StatusOK, `)
 	if m.Session != nil {
 		// One cached copy serves every visitor. Render it without a CSRF script.
 		w.Raw(`"", `)
@@ -513,6 +513,7 @@ func (w *Writer) writeAppWriteHTML(m *model.App) {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 `)
 	if m.Session != nil {
 		w.Raw(`	sessionToken string,
@@ -529,6 +530,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 `)
 	if m.Session != nil {
 		w.Raw(`		CSRF:            s.Manager,
@@ -1947,7 +1949,7 @@ func (w *Writer) writeMethodCall(
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
-		w.Raw("\t\tw, r, ")
+		w.Raw("\t\tw, r, http.StatusOK, ")
 		if m.Session != nil {
 			w.Raw(actSessArg)
 			w.Raw(", ")
@@ -2210,15 +2212,15 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		headArg = outputVar(p.GET.OutputHead.Output)
 	}
 
+	// render404 sends its status with the document, not when it starts.
+	// The branches above send a status of their own, 302 for a redirect and an
+	// error status for an error or a panic, and ReadSession may still clear the cookie.
+	status := "http.StatusOK"
 	if context == "render404" {
-		// Write the status here, not when render404 starts. The branches
-		// above send a status of their own, 302 for a redirect and an error
-		// status for an error or a panic, and ReadSession may still clear the cookie.
-		w.Line(1, "w.WriteHeader(http.StatusNotFound)")
+		status = "http.StatusNotFound"
 	}
-
 	w.Line(1, "if err := s.writeHTML(")
-	w.Raw("\t\tw, r, ")
+	w.Raw("\t\tw, r, " + status + ", ")
 	if m.Session != nil {
 		// PageOffline omits the CSRF script even if its handler reads a session.
 		// The worker precaches one copy for every visitor.

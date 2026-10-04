@@ -59,6 +59,7 @@ func textOf(v encoding.TextMarshaler) string {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
@@ -66,6 +67,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		CSRF:            s.Manager,
 		SessionToken:    sessionToken,
 		Head:            head,
@@ -274,7 +276,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -402,7 +404,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageItem", err)
 		return

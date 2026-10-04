@@ -140,6 +140,42 @@ func TestWriteHTMLError(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLCacheControl tests the cache header and the status of a document.
+// A document with a session token is private: a shared cache would serve the CSRF
+// token in it to the next visitor. A Cache-Control the response already has stays,
+// such as the no-store of a stateful page. The recorder snapshots the header when
+// the status is written, which it has to come before.
+func TestWriteHTMLCacheControl(t *testing.T) {
+	t.Parallel()
+
+	c := builtCore(t)
+	for name, tc := range map[string]struct {
+		token, before, want string
+	}{
+		"session":          {token: "tok", want: "private"},
+		"no session":       {},
+		"already no-store": {token: "tok", before: "no-store", want: "no-store"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			if tc.before != "" {
+				w.Header().Set("Cache-Control", tc.before)
+			}
+			err := c.WriteHTML(w, httptest.NewRequest(http.MethodGet, "/", nil),
+				httpserve.HTMLDocument{
+					Status:       http.StatusNotFound,
+					CSRF:         csrfScript{},
+					SessionToken: tc.token,
+				})
+			require.NoError(t, err)
+			res := w.Result()
+			require.Equal(t, http.StatusNotFound, res.StatusCode)
+			require.Equal(t, tc.want, res.Header.Get("Cache-Control"))
+		})
+	}
+}
+
 // TestCheckDatastarRequest tests the guard on the action endpoints. A request without
 // the Datastar-Request header is answered 406 and the handler is skipped:
 // those endpoints only ever produce SSE.

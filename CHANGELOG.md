@@ -95,6 +95,7 @@ Run `datapages gen` to apply these.
 - Keep the SSE streams of a page with both public and user-addressed events open while the tab is hidden when its `GET` returns `enableBackgroundStreaming` set to `true`, for signed-in visitors and guests alike. Such a page dropped its reload on visibility but still closed its stream, which left it without the events published while the tab was hidden.
 - Escape a `'` in a route, as in `// PageAuthor is /o'reilly`, where the generated code writes the route into JavaScript strings: the page's stream URL, its action expressions and the URL a `reflectsignal` query field rewrites. The quote ended the string, which left the stream and the actions of such a page failing with a syntax error in the browser.
 - Recover a panic in an `OnXXX` handler on the stream that a page with both public and user-addressed events serves to signed-out visitors, as the stream of signed-in visitors does. The panic dropped the connection, skipped `StreamClose` and never reached `RecoverError`, which leaked per-tab state that `StreamOpen` registered for every such guest.
+- Send `Cache-Control: private` with a page rendered for a signed-in visitor, the 404 and error pages included, unless the response already has a `Cache-Control` header. Such a page carries a CSRF token derived from the session. A shared cache that stored the page served it to other visitors, and their actions failed with 403.
 
 #### Runtime and modules
 

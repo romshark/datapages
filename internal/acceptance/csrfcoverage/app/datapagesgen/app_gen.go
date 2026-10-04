@@ -44,6 +44,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
@@ -51,6 +52,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		CSRF:            s.Manager,
 		SessionToken:    sessionToken,
 		Head:            head,
@@ -335,9 +337,8 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
-	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, http.StatusNotFound, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -390,7 +391,7 @@ func (s pageAboutHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageAbout", err)
 		return
@@ -417,7 +418,7 @@ func (s pageAboutHandlers) POSTPreview(
 		return
 	}
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageAbout.POSTPreview", err)
 		return
@@ -438,7 +439,7 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageBoom", err)
 		return
@@ -464,7 +465,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -494,9 +495,8 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 		return
 	}
 
-	w.WriteHeader(status)
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, status, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
 		return
@@ -533,7 +533,7 @@ func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageInbox", err)
 		return
@@ -630,7 +630,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -721,7 +721,7 @@ func (s pageIndexHandlers) QUERYCount(
 		return
 	}
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageIndex.QUERYCount", err)
 		return
