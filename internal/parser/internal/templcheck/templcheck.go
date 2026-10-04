@@ -343,7 +343,7 @@ func (c *checker) walkChildren(filename string, nodes []templparser.Node) {
 			continue
 		case *templparser.Element:
 			if !prevIsNolint {
-				c.checkElementAttrs(filename, n)
+				c.checkElementAttrs(filename, n.Name, n.Attributes)
 			}
 			c.walkChildren(filename, n.Children)
 		case templparser.CompositeNode:
@@ -353,9 +353,16 @@ func (c *checker) walkChildren(filename string, nodes []templparser.Node) {
 	}
 }
 
-func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
-	for _, attr := range el.Attributes {
+// checkElementAttrs checks attrs, the attributes of an element named elName.
+func (c *checker) checkElementAttrs(
+	filename, elName string, attrs []templparser.Attribute,
+) {
+	for _, attr := range attrs {
 		switch a := attr.(type) {
+		case *templparser.ConditionalAttribute:
+			// Either branch can render.
+			c.checkElementAttrs(filename, elName, a.Then)
+			c.checkElementAttrs(filename, elName, a.Else)
 		case *templparser.ConstantAttribute:
 			key, ok := a.Key.(templparser.ConstantAttributeKey)
 			if !ok {
@@ -363,12 +370,12 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 			}
 			switch key.Name {
 			case "href":
-				if el.Name != "a" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
+				if elName != "a" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
 					continue
 				}
 				c.errFn(posFromRange(filename, a.Range), &HrefRelativeError{URL: a.Value})
 			case "action":
-				if el.Name != "form" {
+				if elName != "form" {
 					continue
 				}
 				c.errFn(posFromRange(filename, a.Range), &FormActionError{})
@@ -390,7 +397,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 			exprAST, parseErr := goparser.ParseExpr(a.Expression.Value)
 			switch key.Name {
 			case "href":
-				if el.Name != "a" {
+				if elName != "a" {
 					continue
 				}
 				if parseErr != nil {
@@ -407,7 +414,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 					)
 				}
 			case "action":
-				if el.Name != "form" {
+				if elName != "form" {
 					continue
 				}
 				c.errFn(exprPos, &FormActionError{})
@@ -949,7 +956,7 @@ func (c *checker) collectTemplCalls(nodes []templparser.Node, fi *funcInfo) {
 			}
 			c.collectActionRefs(n.Expression, fi)
 		case *templparser.Element:
-			c.collectElementActionRefs(n, fi)
+			c.collectElementActionRefs(n.Attributes, fi)
 			c.collectTemplCalls(n.Children, fi)
 		case *templparser.StringExpression:
 			c.collectActionRefs(n.Expression, fi)
@@ -985,15 +992,17 @@ func (c *checker) collectActionRefs(expr templparser.Expression, fi *funcInfo) {
 	})
 }
 
-// collectElementActionRefs scans an element's expression attributes for
-// action.XXX() references.
-func (c *checker) collectElementActionRefs(el *templparser.Element, fi *funcInfo) {
-	for _, attr := range el.Attributes {
-		ea, ok := attr.(*templparser.ExpressionAttribute)
-		if !ok {
-			continue
+// collectElementActionRefs scans the expression attributes of an element,
+// in either branch of a conditional attribute too, for action.XXX() references.
+func (c *checker) collectElementActionRefs(attrs []templparser.Attribute, fi *funcInfo) {
+	for _, attr := range attrs {
+		switch a := attr.(type) {
+		case *templparser.ExpressionAttribute:
+			c.collectActionRefs(a.Expression, fi)
+		case *templparser.ConditionalAttribute:
+			c.collectElementActionRefs(a.Then, fi)
+			c.collectElementActionRefs(a.Else, fi)
 		}
-		c.collectActionRefs(ea.Expression, fi)
 	}
 }
 

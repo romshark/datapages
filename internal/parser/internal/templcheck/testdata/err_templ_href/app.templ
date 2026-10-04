@@ -79,4 +79,10 @@ templ page(dynamicValue string) {
 	<a href={ urls.LoginURL }>Imported internal</a>
 	/* ErrExternalWithInternal: href.External with imported internal constant */
 	<a href={ href.External(urls.InternalURL) }>Bad external imported</a>
+	/* ErrHardcodedHref: in a conditional attribute */
+	<a if dynamicValue != "" { href="/conditional" }>Conditional</a>
+	/* ErrHardcodedHref: in the else branch of a conditional attribute */
+	<a if dynamicValue != "" { href="https://example.com" } else { href={ "/fallback" } }>Else</a>
+	/* ErrHardcodedHref: in a conditional attribute nested in another */
+	<a if dynamicValue != "" { if dynamicValue != "x" { href="/nested-conditional" } }>Nested</a>
 }

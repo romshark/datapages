@@ -105,8 +105,9 @@ func check(t *testing.T, fixtureName string, app *model.App) []posErr {
 // TestCheck_ErrHref tests every href the linter refuses in the
 // err_templ_href fixture: a relative URL written by hand instead of through the
 // generated href package, an expression it cannot verify, and an external href
-// handed a relative URL. Positions are asserted, since the position is what
-// sends the developer to the line.
+// handed a relative URL. An href in either branch of a conditional attribute
+// counts as well. Positions are asserted, since the position is what sends the
+// developer to the line.
 func TestCheck_ErrHref(t *testing.T) {
 	errs := check(t, "err_templ_href", nil)
 
@@ -142,6 +143,9 @@ func TestCheck_ErrHref(t *testing.T) {
 		{77, 5, templcheck.HrefRelativeError{URL: "/should-error"}},
 		{79, 12, templcheck.HrefRelativeError{URL: "/login-imported"}},
 		{81, 12, templcheck.HrefExternalIsRelativeError{URL: "/internal-imported"}},
+		{83, 29, templcheck.HrefRelativeError{URL: "/conditional"}},
+		{85, 72, templcheck.HrefRelativeError{URL: "/fallback"}},
+		{87, 54, templcheck.HrefRelativeError{URL: "/nested-conditional"}},
 	}
 
 	require.Equal(t, expect, toPosErrors(errs))
@@ -189,6 +193,7 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	// action.POSTPageProfileSave() in profilePage is OK (own page).
 	// The nolinted PageProfile.Save.POST() at line 33 is still flagged:
 	// nolint suppresses element-level checks but NOT ownership checks.
+	// The one at line 39 is in a conditional attribute.
 
 	expect := []posError{
 		{11, 17, templcheck.FormActionError{}},
@@ -201,6 +206,11 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 		}},
 		{28, 17, templcheck.FormActionError{}},
 		{33, 17, templcheck.ActionWrongPageError{
+			ActionFunc: "PageProfile.Save.POST",
+			PageType:   "PageSettings",
+			OwnerPage:  "PageProfile",
+		}},
+		{39, 20, templcheck.ActionWrongPageError{
 			ActionFunc: "PageProfile.Save.POST",
 			PageType:   "PageSettings",
 			OwnerPage:  "PageProfile",
