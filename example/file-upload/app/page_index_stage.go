@@ -98,12 +98,24 @@ func (p PageIndex) POSTStart(
 		return fmt.Errorf("%w: reading form: %w", datapages.ErrBadRequest, err)
 	}
 	pending := state.Values.Pending
+
+	// The names are cleaned before the store changes: [PageIndex.continueUpload]
+	// requires it, and a dialog refused for one name creates none of its files.
+	names := make([]string, len(pending))
+	for i := range pending {
+		name, err := store.CleanName(r.PostForm.Get(nameField(i)))
+		if err != nil {
+			return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
+		}
+		names[i] = name
+	}
+
 	jobs := make([]UploadJob, 0, len(pending))
 	for i, f := range pending {
 		// One job per picked file and in the order they were picked:
 		// that is how the uploader pairs them with the File objects it holds.
 		if f.MatchID != "" && r.PostForm.Get(dupField(i)) != dupSeparate {
-			job, err := p.continueUpload(f.MatchID, r.PostForm.Get(nameField(i)), stateID)
+			job, err := p.continueUpload(f.MatchID, names[i], stateID)
 			if err == nil {
 				jobs = append(jobs, job)
 				continue
@@ -115,9 +127,7 @@ func (p PageIndex) POSTStart(
 				return err
 			}
 		}
-		created, err := p.App.files.Create(
-			r.PostForm.Get(nameField(i)), f.Name, f.ContentType, f.Size,
-		)
+		created, err := p.App.files.Create(names[i], f.Name, f.ContentType, f.Size)
 		if err != nil {
 			return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 		}
@@ -140,6 +150,10 @@ func (p PageIndex) POSTStart(
 
 // continueUpload hands an unfinished upload to the tab named by stateID under
 // the name the dialog carries, and reports where its bytes continue.
+//
+// The caller passes name through [store.CleanName] first. The upload changes
+// tabs before it is renamed, and a name refused at that point would leave it with
+// a tab that sends nothing while the tab sending it could no longer pause or resume it.
 func (p PageIndex) continueUpload(id, name, stateID string) (UploadJob, error) {
 	if _, err := p.App.files.SetOwner(id, stateID); err != nil {
 		return UploadJob{}, err

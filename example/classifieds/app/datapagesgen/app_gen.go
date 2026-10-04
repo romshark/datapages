@@ -2053,6 +2053,8 @@ func (s pageSettingsHandlers) POSTSave(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
+
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageSettings.Save")
 	p := dpapp.PageSettings{
 		App: s.app,
@@ -2060,7 +2062,7 @@ func (s pageSettingsHandlers) POSTSave(
 			App: s.app,
 		},
 	}
-	newSession, redirect, err := p.POSTSave(r, sess, signals)
+	newSession, redirect, err := p.POSTSave(r, sess, signals, dispatchSessionClosed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageSettings.Save", err)
 		return

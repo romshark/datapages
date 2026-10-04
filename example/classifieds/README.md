@@ -2,17 +2,11 @@
 
 A demo application resembling an online classifieds marketplace.
 
-The code you'd write is in
-[app](https://github.com/romshark/datapages/tree/main/example/classifieds/app)
-(the "source package").
-The code that the generator produces is in
-[datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/app/datapagesgen).
+The code you'd write is in [app](https://github.com/romshark/datapages/tree/main/example/classifieds/app) (the "source package"). The code that the generator produces is in [datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/app/datapagesgen).
 
 ## Prerequisites
 
-A running Docker daemon. `make dev` and `make stage` start NATS, Prometheus and
-Grafana as containers and stop them again on `make down`.
-The `datapages` CLI has to be on `PATH`, `make dev` runs `datapages watch`.
+A running Docker daemon. `make dev` and `make stage` start NATS, Prometheus and Grafana as containers and stop them again on `make down`. The `datapages` CLI has to be on `PATH`, `make dev` runs `datapages watch`.
 
 ## Development Mode
 
@@ -21,14 +15,11 @@ make dev
 ```
 
 You can then access:
-- Preview: http://localhost:7331/ (the live-reload proxy of `datapages watch`;
-  the app itself listens on http://localhost:52000/, see `.env.dev`)
+- Preview: http://localhost:7331/ (the live-reload proxy of `datapages watch`; the app itself listens on http://localhost:52000/, see `.env.dev`)
 - Grafana Dashboards: http://localhost:3000/
 - Prometheus UI: http://localhost:9091/
 
-You can install [k6](https://k6.io/) and run `make load` in the background
-to generate random traffic.
-Increase the number of virtual users (`VU`) to apply more load to the server when needed.
+You can install [k6](https://k6.io/) and run `make load` in the background to generate random traffic. Increase the number of virtual users (`VU`) to apply more load to the server when needed.
 
 ## Load Tests
 
@@ -54,11 +45,7 @@ LOAD_ENV=./.env.stage make load-smoke-search
 
 ### Tuning
 
-- `VUS` — number of **virtual users**. Each VU is an independent worker that
-  runs the scenario in a loop (one request, wait, next request). `VUS=50`
-  means 50 such loops running in parallel, so up to 50 requests can be in
-  flight at once. This is the main knob for how much load the server sees.
-  Default is `10`.
+- `VUS` — number of **virtual users**. Each VU is an independent worker that runs the scenario in a loop (one request, wait, next request). `VUS=50` means 50 such loops running in parallel, so up to 50 requests can be in flight at once. This is the main knob for how much load the server sees. Default is `10`.
 - `DURATION` — how long to run (`30s`, `2m`, `1h`). Default is `1m`.
 
 ```sh

@@ -544,14 +544,19 @@ func (s *Server) httpErrIntern(
 		}
 		return
 	}
-	if sse != nil {
-		// The stream is open, hence no status is left to send.
+	if sse == nil {
+		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
+		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+	}
+	errRecover := s.app.RecoverError(err, dpsse.New(sse))
+	if errRecover == nil {
 		return
 	}
-	if httpserve.ResponseBodyWritten(w) {
-		return
-	}
-	httpserve.WriteErrStatus(w, err)
+	// An HTTP error here would append plain text to the open SSE stream.
+	s.Logger().Error("recovering error",
+		slog.Any("orig.msg", msg),
+		slog.Any("orig.err", err),
+		slog.Any("err", errRecover))
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {

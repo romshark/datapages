@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -16,6 +17,10 @@ import (
 )
 
 type Session = datapages.Session[struct{}]
+
+// sessionLifetime is how long a sign-in lasts. The session cookie lasts as long,
+// which keeps the visitor signed in across browser restarts.
+const sessionLifetime = 30 * 24 * time.Hour
 
 type Metrics struct {
 	LoginSubmissions *prometheus.CounterVec

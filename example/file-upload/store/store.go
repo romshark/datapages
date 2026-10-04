@@ -309,17 +309,27 @@ func (s *Store) Rename(id, name string) (File, error) {
 		return File{}, err
 	}
 	s.lock.Lock()
+	defer s.lock.Unlock()
+	e, ok := s.entries[id]
+	if !ok {
+		return File{}, ErrNotFound
+	}
 	unique := s.uniqueNameLocked(name, id)
-	s.lock.Unlock()
-	return s.mutate(id, func(f *File) error {
-		f.Name = unique
-		return s.writeMeta(*f)
-	})
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.file.Name = unique
+	if err := s.writeMeta(e.file); err != nil {
+		return File{}, err
+	}
+	return e.file, nil
 }
 
 // uniqueNameLocked counts a name up until no other file carries it,
 // so that the list never shows two rows a visitor cannot tell apart.
 // except is the file that may keep the name it already has.
+//
+// The caller assigns the name before it releases the store lock. Otherwise a
+// Create or Rename that picks before the assignment arrives at the same name.
 func (s *Store) uniqueNameLocked(name, except string) string {
 	taken := make(map[string]bool, len(s.entries))
 	for id, e := range s.entries {

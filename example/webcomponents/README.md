@@ -23,10 +23,7 @@ custom-watchers:
     requires: reload
 ```
 
-[`js/build.mjs`](./js/build.mjs) bundles
-[`js/src/index.ts`](./js/src/index.ts) into `app/static/bundle.js`.
-The page references it via `assets.Path("bundle.js")` so the URL is
-consistent in dev and production.
+[`js/build.mjs`](./js/build.mjs) bundles [`js/src/index.ts`](./js/src/index.ts) into `app/static/bundle.js`. The page references it via `assets.Path("bundle.js")` so the URL is consistent in dev and production.
 
 In dev mode, static files are served directly from `./app/static/` on disk, so a fresh bundle is picked up on browser reload without needing to rebuild and restart the server. In production, `app/static/` is embedded into the binary.
 
@@ -46,6 +43,6 @@ make npm-install
 make dev
 ```
 
-The Datapages watcher proxy starts at `http://localhost:7331`. The app itself listens on `http://localhost:8080` (configure via `HOST`/`PORT` env vars).
+The Datapages watcher proxy starts at `http://localhost:7331`. The app itself listens on `http://localhost:8080`. To change that, set `HOST` and `PORT` in the shell that runs `make dev`, and `watch.app-host` in `datapages.yaml` to match.
 
 Edit any file under `js/src/` — esbuild rebuilds the bundle and the browser reloads.

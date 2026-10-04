@@ -1,6 +1,7 @@
 url: http://localhost:8080
 ---
-# Division by zero shows Error.
+# Division by zero shows Error. The next digit starts a new expression.
+# The flow types 42 because a single digit would match its button label.
 - launchApp
 - tapOn: "5"
 - tapOn:
@@ -9,3 +10,7 @@ url: http://localhost:8080
 - tapOn: "="
 - assertVisible: "Error"
 - takeScreenshot: .maestro/screenshots/13_division_by_zero
+- tapOn: "4"
+- tapOn: "2"
+- assertVisible: "42"
+- assertNotVisible: "Error"

@@ -12,8 +12,12 @@ import (
 )
 
 // DownloadPrefix is where a completed upload is served. It sits below the
-// asset prefix so that the templates can build the link with href.Asset,
-// which the linter checks, instead of writing a URL by hand.
+// asset prefix because the generated href package has builders for pages and
+// assets only. The templates build the link with href.Asset, and the link and
+// this constant both begin with the asset prefix the app declares, which keeps
+// them in agreement when the prefix changes. datapages lint does not check the link:
+// it checks the href of an <a> element only, and the templates pass the link
+// as a component property and in data-href.
 const DownloadPrefix = assets.URLPrefix + "files/"
 
 // Downloads serves the blob of a completed file. It's middleware because a

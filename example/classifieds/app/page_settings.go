@@ -58,8 +58,10 @@ func (p PageSettings) GET(
 
 // POSTSave is /settings/save/{$}
 //
-// The user name is the session's user ID, hence the rename issues a new session.
-// newSession rules out an sse parameter, so the page comes back
+// The user name is the session's user ID. A rename issues a new session and
+// closes every session of the old name: one left open would fail on every page
+// and act as whoever takes the name next.
+// newSession rules out an sse parameter: the page comes back
 // through the redirect rather than a patch.
 func (p PageSettings) POSTSave(
 	r *http.Request,
@@ -67,6 +69,7 @@ func (p PageSettings) POSTSave(
 	signals datapages.Signals[struct {
 		Username string `json:"username"`
 	}],
+	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (
 	newSession datapages.NewSession[struct{}],
 	redirect datapages.Redirect,
@@ -76,14 +79,15 @@ func (p PageSettings) POSTSave(
 		return newSession, datapages.Redirect{URL: href.PageLogin()}, nil
 	}
 
+	oldName := session.UserID()
 	name := strings.TrimSpace(signals.Values.Username)
-	if name == session.UserID() {
+	if name == oldName {
 		return newSession, redirect, nil
 	}
 	if err := datapages.ValidateUserID(name); err != nil {
 		return newSession, redirect, fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
-	if err := p.App.repo.RenameUser(r.Context(), session.UserID(), name); err != nil {
+	if err := p.App.repo.RenameUser(r.Context(), oldName, name); err != nil {
 		if errors.Is(err, domain.ErrUserNameReserved) {
 			// A name someone else holds is the visitor's mistake, not a fault.
 			return newSession, redirect,
@@ -92,8 +96,32 @@ func (p PageSettings) POSTSave(
 		return newSession, redirect, err
 	}
 
-	return datapages.NewSession[struct{}]{UserID: name},
-		datapages.Redirect{URL: href.PageSettings()}, nil
+	closed, err := p.App.sessions.CloseAllUserSessions(r.Context(), nil, oldName)
+	if err != nil {
+		return newSession, redirect,
+			fmt.Errorf("closing the sessions of %q: %w", oldName, err)
+	}
+	recipient := datapages.SubjectUser(oldName)
+	for _, token := range closed {
+		if token == session.Token() {
+			// The tab that saved follows the redirect to the settings page.
+			// OnSessionClosed would send it to the sign-in page.
+			continue
+		}
+		// A page the event misses reloads when its stream sees the session close.
+		_ = sessionClosed.Dispatch(EventSessionClosed{
+			Recipient: recipient,
+			Token:     token,
+		})
+	}
+
+	// The rename authenticates nobody: the new session ends
+	// when the one it replaces would have.
+	newSession = datapages.NewSession[struct{}]{
+		UserID:    name,
+		ExpiresAt: session.ExpiresAt(),
+	}
+	return newSession, datapages.Redirect{URL: href.PageSettings()}, nil
 }
 
 // POSTCloseSession is /settings/close-session/{token}/{$}

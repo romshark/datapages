@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
@@ -58,7 +59,10 @@ func (p PageLogin) POSTSubmit(
 	}
 
 	p.App.LoginSubmissions.WithLabelValues("success").Inc()
-	newSession = datapages.NewSession[struct{}]{UserID: uid}
+	newSession = datapages.NewSession[struct{}]{
+		UserID:    uid,
+		ExpiresAt: time.Now().Add(sessionLifetime),
+	}
 	redirect = datapages.Redirect{
 		URL:    href.PageIndex(),
 		Status: http.StatusSeeOther,

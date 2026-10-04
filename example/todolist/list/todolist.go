@@ -100,7 +100,6 @@ type ViewParameters struct {
 	Search string
 	Filter string // "all", "done", "pending"
 	Sort   string // "alpha", "created", "due"
-	ItemID string // only set for PageItem streams
 }
 
 func (l *List) GetItems(vp ViewParameters) []Item {

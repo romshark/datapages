@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
@@ -54,6 +55,7 @@ func main() {
 	withAssets(&opts)
 
 	messageBroker, sessionManager := connectNATS()
+	go deleteExpiredSessions(ctx, sessionManager)
 
 	repo := NewRepository()
 	a := app.NewApp(sessionManager, repo)
@@ -141,6 +143,28 @@ func connectNATS() (
 	messageBroker = natscore.New(conn, natscore.Config{})
 
 	return messageBroker, sessionManager
+}
+
+// deleteExpiredSessions deletes the expired sessions every hour until ctx ends.
+// Datapages deletes an expired session only when a client sends its cookie.
+// Without this, the store keeps every session no client sends again.
+func deleteExpiredSessions(ctx context.Context, store sessions.ExpiredDeleter) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		n, err := store.DeleteExpired(ctx)
+		if err != nil {
+			slog.Error("deleting expired sessions",
+				slog.Int("deleted", n), slog.Any("err", err))
+			continue
+		}
+		slog.Info("deleted expired sessions", slog.Int("deleted", n))
+	}
 }
 
 func initMetrics(m *app.Metrics, opts *[]datapages.ServerOption) {

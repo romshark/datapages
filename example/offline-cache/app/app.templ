@@ -27,9 +27,23 @@ templ head() {
 // page reloads when the browser goes offline so the service worker can return
 // the cached URL or PageOffline.
 templ page(id string) {
+	<div id="toaster" class="toaster"></div>
 	<div id="content" data-on:offline__window="window.location.reload()">
 		<div id={ id }>
 			{ children... }
+		</div>
+	</div>
+}
+
+// toastError is a Basecoat toast that RecoverError appends to #toaster.
+templ toastError(message string) {
+	<div class="toast" role="alert" aria-atomic="true" data-category="error">
+		<div class="toast-content">
+			@iconClose()
+			<section>{ message }</section>
+			<footer>
+				<button type="button" class="btn" data-toast-action>Dismiss</button>
+			</footer>
 		</div>
 	</div>
 }

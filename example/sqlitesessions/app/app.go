@@ -110,6 +110,10 @@ func validateRegister(name, email, password string) string {
 	if len(password) < 8 {
 		return "Password must be at least 8 characters"
 	}
+	if len(password) > userstore.MaxPasswordLen {
+		return fmt.Sprintf("Password must be at most %d bytes",
+			userstore.MaxPasswordLen)
+	}
 	return ""
 }
 

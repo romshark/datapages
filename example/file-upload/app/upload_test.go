@@ -682,6 +682,63 @@ func TestContinuingAFileThatWentAway(t *testing.T) {
 	require.Len(t, tb.files.List(), 1)
 }
 
+// TestContinuingUnderAnInvalidNameChangesNothing tests that another tab
+// confirming the dialog for an unfinished upload under a name the store
+// refuses is told why, and that the tab sending the file keeps it.
+func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
+	for name, fileName := range map[string]string{
+		"empty":    "",
+		"blank":    "   ",
+		"too long": strings.Repeat("a", store.MaxNameLen+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tb := newTab(t)
+			id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+			require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
+			before, err := tb.files.Get(id)
+			require.NoError(t, err)
+
+			other := tb.openTab(t)
+			require.Contains(t, other.stage(t, "notes.txt", "text/plain", len(contents)),
+				`name="dup-0"`, "the dialog does not offer to continue the upload")
+			status, body := other.action(t, http.MethodPost, "/start/",
+				"application/x-www-form-urlencoded",
+				"name-0="+url.QueryEscape(fileName)+"&dup-0=continue")
+			require.Equal(t, http.StatusOK, status)
+			require.Contains(t, body, "invalid file name",
+				"the visitor is not told what is wrong with the name")
+
+			after, err := tb.files.Get(id)
+			require.NoError(t, err)
+			require.Equal(t, before.Owner, after.Owner,
+				"a refused dialog took the transfer from the tab sending it")
+			require.Equal(t, "notes.txt", after.Name, "a refused dialog renamed the file")
+
+			status, body = tb.pause(t, id)
+			require.Equal(t, http.StatusOK, status)
+			require.NotContains(t, body, "this tab does not hold the bytes of that file",
+				"the tab sending the file can no longer pause it")
+		})
+	}
+}
+
+// TestStartRefusesTheWholeDialog tests that a dialog with one name the store
+// refuses starts none of its files, not even those listed before that name.
+func TestStartRefusesTheWholeDialog(t *testing.T) {
+	tb := newTab(t)
+	status, _ := tb.action(t, http.MethodPost, "/stage/", "application/json",
+		`{"files":[{"name":"a.txt","size":20,"type":"text/plain"},`+
+			`{"name":"b.txt","size":20,"type":"text/plain"}]}`)
+	require.Equal(t, http.StatusOK, status, "staging")
+
+	status, body := tb.action(t, http.MethodPost, "/start/",
+		"application/x-www-form-urlencoded", "name-0=a.txt&name-1=+")
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, "invalid file name",
+		"the visitor is not told what is wrong with the name")
+	require.Empty(t, tb.files.List(), "a refused dialog stored some of its files")
+}
+
 // TestSlowChunkOutlivesTheReadTimeout tests that a chunk slower than the read
 // timeout of the server still arrives whole. A server times a whole request,
 // which an upload held back by a limit outlives: the deadline has to follow
@@ -992,8 +1049,9 @@ func TestProgressCarriesTheBytes(t *testing.T) {
 
 	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	body := lastFileList(t, tb.waitForStreamFrom(t, from, "neo-progress"))
-	require.Contains(t, body, `label="10 B of 20 B"`, "the bar carries no amount")
+	// The list the start renders can still arrive after from and has a bar too.
+	body := lastFileList(t, tb.waitForStreamFrom(t, from, "10 B of 20 B"))
+	require.Contains(t, body, ` label="10 B of 20 B"`, "the bar carries no amount")
 	require.Contains(t, body, `value="50"`, "the bar carries no percentage")
 	require.NotContains(t, body, "progress-text", "the amount is still a paragraph")
 }
