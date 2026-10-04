@@ -2,6 +2,7 @@ package inmem_test
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -228,5 +229,38 @@ func TestOneMessagePerSubscription(t *testing.T) {
 	case msg := <-sub.C():
 		t.Fatalf("the message arrived twice: %s", msg.Subject)
 	default:
+	}
+}
+
+// TestOrderAcrossSubjects tests that messages published one after the other
+// arrive in that order, whatever their subjects, as [messaging.Subscriber] requires.
+func TestOrderAcrossSubjects(t *testing.T) {
+	const pairs = 500
+	b := inmem.New(2 * pairs)
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+	ctx := context.Background()
+	subjects := []string{"order.first", "order.second"}
+	sub, err := b.Subscribe(ctx, noMetrics{}, subjects...)
+	require.NoError(t, err)
+	t.Cleanup(sub.Close)
+
+	for i := range pairs {
+		for _, subject := range subjects {
+			require.NoError(t,
+				b.Publish(ctx, noMetrics{}, subject, []byte(strconv.Itoa(i))))
+		}
+	}
+
+	for i := range pairs {
+		for _, subject := range subjects {
+			select {
+			case msg := <-sub.C():
+				require.Equal(t, subject, msg.Subject, "pair %d arrived out of order", i)
+				require.Equal(t, strconv.Itoa(i), string(msg.Data))
+			case <-time.After(time.Second):
+				t.Fatalf("pair %d: %s never arrived", i, subject)
+			}
+		}
 	}
 }

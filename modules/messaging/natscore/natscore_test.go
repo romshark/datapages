@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -194,6 +195,91 @@ func TestMultipleSubjects(t *testing.T) {
 	require.Equal(t, "multi.two", receive(t, sub).Subject)
 }
 
+// TestOrderAcrossSubjects tests that messages published one after the other
+// arrive in that order, whatever their subjects. A handler that dispatches
+// "writing stopped" and then "sent" expects the pages to handle them in turn.
+func TestOrderAcrossSubjects(t *testing.T) {
+	const pairs = 500
+	b := natscore.New(testConn, natscore.Config{ChanBuffer: 2 * pairs})
+	m := new(testMetrics)
+	subjects := []string{"order.first", "order.second"}
+	sub := subscribe(t, b, m, subjects...)
+
+	for i := range pairs {
+		for _, subject := range subjects {
+			require.NoError(t, b.Publish(context.Background(), m, subject,
+				[]byte(strconv.Itoa(i))))
+		}
+	}
+	require.NoError(t, testConn.Flush())
+
+	for i := range pairs {
+		for _, subject := range subjects {
+			msg := receive(t, sub)
+			require.Equal(t, subject, msg.Subject, "pair %d arrived out of order", i)
+			require.Equal(t, strconv.Itoa(i), string(msg.Data))
+		}
+	}
+	require.Zero(t, m.dropped.Load())
+}
+
+// TestPayloadIsOwned tests that nats.go gives every message delivered to a channel
+// subscription a payload of its own, which the broker passes on without a copy.
+// 1000 unread messages exceed the 32 KiB read buffer: a reused buffer
+// would overwrite the payloads of the early ones.
+func TestPayloadIsOwned(t *testing.T) {
+	msgs := make(chan *nats.Msg, 1000)
+	sub, err := testConn.ChanSubscribe("owned.one", msgs)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	require.NoError(t, testConn.Flush())
+
+	for i := range 1000 {
+		require.NoError(t, testConn.Publish("owned.one", fmt.Appendf(nil, "payload %04d", i)))
+	}
+	require.NoError(t, testConn.Flush())
+	require.Eventually(t, func() bool { return len(msgs) == 1000 },
+		3*time.Second, 10*time.Millisecond)
+
+	for i := range 1000 {
+		m := <-msgs
+		require.Equal(t, fmt.Sprintf("payload %04d", i), string(m.Data))
+		require.Equal(t, len(m.Data), cap(m.Data), "message %d", i)
+	}
+}
+
+// TestBurstIsDeliveredOrCounted tests a burst larger than the default buffer
+// while the page reads as fast as it can. Every message is either delivered or
+// counted as dropped: the drop counter tells an operator to raise ChanBuffer.
+func TestBurstIsDeliveredOrCounted(t *testing.T) {
+	for name, burst := range map[string]int{"small": 40, "large": 2000} {
+		t.Run(name, func(t *testing.T) {
+			b := natscore.New(testConn, natscore.Config{})
+			m := new(testMetrics)
+			subjects := []string{"burst." + name + ".a", "burst." + name + ".b"}
+			sub := subscribe(t, b, m, subjects...)
+
+			var delivered atomic.Int64
+			go func() {
+				for range sub.C() {
+					delivered.Add(1)
+				}
+			}()
+
+			for i := range burst {
+				require.NoError(t, b.Publish(context.Background(), m,
+					subjects[i%len(subjects)], []byte("payload")))
+			}
+			require.NoError(t, testConn.Flush())
+
+			require.Eventually(t, func() bool {
+				return delivered.Load()+m.dropped.Load() == int64(burst)
+			}, 3*time.Second, 10*time.Millisecond,
+				"messages were neither delivered nor counted as dropped")
+		})
+	}
+}
+
 // TestUnrelatedSubjectIsNotDelivered tests the negative case next to it.
 func TestUnrelatedSubjectIsNotDelivered(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
@@ -229,6 +315,65 @@ func TestDefaultBrokerChanBuffer(t *testing.T) {
 	for i := range messages {
 		require.Equal(t, fmt.Sprintf("payload %d", i), string(receive(t, sub).Data))
 	}
+}
+
+// TestFullChannelQueuesChanBufferMore tests that a subscription keeps
+// ChanBuffer more messages while its channel is full. Nothing reads while
+// 2*ChanBuffer messages are published, and all of them arrive in order.
+func TestFullChannelQueuesChanBufferMore(t *testing.T) {
+	b := natscore.New(testConn, natscore.Config{})
+	m := new(testMetrics)
+	sub := subscribe(t, b, m, "queued.one")
+
+	messages := 2 * messaging.DefaultBrokerChanBuffer
+	for i := range messages {
+		publish(t, b, m, "queued.one", fmt.Sprintf("payload %d", i))
+	}
+
+	for i := range messages {
+		require.Equal(t, fmt.Sprintf("payload %d", i), string(receive(t, sub).Data))
+	}
+	require.Zero(t, m.dropped.Load())
+}
+
+// TestFullQueueDropsOnlyWhenChannelIsFull tests that a subscription whose queue
+// is full moves the oldest message into a channel with room instead of dropping
+// the next one. With ChanBuffer 1, the channel and the queue hold each burst of 2.
+// A subscription that drops there loses a message in about half of the bursts,
+// which 20 bursts miss with a probability of about 1 in a million.
+func TestFullQueueDropsOnlyWhenChannelIsFull(t *testing.T) {
+	b := natscore.New(testConn, natscore.Config{ChanBuffer: 1})
+	m := new(testMetrics)
+	sub := subscribe(t, b, m, "room.one")
+
+	for i := range 20 {
+		for j := range 2 {
+			require.NoError(t, b.Publish(context.Background(), m, "room.one",
+				fmt.Appendf(nil, "payload %d.%d", i, j)))
+		}
+		require.NoError(t, testConn.Flush())
+		for j := range 2 {
+			require.Equal(t, fmt.Sprintf("payload %d.%d", i, j),
+				string(receive(t, sub).Data))
+		}
+	}
+	require.Zero(t, m.dropped.Load())
+}
+
+// TestUnbufferedDefault tests a broker created while [messaging.DefaultBrokerChanBuffer]
+// is 0, which makes the subscription channel unbuffered.
+// A reader that waits on it receives what was published before.
+func TestUnbufferedDefault(t *testing.T) {
+	defaultBuffer := messaging.DefaultBrokerChanBuffer
+	t.Cleanup(func() { messaging.DefaultBrokerChanBuffer = defaultBuffer })
+	messaging.DefaultBrokerChanBuffer = 0
+
+	b := natscore.New(testConn, natscore.Config{})
+	m := new(testMetrics)
+	sub := subscribe(t, b, m, "unbuffered.one")
+
+	publish(t, b, m, "unbuffered.one", "payload")
+	require.Equal(t, "payload", string(receive(t, sub).Data))
 }
 
 // TestSlowSubscriberDrops tests the bound on the buffer.

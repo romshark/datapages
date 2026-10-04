@@ -18,6 +18,10 @@ var DefaultBrokerChanBuffer = 16
 // Subscriber receives messages from subjects/streams.
 type Subscriber interface {
 	// Subscribe creates a new subscription to a subject/stream.
+	//
+	// Messages published one after the other must arrive in that order,
+	// whatever their subjects: a handler that dispatches two events expects
+	// the pages to handle them in the order it dispatched them.
 	Subscribe(
 		ctx context.Context, metrics Metrics, subjects ...string,
 	) (Subscription, error)
