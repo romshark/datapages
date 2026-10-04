@@ -674,7 +674,7 @@ func (e *EventSubjectAfterPayloadError) Unwrap() error {
 // Other and OtherOwner are empty when no claimed pattern reproduces the conflict.
 type RouteConflictError struct {
 	Pattern    string // e.g. "GET /files/_$/{$}"
-	Owner      string // e.g. "PageFiles" or "the stream of PageFiles"
+	Owner      string // e.g. "PageFiles", "App.POSTUpload" or "the stream of PageFiles"
 	Other      string // the pattern already registered
 	OtherOwner string // what claims Other
 	Reason     string

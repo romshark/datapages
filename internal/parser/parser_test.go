@@ -590,6 +590,7 @@ func TestParse_ErrRouteIndexShadowed(t *testing.T) {
 }
 
 // TestParse_ErrRouteDuplicateAction tests two actions declaring one path.
+// The report names each action as declared, HTTP method included.
 func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_route_duplicate_action")
@@ -599,6 +600,13 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 		t, err,
 		parser.ErrRouteConflict,
 	)
+	_, e := err.Entry(0)
+	var conflict *parser.RouteConflictError
+	require.ErrorAs(e, &conflict)
+	require.Equal(
+		`conflicting route: PageIndex.POSTOther cannot serve "POST /same/{$}", `+
+			"PageIndex.POSTSame already serves it",
+		conflict.Error())
 }
 
 // TestParse_ErrFieldTypeUnexported tests a path, query and signals field of
@@ -728,19 +736,22 @@ func TestParse_ErrRouteChar(t *testing.T) {
 		parser.ErrRouteCharInvalid, // App.POSTRate
 	)
 	for i, want := range map[int]struct {
+		owner string
 		char  rune
 		route string
 	}{
-		2: {'\\', `/back\slash/save`},
-		5: {'`', "/back`tick/ping"},
-		6: {'?', "/search?q"},
-		7: {'#', "/c#"},
-		8: {'%', "/100%"},
-		9: {'%', "/rate%2"},
+		2: {"PageBackslash.POSTSave", '\\', `/back\slash/save`},
+		3: {"App.POSTQuote", '"', `/quote"`},
+		5: {"PageTick.POSTPing", '`', "/back`tick/ping"},
+		6: {"PageSearch", '?', "/search?q"},
+		7: {"PageSharp", '#', "/c#"},
+		8: {"PagePercent", '%', "/100%"},
+		9: {"App.POSTRate", '%', "/rate%2"},
 	} {
 		var d *parser.RouteCharInvalidError
 		_, e := err.Entry(i)
 		require.ErrorAs(t, e, &d)
+		require.Equal(t, want.owner, d.Owner)
 		require.Equal(t, want.char, d.Char)
 		require.Equal(t, want.route, d.Route)
 	}

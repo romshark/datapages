@@ -2081,11 +2081,11 @@ func eachRoute(ctx *parseCtx, fn func(route string, expr ast.Expr, owner string)
 	for _, p := range ctx.app.Pages {
 		check(p.Route, p.Expr, p.TypeName)
 		for _, h := range p.Actions {
-			check(h.Route, h.Expr, p.TypeName+"."+h.Name)
+			check(h.Route, h.Expr, p.TypeName+"."+h.HTTPMethod+h.Name)
 		}
 	}
 	for _, h := range ctx.app.Actions {
-		check(h.Route, h.Expr, "App."+h.Name)
+		check(h.Route, h.Expr, "App."+h.HTTPMethod+h.Name)
 	}
 }
 
@@ -2188,14 +2188,15 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 				continue
 			}
 			claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr,
-				p.TypeName+"."+h.Name)
+				p.TypeName+"."+h.HTTPMethod+h.Name)
 		}
 	}
 	for _, h := range ctx.app.Actions {
 		if routepattern.EndsInWildcard(h.Route) {
 			continue
 		}
-		claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr, "App."+h.Name)
+		claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr,
+			"App."+h.HTTPMethod+h.Name)
 	}
 }
 

@@ -74,6 +74,7 @@ Run `datapages gen` to apply these.
 - Accept an app package whose name differs from its directory, as `package app` in `go-app/`, when the file calling `datapages.NewServer` imports it without an alias. The app type was refused with "must live in its own package".
 - Report a problem in a `datapages.NewServer` call with a path relative to the module root, as every other error is. A wrong number of type arguments, a wrong `Metrics` type argument and a file that does not parse were reported with an absolute path.
 - Check the attributes inside a conditional attribute of a `.templ` file, as in `<a if ok { href="/login" }>`, in both branches. A hardcoded `href`, a form `action`, a hardcoded Datastar action URL or an action of another page went unreported there.
+- Include the HTTP method in the action names that route errors show, as in `PageUser.DELETEFollow`. Before, they showed `PageUser.Follow`, which could also mean `PageUser.POSTFollow`.
 
 #### Generated code
 
