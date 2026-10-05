@@ -205,6 +205,25 @@ func (p PageLogin) POSTSubmitInline(
 	}, nil
 }
 
+// POSTSubmitCached is /login/submit-cached
+//
+// Signs the visitor in and clears the page cache. It answers with neither a
+// redirect nor a document, which sends the cache writes on an event stream.
+func (p PageLogin) POSTSubmitCached(
+	_ *http.Request,
+	pageCache datapages.PageCacheWriter,
+	signals datapages.Signals[struct {
+		User string `json:"user"`
+	}],
+) (newSession datapages.NewSession[SessionData], err error) {
+	if signals.Values.User == "" {
+		return newSession, datapages.ErrBadRequest
+	}
+	pageCache.ClearAll()
+	p.App.record("login(%s)", signals.Values.User)
+	return datapages.NewSession[SessionData]{UserID: signals.Values.User}, nil
+}
+
 // POSTNotify is /login/notify
 //
 // Dispatches a private event to one user.
@@ -255,6 +274,18 @@ func (a *App) POSTSignOut(_ *http.Request, session Session) (
 ) {
 	a.record("signout(%s)", session.UserID())
 	return true, datapages.Redirect{URL: "/"}, nil
+}
+
+// POSTSignOutCached is /sign-out-cached
+//
+// Signs the visitor out and clears the page cache,
+// on an event stream like [PageLogin.POSTSubmitCached].
+func (a *App) POSTSignOutCached(
+	_ *http.Request, session Session, pageCache datapages.PageCacheWriter,
+) (closeSession datapages.CloseSession, err error) {
+	pageCache.ClearAll()
+	a.record("signout(%s)", session.UserID())
+	return true, nil
 }
 
 // PageSignOutLink is /sign-out-link

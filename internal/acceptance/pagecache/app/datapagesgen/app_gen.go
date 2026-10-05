@@ -119,9 +119,10 @@ func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 }
 
 type pageCacheWriter struct {
-	s        *Server
-	r        *http.Request
-	sse      *datastar.ServerSentEventGenerator // nil for GET handlers
+	s *Server
+	r *http.Request
+	// sse is nil, unless the handler takes [datapages.SSE].
+	sse      *datastar.ServerSentEventGenerator
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -241,6 +242,19 @@ func (c *pageCacheWriter) flush() error {
 		return err
 	}
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// flushToNewStream answers with an SSE stream carrying the queued writes, for a
+// handler that takes no stream of its own. The stream opens once the handler has
+// returned and the writes are rendered: the cookie of a session output then goes
+// out with its headers, and a panic in a rendered body still gets a status.
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
+	payload, err := c.payload()
+	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	if err != nil || payload == "" {
+		return err
+	}
+	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -536,15 +550,14 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	defer s.recoverPanic(w, r, sse, "App.AppPrecache")
-	pageCache := newPageCache(w, s.Server, r, sse)
+	defer s.recoverPanic(w, r, nil, "App.AppPrecache")
+	pageCache := newPageCache(w, s.Server, r, nil)
 	err := s.app.POSTAppPrecache(r, pageCache)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "handling action App.AppPrecache", err)
+		s.httpErrIntern(w, r, nil, "handling action App.AppPrecache", err)
 		return
 	}
-	_ = pageCache.flush()
+	_ = pageCache.flushToNewStream(w)
 }
 
 func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {

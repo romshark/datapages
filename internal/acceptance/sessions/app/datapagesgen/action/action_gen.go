@@ -173,7 +173,8 @@ func WithRequestCancellationController(expr string) Option {
 var App app
 
 type app struct {
-	SignOut app_SignOut
+	SignOut       app_SignOut
+	SignOutCached app_SignOutCached
 }
 
 type app_SignOut struct{}
@@ -188,6 +189,24 @@ func (app_SignOut) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/sign-out/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/sign-out/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type app_SignOutCached struct{}
+
+// POST references /sign-out-cached/
+func (app_SignOutCached) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/sign-out-cached/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/sign-out-cached/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/sign-out-cached/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
@@ -225,6 +244,7 @@ type pageLogin struct {
 	Notify       pageLogin_Notify
 	Rename       pageLogin_Rename
 	Submit       pageLogin_Submit
+	SubmitCached pageLogin_SubmitCached
 	SubmitInline pageLogin_SubmitInline
 }
 
@@ -294,6 +314,24 @@ func (pageLogin_Submit) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/login/submit/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/login/submit/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageLogin_SubmitCached struct{}
+
+// POST references /login/submit-cached/
+func (pageLogin_SubmitCached) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/login/submit-cached/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/login/submit-cached/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/login/submit-cached/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

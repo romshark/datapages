@@ -251,9 +251,10 @@ func (p *pageCacheBuf) WriteHeader(int)             {}
 	}
 	w.Raw(`
 type pageCacheWriter struct {
-	s        *Server
-	r        *http.Request
-	sse      *datastar.ServerSentEventGenerator // nil for GET handlers
+	s *Server
+	r *http.Request
+	// sse is nil, unless the handler takes [datapages.SSE].
+	sse      *datastar.ServerSentEventGenerator
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -381,6 +382,19 @@ func (c *pageCacheWriter) flush() error {
 		return err
 	}
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// flushToNewStream answers with an SSE stream carrying the queued writes, for a
+// handler that takes no stream of its own. The stream opens once the handler has
+// returned and the writes are rendered: the cookie of a session output then goes
+// out with its headers, and a panic in a rendered body still gets a status.
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
+	payload, err := c.payload()
+	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	if err != nil || payload == "" {
+		return err
+	}
+	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -1831,23 +1845,15 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// An app-level action cannot take datapages.SSE
 	// ([github.com/romshark/datapages/internal/parser.ErrSSEOnAppMethod]), but it
 	// still needs a stream when that is how its page cache writes are delivered.
+	// The stream opens after the call, see flushToNewStream.
 	viaStream := isAppLevel && pageCacheViaStream(h)
-	if viaStream {
-		w.Line(0, "")
-		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
-	}
 
 	if isAppLevel {
-		w.writeDeferRecover(viaStream, "App."+h.Name)
+		w.writeDeferRecover(false, "App."+h.Name)
 	}
 
-	// Create an SSE-backed handle only when the response uses SSE delivery.
 	if h.InputPageCache != nil && isAppLevel {
-		if viaStream {
-			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
-		} else {
-			w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
-		}
+		w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
 	}
 
 	// Page constructor (for page actions).
@@ -1860,7 +1866,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Send queued writes after a successful handler call.
 	if viaStream {
-		w.Line(1, "_ = pageCache.flush()")
+		w.Line(1, "_ = pageCache.flushToNewStream(w)")
 	}
 }
 
@@ -1880,10 +1886,10 @@ func (w *Writer) writeMethodCall(
 	}
 	methodName := h.HTTPMethod + h.Name
 
-	// The error path patches into the stream the handler answers on, which an
-	// app-level action has only when its page cache writes are delivered there.
+	// The error path patches into the stream the handler answers on.
+	// An app-level action has none while it runs.
 	sseRef := "nil"
-	if (h.InputSSE != nil && !isAppLevel) || (isAppLevel && pageCacheViaStream(h)) {
+	if h.InputSSE != nil && !isAppLevel {
 		sseRef = "sse"
 	}
 

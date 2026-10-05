@@ -122,9 +122,10 @@ func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 }
 
 type pageCacheWriter struct {
-	s        *Server
-	r        *http.Request
-	sse      *datastar.ServerSentEventGenerator // nil for GET handlers
+	s *Server
+	r *http.Request
+	// sse is nil, unless the handler takes [datapages.SSE].
+	sse      *datastar.ServerSentEventGenerator
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -244,6 +245,19 @@ func (c *pageCacheWriter) flush() error {
 		return err
 	}
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// flushToNewStream answers with an SSE stream carrying the queued writes, for a
+// handler that takes no stream of its own. The stream opens once the handler has
+// returned and the writes are rendered: the cookie of a session output then goes
+// out with its headers, and a panic in a rendered body still gets a status.
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
+	payload, err := c.payload()
+	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	if err != nil || payload == "" {
+		return err
+	}
+	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the

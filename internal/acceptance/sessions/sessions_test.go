@@ -408,6 +408,35 @@ func TestSignInAndOut(t *testing.T) {
 	})
 }
 
+// TestPageCacheStreamSession tests a sign-in on a page and a sign-out on App
+// that clear the page cache and return neither a redirect nor a document.
+// Their cache writes go out on an event stream, which sent its headers before
+// the handler returned: the cookie of the session came too late, and an error
+// was written into the stream instead of answering with its status.
+func TestPageCacheStreamSession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+
+		c := srv.client(t)
+
+		status, _ := c.postWithToken(t, "/login/submit-cached/", `{"user":""}`, "")
+		require.Equal(t, http.StatusBadRequest, status)
+
+		status, body := c.postWithToken(t, "/login/submit-cached/", `{"user":"alice"}`, "")
+		require.Equal(t, http.StatusOK, status, body)
+		require.NotNil(t, c.setCookie(), "signing in set no session cookie")
+		_, body = c.get(t, "/")
+		require.True(t, strings.HasPrefix(echoed(t, body), "user=alice "), body)
+
+		c.token = csrfToken(t, srv.csrf, c.sessionToken(t))
+		status, body = c.post(t, "/sign-out-cached/", "")
+		require.Equal(t, http.StatusOK, status, body)
+		_, body = c.get(t, "/")
+		require.Equal(t, "anonymous", echoed(t, body))
+	})
+}
+
 // TestSecondSignInClosesTheFirstSession tests signing in again on a cookie
 // that still names a live session.
 //

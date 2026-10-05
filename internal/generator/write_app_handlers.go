@@ -1754,9 +1754,10 @@ func (w *Writer) writePageActionHandler(
 	// Dispatch closures.
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
-	// SSE for actions that take it, or need it to flush the page cache.
+	// SSE for actions that take it. An action that takes none and delivers its
+	// page cache over a stream opens it after the call, see flushToNewStream.
 	// A redirect or HTML body sends its offline writes in that response.
-	if h.InputSSE != nil || pageCacheViaStream(h) {
+	if h.InputSSE != nil {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
@@ -1776,7 +1777,11 @@ func (w *Writer) writePageActionHandler(
 	// Deliver queued offline writes over the SSE stream on success.
 	// Redirect and HTML delivery occur while those responses are written.
 	if pageCacheViaStream(h) {
-		w.Line(1, "_ = pageCache.flush()")
+		if h.InputSSE != nil {
+			w.Line(1, "_ = pageCache.flush()")
+		} else {
+			w.Line(1, "_ = pageCache.flushToNewStream(w)")
+		}
 	}
 
 	w.Line(0, "}")
@@ -1830,7 +1835,7 @@ func (w *Writer) writePageCacheBodyArg(h *model.Handler) {
 // writeDatapagesHandles emits the requested page cache handle.
 func (w *Writer) writeDatapagesHandles(h *model.Handler) {
 	if h.InputPageCache != nil {
-		if pageCacheViaStream(h) {
+		if h.InputSSE != nil {
 			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
 		} else {
 			w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
