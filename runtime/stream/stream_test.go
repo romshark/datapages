@@ -112,7 +112,8 @@ func TestHandleEnds(t *testing.T) {
 					h.Handle(w, r, "token", "alice", expiresAt,
 						[]string{"notice.alice"}, nil,
 						func(datapages.StreamID) { closed.Store(true) }, drain)
-				}))
+				},
+			))
 			defer srv.Close()
 
 			req := streamRequest(t.Context())
@@ -228,6 +229,87 @@ func TestHandleClosesAfterPanic(t *testing.T) {
 	})
 	require.True(t, opened, "the open hook did not run")
 	require.True(t, closed, "the close hook did not run after the panic")
+}
+
+// TestHandleClientGoneBeforeOpen tests a client that disconnects while its
+// stream subscribes, before the response head reaches it. datastar.NewSSE
+// panics when it cannot send the head, and net/http logs the panic with a stack.
+// Handle returns instead, closes the subscription and reports nothing.
+func TestHandleClientGoneBeforeOpen(t *testing.T) {
+	t.Parallel()
+
+	core, err := httpserve.NewCore(datapages.ServerConfig{}, "")
+	require.NoError(t, err)
+	b := &slowBroker{Broker: msginmem.New(0), entered: make(chan struct{})}
+	h := stream.NewHandler(core, b, nil, nil, nil, func(
+		_ http.ResponseWriter, _ *http.Request,
+		_ *datastar.ServerSentEventGenerator, msg string, err error,
+	) {
+		t.Errorf("%s: %v", msg, err)
+	})
+	panicked := make(chan any, 1)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			defer func() { panicked <- recover() }()
+			h.Handle(w, r, "", "", time.Time{}, []string{"notice"},
+				func(datapages.StreamID, *datastar.ServerSentEventGenerator) error {
+					t.Error("the open hook ran for a client that is gone")
+					return nil
+				}, nil, drain)
+		},
+	))
+	// An HTTP/2 client resets the stream when it cancels the request,
+	// after which no write reaches it. Over HTTP/1.1 the first write after
+	// the client closed the connection can still succeed.
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+
+	ctx, disconnect := context.WithCancel(t.Context())
+	req := streamRequest(ctx)
+	req.URL.Scheme, req.URL.Host, req.RequestURI = "https", srv.Listener.Addr().String(), ""
+	go func() {
+		if resp, err := srv.Client().Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	<-b.entered
+	disconnect()
+
+	require.Nil(t, <-panicked, "Handle panicked")
+	_, open := <-b.sub.C()
+	require.False(t, open, "the subscription is still open")
+}
+
+// TestHandleWriterWithoutFlushPanics tests that a writer that cannot flush still panics
+// with the client connected. It breaks every stream, which a quiet return would hide.
+func TestHandleWriterWithoutFlushPanics(t *testing.T) {
+	t.Parallel()
+
+	h, _, _ := newHandler(t, nil, nil)
+	require.Panics(t, func() {
+		h.Handle(struct{ http.ResponseWriter }{httptest.NewRecorder()},
+			streamRequest(t.Context()), "", "", time.Time{}, []string{"notice"},
+			nil, nil, drain)
+	})
+}
+
+// slowBroker holds Subscribe until the request is canceled, as a broker round
+// trip outlasts a client that leaves at once. It keeps the subscription in sub.
+type slowBroker struct {
+	messaging.Broker
+	entered chan struct{}
+	sub     messaging.Subscription
+}
+
+func (b *slowBroker) Subscribe(
+	ctx context.Context, m messaging.Metrics, subjects ...string,
+) (messaging.Subscription, error) {
+	close(b.entered)
+	<-ctx.Done()
+	sub, err := b.Broker.Subscribe(ctx, m, subjects...)
+	b.sub = sub
+	return sub, err
 }
 
 // newHandler returns a handler that watches sessions with notifier, which may be nil.

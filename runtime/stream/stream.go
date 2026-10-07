@@ -138,7 +138,10 @@ func (h *Handler) Handle(
 		}
 	}()
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := newSSE(w, r, datastar.WithCompression())
+	if sse == nil {
+		return
+	}
 
 	subC := sub.C()
 	if onOpen != nil {
@@ -235,9 +238,27 @@ func (h *Handler) Handle(
 func (h *Handler) Reload(w http.ResponseWriter, r *http.Request) {
 	h.core.Logger().Debug("stream request from a page whose session ended",
 		slog.String("path", r.URL.Path))
-	sse := datastar.NewSSE(w, r)
+	sse := newSSE(w, r)
+	if sse == nil {
+		return
+	}
 	_ = sse.ExecuteScript(reloadScript,
 		datastar.WithExecuteScriptRetryDuration(reconnectDelay))
+}
+
+// newSSE calls [datastar.NewSSE] and returns nil if the client disconnected
+// before the response headers were sent. NewSSE panics in that case,
+// and net/http logs the panic with a stack trace. Other panics still propagate,
+// such as the one for a writer that cannot flush.
+func newSSE(
+	w http.ResponseWriter, r *http.Request, opts ...datastar.SSEOption,
+) (sse *datastar.ServerSentEventGenerator) {
+	defer func() {
+		if sse == nil && r.Context().Err() != nil {
+			_ = recover()
+		}
+	}()
+	return datastar.NewSSE(w, r, opts...)
 }
 
 // reconnectDelay is how long the page waits to reconnect a stream whose open
