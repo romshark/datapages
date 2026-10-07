@@ -457,8 +457,8 @@ func WithLogSampling(conf LogSamplingConfig) ServerOption {
 	}
 }
 
-// WithBodySizeLimit caps how much of an action's request body is read.
-// Signals travel in that body, which makes the cap what a page may send.
+// WithBodySizeLimit caps the request body of an action that declares [Signals].
+// A handler that reads r.Body itself must cap it with [http.MaxBytesReader].
 //
 // Optional.
 // Defaults to [github.com/romshark/datapages/runtime/httpserve.DefaultBodySizeLimit].

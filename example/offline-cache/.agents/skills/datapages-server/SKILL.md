@@ -52,7 +52,7 @@ opts = append(opts,
 )
 ```
 
-`WithBodySizeLimit` limits an action request body, including its signals. The default is 1 MiB. An over-limit request returns 400 while reading signals. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams.
+`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams.
 
 `WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
@@ -114,4 +114,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:8924cdbfed838cf1 -->
+<!-- written by datapages sha256:dd10cf263f2888cd -->

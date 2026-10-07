@@ -32,8 +32,8 @@ const (
 	DefaultHTTPIdleTimeout       = 60 * time.Second
 	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
 
-	// DefaultBodySizeLimit is how much of an action's request body is read
-	// before the request is refused. Signals travel in that body.
+	// DefaultBodySizeLimit is how much of the request body of an action that
+	// declares Signals is read before the request is refused.
 	DefaultBodySizeLimit int64 = 1 << 20 // 1 MiB
 
 	// DefaultShutdownTimeout is how long [Core.ListenAndServe] waits for
@@ -426,7 +426,8 @@ func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }
 // MetricsEnabled reports whether a metrics server is configured.
 func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 
-// BodySizeLimit is how much of an action's request body a handler reads.
+// BodySizeLimit is how much of the request body of
+// an action that declares Signals is read.
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 
 // ShutdownTimeout returns the grace period used by [Core.ListenAndServe].

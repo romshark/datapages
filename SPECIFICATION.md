@@ -329,7 +329,7 @@ signals datapages.Signals[struct {
 
 This maps to `$form.name` and `$form.email`, accessible as `signals.Values.Form.Name` and `signals.Values.Form.Email`.
 
-Action bodies carrying signals are limited to 1 MiB by default. Oversized bodies receive 400. `datapages.WithBodySizeLimit` changes the server-wide limit.
+Action bodies carrying signals are limited to 1 MiB by default. Oversized bodies receive 400. `datapages.WithBodySizeLimit` changes the server-wide limit. An action without `datapages.Signals` gets no limit. A handler that reads `r.Body` itself wraps it in `http.MaxBytesReader`.
 
 #### Parameter: `datapages.Path[struct {...}]`
 
