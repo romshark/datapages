@@ -2215,6 +2215,19 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 	)
 }
 
+// TestParse_ErrBodyWithSSE tests an action that takes an SSE and returns a body,
+// with a head and without. The stream has sent its headers by the time the
+// handler returns, and the document would land in the event stream as text.
+func TestParse_ErrBodyWithSSE(t *testing.T) {
+	_, err := parse(t, "err_body_with_sse")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrBodyWithSSE, // POSTRender
+		parser.ErrBodyWithSSE, // POSTRenderWithHead
+	)
+}
+
 // TestParse_GETOptions tests the per-page GET options and where each is allowed.
 func TestParse_GETOptions(t *testing.T) {
 	app, err := parse(t, "get_options")

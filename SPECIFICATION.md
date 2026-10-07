@@ -142,7 +142,7 @@ An action that takes `datapages.Signals`, `datapages.SSE` or [`datapages.PageCac
 
 A `QUERYXXX` action answers the `QUERY` method of [RFC 10008](https://www.rfc-editor.org/rfc/rfc10008): a safe, idempotent request with a body. Datastar sends it with `@query`, which puts the signals in the body, as `@post` does. It takes the parameters and return values of the other actions. It skips the CSRF check, as a `GET` page load does, and must not change server state. The `Datastar-Request` requirement and the cross-origin check above apply to it.
 
-**Actions with `sse` cannot return `newSession` or `closeSession`.** The SSE stream sends headers before the handler returns. A `redirect` return value navigates through the stream, as `sse.Redirect` does.
+**Actions with `sse` cannot return `body`, `head`, `newSession` or `closeSession`.** The SSE stream sends headers before the handler returns. Send a body with `sse.PatchElement` instead. A `redirect` return value navigates through the stream, as `sse.Redirect` does.
 
 An action without `sse` may redirect, return HTML, and change sessions:
 

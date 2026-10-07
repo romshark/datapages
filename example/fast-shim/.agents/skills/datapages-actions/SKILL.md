@@ -53,7 +53,7 @@ Returning only `error` is valid. Other supported return types are `datapages.Com
 
 `Redirect.Status` defaults to 302. Datastar requests ignore it because they cannot follow an HTTP redirect. They navigate by assigning `window.location`.
 
-Do not combine `datapages.SSE` with session changes. An `sse` parameter causes the response headers to be sent before the handler runs, so the handler cannot set or delete the session cookie. The generator rejects `newSession` or `closeSession` with `sse`. A `redirect` still works because it uses the stream.
+Do not combine `datapages.SSE` with session changes. An `sse` parameter causes the response headers to be sent before the handler runs, so the handler cannot set or delete the session cookie. The generator rejects `newSession` or `closeSession` with `sse`. A `redirect` still works because it uses the stream. A returned `datapages.Component` is rejected with `sse` too: send it with `sse.PatchElement` instead.
 
 ## SSE
 
@@ -99,4 +99,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:d5beeb51d502ba33 -->
+<!-- written by datapages sha256:6be7b934942547e9 -->

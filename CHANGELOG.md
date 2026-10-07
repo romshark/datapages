@@ -77,6 +77,7 @@ Run `datapages gen` to apply these.
 - Include the HTTP method in the action names that route errors show, as in `PageUser.DELETEFollow`. Before, they showed `PageUser.Follow`, which could also mean `PageUser.POSTFollow`.
 - Show the line number of a Go build error that comes without a column. Before, it showed line 0, and on Windows the drive letter as the file name.
 - Check the `.templ` files of the packages that the app package imports from its module, such as `app/template`. Before, only the app package's own templates were checked. A wrong `href`, a form `action`, a hardcoded action URL or another page's action in those templates went unreported.
+- Reject an action that takes `datapages.SSE` and returns a body. Its HTML went into the open event stream as broken events, and with compression the browser could not read the stream at all. Send the body with `sse.PatchElement` instead.
 
 #### Generated code
 

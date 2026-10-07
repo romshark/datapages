@@ -157,6 +157,9 @@ var (
 	ErrCloseSessionWithSSE = errors.New(
 		"closeSession cannot be used together with sse parameter",
 	)
+	ErrBodyWithSSE = errors.New(
+		"body cannot be used together with sse parameter",
+	)
 	ErrSSEOnAppMethod = errors.New(
 		"the sse parameter is only allowed on page methods",
 	)

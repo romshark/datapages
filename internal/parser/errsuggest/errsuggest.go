@@ -118,6 +118,9 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureActionHeadWithoutBody):
 		return "fix: Add `body datapages.Component` to return values, or drop the head"
 
+	case errors.Is(err, parser.ErrBodyWithSSE):
+		return "fix: Send the body with sse.PatchElement and drop the body return value"
+
 	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
 		return "fix: Add `sse datapages.SSE` parameter"
 

@@ -3414,6 +3414,12 @@ func parseHandler(
 			return h, outputs, fmt.Errorf("%w in %s.%s",
 				ErrSignatureActionHeadWithoutBody, recv, fd.Name.Name)
 		}
+		// The stream has sent its headers by the time the handler returns.
+		// A document written after them lands in the event stream as text.
+		if h.OutputBody != nil && h.InputSSE != nil {
+			return h, outputs, fmt.Errorf("%w in %s.%s",
+				ErrBodyWithSSE, recv, fd.Name.Name)
+		}
 	}
 
 	return h, outputs, nil
