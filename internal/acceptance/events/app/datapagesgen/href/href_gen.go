@@ -40,6 +40,9 @@ func External(url string) string {
 	return url
 }
 
+// PageChat references /chat/{$}
+func PageChat() string { return "/chat/" }
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 

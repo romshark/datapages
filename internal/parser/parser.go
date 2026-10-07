@@ -77,6 +77,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateRefreshOutputs(&ctx, &errs)
 	validateErrorPageSessionOutputs(&ctx, &errs)
 	checkPageSubjectKinds(&ctx, &errs)
+	checkPageSignalPaths(&ctx, &errs)
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
 	validateRouteVarNames(&ctx, &errs)
@@ -1941,6 +1942,50 @@ func checkPageSubjectKinds(ctx *parseCtx, errs *Errors) {
 			fmt.Errorf("%w: %s handles On%s and On%s",
 				ErrSubjectStateIDPageMixed, pg.TypeName,
 				byStateID.Name, byOther.Name))
+	}
+}
+
+// checkPageSignalPaths rejects a page whose events need one signal both as a
+// value and as an object, such as chat and chat.room. $chat.room exists only
+// when $chat is an object, and the stream needs both to be values.
+func checkPageSignalPaths(ctx *parseCtx, errs *Errors) {
+	eventByName := make(map[string]*model.Event, len(ctx.app.Events))
+	for _, e := range ctx.app.Events {
+		eventByName[e.TypeName] = e
+	}
+	type use struct{ path, handler string }
+pages:
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
+		pg := ctx.pages[name]
+		var uses []use
+		for _, eh := range pg.EventHandlers {
+			e, ok := eventByName[eh.EventTypeName]
+			if !ok {
+				continue
+			}
+			for _, sf := range e.SubjectFields {
+				if sf.SignalName != "" {
+					uses = append(uses, use{path: sf.SignalName, handler: eh.Name})
+				}
+			}
+		}
+		for i, a := range uses {
+			for _, b := range uses[i+1:] {
+				parent, child := a, b
+				if len(child.path) < len(parent.path) {
+					parent, child = child, parent
+				}
+				if !strings.HasPrefix(child.path, parent.path+".") {
+					continue
+				}
+				errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()),
+					fmt.Errorf("%w: %s.On%s needs %q, %s.On%s needs %q",
+						ErrSubjectSignalPathConflict,
+						pg.TypeName, parent.handler, parent.path,
+						pg.TypeName, child.handler, child.path))
+				continue pages
+			}
+		}
 	}
 }
 

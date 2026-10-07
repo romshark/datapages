@@ -6,6 +6,7 @@ import (
 	"go/format"
 	"go/token"
 	"go/types"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -741,6 +742,85 @@ func signalIdents(fields []model.SubjectField) []string {
 		idents[i] = ident
 	}
 	return idents
+}
+
+// subjectSignalStruct returns the struct type the subject signals of a page
+// decode into and the selector of each field's value in it, in fields order.
+//
+// A signal path gets one nested struct per step. Datastar sends the signal
+// chat.room as {"chat":{"room":"lobby"}}, which a json:"chat.room" key never matches.
+// The parser refuses a page whose paths would make one step both
+// a value and a struct, such as chat and chat.room.
+func subjectSignalStruct(fields []model.SubjectField) (typ string, selectors []string) {
+	var root []*signalStep
+	selectors = make([]string, len(fields))
+	for i, sf := range fields {
+		level := &root
+		var path []string
+		for key := range strings.SplitSeq(sf.SignalName, ".") {
+			step := findSignalStep(*level, key)
+			if step == nil {
+				step = &signalStep{key: key, ident: uniqueSignalIdent(*level, key)}
+				*level = append(*level, step)
+			}
+			path = append(path, step.ident)
+			level = &step.next
+		}
+		selectors[i] = strings.Join(path, ".")
+	}
+	var b strings.Builder
+	writeSignalSteps(&b, root, 1)
+	return b.String(), selectors
+}
+
+// signalStep is one step of the subject signal paths of a page.
+type signalStep struct {
+	key   string        // the JSON key
+	ident string        // the Go field name, unique among the steps beside it
+	next  []*signalStep // empty for the step that holds the value
+}
+
+func findSignalStep(steps []*signalStep, key string) *signalStep {
+	for _, s := range steps {
+		if s.key == key {
+			return s
+		}
+	}
+	return nil
+}
+
+// uniqueSignalIdent numbers the identifier of key when a step beside it has
+// it already, as calc_id and calcId would both be CalcID.
+func uniqueSignalIdent(steps []*signalStep, key string) string {
+	base := signalIdent(key)
+	ident := base
+	for n := 2; slices.ContainsFunc(steps, func(s *signalStep) bool {
+		return s.ident == ident
+	}); n++ {
+		ident = base + itoa(n)
+	}
+	return ident
+}
+
+// writeSignalSteps writes the struct type of steps for a declaration
+// indented by depth tabs.
+func writeSignalSteps(b *strings.Builder, steps []*signalStep, depth int) {
+	b.WriteString("struct {\n")
+	for _, s := range steps {
+		b.WriteString(strings.Repeat("\t", depth+1))
+		b.WriteString(s.ident)
+		b.WriteByte(' ')
+		if len(s.next) == 0 {
+			b.WriteString("string")
+		} else {
+			writeSignalSteps(b, s.next, depth+1)
+		}
+		b.WriteString(" `json:\"")
+		b.WriteString(s.key)
+		b.WriteString("\"`\n")
+	}
+	b.WriteString(strings.Repeat("\t", depth))
+	b.WriteByte('}')
 }
 
 // signalIdentMap maps each signal name to the identifier signalIdents gave it.

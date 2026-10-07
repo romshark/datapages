@@ -380,30 +380,23 @@ func (w *Writer) writeReadGETSignals(input *model.Input, m *model.App) {
 	w.Line(1, "}")
 }
 
-// writeSubjectSignalsRead emits the read of the signal values a page subscribes by.
+// writeSubjectSignalsRead emits the read of the signal values a page subscribes by
+// and returns the selector of each value in subjSignals, in signalFields order.
 // Both stream handlers need it: the subjects a stream subscribes to do not depend on
 // whether the client holds a session.
-func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
-	idents := signalIdents(signalFields)
+func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) []string {
+	typ, selectors := subjectSignalStruct(signalFields)
 	w.Line(0, "")
-	w.Line(1, "var subjSignals struct {")
-	for i, sf := range signalFields {
-		w.Raw("\t\t")
-		w.Raw(idents[i])
-		w.Raw(` string `)
-		w.Raw("`json:\"")
-		w.Raw(sf.SignalName)
-		w.Raw("\"`")
-		w.Byte('\n')
-	}
-	w.Line(1, "}")
+	w.Raw("\tvar subjSignals ")
+	w.Raw(typ)
+	w.Byte('\n')
 	w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
 	w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 	w.Line(2, "return")
 	w.Line(1, "}")
 	for i, sf := range signalFields {
 		w.Raw("\tif subjSignals.")
-		w.Raw(idents[i])
+		w.Raw(selectors[i])
 		w.Raw(" == \"\" {\n")
 		w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
 		w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
@@ -412,6 +405,7 @@ func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+	return selectors
 }
 
 func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
@@ -1147,9 +1141,9 @@ func (w *Writer) writePageGETStreamHandler(
 
 	// Read signal-scoped subject values for subscription.
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
-	signalIdents := signalIdents(signalFields)
+	var signalSels []string
 	if hasSignalScoped {
-		w.writeSubjectSignalsRead(signalFields)
+		signalSels = w.writeSubjectSignalsRead(signalFields)
 	}
 
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
@@ -1207,21 +1201,21 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw("(stateID),\n")
 	case hasPrivate && hasSignalScoped:
 		w.Raw("(sess.UserID()")
-		for _, ident := range signalIdents {
+		for _, sel := range signalSels {
 			w.Raw(", subjSignals.")
-			w.Raw(ident)
+			w.Raw(sel)
 		}
 		w.Raw("),\n")
 	case hasPrivate:
 		w.Raw("(sess.UserID()),\n")
 	case hasSignalScoped:
 		w.Raw("(")
-		for i, ident := range signalIdents {
+		for i, sel := range signalSels {
 			if i > 0 {
 				w.Raw(", ")
 			}
 			w.Raw("subjSignals.")
-			w.Raw(ident)
+			w.Raw(sel)
 		}
 		w.Raw("),\n")
 	default:
@@ -1574,9 +1568,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	// It therefore has to subscribe by the same values as the authenticated one,
 	// which it cannot do without reading them.
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
-	signalIdents := signalIdents(signalFields)
+	var signalSels []string
 	if len(signalFields) > 0 {
-		w.writeSubjectSignalsRead(signalFields)
+		signalSels = w.writeSubjectSignalsRead(signalFields)
 	}
 
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
@@ -1623,9 +1617,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
 	w.Raw("(sess.UserID()")
-	for _, ident := range signalIdents {
+	for _, sel := range signalSels {
 		w.Raw(", subjSignals.")
-		w.Raw(ident)
+		w.Raw(sel)
 	}
 	w.Raw("),\n")
 	w.writePageStreamOpenHook(p)

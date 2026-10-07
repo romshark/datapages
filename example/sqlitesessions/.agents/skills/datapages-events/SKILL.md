@@ -69,7 +69,7 @@ type EventDirectMessage struct {
 - Two events must not share a subject. An event with subject fields also claims every subject below its base subject. For example, `"chat"` with fields conflicts with `"chat.msg"`.
 - A subject value may contain any byte. Datapages escapes bytes that are not valid in a subject, so an email address works. An empty value fails the dispatch and publishes nothing.
 - `SubjectUser` sends only to the client authenticated as that user and requires a session type. An event may have one `SubjectUser` field: the generator rejects a second one, such as `To, Cc datapages.SubjectUser`. Validate an ID with `datapages.ValidateUserID` before returning it in a new session.
-- A `signal:"name"` tag on a `datapages.Subject` field gets the value from the client signal. An empty value returns 400. Datapages escapes `*` as a literal segment, not a wildcard. The tag is a period-separated signal path. Each segment must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. Two fields must not use the same signal. A `SubjectUser` field cannot have this tag because it is already bound to the authenticated user.
+- A `signal:"name"` tag on a `datapages.Subject` field gets the value from the client signal. An empty value returns 400. Datapages escapes `*` as a literal segment, not a wildcard. The tag is a period-separated signal path. Each segment must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. Two fields must not use the same signal. A page's events must not need one signal both as a value and as an object, such as `chat` and `chat.room`. A `SubjectUser` field cannot have this tag because it is already bound to the authenticated user.
 
 ## Delivery
 
@@ -98,4 +98,4 @@ Datapages serves the stream at the page route plus `_$/`. A page with both publi
 
 Share a handler across pages by embedding: see `datapages-pages`.
 
-<!-- written by datapages sha256:d20f674e4a4f21fa -->
+<!-- written by datapages sha256:bf66cee56fe29ccb -->

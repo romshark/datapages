@@ -81,6 +81,7 @@ Run `datapages gen` to apply these.
 - Show the line number of a Go build error that comes without a column. Before, it showed line 0, and on Windows the drive letter as the file name.
 - Check the `.templ` files of the packages that the app package imports from its module, such as `app/template`. Before, only the app package's own templates were checked. A wrong `href`, a form `action`, a hardcoded action URL or another page's action in those templates went unreported.
 - Reject an action that takes `datapages.SSE` and returns a body. Its HTML went into the open event stream as broken events, and with compression the browser could not read the stream at all. Send the body with `sse.PatchElement` instead.
+- Reject a page whose events need one signal both as a value and as an object, such as an event field tagged `signal:"chat"` and another tagged `signal:"chat.room"`. `$chat.room` exists only when `$chat` is an object, and the stream of such a page never opened. Bind one of the fields to another signal.
 
 #### Generated code
 
@@ -102,6 +103,7 @@ Run `datapages gen` to apply these.
 - Send `Cache-Control: private` with a page rendered for a signed-in visitor, the 404 and error pages included, unless the response already has a `Cache-Control` header. Such a page carries a CSRF token derived from the session. A shared cache that stored the page served it to other visitors, and their actions failed with 403.
 - Set the session cookie of an action that takes `datapages.PageCacheWriter` and returns `newSession` or `closeSession` but neither a redirect nor a body. The response went out without the cookie: a sign-in left the visitor signed out, and a sign-out left them signed in.
 - Answer with the error status when an action that takes `datapages.PageCacheWriter` and returns neither a redirect nor a body fails or panics. The response was 200, with the error status written as text into the event stream.
+- Read a subject field bound to a nested signal, as `signal:"chat.room"`, from the object Datastar sends, `{"chat":{"room":"lobby"}}`. The stream of a page handling such an event answered 400 on every connect.
 
 #### Runtime and modules
 

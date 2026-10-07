@@ -307,6 +307,9 @@ var (
 		"page handles a SubjectStateID event next to a private " +
 			"or signal-scoped one",
 	)
+	ErrSubjectSignalPathConflict = errors.New(
+		"signal used both as a value and as an object",
+	)
 
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
 	ErrTemplActionHardcoded              = templcheck.ErrActionHardcoded

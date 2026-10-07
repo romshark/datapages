@@ -148,6 +148,17 @@ type EventRoomBroadcast struct {
 	Text string `json:"text"`
 }
 
+// EventChatSaid is "chat.said"
+//
+// Two subject fields bound to signals under one object.
+// Datastar sends them nested, as {"chat":{"room":"red","thread":"a"}}.
+type EventChatSaid struct {
+	Room   datapages.Subject `signal:"chat.room"`
+	Thread datapages.Subject `signal:"chat.thread"`
+
+	Text string `json:"text"`
+}
+
 // PageIndex is /
 type PageIndex struct{ App *App }
 
@@ -394,4 +405,34 @@ func (p PageRoom) POSTBroadcast(
 		}
 	}
 	return nil
+}
+
+// PageChat is /chat
+type PageChat struct{ App *App }
+
+func (PageChat) GET(_ *http.Request) (body datapages.Component, err error) {
+	return echo("chat"), nil
+}
+
+func (p PageChat) OnChatSaid(event EventChatSaid, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(`<div id="said">` + event.Text + `</div>`))
+}
+
+// POSTSay is /chat/say
+func (p PageChat) POSTSay(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		Chat struct {
+			Room   string `json:"room"`
+			Thread string `json:"thread"`
+		} `json:"chat"`
+		Text string `json:"text"`
+	}],
+	chatSaid datapages.Dispatcher[EventChatSaid],
+) error {
+	return chatSaid.Dispatch(EventChatSaid{
+		Room:   datapages.Subject(signals.Values.Chat.Room),
+		Thread: datapages.Subject(signals.Values.Chat.Thread),
+		Text:   signals.Values.Text,
+	})
 }

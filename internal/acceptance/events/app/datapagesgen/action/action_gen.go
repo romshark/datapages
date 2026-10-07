@@ -170,6 +170,30 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var PageChat pageChat
+
+type pageChat struct {
+	Say pageChat_Say
+}
+
+type pageChat_Say struct{}
+
+// POST references /chat/say/
+func (pageChat_Say) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/chat/say/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/chat/say/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/chat/say/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PageIndex pageIndex
 
 type pageIndex struct {

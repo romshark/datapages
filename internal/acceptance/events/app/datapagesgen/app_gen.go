@@ -174,6 +174,7 @@ const (
 
 	// Public events:
 
+	EvSubjChatSaid      = "chat.said.*.*"
 	EvSubjNote          = "note"
 	EvSubjPong          = "pong"
 	EvSubjRoomBroadcast = "room.broadcast.*"
@@ -183,18 +184,26 @@ const (
 )
 
 const (
+	EvPrefixChatSaid      = "chat.said."
 	EvPrefixRoomBroadcast = "room.broadcast."
 	EvPrefixRoomSaid      = "room.said."
 )
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
+		EvSubjChatSaid,
 		EvSubjNote,
 		EvSubjPong,
 		EvSubjRoomBroadcast,
 		EvSubjRoomSaid,
 		EvSubjStreamGone,
 		EvSubjTick,
+	}
+}
+
+func evSubjPageChat(subjChatRoom string, subjChatThread string) []string {
+	return []string{
+		"chat.said." + subject.Encode(subjChatRoom) + "." + subject.Encode(subjChatThread),
 	}
 }
 
@@ -223,6 +232,12 @@ func evSubjPageRoom(subjRoom string) []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /chat/{$}",
+		pageChatHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /chat/_$/{$}",
+		pageChatHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -249,6 +264,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /room/_$/{$}",
 		pageRoomHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"POST /chat/say/{$}",
+		pageChatHandlers{s}.POSTSay)
 	s.Mux().HandleFunc(
 		"POST /note/{$}",
 		pageIndexHandlers{s}.POSTNote)
@@ -288,6 +306,124 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
+}
+
+type pageChatHandlers struct{ *Server }
+
+func (s pageChatHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageChat{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageChat.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageChat.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/chat/_$/',{retry:'always',retryMaxCount:Infinity})"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageChat", err)
+		return
+	}
+}
+
+func (s pageChatHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	var subjSignals struct {
+		Chat struct {
+			Room   string `json:"room"`
+			Thread string `json:"thread"`
+		} `json:"chat"`
+	}
+	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+	if subjSignals.Chat.Room == "" {
+		s.HTTPErrBad(w, "invalid signal",
+			fmt.Errorf("signal %q must not be empty", "chat.room"))
+		return
+	}
+	if subjSignals.Chat.Thread == "" {
+		s.HTTPErrBad(w, "invalid signal",
+			fmt.Errorf("signal %q must not be empty", "chat.thread"))
+		return
+	}
+
+	p := dpapp.PageChat{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageChat(subjSignals.Chat.Room, subjSignals.Chat.Thread),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageChat stream")
+			var eventChatSaid dpapp.EventChatSaid
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvPrefixChatSaid):
+					eventChatSaid = dpapp.EventChatSaid{}
+					if err := json.Unmarshal(msg.Data, &eventChatSaid); err != nil {
+						s.LogErr("unmarshaling EventChatSaid JSON", err)
+						continue
+					}
+					if err := p.OnChatSaid(
+						eventChatSaid,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageChat.OnChatSaid", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageChatHandlers) POSTSay(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Chat struct {
+			Room   string `json:"room"`
+			Thread string `json:"thread"`
+		} `json:"chat"`
+		Text string `json:"text"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchChatSaid := dispatcherEventChatSaid{s: s.Server, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageChat.Say")
+	p := dpapp.PageChat{
+		App: s.app,
+	}
+	err := p.POSTSay(r, signals, dispatchChatSaid)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageChat.Say", err)
+		return
+	}
 }
 
 type pageIndexHandlers struct{ *Server }
@@ -870,6 +1006,36 @@ func (s pageRoomHandlers) POSTBroadcast(
 		s.httpErrIntern(w, r, nil, "handling action PageRoom.Broadcast", err)
 		return
 	}
+}
+
+type dispatcherEventChatSaid struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventChatSaid) Dispatch(e dpapp.EventChatSaid) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventChatSaid) DispatchCtx(
+	ctx context.Context, e dpapp.EventChatSaid,
+) error {
+	if e.Room == "" {
+		return errors.New("EventChatSaid.Room must not be empty")
+	}
+	if e.Thread == "" {
+		return errors.New("EventChatSaid.Thread must not be empty")
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventChatSaid JSON: %w", err)
+	}
+	subj := "chat.said." + subject.Encode(string(e.Room)) + "." + subject.Encode(string(e.Thread))
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }
 
 type dispatcherEventStreamGone struct {

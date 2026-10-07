@@ -2828,6 +2828,17 @@ func TestParse_ErrSubjectStateIDPageMixed(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrSubjectStateIDPageMixed)
 }
 
+// TestParse_ErrSubjectSignalPathConflict tests a page that subscribes by the
+// signal chat and by chat.room. Datastar holds chat either as a value or as the
+// object holding room, which leaves the stream unable to read both.
+func TestParse_ErrSubjectSignalPathConflict(t *testing.T) {
+	_, err := parse(t, "err_subj_signal_path_conflict")
+	requireParseErrors(t, err, parser.ErrSubjectSignalPathConflict)
+	_, e := err.Entry(0)
+	require.EqualError(t, e, parser.ErrSubjectSignalPathConflict.Error()+
+		`: PageIndex.OnChatSaid needs "chat", PageIndex.OnRoomSaid needs "chat.room"`)
+}
+
 func fixtureDir(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join("testdata", name)

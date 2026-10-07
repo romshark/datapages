@@ -693,6 +693,7 @@ type EventRoomUpdate struct {
 - An event must not have more than one `datapages.SubjectUser` field. To address several users, dispatch once per user.
 - No two subject fields may share the same `signal:"..."` tag value.
 - `signal` tag values must be period-separated signal names. Each step follows the `Signals` `json` tag rule.
+- A page must not subscribe by a signal and by a signal under it, such as `chat` and `chat.room`. Datastar holds `chat` either as a value or as an object.
 - Two event types cannot claim the same subject anywhere in a module. `datapages gen` and `datapages lint` report conflicts across applications. To share a subject, use one event declaration; see [Events declared outside the application package](#events-declared-outside-the-application-package).
 - An event with subject fields reserves every subject below its base. `"notify"` with one subject field conflicts with `"notify.user"`.
 
