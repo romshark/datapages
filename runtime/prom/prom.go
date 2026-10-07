@@ -332,6 +332,13 @@ func (w *statusRW) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// WriteString is Write for a string. Without it, io.WriteString copies every
+// string written through this wrapper into a new byte slice.
+func (w *statusRW) WriteString(s string) (int, error) {
+	w.wroteHeader = true
+	return io.WriteString(w.ResponseWriter, s)
+}
+
 // ReadFrom forwards to the writer underneath, keeping http.ServeContent on
 // net/http's pooled copy buffer and the kernel sendfile path.
 func (w *statusRW) ReadFrom(src io.Reader) (int64, error) {

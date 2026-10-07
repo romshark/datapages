@@ -464,6 +464,13 @@ func (t *tracked) Write(b []byte) (int, error) {
 	return t.ResponseWriter.Write(b)
 }
 
+// WriteString forwards to the writer underneath. Without it, io.WriteString
+// copies every string written through this wrapper into a new byte slice.
+func (t *tracked) WriteString(s string) (int, error) {
+	t.wroteBody = true
+	return io.WriteString(t.ResponseWriter, s)
+}
+
 // ReadFrom forwards to the writer underneath, which is what
 // http.ServeContent reaches for. Without it io.Copy allocates a copy buffer
 // per response instead of net/http's pooled one, and sendfile is out of reach.

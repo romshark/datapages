@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -346,29 +347,76 @@ func (iw *injectingWriter) WriteHeader(code int) {
 
 func (iw *injectingWriter) Write(p []byte) (int, error) {
 	if !iw.decided {
-		if ct := iw.Header().Get("Content-Type"); ct != "" {
-			iw.inject = strings.HasPrefix(ct, "text/html")
-		} else {
-			iw.inject = looksHTML(p)
-		}
-		if iw.inject && encoded(iw.Header()) {
-			// [Middleware] cannot splice a script into a compressed body. Register
-			// the compressing middleware before [Middleware] to keep script injection.
-			iw.inject = false
-		}
-		iw.decided = true
-		if !iw.inject {
-			if iw.status == 0 {
-				iw.status = http.StatusOK
-			}
-			iw.ResponseWriter.WriteHeader(iw.status)
-		}
+		iw.decide(p)
 	}
 	if iw.inject {
 		return iw.buf.Write(p)
 	}
 	return iw.ResponseWriter.Write(p)
 }
+
+// WriteString keeps io.WriteString from copying s into a new byte slice.
+// The first write of a response without a Content-Type goes through Write,
+// which sniffs its bytes.
+func (iw *injectingWriter) WriteString(s string) (int, error) {
+	if !iw.decided {
+		if iw.Header().Get("Content-Type") == "" {
+			return iw.Write([]byte(s))
+		}
+		iw.decide(nil)
+	}
+	if iw.inject {
+		return iw.buf.WriteString(s)
+	}
+	return io.WriteString(iw.ResponseWriter, s)
+}
+
+// ReadFrom forwards a response that passes through to the writer underneath,
+// which is what http.ServeContent reaches for. Without it io.Copy allocates
+// a copy buffer per response, and sendfile is out of reach.
+//
+// Every other response is copied through Write, which decides on the first bytes.
+// Deciding before the source produced any would commit the status early.
+// A handler whose copy fails at once could then not send 500, and an empty page
+// would get the script. bytes.Buffer.ReadFrom would buffer a page
+// in more allocations than the copy buffer does.
+func (iw *injectingWriter) ReadFrom(src io.Reader) (int64, error) {
+	if iw.decided && !iw.inject {
+		if rf, ok := iw.ResponseWriter.(io.ReaderFrom); ok {
+			return rf.ReadFrom(src)
+		}
+	}
+	return io.Copy(writeOnly{iw}, src)
+}
+
+// decide buffers the response for injection or passes it through,
+// by its Content-Type or, without one, by its first bytes p.
+func (iw *injectingWriter) decide(p []byte) {
+	if ct := iw.Header().Get("Content-Type"); ct != "" {
+		iw.inject = strings.HasPrefix(ct, "text/html")
+	} else {
+		iw.inject = looksHTML(p)
+	}
+	if iw.inject && encoded(iw.Header()) {
+		// [Middleware] cannot splice a script into a compressed body. Register
+		// the compressing middleware before [Middleware] to keep script injection.
+		iw.inject = false
+	}
+	iw.decided = true
+	if !iw.inject {
+		if iw.status == 0 {
+			iw.status = http.StatusOK
+		}
+		iw.ResponseWriter.WriteHeader(iw.status)
+	}
+}
+
+// writeOnly hides [injectingWriter.ReadFrom] from io.Copy, which would
+// otherwise call it again. It holds a single pointer, which converts to
+// an io.Writer without an allocation.
+type writeOnly struct{ iw *injectingWriter }
+
+func (w writeOnly) Write(p []byte) (int, error) { return w.iw.Write(p) }
 
 // Flush supports streaming responses such as Datastar SSE.
 // [Middleware] doesn't buffer them.

@@ -187,6 +187,36 @@ func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
 	}
 }
 
+// TestWriteStringThroughServeHTTP tests io.WriteString on the writer
+// Core.ServeHTTP wraps every response in. It reaches the WriteString of the
+// writer underneath without copying the string into a new byte slice,
+// and it counts as a body written.
+func TestWriteStringThroughServeHTTP(t *testing.T) {
+	var allocs float64
+	var written bool
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		allocs = testing.AllocsPerRun(100, func() {
+			_, _ = io.WriteString(w, "<p>x</p>")
+		})
+		written = httpserve.ResponseBodyWritten(w)
+	})
+	c.Build()
+	c.ServeHTTP(discardRW{http.Header{}}, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.Zero(t, allocs, "allocations per io.WriteString")
+	require.True(t, written, "a body written with io.WriteString is not reported")
+}
+
+// discardRW drops the body. Like the writer net/http hands a handler,
+// it has a WriteString that copies nothing.
+type discardRW struct{ h http.Header }
+
+func (w discardRW) Header() http.Header             { return w.h }
+func (discardRW) Write(p []byte) (int, error)       { return len(p), nil }
+func (discardRW) WriteString(s string) (int, error) { return len(s), nil }
+func (discardRW) WriteHeader(int)                   {}
+
 // TestResponseControllerReachesTheRealWriter tests the deadline controls of
 // [http.ResponseController], which walk Unwrap and nothing else.
 // Core.ServeHTTP wraps every response.

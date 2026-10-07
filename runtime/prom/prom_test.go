@@ -3,6 +3,7 @@ package prom_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,6 +81,41 @@ func TestMiddlewareLabelsTheSentStatus(t *testing.T) {
 		"path": "GET /late/{$}", "status": "500",
 	}), "a status net/http never sent was counted")
 }
+
+// TestMiddlewareWriteString tests io.WriteString on the middleware's writer.
+// It reaches the WriteString of the writer underneath without copying the
+// string into a new byte slice, and a status written after it is dropped,
+// as after Write.
+func TestMiddlewareWriteString(t *testing.T) {
+	var allocs float64
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /string/{$}", func(w http.ResponseWriter, r *http.Request) {
+		allocs = testing.AllocsPerRun(100, func() {
+			_, _ = io.WriteString(w, "half a page")
+		})
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	})
+	prom.Middleware(mux).ServeHTTP(discardRW{http.Header{}},
+		httptest.NewRequest(http.MethodGet, "/string/", nil))
+
+	require.Zero(t, allocs, "allocations per io.WriteString")
+	const metric = "datapages_http_requests_total"
+	require.Equal(t, 1, series(t, metric, map[string]string{
+		"path": "GET /string/{$}", "status": "200",
+	}), "the status the client received was not counted")
+	require.Zero(t, series(t, metric, map[string]string{
+		"path": "GET /string/{$}", "status": "500",
+	}), "a status net/http never sent was counted")
+}
+
+// discardRW drops the body. Like the writer net/http hands a handler,
+// it has a WriteString that copies nothing.
+type discardRW struct{ h http.Header }
+
+func (w discardRW) Header() http.Header             { return w.h }
+func (discardRW) Write(p []byte) (int, error)       { return len(p), nil }
+func (discardRW) WriteString(s string) (int, error) { return len(s), nil }
+func (discardRW) WriteHeader(int)                   {}
 
 // TestMarkStreamLeavesRequestLatency tests a request the stream handler marked:
 // it leaves the latency histogram and the in-flight gauge, and stays counted.
