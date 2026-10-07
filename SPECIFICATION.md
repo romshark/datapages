@@ -979,7 +979,7 @@ The app package cannot contain build-constrained files. Pages, actions, and even
 
 The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecachewriter) parameter. It runs only in a secure context (HTTPS or localhost); otherwise the offline API does nothing.
 
-The worker scope covers the whole origin. Its script response sets `Service-Worker-Allowed: /`, regardless of the script URL.
+The worker scope covers the whole origin, regardless of the script URL. The registration script requests scope `/`, and the script response sets `Service-Worker-Allowed: /`, which permits that scope for a script in a subdirectory.
 
 The offline middleware writes the registration and connectivity scripts into every HTML response. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
 

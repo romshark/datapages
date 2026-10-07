@@ -112,6 +112,8 @@ Run `datapages gen` to apply these.
 - Return an error from `natskv.SessionManager.UserSessions` and `DeleteExpired` when their context ends, NATS stalls for 5s or the connection closes during the call. `UserSessions` returned the sessions read by then as the complete list, and `DeleteExpired` returned nil with expired sessions left in the bucket.
 - Report a token that can't be decrypted as `sessions.ErrSessionNotFound` in `natskv.SessionManager.Session`, as `inmem` does. This includes forged tokens and cookies encrypted with a key that is no longer in `PreviousEncryptionKeys`. Before, `errors.Is(err, sessions.ErrSessionNotFound)` was false for them.
 - Send what net/http logs, such as a panic in a handler or a failed TLS handshake, to the logger set with `datapages.WithLogger`, at error level. It went to stderr as JSON at info level, and the metrics server of `datapages.WithPrometheus` wrote it as plain text. A server passed to `datapages.WithHTTPServer` keeps its own `ErrorLog` if it sets one.
+- Register the offline service worker for the whole origin when `offline.Config.ScriptURL` is in a subdirectory, such as `/static/sw.js`. The browser limited such a worker to the pages under that directory. Other pages were not available offline, and their `datapages.PageCacheWriter` writes never reached the worker.
+- Refuse an `offline.Config.ScriptURL` that is not a plain path, such as `sw.js` or `/sw.js?v=2`. The worker never loaded from those. `offline.WithServiceWorker` and `WithOffline` return an error, and `offline.Middleware` panics. Use a path that starts with `/` and holds only `/` and the unreserved characters of RFC 3986.
 
 #### `datapages init`
 

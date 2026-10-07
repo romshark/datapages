@@ -59,8 +59,10 @@ func TestMiddleware(t *testing.T) {
 				))
 			},
 			want: want{
-				status:  http.StatusOK,
-				bodyHas: []string{"serviceWorker.register('/service-worker.js')", "</head>"},
+				status: http.StatusOK,
+				bodyHas: []string{
+					`serviceWorker.register('/service-worker.js', { scope: '/' })`, "</head>",
+				},
 			},
 		},
 		"passes through SSE untouched": {
@@ -218,6 +220,101 @@ func TestMiddlewareServiceWorkerHeaders(t *testing.T) {
 	require.True(t, strings.Contains(rec.Header().Get("Cache-Control"), "no-cache"))
 }
 
+// TestMiddlewareRegistersTheWholeOrigin tests that a page registers a worker served
+// from a subdirectory for scope "/" and that the script response allows that scope.
+// Without the scope, the browser limits the worker to the directory of its script.
+// Without the header, it refuses the registration.
+func TestMiddlewareRegistersTheWholeOrigin(t *testing.T) {
+	t.Parallel()
+	mw := offline.Middleware("/offline/", offline.Config{
+		WorkerVersion: 1, ScriptURL: "/static/sw.js",
+	})
+
+	page := serve(mw, "<!DOCTYPE html><html><head></head><body>x</body></html>")
+	require.Contains(t, page,
+		`navigator.serviceWorker.register('/static/sw.js', { scope: '/' })`,
+		"the page must register the worker for scope /, not /static/")
+
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("next must not be called for the worker path")
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/sw.js", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "text/javascript; charset=utf-8", rec.Header().Get("Content-Type"))
+	require.Equal(t, "/", rec.Header().Get("Service-Worker-Allowed"),
+		"the browser refuses scope / for /static/sw.js without this header")
+}
+
+// TestScriptURLValidation tests that [offline.WithServiceWorker] refuses a
+// [offline.Config.ScriptURL] the browser does not request as written,
+// and that [offline.Middleware] panics with the same error.
+func TestScriptURLValidation(t *testing.T) {
+	t.Parallel()
+
+	const chars = "; use only ASCII letters, digits, '-', '.', '_', '~' and '/'"
+	for name, tc := range map[string]struct {
+		scriptURL string
+		wantErr   string
+	}{
+		"default":      {},
+		"subdirectory": {scriptURL: "/static/sw-v2.1_x~y.js"},
+		"relative": {
+			scriptURL: "sw.js",
+			wantErr:   `offline: ScriptURL "sw.js" must start with a slash`,
+		},
+		"absolute URL": {
+			scriptURL: "https://example.com/sw.js",
+			wantErr:   `offline: ScriptURL "https://example.com/sw.js" must start with a slash`,
+		},
+		"leading double slash": {
+			scriptURL: "//example.com/sw.js",
+			wantErr:   `offline: ScriptURL "//example.com/sw.js" has an empty path segment`,
+		},
+		"trailing slash": {
+			scriptURL: "/sw/",
+			wantErr:   `offline: ScriptURL "/sw/" has an empty path segment`,
+		},
+		"dot segment": {
+			scriptURL: "/static/../sw.js",
+			wantErr:   `offline: ScriptURL "/static/../sw.js" has a ".." path segment`,
+		},
+		"query": {
+			scriptURL: "/sw.js?v=2",
+			wantErr:   `offline: ScriptURL "/sw.js?v=2" contains '?'` + chars,
+		},
+		"percent-encoding": {
+			scriptURL: "/sw%20v2.js",
+			wantErr:   `offline: ScriptURL "/sw%20v2.js" contains '%'` + chars,
+		},
+		"quote": {
+			scriptURL: "/it's/sw.js",
+			wantErr:   `offline: ScriptURL "/it's/sw.js" contains '\''` + chars,
+		},
+		"end of script": {
+			scriptURL: "/</script>",
+			wantErr:   `offline: ScriptURL "/</script>" contains '<'` + chars,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			conf := offline.Config{WorkerVersion: 1, ScriptURL: tc.scriptURL}
+			var cfg datapages.ServerConfig
+			err := offline.WithServiceWorker("/offline/", conf)(&cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				require.Len(t, cfg.Middleware, 1)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+			require.Empty(t, cfg.Middleware,
+				"a refused config must install no middleware")
+			require.PanicsWithError(t, tc.wantErr, func() {
+				offline.Middleware("/offline/", conf)
+			})
+		})
+	}
+}
+
 func TestMiddlewareOfflineClass(t *testing.T) {
 	t.Parallel()
 
@@ -245,7 +342,9 @@ func TestMiddlewareOfflineClass(t *testing.T) {
 			mw := offline.Middleware("/offline/", tc.conf)
 			rec := httptest.NewRecorder()
 			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte("<!DOCTYPE html><html><head></head><body>x</body></html>"))
+				_, _ = w.Write([]byte(
+					"<!DOCTYPE html><html><head></head><body>x</body></html>",
+				))
 			})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 			body := rec.Body.String()
@@ -285,7 +384,9 @@ func TestServiceWorkerCrossOriginDestinations(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			require.Contains(t, string(offline.ServiceWorkerJS("/offline/", tc.conf)), tc.want)
+			require.Contains(t,
+				string(offline.ServiceWorkerJS("/offline/", tc.conf)),
+				tc.want)
 		})
 	}
 }

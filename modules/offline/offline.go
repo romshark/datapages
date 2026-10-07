@@ -7,6 +7,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -45,9 +46,13 @@ type Config struct {
 	// one a new URL or increase WorkerVersion.
 	WorkerVersion uint64
 
-	// ScriptURL is the path the worker script is served from. Empty selects
-	// [DefaultScriptURL]. Its scope is widened to the whole origin via the
-	// Service-Worker-Allowed header regardless of this path.
+	// ScriptURL is the path the worker script is served from.
+	// Empty selects [DefaultScriptURL].
+	// It starts with a slash, and its segments consist of the unreserved
+	// characters of RFC 3986, other than "." and "..".
+	// The worker controls the whole origin regardless of this path:
+	// registration requests scope "/", and the script response
+	// permits it with the Service-Worker-Allowed header.
 	ScriptURL string
 
 	// Assets lists the CSS, JavaScript and images cached during installation.
@@ -166,6 +171,46 @@ func netStateJS(conf Config) string {
 	return strings.ReplaceAll(netStateTemplate, "__OFFLINE_CLASS__", string(class))
 }
 
+func (c Config) validate() error {
+	if err := validateScriptURL(c.scriptURL()); err != nil {
+		return fmt.Errorf("offline: ScriptURL %q %w", c.scriptURL(), err)
+	}
+	return nil
+}
+
+// validateScriptURL refuses a script URL the browser doesn't request as written.
+// [Middleware] compares it with the decoded request path, which a relative,
+// percent-encoded or query-carrying URL never matches.
+// The browser removes dot segments and reads a leading // as a host.
+// The characters allowed stand unescaped in the registration script's string literal.
+func validateScriptURL(s string) error {
+	rest, ok := strings.CutPrefix(s, "/")
+	if !ok {
+		return errors.New("must start with a slash")
+	}
+	for seg := range strings.SplitSeq(rest, "/") {
+		switch seg {
+		case "":
+			return errors.New("has an empty path segment")
+		case ".", "..":
+			return fmt.Errorf("has a %q path segment", seg)
+		}
+		for _, r := range seg {
+			if !isUnreserved(r) {
+				return fmt.Errorf("contains %q; use only ASCII letters, digits, "+
+					"'-', '.', '_', '~' and '/'", r)
+			}
+		}
+	}
+	return nil
+}
+
+// isUnreserved reports whether r is unreserved according to RFC 3986, section 2.3.
+func isUnreserved(r rune) bool {
+	return 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' ||
+		r == '-' || r == '.' || r == '_' || r == '~'
+}
+
 // WithServiceWorker returns the server option that installs [Middleware].
 //
 // When [Config.CSPNonce] is nil, the option reads the nonce configured by
@@ -178,6 +223,9 @@ func netStateJS(conf Config) string {
 // It supplies offlinePath from that page's route.
 func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 	return func(c *datapages.ServerConfig) error {
+		if err := conf.validate(); err != nil {
+			return err
+		}
 		// Copy the config for each server. A reused option must bind
 		// [Config.CSPNonce] to the current [datapages.ServerConfig].
 		conf := conf
@@ -203,7 +251,13 @@ func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 //
 // Applications declaring PageOffline should use the generated
 // datapagesgen.WithOffline option. It supplies offlinePath from that page's route.
+//
+// Middleware panics on an invalid [Config.ScriptURL].
+// [WithServiceWorker] returns the error instead.
 func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler {
+	if err := conf.validate(); err != nil {
+		panic(err)
+	}
 	js := ServiceWorkerJS(offlinePath, conf)
 	target := conf.scriptURL()
 	targetSlash := target + "/"
@@ -219,6 +273,8 @@ func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler
 			if r.Method == http.MethodGet &&
 				(r.URL.Path == target || r.URL.Path == targetSlash) {
 				w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+				// Registration requests scope "/". The browser refuses it for a
+				// script in a subdirectory unless this header allows it.
 				w.Header().Set("Service-Worker-Allowed", "/")
 				w.Header().Set("Cache-Control", "no-cache")
 				_, _ = w.Write(js)
