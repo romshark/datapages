@@ -339,8 +339,8 @@ func (w *statusRW) WriteString(s string) (int, error) {
 	return io.WriteString(w.ResponseWriter, s)
 }
 
-// ReadFrom forwards to the writer underneath, keeping http.ServeContent on
-// net/http's pooled copy buffer and the kernel sendfile path.
+// ReadFrom forwards to the writer underneath.
+// Without it, io.Copy allocates a copy buffer per response and cannot use sendfile.
 func (w *statusRW) ReadFrom(src io.Reader) (int64, error) {
 	w.wroteHeader = true
 	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {

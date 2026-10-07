@@ -42,6 +42,7 @@ Run `datapages gen` to apply these.
 - Publish through the `inmem` broker in time linear in the open streams of a page that handles an event with a `datapages.Subject` field without a `signal` tag. Such streams subscribe with a wildcard, and a publish to them took quadratic time: 12.8ms with 10,000 streams, where it takes 86us now. A stream that opened or closed meanwhile waited for it.
 - Stop copying strings written to a response. A `GET /` of `example/counter` drops from 27 to 19 allocations.
 - Stop copying strings written through `offline.Middleware`, and let files served through it use sendfile. A page of 22 strings drops from 35 to 14 allocations.
+- Serve the embedded files of `datapages.WithAssets`, and the files of a `datapages.WithAssetsFS` file system other than `http.Dir`, without allocating a copy buffer of up to 32 KB per response. In a benchmark over HTTP/1.1, a request for a 30 KB file takes 18% less time.
 
 #### `datapages init`
 

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -471,19 +472,52 @@ func (t *tracked) WriteString(s string) (int, error) {
 	return io.WriteString(t.ResponseWriter, s)
 }
 
-// ReadFrom forwards to the writer underneath, which is what
-// http.ServeContent reaches for. Without it io.Copy allocates a copy buffer
-// per response instead of net/http's pooled one, and sendfile is out of reach.
+// ReadFrom is how http.ServeContent copies a file into the response. Without
+// it, io.Copy allocates a copy buffer per response.
+//
+// A source the kernel can send goes to the ReadFrom of the writer underneath,
+// where net/http sends a file with sendfile and a socket with splice.
+// Any other source is copied through Write with a pooled buffer. Over plain TCP,
+// net/http copies such a source with a new buffer per response
+// and more allocations than Write takes.
 //
 // wroteBody is set before the copy: zero bytes for an empty file is
 // the same case as Write(nil), which sets it too.
 func (t *tracked) ReadFrom(src io.Reader) (int64, error) {
 	t.wroteBody = true
-	if rf, ok := t.ResponseWriter.(io.ReaderFrom); ok {
+	if rf, ok := t.ResponseWriter.(io.ReaderFrom); ok && zeroCopySource(src) {
 		return rf.ReadFrom(src)
 	}
-	return io.Copy(t.ResponseWriter, src)
+	buf := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(buf)
+	return io.CopyBuffer(writeOnly{t}, src, *buf)
 }
+
+// zeroCopySource reports whether src is a [syscall.Conn], the only kind of
+// source net sends without copying it through user space: an [os.File] with sendfile,
+// a TCP or Unix socket with splice. An [io.LimitedReader],
+// which http.ServeContent passes, counts by the source it reads from.
+func zeroCopySource(src io.Reader) bool {
+	if lr, ok := src.(*io.LimitedReader); ok {
+		src = lr.R
+	}
+	_, ok := src.(syscall.Conn)
+	return ok
+}
+
+// copyBufPool holds the buffers [tracked.ReadFrom] copies through.
+// 32 KB is the size io.Copy allocates.
+var copyBufPool = sync.Pool{New: func() any {
+	b := make([]byte, 32<<10)
+	return &b
+}}
+
+// writeOnly is the writer underneath t without its ReadFrom,
+// which io.CopyBuffer would otherwise call. It holds a single pointer,
+// which converts to an io.Writer without an allocation.
+type writeOnly struct{ t *tracked }
+
+func (w writeOnly) Write(p []byte) (int, error) { return w.t.ResponseWriter.Write(p) }
 
 func (t *tracked) Flush() {
 	if f, ok := t.ResponseWriter.(http.Flusher); ok {
