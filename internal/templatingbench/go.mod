@@ -7,7 +7,7 @@ require (
 	github.com/a-h/templ v0.3.1070
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/quicktemplate v1.8.0
-	maragu.dev/gomponents v1.3.0
+	maragu.dev/gomponents v1.4.0
 )
 
 require (
