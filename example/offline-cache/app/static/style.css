@@ -51,7 +51,7 @@
         --foreground: oklch(.985 0 0);
         --card: oklch(.205 0 0);
         --card-foreground: oklch(.985 0 0);
-        --popover: oklch(.269 0 0);
+        --popover: oklch(.205 0 0);
         --popover-foreground: oklch(.985 0 0);
         --primary: oklch(.922 0 0);
         --primary-foreground: oklch(.205 0 0);
@@ -93,18 +93,18 @@ a {
 }
 
 /* Basecoat supplies sizing and shape. These colors preserve contrast in both
-   themes. */
-.btn {
+   themes. A button without data-variant is Basecoat's primary button. */
+.btn:not([data-variant]) {
     background-color: var(--btn-bg);
     color: var(--btn-fg);
     border-color: transparent;
 }
 
-.btn:hover:not(:disabled) {
+.btn:not([data-variant]):hover:not(:disabled) {
     background-color: var(--btn-bg-hover);
 }
 
-.btn:disabled {
+.btn:not([data-variant]):disabled {
     opacity: 0.55;
 }
 

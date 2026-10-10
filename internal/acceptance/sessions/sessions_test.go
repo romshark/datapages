@@ -181,6 +181,31 @@ func TestDocumentCacheControl(t *testing.T) {
 	})
 }
 
+// TestFileVary tests the Vary header of a file. One whose handler takes the
+// session varies by cookie: a browser keys its cache by URL, and after a sign-in
+// as another user it would revalidate the copy it stored for the first.
+// One whose handler takes no session varies by nothing.
+func TestFileVary(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		v := serve(t, broker).Visitor(t)
+		signIn(t, v, "alice", "Alice")
+
+		for path, want := range map[string]struct {
+			body string
+			vary []string
+		}{
+			"/me/avatar": {"avatar of alice", []string{"Cookie"}},
+			"/terms":     {"terms", nil},
+		} {
+			resp := v.Get(t, path)
+			require.Equal(t, http.StatusOK, resp.Status, "%s\n%s", path, resp.Body)
+			require.Equal(t, want.body, resp.Body, path)
+			require.Equal(t, want.vary, resp.Header.Values("Vary"), path)
+		}
+	})
+}
+
 // TestCookieHeaderVariants tests the Cookie header shapes the generated
 // reader must read the way net/http.Request.Cookie reads them.
 // The expectation comes from that method, not from a hand written table.

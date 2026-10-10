@@ -373,6 +373,26 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+// recoverPanicFile is recoverPanic for a handler that answers with a file.
+func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	if p, ok := v.(datapages.PanicError); ok {
+		// httpserve.ServeFile carries a panic of the file's Body over from
+		// the goroutine of http.ServeContent, with the stack it had there.
+		v, stack = p.Value, p.Stack
+	}
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFile(w, r, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -538,6 +558,12 @@ func setupHandlers(s *Server) {
 		"POST /sign-out-cached/{$}",
 		appHandlers{s}.POSTSignOutCached)
 	s.Mux().HandleFunc(
+		"GET /me/avatar/{$}",
+		appHandlers{s}.GETAvatar)
+	s.Mux().HandleFunc(
+		"GET /terms/{$}",
+		appHandlers{s}.GETTerms)
+	s.Mux().HandleFunc(
 		"POST /render/{$}",
 		pageIndexHandlers{s}.POSTRender)
 	s.Mux().HandleFunc(
@@ -605,6 +631,23 @@ func (s *Server) httpErrIntern(
 	}
 	if httpserve.ResponseBodyWritten(w) {
 		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+func (s *Server) httpErrFile(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	if httpserve.IsDocumentRequest(r) {
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+			return
+		}
 	}
 	httpserve.WriteErrStatus(w, err)
 }
@@ -685,6 +728,32 @@ func (s appHandlers) POSTSignOutCached(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = pageCache.flushToNewStream(w)
+}
+
+func (s appHandlers) GETAvatar(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+	defer s.recoverPanicFile(w, r, "App.Avatar")
+	file, err := s.app.GETAvatar(r, sess)
+	if err != nil {
+		s.httpErrFile(w, r, "handling action App.Avatar", err)
+		return
+	}
+	// The file depends on the session cookie.
+	w.Header().Add("Vary", "Cookie")
+	if err := httpserve.ServeFile(w, r, file); err != nil {
+		s.httpErrFile(w, r, "serving the file of action App.Avatar", err)
+	}
+}
+
+func (s appHandlers) GETTerms(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanicFile(w, r, "App.Terms")
+	file := s.app.GETTerms(r)
+	if err := httpserve.ServeFile(w, r, file); err != nil {
+		s.httpErrFile(w, r, "serving the file of action App.Terms", err)
+	}
 }
 
 type pageError404Handlers struct{ *Server }

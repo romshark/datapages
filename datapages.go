@@ -130,7 +130,9 @@ type Query[Values any] struct{ Values Values }
 //
 // WARNING: Values must not outlive the handler that received it. The serialization
 // described above covers handlers, not, for example, a goroutine one of them started.
-// A goroutine that keeps the pointer to the state value races with the tab's handlers.
+// A goroutine that keeps the pointer to the state value races with the tab's handlers,
+// and so does the Body of a returned [File] that reads it: Datapages serves the file
+// after the handler returns, while the tab's other handlers run.
 // An alias stored in the application or held by a [Component] that renders
 // later also keeps the state alive long after the tab is gone.
 // Copy the fields out instead:
@@ -360,6 +362,14 @@ type Redirect struct {
 // and with ModTime or ETag the conditional requests
 // [If-Modified-Since], [If-None-Match], [If-Match] and [If-Range].
 //
+// A handler that takes a [Session] sends [Vary]: Cookie, which keeps a browser
+// from showing one visitor the copy it stored for another. A shared cache, such
+// as a CDN, then stores one copy per cookie: serve a file that is the same for
+// every visitor from a handler that takes no Session.
+//
+// A client that stops reading ends the response after the time
+// [WithFileSendTimeout] sets, a minute by default.
+//
 // Do not use File to render application HTML. Return a [Component] so Templ
 // can escape values for their HTML context and datapages lint can check the markup.
 //
@@ -379,6 +389,7 @@ type Redirect struct {
 // [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
 // [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
 // [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+// [Vary]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary
 // [X-Content-Type-Options]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options
 // [MIME sniffing]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types#mime_sniffing
 type File struct {
@@ -432,8 +443,8 @@ type File struct {
 	// Header holds response headers the other fields don't set, such as
 	// Content-Language, or a Content-Security-Policy for an untrusted type.
 	// It replaces a header of the same name that middleware set before, except
-	// Set-Cookie, whose values add to the cookies set before. Keys that spell
-	// one name differently are joined in their sorted order.
+	// Set-Cookie and Vary, whose values add to the ones set before. Keys that
+	// spell one name differently are joined in their sorted order.
 	// A header the fields or [http.ServeContent] write returns HTTP 500:
 	// Content-Type, X-Content-Type-Options, ETag, Last-Modified, Cache-Control,
 	// Content-Disposition, Content-Length, Content-Range and Accept-Ranges.

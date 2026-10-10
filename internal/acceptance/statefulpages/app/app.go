@@ -6,6 +6,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"sync"
@@ -88,6 +89,41 @@ func (p PageIndex) POSTUpdate(
 	return dispatch.Dispatch(EventFiltersUpdated{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
+}
+
+// ExportSize is the size of the file PageIndex.POSTExport answers with,
+// more than the buffers of a connection hold.
+const ExportSize = 64 << 20
+
+// zeros reads zero bytes at any offset.
+type zeros struct{}
+
+func (zeros) ReadAt(p []byte, _ int64) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+// exportBody is a File body with nothing to close.
+type exportBody struct{ *io.SectionReader }
+
+func (exportBody) Close() error { return nil }
+
+// POSTExport is /export
+//
+// Answers with a file named after the tab's filter. A client that reads none
+// of it leaves the server writing.
+func (p PageIndex) POSTExport(
+	r *http.Request,
+	state datapages.State[StateFilters],
+) (datapages.File, error) {
+	return datapages.File{
+		Type: "application/octet-stream",
+		Body: exportBody{io.NewSectionReader(zeros{}, 0, ExportSize)},
+		Disposition: datapages.FileDisposition{
+			Download: true,
+			Filename: "filter-" + state.Values.Filter,
+		},
+	}, nil
 }
 
 // ErrEventHandler is what PageIndex.OnFiltersUpdated panics with.

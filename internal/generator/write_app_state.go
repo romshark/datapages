@@ -140,13 +140,20 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 // writeLockSlotOrReject emits the slot lock after the request body is read.
 // The mutex serializes all handlers of one tab, including the SSE event loop.
 // Locking before the read would let a slow request stall the tab and fill the
-// event buffer.
+// event buffer. A slow client would do the same to a file, which is why a
+// handler that returns one releases the lock before the file is served,
+// see [Writer.writeFileCall]. The deferred unlock covers a panic in the handler.
 //
 // The stream can close between the lookup and the lock and drop the state,
 // which is why liveness is re-checked here.
-func (w *Writer) writeLockSlotOrReject() {
+func (w *Writer) writeLockSlotOrReject(h *model.Handler) {
 	w.Line(1, "slot.mu.Lock()")
-	w.Line(1, "defer slot.mu.Unlock()")
+	if h.OutputFile != nil {
+		w.Line(1, "unlock := sync.OnceFunc(slot.mu.Unlock)")
+		w.Line(1, "defer unlock()")
+	} else {
+		w.Line(1, "defer slot.mu.Unlock()")
+	}
 	w.Line(1, "if slot.dead {")
 	w.Line(2, "w.Header().Set(stateRetryHeader, stateRetryReconnect)")
 	w.Line(2, "http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)")

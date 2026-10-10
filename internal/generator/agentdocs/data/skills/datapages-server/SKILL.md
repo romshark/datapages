@@ -45,6 +45,7 @@ opts = append(opts,
 	datapages.WithHTTPServer(&http.Server{ReadHeaderTimeout: 10 * time.Second}),
 	datapages.WithDatastarJS("https://cdn.example.com/datastar.js"),
 	datapages.WithShutdownTimeout(30*time.Second),
+	datapages.WithFileSendTimeout(time.Minute),
 	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
 	datapages.WithBodySizeLimit(1<<20),
 	datapages.WithLogSampling(datapages.LogSamplingConfig{Interval: time.Minute}),
@@ -52,7 +53,7 @@ opts = append(opts,
 )
 ```
 
-`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams.
+`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends the response of a `datapages.File` or a static asset whose client accepts no more of it for the time, a minute by default.
 
 `WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
@@ -83,7 +84,7 @@ An `embed.FS` in the app package enables file serving. Its doc comment defines t
 var StaticFS embed.FS
 ```
 
-Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. It may contain only ASCII letters, digits, `-`, `.`, `_`, `~` and `/`: the server matches it against the decoded request path, which a percent-encoded prefix never matches. The directive must name exactly one directory inside the app package.
+Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. It may contain only ASCII letters, digits, `-`, `.`, `_`, `~` and `/`: the server matches it against the decoded request path, which a percent-encoded prefix never matches. The directive must name exactly one directory inside the app package. No page or action route may start with the URL prefix: every path below it belongs to the files.
 
 `datapages.WithAssets(app.StaticFS, false)` supplies the filesystem and the directory-browsing setting. Generated code supplies the URL prefix, source directory and development disk path. In development mode, Datapages reads files from disk and disables caching. Asset changes then need no rebuild. The server rejects `WithAssets` when the app declares no assets.
 

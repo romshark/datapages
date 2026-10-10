@@ -92,6 +92,10 @@ type ServerConfig struct {
 	// Zero selects httpserve.DefaultShutdownTimeout.
 	ShutdownTimeout time.Duration
 
+	// FileSendTimeout is what [WithFileSendTimeout] carries.
+	// Zero selects httpserve.DefaultFileSendTimeout.
+	FileSendTimeout time.Duration
+
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
 
@@ -497,6 +501,29 @@ func WithShutdownTimeout(d time.Duration) ServerOption {
 			)
 		}
 		c.ShutdownTimeout = d
+		return nil
+	}
+}
+
+// WithFileSendTimeout limits how long the response of a [File] or a static
+// asset waits for its client to accept more of the file. A client that stops
+// reading otherwise holds the request and the open file for as long as it keeps
+// the connection: the server has no write timeout, which would end SSE streams.
+//
+// Optional.
+// Defaults to [github.com/romshark/datapages/runtime/httpserve.DefaultFileSendTimeout].
+//
+// The time applies to each write of up to 64 KiB, not to the whole file:
+// a slow client that keeps reading gets its file. When it runs out,
+// the response ends early and the connection closes.
+func WithFileSendTimeout(d time.Duration) ServerOption {
+	return func(c *ServerConfig) error {
+		if d <= 0 {
+			return errors.New(
+				"WithFileSendTimeout: timeout must be greater than zero",
+			)
+		}
+		c.FileSendTimeout = d
 		return nil
 	}
 }

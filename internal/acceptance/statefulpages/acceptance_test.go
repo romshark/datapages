@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ import (
 const (
 	pathStream         = "/_$/"
 	pathAction         = "/update/"
+	pathExport         = "/export/"
 	pathFailOpen       = "/failopen/"
 	pathFailOpenStream = "/failopen/_$/"
 	pathPanicClose     = "/panicclose/"
@@ -211,6 +213,44 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 		t.Fatal("the slow action never finished")
 	}
 	st.WaitFor(t, status("filter:slow"))
+}
+
+// TestSlowFileDoesNotStallTab tests an action that answers with a file the
+// client doesn't read: a second action on the same tab is served while the
+// server still writes the file, and the tab keeps receiving patches.
+func TestSlowFileDoesNotStallTab(t *testing.T) {
+	v := serve(t).Visitor(t)
+	tab := v.Load(t, "/")
+	st := tab.Connect(t, nil)
+
+	export, err := v.Client().Do(tab.NewRequest(t, http.MethodPost, pathExport, nil))
+	require.NoError(t, err, "export")
+	// Closing the unread body ends the export.
+	t.Cleanup(func() { _ = export.Body.Close() })
+	require.Equal(t, http.StatusOK, export.StatusCode, "export")
+	require.Equal(t, strconv.Itoa(app.ExportSize), export.Header.Get("Content-Length"))
+
+	req := tab.NewRequest(t, http.MethodPost, pathAction,
+		strings.NewReader(`{"filter":"fast"}`))
+	req.Header.Set("Content-Type", "application/json")
+	answered := make(chan int, 1)
+	go func() {
+		resp, err := v.Client().Do(req)
+		if err != nil {
+			answered <- 0
+			return
+		}
+		_ = resp.Body.Close()
+		answered <- resp.StatusCode
+	}()
+	select {
+	case status := <-answered:
+		require.Equal(t, http.StatusOK, status, "action during an unread export")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the action waited for the client to read the export")
+	}
+	st.WaitFor(t, status("filter:fast"),
+		"the tab received no patch while the export was unread")
 }
 
 // TestMalformedInstanceID tests that a wrong length or a character outside

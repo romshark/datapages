@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,33 +39,58 @@ var (
 	ErrFileReservedHeader = errors.New("datapages.File sets a reserved header in Header")
 )
 
-// reservedHeaders are the headers [ServeFile] and [http.ServeContent] write,
+// fileHeaders are the headers [ServeFile] and [http.ServeContent] write,
 // by canonical name. A field of [datapages.File] is the one way to set each.
-var reservedHeaders = map[string]bool{
-	"Accept-Ranges":          true,
-	"Cache-Control":          true,
-	"Content-Disposition":    true,
-	"Content-Length":         true,
-	"Content-Range":          true,
-	"Content-Type":           true,
-	"Etag":                   true,
-	"Last-Modified":          true,
-	"X-Content-Type-Options": true,
+var fileHeaders = [...]string{
+	"Accept-Ranges",
+	"Cache-Control",
+	"Content-Disposition",
+	"Content-Length",
+	"Content-Range",
+	"Content-Type",
+	"Etag",
+	"Last-Modified",
+	"X-Content-Type-Options",
 }
+
+// reservedHeaders holds [fileHeaders] for lookup.
+var reservedHeaders = func() map[string]bool {
+	m := make(map[string]bool, len(fileHeaders))
+	for _, name := range fileHeaders {
+		m[name] = true
+	}
+	return m
+}()
 
 // ServeFile writes f as the response to r and closes its Body. It writes
 // nothing and returns [ErrFileNoBody], [ErrFileNoType], [ErrFileInvalidETag],
 // [ErrFileInvalidCache] or [ErrFileReservedHeader] for an incomplete or
 // invalid f.
+//
+// A write that blocks for the send timeout of the server ends the response,
+// see [datapages.WithFileSendTimeout]. A middleware that wraps w without
+// an Unwrap method leaves the writes unlimited.
+//
+// A writer between w and the server that edits response bodies passes the file
+// through unchanged if it has a PassThrough method, as the one
+// offline.Middleware installs does.
+//
+// A panic in Body panics ServeFile with a [datapages.PanicError] that carries
+// the stack of the panic, once Body is closed. A panic before the body leaves
+// the headers of w as they were, which keeps those of the file off the error
+// response. For a multi-range request, [http.ServeContent] reads Body on
+// a goroutine of its own, where ServeFile recovers the panic.
 func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	if f.Body == nil {
 		return ErrFileNoBody
 	}
 	body := f.Body
+	var guard *guardedBody
 	if strings.Contains(r.Header.Get("Range"), ",") {
 		// [http.ServeContent] reads the parts of a multi-range response from
 		// a goroutine it doesn't wait for once the copy to the client fails.
-		body = &guardedBody{body: body}
+		guard = &guardedBody{body: body}
+		body = guard
 	}
 	defer func() { _ = body.Close() }()
 	cacheControl, err := cacheControl(f.Cache)
@@ -82,6 +108,21 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		}
 	}
 	h := w.Header()
+	var saved savedHeaders
+	saved.save(h, f.Header)
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		if !ResponseBodyWritten(w) {
+			saved.restore(h)
+		}
+		if _, ok := v.(datapages.PanicError); !ok {
+			v = datapages.PanicError{Value: v, Stack: debug.Stack()}
+		}
+		panic(v)
+	}()
 	h.Set("Content-Type", f.Type)
 	h.Set("X-Content-Type-Options", "nosniff")
 	if f.ETag != "" {
@@ -98,19 +139,91 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		h.Set("Content-Disposition", v)
 	}
 	addHeader(h, f.Header)
+	passFileThrough(w)
+	limitFileWrites(w)
 	http.ServeContent(w, r, "", f.ModTime, body)
+	if guard != nil {
+		// Close waits for the goroutine's call of Body under way, and none follows.
+		_ = guard.Close()
+		if p := guard.recovered(); p != nil {
+			panic(*p)
+		}
+	}
 	return nil
 }
 
+// savedHeaders holds the values the headers [ServeFile] and
+// [http.ServeContent] write had before.
+type savedHeaders struct {
+	fixed [len(fileHeaders)]savedHeader
+	extra []savedHeader // the names of File.Header
+}
+
+type savedHeader struct {
+	name   string
+	values []string
+	had    bool
+}
+
+func (s *savedHeaders) save(h, extra http.Header) {
+	for i, name := range fileHeaders {
+		values, had := h[name]
+		s.fixed[i] = savedHeader{name, values, had}
+	}
+	for key := range extra {
+		name := textproto.CanonicalMIMEHeaderKey(key)
+		values, had := h[name]
+		s.extra = append(s.extra, savedHeader{name, values, had})
+	}
+}
+
+// restore writes the saved values back. A slice that addHeader appended to
+// in place gets its old length back, which hides what it appended.
+func (s *savedHeaders) restore(h http.Header) {
+	for _, v := range s.fixed {
+		v.restore(h)
+	}
+	for _, v := range s.extra {
+		v.restore(h)
+	}
+}
+
+func (v savedHeader) restore(h http.Header) {
+	if v.had {
+		h[v.name] = v.values
+	} else {
+		delete(h, v.name)
+	}
+}
+
+// passFileThrough makes every writer between w and the server that edits
+// response bodies, such as the one offline.Middleware installs, pass the file
+// through unchanged: its bytes, its length and its ranges are the file's.
+// Such a writer has a PassThrough method.
+func passFileThrough(w http.ResponseWriter) {
+	for {
+		if p, ok := w.(interface{ PassThrough() }); ok {
+			p.PassThrough()
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
+}
+
 // addHeader writes extra into h. A name in extra replaces the values h holds
-// for it, except Set-Cookie, whose values add to the cookies set before.
+// for it, except Set-Cookie and Vary, whose values add to the ones set before.
+// Vary lists the request headers the response depends on, each added by what
+// made it depend on one, such as Cookie for a handler that takes the session.
 // Keys that spell one name differently are joined in sorted order,
 // which writes the same values on every request.
 func addHeader(h, extra http.Header) {
 	replaced := make(map[string]bool, len(extra))
 	for _, key := range slices.Sorted(maps.Keys(extra)) {
 		name := textproto.CanonicalMIMEHeaderKey(key)
-		if name != "Set-Cookie" && !replaced[name] {
+		if name != "Set-Cookie" && name != "Vary" && !replaced[name] {
 			replaced[name] = true
 			delete(h, name)
 		}
@@ -120,28 +233,64 @@ func addHeader(h, extra http.Header) {
 
 // guardedBody is a Body whose Close waits for a Read or Seek under way.
 // Read and Seek after Close return [os.ErrClosed] without reaching the Body.
+//
+// A panic in Read or Seek is recovered: [http.ServeContent] calls them on
+// a goroutine that no recover covers. The panic is returned as the error of
+// the call, which ends the response, and of every later call.
 type guardedBody struct {
-	lock   sync.Mutex
-	body   io.ReadSeekCloser
-	closed bool
+	lock     sync.Mutex
+	body     io.ReadSeekCloser
+	closed   bool
+	panicked *datapages.PanicError
 }
 
-func (g *guardedBody) Read(p []byte) (int, error) {
+func (g *guardedBody) Read(p []byte) (n int, err error) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.closed {
-		return 0, os.ErrClosed
+	if err := g.unusable(); err != nil {
+		return 0, err
 	}
+	defer g.recoverPanic(&err)
 	return g.body.Read(p)
 }
 
-func (g *guardedBody) Seek(offset int64, whence int) (int64, error) {
+func (g *guardedBody) Seek(offset int64, whence int) (n int64, err error) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.closed {
-		return 0, os.ErrClosed
+	if err := g.unusable(); err != nil {
+		return 0, err
 	}
+	defer g.recoverPanic(&err)
 	return g.body.Seek(offset, whence)
+}
+
+// unusable returns why a Read or Seek must not reach the Body, nil if it may.
+func (g *guardedBody) unusable() error {
+	switch {
+	case g.panicked != nil:
+		return *g.panicked
+	case g.closed:
+		return os.ErrClosed
+	}
+	return nil
+}
+
+// recoverPanic keeps a panic of the Body and returns it in *err.
+// It's deferred while g.lock is held.
+func (g *guardedBody) recoverPanic(err *error) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	g.panicked = &datapages.PanicError{Value: v, Stack: debug.Stack()}
+	*err = *g.panicked
+}
+
+// recovered returns the panic of a Read or Seek, nil without one.
+func (g *guardedBody) recovered() *datapages.PanicError {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	return g.panicked
 }
 
 func (g *guardedBody) Close() error {

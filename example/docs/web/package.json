@@ -4,7 +4,7 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "tsc --noEmit",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {
     "quill": "^2.0.3",

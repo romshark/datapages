@@ -249,6 +249,9 @@ func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 // responses. It adds registration when [datapages.HeaderWorkerVersion] is absent or
 // lower than the configured worker version. Non-HTML responses pass through unchanged.
 //
+// So do a range response, whose Content-Range a script would contradict, and the
+// response of a [datapages.File], whose bytes are the file's whatever its type.
+//
 // A response that already carries a Content-Encoding passes through unchanged,
 // because an encoded body cannot be edited as bytes. Register a compressing
 // middleware before [Middleware]. The compressor then receives the rewritten HTML.
@@ -326,10 +329,22 @@ type injectingWriter struct {
 	http.ResponseWriter
 	script []byte
 
-	decided bool
-	inject  bool
-	status  int
-	buf     bytes.Buffer
+	decided     bool
+	inject      bool
+	passThrough bool
+	status      int
+	buf         bytes.Buffer
+}
+
+// PassThrough makes the rest of the response pass through unchanged.
+// [github.com/romshark/datapages/runtime/httpserve.ServeFile] calls it before it
+// writes a [datapages.File].
+func (iw *injectingWriter) PassThrough() { iw.passThrough = true }
+
+// keeps reports whether a response with status passes through whatever its type.
+func (iw *injectingWriter) keeps(status int) bool {
+	return iw.passThrough || status == http.StatusPartialContent ||
+		iw.Header().Get("Content-Range") != ""
 }
 
 func (iw *injectingWriter) WriteHeader(code int) {
@@ -338,8 +353,8 @@ func (iw *injectingWriter) WriteHeader(code int) {
 	}
 	iw.status = code
 	// A declared non-HTML type can pass through without body sniffing.
-	if ct := iw.Header().Get("Content-Type"); ct != "" &&
-		!strings.HasPrefix(ct, "text/html") {
+	if ct := iw.Header().Get("Content-Type"); iw.keeps(code) ||
+		ct != "" && !strings.HasPrefix(ct, "text/html") {
 		iw.decided = true
 		iw.inject = false
 		iw.ResponseWriter.WriteHeader(code)
@@ -395,9 +410,12 @@ func (iw *injectingWriter) ReadFrom(src io.Reader) (int64, error) {
 // decide buffers the response for injection or passes it through,
 // by its Content-Type or, without one, by its first bytes p.
 func (iw *injectingWriter) decide(p []byte) {
-	if ct := iw.Header().Get("Content-Type"); ct != "" {
+	switch ct := iw.Header().Get("Content-Type"); {
+	case iw.keeps(iw.status):
+		iw.inject = false
+	case ct != "":
 		iw.inject = strings.HasPrefix(ct, "text/html")
-	} else {
+	default:
 		iw.inject = looksHTML(p)
 	}
 	if iw.inject && encoded(iw.Header()) {

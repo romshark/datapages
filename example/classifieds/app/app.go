@@ -99,18 +99,14 @@ func (*App) RecoverError(
 	// Or use script execution:
 	//
 	// 	return sse.ExecuteScript(`
-	// 		document.dispatchEvent(new CustomEvent('basecoat:toast', {
-	// 			detail: {
-	// 				config: {
-	// 					category: 'error',
-	// 					title: 'Error',
-	// 					description: 'Something went wrong on our side.',
-	// 					cancel: {
-	// 						label: 'Dismiss'
-	// 					}
-	// 				}
+	// 		document.getElementById('toaster').toast({
+	// 			category: 'error',
+	// 			title: 'Error',
+	// 			description: 'Something went wrong on our side.',
+	// 			cancel: {
+	// 				label: 'Dismiss'
 	// 			}
-	// 		}))
+	// 		})
 	// 	`)
 }
 

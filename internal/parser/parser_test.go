@@ -699,6 +699,33 @@ func TestParse_ErrRouteConflictNamesTheAssetsPrefix(t *testing.T) {
 	require.Equal(t, "GET /static/", conflict.Other)
 }
 
+// TestParse_ErrRouteBelowAssets tests routes below the assets URL prefix that
+// net/http accepts as more specific than the prefix: a page, reported once
+// with its action, a GET action and an action of another method.
+// A page whose route starts with the letters of the prefix stays.
+func TestParse_ErrRouteBelowAssets(t *testing.T) {
+	_, err := parse(t, "err_route_below_assets")
+	requireParseErrors(t, err,
+		parser.ErrRouteConflict, parser.ErrRouteConflict, parser.ErrRouteConflict)
+
+	owners := make([]string, 0, err.Len())
+	for _, e := range err.All() {
+		var conflict *parser.RouteConflictError
+		require.ErrorAs(t, e, &conflict)
+		require.Equal(t, "the assets URL prefix", conflict.OtherOwner)
+		require.Equal(t, "GET /static/", conflict.Other)
+		owners = append(owners, conflict.Owner)
+		if conflict.Owner == "App.GETThumb" {
+			require.Equal(t,
+				`conflicting route: App.GETThumb cannot serve "GET /static/thumbs/{name}/{$}", `+
+					`the assets URL prefix serves "GET /static/": `+
+					"every path below it belongs to the static files",
+				conflict.Error())
+		}
+	}
+	require.ElementsMatch(t, []string{"PageAbout", "App.GETThumb", "App.POSTUpload"}, owners)
+}
+
 // TestParse_ErrRouteUnparsablePatternHasNoOwner tests that a pattern the
 // router cannot parse is reported with its parse error.
 // Every claim refuses it, and naming one of them as the conflict would be wrong.
@@ -2883,6 +2910,25 @@ func TestParse_ErrStateIDWithoutState(t *testing.T) {
 	_, err := parse(t, "err_state_id_without_state")
 	require.NotZero(t, err.Error())
 	requireParseErrors(t, err, parser.ErrStateIDWithoutState)
+}
+
+// TestParse_StateFile tests actions that take the state and return a file,
+// on App and on a page.
+//
+// That the code generated for them compiles is TestCompileFixtures' job,
+// which builds every fixture in this directory.
+func TestParse_StateFile(t *testing.T) {
+	app, err := parse(t, "state_file")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
+
+	require.Len(t, app.Actions, 1)
+	require.NotNil(t, app.Actions[0].InputState)
+	require.NotNil(t, app.Actions[0].OutputFile)
+	require.Len(t, app.Pages, 1)
+	require.Len(t, app.Pages[0].Actions, 1)
+	require.NotNil(t, app.Pages[0].Actions[0].InputState)
+	require.NotNil(t, app.Pages[0].Actions[0].OutputFile)
 }
 
 // TestParse_StateActionOnly covers a stateful page whose only handler is

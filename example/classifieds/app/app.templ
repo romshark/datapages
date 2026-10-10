@@ -20,8 +20,8 @@ templ head() {
 	<link rel="icon" href={ assets.Path("favicon.ico") }/>
 	<link rel="stylesheet" href={ assets.Path("style.css") }/>
 	// Basecoat UI
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10/dist/basecoat.cdn.min.css"/>
-	<script src="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10/dist/js/all.min.js" defer></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css"/>
+	<script src="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/all.min.js" defer></script>
 }
 
 templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
@@ -48,7 +48,7 @@ templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 		if !session.IsGuest() {
 			@menuBase("navbar-menu", session.UserID(), baseData.UserAvatarURL)
 		} else {
-			<button class="btn-secondary">
+			<button class="btn" data-variant="secondary">
 				<a href={ href.PageLogin() }>Sign in</a>
 			</button>
 		}
@@ -143,7 +143,7 @@ templ fragmentMessagesLink(unreadChats int) {
 			@iconMessages()
 			<b>
 				Messages
-				<span class="badge-outline">
+				<span class="badge" data-variant="outline">
 					{ fmt.Sprintf("%d", unreadChats) }
 				</span>
 			</b>
@@ -234,7 +234,8 @@ templ pageLogin(wrongCreds bool) {
 					data-on:click={ action.PageLogin.Submit.POST() }
 				>Sign in</button>
 				<a
-					class="btn-ghost"
+					class="btn"
+					data-variant="ghost"
 					id="forgot-password"
 					data-on:click="
 							evt.preventDefault();
@@ -250,21 +251,24 @@ templ pageLogin(wrongCreds bool) {
 			</i>
 			<div role="group" class="button-group">
 				<button
-					class="btn-secondary"
+					class="btn"
+					data-variant="secondary"
 					data-on:click="
 						$emailorusername = 'user@test.net';
 						$password = 'testuser';
 					"
 				>testuser</button>
 				<button
-					class="btn-secondary"
+					class="btn"
+					data-variant="secondary"
 					data-on:click="
 						$emailorusername = 'julianf92';
 						$password = 'julian123';
 					"
 				>julianf92</button>
 				<button
-					class="btn-secondary"
+					class="btn"
+					data-variant="secondary"
 					data-on:click="
 						$emailorusername = 'very@names.long';
 						$password = 'namuslongus';
@@ -309,7 +313,7 @@ templ pageMessages(
 							<div>
 								<div class="last-message">
 									if chat.UnreadMessages != 0 {
-										<span class="badge-outline">
+										<span class="badge" data-variant="outline">
 											{ chat.UnreadMessages }
 										</span>
 									} else {
@@ -449,7 +453,8 @@ templ pageSettings(
 						<p><b>Session </b></p>
 						<p>{ sess.IssuedAt.String() }</p>
 						<button
-							class="btn-destructive"
+							class="btn"
+							data-variant="destructive"
 							data-on:click={ action.PageSettings.CloseSession.POST(token) }
 						>Terminate</button>
 					</li>
@@ -466,7 +471,8 @@ templ pageSettings(
 				Close only current session
 			</p>
 			<button
-				class="btn-destructive"
+				class="btn"
+				data-variant="destructive"
 				data-on:click={ action.App.SignOut.POST() }
 			>Sign Out</button>
 		</section>
@@ -745,7 +751,8 @@ templ menuBase(id, userName, userAvatarURL string) {
 			aria-haspopup="menu"
 			aria-controls={ id + "-menu" }
 			aria-expanded="false"
-			class="btn-ghost"
+			class="btn"
+			data-variant="ghost"
 		>
 			if userAvatarURL != "" {
 				<img src={ userAvatarURL } class="avatar"/>

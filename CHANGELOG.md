@@ -32,6 +32,7 @@ Releases up to v0.10.0 have their notes on
 - Reject actions, `OnXXX` handlers, `StreamOpen`, `StreamClose` and `State[T]` on a page whose route ends in `{$}`, as `// PageUser is /user/{name}/{$}`. A `{$}` at the end of a page route declares a page that serves only `GET`. An action below such a route got an error saying that it was not under its page, with a suggested route that net/http rejects. Remove `{$}` from the route of such a page: it keeps its URL.
 - Read an exported method on `App` named `QUERY` followed by an uppercase letter, such as `QUERYStats`, as an action. Such a method is rejected when it's a helper rather than an action: rename it.
 - Read an exported method on `App` named `GET` followed by an uppercase letter, such as `GETStats`, as a GET action. Such a method is rejected when it's a helper rather than an action: rename it.
+- Reject page and action routes below the static-files URL prefix. `net/http` treats them as more specific, so matching asset requests reach the handler instead of the file server. Move the route outside the prefix.
 
 #### Generated code
 
@@ -132,6 +133,8 @@ Run `datapages gen` to apply these.
 - Keep a response marked `Cache-Control: no-store` out of the offline worker's cache, and fetch a stored response marked `no-cache` from the network first, using the stored copy only offline. The worker stored every same-origin response that an element or `fetch` loaded, such as an image, whatever its `Cache-Control`, and served the stored copy first. Increase `offline.Config.WorkerVersion`, which deletes what the previous worker stored.
 - Remove a response from the offline worker's cache when the network answers 401, 403, 404 or 410. The worker kept serving the stored copy of a file after the server stopped authorizing it or deleted it, until `offline.Config.WorkerVersion` changed. Increase `offline.Config.WorkerVersion`, which deletes what the previous worker stored.
 - Stop the offline worker from copying a range response with status 206, such as a video that a `video` element streams, for its cache, which refuses it. Nothing read the copy, which can keep every byte the page has read in memory.
+- End the response of a static asset when its client accepts no more of the file for 1 minute. A client that stopped reading held the request and the open file for as long as it kept the connection. `datapages.WithFileSendTimeout` changes the time, which also applies to `datapages.File`.
+- Stop `offline.Middleware` from adding its scripts to a range response, status 206, of an HTML file, such as a static asset that a download manager resumes. The body was longer than its `Content-Range` said, and the saved file was corrupt.
 
 #### `datapages init`
 
