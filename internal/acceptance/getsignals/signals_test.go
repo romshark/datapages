@@ -5,50 +5,32 @@ package acceptance_test
 import (
 	"net/http"
 	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
-	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
 	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
-// newClient starts the server and returns a client that keeps its cookies.
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
 	inMemSessions := sessinmem.New[struct{}](
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
-	h := mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer),
-		inMemSessions)
-	return client.New(t, h).WithJar(t)
+		inMemSessions))
 }
 
-// csrfToken is the token the visitor sends back on an action.
-// Datapages derives it from the session token, which is what the response set
-// the session cookie to.
-func csrfToken(t *testing.T, resp client.Response) string {
+// echo returns the text of the element into which a page echoes what its handler read.
+func echo(t *testing.T, resp *datapagestest.Response) string {
 	t.Helper()
-	for _, raw := range resp.Header.Values("Set-Cookie") {
-		ck, err := http.ParseSetCookie(raw)
-		require.NoError(t, err, "parsing Set-Cookie")
-		if ck.Name != "sessiontoken" {
-			continue
-		}
-		var b strings.Builder
-		_, err = csrf.Tokens{}.WriteToken(&b, ck.Value)
-		require.NoError(t, err, "writing the CSRF token")
-		return b.String()
-	}
-	t.Fatal("the response set no session cookie")
-	return ""
+	return datapagestest.Text(resp.ElementByID(t, "echo"))
 }
 
 // signalsQuery is how the Datastar client sends signals on a GET.
@@ -59,12 +41,12 @@ func signalsQuery(json string) string {
 // TestGETReadsSignals tests a page load carrying signals.
 func TestGETReadsSignals(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, signalsQuery(`{"term":"shoes","page":3}`))
+	resp := v.Get(t, signalsQuery(`{"term":"shoes","page":3}`))
 
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "term=shoes page=3 user=", resp.Element(t, "echo"))
+	require.Equal(t, "term=shoes page=3 user=", echo(t, resp))
 }
 
 // TestGETReadsNestedSignals tests a signals struct that nests.
@@ -74,14 +56,14 @@ func TestGETReadsSignals(t *testing.T) {
 // a query parameter, which is how a nested signal is referenced by its path.
 func TestGETReadsNestedSignals(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/nested/?fuzz=q&datastar="+url.QueryEscape(
+	resp := v.Get(t, "/nested/?fuzz=q&datastar="+url.QueryEscape(
 		`{"foo":{"bar":{"bazz":"x"},"fuzz":"y"}}`,
 	))
 
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "bazz=x fuzz=y query=q", resp.Element(t, "echo"))
+	require.Equal(t, "bazz=x fuzz=y query=q", echo(t, resp))
 	require.Contains(t, resp.Body, "params.set('fuzz', $foo.fuzz)",
 		"the page does not reflect the nested signal")
 }
@@ -90,21 +72,21 @@ func TestGETReadsNestedSignals(t *testing.T) {
 // a visitor who typed the URL sends no signals and the handler is given the zero value.
 func TestGETWithoutSignals(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/")
+	resp := v.Get(t, "/")
 
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "term= page=0 user=", resp.Element(t, "echo"))
+	require.Equal(t, "term= page=0 user=", echo(t, resp))
 }
 
 // TestGETWithMalformedSignals tests a datastar parameter that is not signals.
 // The request is refused rather than served a page built from nothing.
 func TestGETWithMalformedSignals(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, signalsQuery(`{"term":`))
+	resp := v.Get(t, signalsQuery(`{"term":`))
 
 	require.Equal(t, http.StatusBadRequest, resp.Status)
 }
@@ -113,17 +95,17 @@ func TestGETWithMalformedSignals(t *testing.T) {
 // the cookie is set on that same response, and the next page load reads the session.
 func TestGETIssuesASession(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	enter := c.Get(t, "/enter/")
+	enter := v.Get(t, "/enter/")
 	require.Equal(t, http.StatusOK, enter.Status)
-	require.Equal(t, "entered", enter.Element(t, "echo"))
+	require.Equal(t, "entered", echo(t, enter))
 
 	require.NotEmpty(t, enter.Header.Values("Set-Cookie"),
 		"a page load that issues a session set no cookie")
 
-	resp := c.Get(t, "/")
-	require.Equal(t, "term= page=0 user=alice", resp.Element(t, "echo"),
+	resp := v.Get(t, "/")
+	require.Equal(t, "term= page=0 user=alice", echo(t, resp),
 		"the session issued by a page load does not reach the next one")
 }
 
@@ -131,16 +113,15 @@ func TestGETIssuesASession(t *testing.T) {
 // the session token ends the session, and the page stops seeing it.
 func TestActionClosesTheSession(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	enter := c.Get(t, "/enter/")
-	require.Equal(t, "term= page=0 user=alice", c.Get(t, "/").Element(t, "echo"))
+	v.Get(t, "/enter/")
+	index := v.Load(t, "/")
+	require.Equal(t, "term= page=0 user=alice", echo(t, index.Page()))
 
-	token := csrfToken(t, enter)
-	req := c.Request(t, http.MethodPost, "/leave/", "")
-	req.Header.Set("X-CSRF-Token", token)
-	require.Equal(t, http.StatusOK, c.Do(t, req).Status)
+	// The visitor derives the CSRF token from the cookie /enter/ set.
+	require.Equal(t, http.StatusOK, index.Do(t, http.MethodPost, "/leave/", nil).Status)
 
-	require.Equal(t, "term= page=0 user=", c.Get(t, "/").Element(t, "echo"),
+	require.Equal(t, "term= page=0 user=", echo(t, v.Get(t, "/")),
 		"the session outlived the action that closed it")
 }

@@ -8,15 +8,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/error500page/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
@@ -24,15 +24,15 @@ func newClient(t *testing.T) *client.Client {
 // PageError500 and defines no RecoverError.
 func TestError500PageIsRendered(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	// The page renders on its own route, which rules the page itself out as
 	// the reason a failed load might not show it.
-	own := c.Get(t, "/server-error/")
+	own := v.Get(t, "/server-error/")
 	require.Contains(t, own.Body, `<p id="msg">`,
 		"the 500 page does not render on its own route")
 
-	resp := c.Get(t, "/boom/")
+	resp := v.Get(t, "/boom/")
 	require.Equal(t, http.StatusInternalServerError, resp.Status)
 	require.Contains(t, resp.Body, "something went wrong on our side",
 		"a failed page load did not render PageError500")
@@ -45,9 +45,9 @@ func TestError500PageIsRendered(t *testing.T) {
 // for 500 only: the visitor gets 404 and its status text.
 func TestSentinelPageLoadSkipsError500Page(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/gone/")
+	resp := v.Get(t, "/gone/")
 	require.Equal(t, http.StatusNotFound, resp.Status, resp.Body)
 	require.Equal(t, http.StatusText(http.StatusNotFound)+"\n", resp.Body)
 }

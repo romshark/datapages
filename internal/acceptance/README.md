@@ -69,20 +69,29 @@ generated once and committed; every run compiles it.
 case's four type arguments and fails the test on a configuration error, which
 no test can carry on from.
 
-## The client
+## Sending requests
 
-[`client`](client) speaks the protocol for a case: the headers a Datastar
-request carries, and reading an SSE stream in the background.
-A case writes only the requests that are its own.
+A case sends its requests with [`datapagestest`](../../datapagestest), the package
+an application's tests use. A visitor loads pages, sends actions and holds streams
+the way a browser running Datastar does, over in-memory connections. The package
+names no generated code: a case keeps everything the model decides.
 
-It names no generated code. A case keeps everything the model decides.
-[`multiapp/instances_test.go`](multiapp/instances_test.go) uses a page load,
-an action, a stream and a cookie jar.
+A request a browser does not send goes through the visitor's `Client`: a stream
+under a forged instance id, a stream refused at the instance cap, a stream request
+with a header of its own. See [`statefulpages`](statefulpages/acceptance_test.go).
+A test that needs a real socket, such as one of `ListenAndServe`, dials its own.
 
-Responses are compressed by default. The client asks for
-`Accept-Encoding: identity`, which makes what a test reads the bytes the
-handler wrote. The in-memory broker matches subjects the way NATS does: `*`
-covers one token, `>` covers the rest. See `wildcardsubjects`.
+A test shows that an event did not reach a stream with `Stream.Absent` and an
+anchor: an event published afterwards that the stream does receive. The brokers
+deliver in publication order, which makes the anchor arrive after anything
+published before it. See [`events`](events/events_test.go). A fixed wait passes
+when the event arrives after it, and slows every run by its length.
+
+Responses are compressed by default. `Visitor.Send` asks for
+`Accept-Encoding: identity` unless the request names an encoding, which makes
+what a test reads the bytes the handler wrote. The in-memory broker matches
+subjects the way NATS does: `*` covers one token, `>` covers the rest. See
+`wildcardsubjects`.
 
 ## Where the calls live
 

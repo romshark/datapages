@@ -8,81 +8,99 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/stateshared/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t,
+	return datapagestest.New(t, mustNewServer(t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer)))
+}
+
+// bump sends the app action that increments the tab's counter.
+func bump(t *testing.T, tab *datapagestest.Tab) *datapagestest.Response {
+	t.Helper()
+	return tab.Do(t, http.MethodPost, "/bump/", nil)
+}
+
+// note sends the action of PageIndex that sets the tab's note.
+func note(t *testing.T, tab *datapagestest.Tab, text string) *datapagestest.Response {
+	t.Helper()
+	return tab.Do(t, http.MethodPost, "/note/", map[string]string{"note": text})
+}
+
+// state matches the patch of a tab's state, such as "{Counter:1 Note:hello}".
+func state(text string) datapagestest.Match {
+	return datapagestest.TextContains("state", text)
 }
 
 // TestSharedStateIsPerTab covers two tabs of one page bound to a shared state
 // type. Sharing the type must not share the value.
 func TestSharedStateIsPerTab(t *testing.T) {
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	a := c.OpenTab(t, "/", "")
-	b := c.OpenTab(t, "/", "")
+	aTab := v.Load(t, "/")
+	a := aTab.Connect(t, nil)
+	bTab := v.Load(t, "/")
+	b := bTab.Connect(t, nil)
 
 	for range 2 {
-		require.Equal(t, http.StatusOK,
-			a.Act(t, http.MethodPost, "/bump/", "").Status, "bumping the first tab")
+		require.Equal(t, http.StatusOK, bump(t, aTab).Status, "bumping the first tab")
 	}
 
-	require.True(t, a.Saw("Counter:2"), "the first tab did not reach 2")
-	require.True(t, b.Never("Counter:"),
+	a.WaitFor(t, state("Counter:2"), "the first tab did not reach 2")
+
+	// The second tab's own bump is the anchor. A patch for an event of the first tab
+	// would arrive before it, and a value shared with the first tab would read Counter:3.
+	require.Equal(t, http.StatusOK, bump(t, bTab).Status, "bumping the second tab")
+	b.Absent(t, datapagestest.Element("state"), state("{Counter:1 Note:}"),
 		"the second tab received the first tab's state")
 }
 
 // TestSharedStateIsPerPage covers two different pages bound to the same state
 // type. Their tabs are still separate tabs.
 func TestSharedStateIsPerPage(t *testing.T) {
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	index := c.OpenTab(t, "/", "")
-	other := c.OpenTab(t, "/other/", "")
+	indexTab := v.Load(t, "/")
+	index := indexTab.Connect(t, nil)
+	otherTab := v.Load(t, "/other/")
+	other := otherTab.Connect(t, nil)
 
-	require.Equal(t, http.StatusOK,
-		other.Act(t, http.MethodPost, "/bump/", "").Status, "bumping the other page")
+	require.Equal(t, http.StatusOK, bump(t, otherTab).Status, "bumping the other page")
 
-	require.True(t, other.Saw("Counter:1"), "the page that acted received nothing")
-	require.True(t, index.Never("Counter:1"),
-		"a tab of another page received the state")
+	other.WaitFor(t, state("Counter:1"))
+
+	// The index tab's own note is the anchor. A patch for the event of the other page
+	// would arrive before it, and a value shared with that page's tab would read
+	// Counter:1.
+	require.Equal(t, http.StatusOK, note(t, indexTab, "anchor").Status,
+		"setting the note")
+	index.Absent(t, datapagestest.Element("state"), state("{Counter:0 Note:anchor}"))
 }
 
 // TestPageActionAndAppActionShareTheState covers the two ways into one tab's
 // state: an action of the page and an action of the app.
 func TestPageActionAndAppActionShareTheState(t *testing.T) {
-	c := newClient(t)
+	tab := serve(t).Visitor(t).Load(t, "/")
+	st := tab.Connect(t, nil)
 
-	tab := c.OpenTab(t, "/", "")
+	require.Equal(t, http.StatusOK, note(t, tab, "hello").Status, "setting the note")
+	st.WaitFor(t, state("Note:hello"))
 
-	require.Equal(t, http.StatusOK,
-		tab.Act(t, http.MethodPost, "/note/", `{"note":"hello"}`).Status,
-		"setting the note")
-	require.True(t, tab.Saw("Note:hello"), "the page action did not write the state")
-
-	require.Equal(t, http.StatusOK,
-		tab.Act(t, http.MethodPost, "/bump/", "").Status, "bumping")
-	require.True(t, tab.Saw("{Counter:1 Note:hello}"),
-		"the app action did not act on the same value the page action wrote")
+	// The app action acts on the value the page action wrote.
+	require.Equal(t, http.StatusOK, bump(t, tab).Status, "bumping")
+	st.WaitFor(t, state("{Counter:1 Note:hello}"))
 }
 
 // TestAppActionFromAStatelessPage covers a tab of a page that uses no state
 // calling an app action that needs one. There is nothing to act on. The client
 // is told to reconnect instead of being served another tab's value.
 func TestAppActionFromAStatelessPage(t *testing.T) {
-	c := newClient(t)
+	tab := serve(t).Visitor(t).Load(t, "/plain/")
 
-	page := c.Get(t, "/plain/")
-
-	req := c.Request(t, http.MethodPost, "/bump/", "")
-	if id := page.Instance(); id != "" {
-		req.Header.Set("Datapages-Instance", id)
-	}
-	require.Equal(t, http.StatusConflict, c.Do(t, req).Status)
+	require.Equal(t, http.StatusConflict, bump(t, tab).Status)
 }

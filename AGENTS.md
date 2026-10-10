@@ -57,6 +57,7 @@ Public, imported by application or generated code:
 
 - root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds every server option: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. None are generated.
 - `cmd/datapages/` - the shipped binary.
+- `datapagestest/` - the client an application's tests use: visitors with a cookie jar and CSRF tokens, page loads, Datastar actions, SSE streams and redirect targets. Every acceptance case sends its requests with it, and `internal/acceptance/datapagestest` tests it against a generated server.
 - `modules/` - pluggable modules: csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
   - `httpserve` - the server core a generated one embeds: listener, routes, middleware chain, logger, shutdown, redirect, Datastar request check, dev-mode cache headers, the assets file system and the HTML document writer.

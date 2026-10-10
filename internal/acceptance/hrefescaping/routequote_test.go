@@ -6,18 +6,15 @@ package acceptance_test
 
 import (
 	"html"
+	"mime"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
-	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/href"
-	"github.com/romshark/datapages/modules/messaging"
-	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 // TestRouteQuoteStreamURL tests the data-init attribute of a page whose route
@@ -25,8 +22,7 @@ import (
 // from the JavaScript string, which has to hold the whole stream path.
 func TestRouteQuoteStreamURL(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct {
 		page   string
@@ -42,16 +38,21 @@ func TestRouteQuoteStreamURL(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, tt.page)
-			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+			tab := v.Load(t, tt.page)
 
-			expr := html.UnescapeString(attrValue(t, resp.Body, "data-init"))
+			expr := html.UnescapeString(attrValue(t, tab.Page().Body, "data-init"))
 			url, rest := jsString(t, strings.TrimPrefix(expr, "@get("))
 			require.Equal(t, tt.stream, url, expr)
 			require.True(t, strings.HasPrefix(rest, ",{"),
 				"the stream URL ends before its string does: %s", expr)
 
-			c.OpenStream(t, url, nil)
+			// Tab.Connect would open a URL built from the page path instead of this one.
+			resp, err := v.Client().Do(tab.NewRequest(t, http.MethodGet, url, nil))
+			require.NoError(t, err, "opening stream %s", url)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, http.StatusOK, resp.StatusCode, "opening stream %s", url)
+			mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+			require.Equal(t, "text/event-stream", mt, "opening stream %s", url)
 		})
 	}
 }
@@ -61,8 +62,7 @@ func TestRouteQuoteStreamURL(t *testing.T) {
 // Both strings it builds the URL from have to hold the route.
 func TestRouteQuoteURLSync(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct {
 		page string
@@ -74,7 +74,7 @@ func TestRouteQuoteURLSync(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, tt.page)
+			resp := v.Get(t, tt.page)
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 
 			script := html.UnescapeString(attrValue(t, resp.Body, "data-effect"))
@@ -101,20 +101,26 @@ func TestRouteQuoteURLSync(t *testing.T) {
 // path variables and a query.
 func TestRouteQuoteActionURL(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t).Visitor(t)
+	quoted := href.PageQuoted(href.QueryPageQuoted{})
+	quotedItem := href.PageQuotedItem("x", href.QueryPageQuotedItem{})
 
 	tests := map[string]struct {
+		page string // the page whose tab sends the action
 		expr string
 		echo string
 	}{
-		"route only": {action.PageQuoted.Ping.POST(), "pinged"},
+		"route only": {quoted, action.PageQuoted.Ping.POST(), "pinged"},
 		"query": {
+			quoted,
 			action.PageQuoted.Find.POST(action.PageQuoted.Find.POSTQuery("t")),
 			`found "t"`,
 		},
-		"path variable": {action.PageQuotedItem.Rename.POST("x"), `renamed "x"`},
+		"path variable": {
+			quotedItem, action.PageQuotedItem.Rename.POST("x"), `renamed "x"`,
+		},
 		"path variable and query": {
+			quotedItem,
 			action.PageQuotedItem.Move.POST("x",
 				action.PageQuotedItem.Move.POSTQuery("y")),
 			`moved "x" to "y"`,
@@ -127,7 +133,7 @@ func TestRouteQuoteActionURL(t *testing.T) {
 			require.Equal(t, ")", rest,
 				"the action URL ends before its string does: %s", tt.expr)
 
-			resp := c.Action(t, http.MethodPost, url, "")
+			resp := v.Load(t, tt.page).Do(t, http.MethodPost, url, nil)
 			require.Equal(t, http.StatusOK, resp.Status, "POST %s", url)
 			require.Contains(t, resp.Body, tt.echo, "POST %s", url)
 		})

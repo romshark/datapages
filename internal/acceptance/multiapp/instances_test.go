@@ -14,22 +14,24 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	adminapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin"
 	frontendapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend"
 )
 
-// instances builds a server per entry and returns the clients driving them,
+// instances builds a server per entry and returns a visitor of each,
 // keyed the way the assertions name them.
-func instances(t *testing.T) map[string]*client.Client {
+func instances(t *testing.T) map[string]*datapagestest.Visitor {
 	t.Helper()
-	return map[string]*client.Client{
-		"frontend A": client.New(t,
-			mustNewFrontend(t, &frontendapp.App{}, broker())).WithJar(t),
-		"frontend B": client.New(t,
-			mustNewFrontend(t, &frontendapp.App{}, broker())).WithJar(t),
-		"admin A": client.New(t, mustNewAdmin(t, &adminapp.App{}, broker())),
-		"admin B": client.New(t, mustNewAdmin(t, &adminapp.App{}, broker())),
+	return map[string]*datapagestest.Visitor{
+		"frontend A": datapagestest.New(t,
+			mustNewFrontend(t, &frontendapp.App{}, broker())).Visitor(t),
+		"frontend B": datapagestest.New(t,
+			mustNewFrontend(t, &frontendapp.App{}, broker())).Visitor(t),
+		"admin A": datapagestest.New(t,
+			mustNewAdmin(t, &adminapp.App{}, broker())).Visitor(t),
+		"admin B": datapagestest.New(t,
+			mustNewAdmin(t, &adminapp.App{}, broker())).Visitor(t),
 	}
 }
 
@@ -45,19 +47,19 @@ func TestFourInstancesServeTheirOwnApp(t *testing.T) {
 		"admin A":    "admin",
 		"admin B":    "admin",
 	} {
-		require.Equal(t, want, all[name].Get(t, "/").Element(t, "echo"), name)
+		require.Equal(t, want, echo(t, all[name].Get(t, "/")), name)
 	}
 
 	// Each app serves the action it declares, on both of its instances.
 	for _, name := range []string{"frontend A", "frontend B"} {
+		tab := all[name].Load(t, "/")
 		require.Equal(t, http.StatusOK,
-			all[name].Action(t, http.MethodPost, "/notice/", `{"text":"hi"}`).Status,
-			name)
+			tab.Do(t, http.MethodPost, "/notice/", text("hi")).Status, name)
 	}
 	for _, name := range []string{"admin A", "admin B"} {
+		tab := all[name].Load(t, "/")
 		require.Equal(t, http.StatusOK,
-			all[name].Action(t, http.MethodPost, "/report/", `{"n":1}`).Status,
-			name)
+			tab.Do(t, http.MethodPost, "/report/", report(1)).Status, name)
 	}
 }
 
@@ -69,23 +71,26 @@ func TestOneInstanceDoesNotReachAnother(t *testing.T) {
 	all := instances(t)
 	a, b := all["frontend A"], all["frontend B"]
 
-	streamA := a.OpenStream(t, "/_$/", nil)
-	defer streamA.Close()
-	streamB := b.OpenStream(t, "/_$/", nil)
-	defer streamB.Close()
+	tabA := a.Load(t, "/")
+	streamA := tabA.Connect(t, nil)
+	tabB := b.Load(t, "/")
+	streamB := tabB.Connect(t, nil)
 
-	require.Equal(t, http.StatusOK,
-		a.Action(t, http.MethodPost, "/notice/", `{"text":"first"}`).Status)
-	require.True(t, streamA.Saw(`<div id="out">first</div>`),
+	postOK(t, tabA, "/notice/", text("first"))
+	streamA.WaitFor(t, datapagestest.TextContains("out", "first"),
 		"the instance that dispatched the event did not receive it")
-	require.True(t, streamB.Never(`<div id="out">first</div>`),
+
+	// The notice B dispatches next is the anchor: had the event of A reached the
+	// other instance, it would have arrived before it.
+	postOK(t, tabB, "/notice/", text("second"))
+	streamB.Absent(t,
+		datapagestest.TextContains("out", "first"),
+		datapagestest.TextContains("out", "second"),
 		"the event reached the other instance of the same app")
 
-	require.Equal(t, http.StatusOK,
-		a.Action(t, http.MethodPost, "/sign-in/",
-			`{"user":"alice","nickname":"al"}`).Status)
-	require.Equal(t, "user=alice nickname=al", a.Get(t, "/").Element(t, "echo"))
-	require.Equal(t, "anonymous", b.Get(t, "/").Element(t, "echo"),
+	postOK(t, tabA, "/sign-in/", signIn("alice", "al"))
+	require.Equal(t, "user=alice nickname=al", echo(t, a.Get(t, "/")))
+	require.Equal(t, "anonymous", echo(t, b.Get(t, "/")),
 		"a session issued by one instance showed up in the other")
 }
 
@@ -97,9 +102,10 @@ func TestBothMeteredInstancesCount(t *testing.T) {
 	all := instances(t)
 
 	for _, name := range []string{"admin A", "admin B"} {
+		tab := all[name].Load(t, "/")
 		before := requestsTotal(t)
 		require.Equal(t, http.StatusOK,
-			all[name].Action(t, http.MethodPost, "/report/", `{"n":1}`).Status)
+			tab.Do(t, http.MethodPost, "/report/", report(1)).Status)
 		require.Greater(t, requestsTotal(t), before,
 			"%s served a request the counter did not see", name)
 	}

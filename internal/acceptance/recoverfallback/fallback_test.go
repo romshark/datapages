@@ -8,15 +8,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/recoverfallback/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
@@ -25,9 +25,9 @@ func newClient(t *testing.T) *client.Client {
 // the response was committed before the failure.
 func TestRecoverFallbackWritesNothingIntoTheStream(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := c.Action(t, http.MethodPost, "/bad/", "")
+	resp := index.Do(t, http.MethodPost, "/bad/", nil)
 
 	require.NotContains(t, resp.Body, "Bad Request",
 		"the status text was written into the event stream")
@@ -41,9 +41,9 @@ func TestRecoverFallbackWritesNothingIntoTheStream(t *testing.T) {
 // where nothing is committed yet and the status is the server's to send.
 func TestPageLoadStillGetsAStatus(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/bad/")
+	resp := v.Get(t, "/bad/")
 	require.NotEqual(t, http.StatusOK, resp.Status,
 		"a failed page load was answered with 200")
 }

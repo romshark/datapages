@@ -3,22 +3,20 @@
 package acceptance_test
 
 import (
-	"context"
-	"io"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/errorpagestatus/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
@@ -26,13 +24,13 @@ func newClient(t *testing.T) *client.Client {
 // the visitor gets that page and the response carries 404.
 func TestErrorPageStatus(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/no-such-page/")
+	resp := v.Get(t, "/no-such-page/")
 
 	// The page is the app's own. The status is therefore about the response,
 	// not about the absence of a page to render.
-	require.Contains(t, resp.Body, `<p id="msg">no such page</p>`,
+	require.Equal(t, "no such page", datapagestest.Text(resp.ElementByID(t, "msg")),
 		"the custom 404 page was not rendered")
 	require.Equal(t, http.StatusNotFound, resp.Status)
 }
@@ -40,12 +38,12 @@ func TestErrorPageStatus(t *testing.T) {
 // TestErrorPage404ReadsQuery tests that a 404 page receives the unmatched URL's query.
 func TestErrorPage404ReadsQuery(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/no-such-page/?q=needle")
+	resp := v.Get(t, "/no-such-page/?q=needle")
 
 	require.Equal(t, http.StatusNotFound, resp.Status)
-	require.Contains(t, resp.Body, `<p id="term">needle</p>`)
+	require.Equal(t, "needle", datapagestest.Text(resp.ElementByID(t, "term")))
 }
 
 // TestErrorPage404Redirects tests a 404 page that returns a redirect instead of a body.
@@ -53,31 +51,20 @@ func TestErrorPage404ReadsQuery(t *testing.T) {
 // not the 404 the route would otherwise write.
 func TestErrorPage404Redirects(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	// The default client follows the redirect, which hides the status.
-	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	req, err := http.NewRequestWithContext(context.Background(),
-		http.MethodGet, c.URL()+"/go-home/", nil)
-	require.NoError(t, err, "building GET /go-home/")
-	resp, err := hc.Do(req)
-	require.NoError(t, err, "GET /go-home/")
-	defer func() { _ = resp.Body.Close() }()
-	_, err = io.ReadAll(resp.Body)
-	require.NoError(t, err)
+	resp := v.Get(t, "/go-home/")
 
-	require.Equal(t, http.StatusFound, resp.StatusCode)
-	require.Equal(t, "/", resp.Header.Get("Location"))
+	require.Equal(t, http.StatusFound, resp.Status)
+	require.Equal(t, "/", resp.Redirect(t))
 }
 
 // TestRoutedPageIsUnaffected tests a URL a page does claim.
 func TestRoutedPageIsUnaffected(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/")
+	resp := v.Get(t, "/")
 	require.Equal(t, http.StatusOK, resp.Status)
 }
 
@@ -86,9 +73,9 @@ func TestRoutedPageIsUnaffected(t *testing.T) {
 // with nothing left to answer with, the stream must end carrying no status text.
 func TestOpenStreamGetsNoStatus(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	tab := serve(t).Visitor(t).Load(t, "/")
 
-	resp := c.Action(t, http.MethodPost, "/stream-fail/", "")
+	resp := tab.Do(t, http.MethodPost, "/stream-fail/", nil)
 
 	require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
 	require.NotContains(t, resp.Body, "Internal Server Error",

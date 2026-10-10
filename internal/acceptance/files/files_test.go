@@ -4,46 +4,48 @@
 package acceptance_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/files/app"
 	"github.com/romshark/datapages/internal/acceptance/files/app/datapagesgen/href"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
 // get sends a GET with the given request headers, the way a browser loads a
 // URL from a link or an img element.
-func get(t *testing.T, c *client.Client, path string, header ...string) client.Response {
+func get(
+	t *testing.T, v *datapagestest.Visitor, path string, header ...string,
+) *datapagestest.Response {
 	t.Helper()
-	req := c.Request(t, http.MethodGet, path, "")
-	req.Header.Del("Datastar-Request")
+	req := v.NewRequest(t, http.MethodGet, path, nil)
 	for i := 0; i+1 < len(header); i += 2 {
 		req.Header.Set(header[i], header[i+1])
 	}
-	return c.Do(t, req)
+	return v.Send(t, req)
 }
 
 // TestFile tests a GET action answering with a file:
 // the body, its type and the headers the File sets.
 func TestFile(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	link := href.App.File("a.txt", href.App.FileQuery("", false))
 	require.Equal(t, "/files/a.txt", link)
 
-	resp := get(t, c, link)
+	resp := get(t, v, link)
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "content of a.txt", resp.Body)
 	require.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
@@ -59,12 +61,12 @@ func TestFile(t *testing.T) {
 // The href builder escapes it into one segment and the handler reads it back whole.
 func TestFileEscapedName(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	link := href.App.File("a b/c.txt", href.App.FileQuery("", false))
 	require.Equal(t, "/files/a%20b%2Fc.txt", link)
 
-	resp := get(t, c, link)
+	resp := get(t, v, link)
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "content of a b/c.txt", resp.Body)
 }
@@ -73,9 +75,9 @@ func TestFileEscapedName(t *testing.T) {
 // same handler. The builder writes the URL without one.
 func TestFileTrailingSlash(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := get(t, c, "/files/a.txt/")
+	resp := get(t, v, "/files/a.txt/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "content of a.txt", resp.Body)
 }
@@ -109,14 +111,13 @@ func TestFileConditional(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			c := newClient(t)
+			v := serve(t).Visitor(t)
 
-			req := c.Request(t, tc.method, "/files/a.txt", "")
-			req.Header.Del("Datastar-Request")
+			req := v.NewRequest(t, tc.method, "/files/a.txt", nil)
 			if tc.header != "" {
 				req.Header.Set(tc.header, tc.value)
 			}
-			resp := c.Do(t, req)
+			resp := v.Send(t, req)
 			require.Equal(t, tc.wantStatus, resp.Status)
 			require.Equal(t, tc.wantBody, resp.Body)
 		})
@@ -127,9 +128,9 @@ func TestFileConditional(t *testing.T) {
 // under its name instead of showing it.
 func TestFileDownload(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := get(t, c, href.App.File("a.txt", href.App.FileQuery("", true)))
+	resp := get(t, v, href.App.File("a.txt", href.App.FileQuery("", true)))
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "attachment; filename=a.txt", resp.Header.Get("Content-Disposition"))
 }
@@ -194,14 +195,14 @@ func TestFileError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			c := newClient(t)
+			v := serve(t).Visitor(t)
 
 			link := href.App.File("a.txt", href.App.FileQuery(tc.fail, false))
-			var resp client.Response
+			var resp *datapagestest.Response
 			if tc.dest == "" {
-				resp = get(t, c, link)
+				resp = get(t, v, link)
 			} else {
-				resp = get(t, c, link, "Sec-Fetch-Dest", tc.dest)
+				resp = get(t, v, link, "Sec-Fetch-Dest", tc.dest)
 			}
 			require.Equal(t, tc.wantStatus, resp.Status)
 			if tc.dest == "document" {
@@ -218,16 +219,16 @@ func TestFileError(t *testing.T) {
 // TestPageGETAction tests a GET action of a page and the page builder next to it.
 func TestPageGETAction(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	require.Equal(t, "/doc/x/", href.PageDoc("x"))
 	require.Equal(t, "/doc/x/export", href.PageDoc.Export("x"))
 
-	page := get(t, c, href.PageDoc("x"))
+	page := get(t, v, href.PageDoc("x"))
 	require.Equal(t, http.StatusOK, page.Status)
-	require.Equal(t, "x", page.Element(t, "doc"))
+	require.Equal(t, "x", datapagestest.Text(page.ElementByID(t, "doc")))
 
-	file := get(t, c, href.PageDoc.Export("x"))
+	file := get(t, v, href.PageDoc.Export("x"))
 	require.Equal(t, http.StatusOK, file.Status)
 	require.Equal(t, "export of x", file.Body)
 }
@@ -237,14 +238,14 @@ func TestPageGETAction(t *testing.T) {
 // a Datastar action reads no file, and the caller of one reads the status.
 func TestPOSTFile(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := c.Action(t, http.MethodPost, "/upper/", "abc")
+	resp := index.Do(t, http.MethodPost, "/upper/", json.RawMessage("abc"))
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "ABC", resp.Body)
 	require.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"))
 
-	resp = c.Action(t, http.MethodPost, "/upper/", "")
+	resp = index.Do(t, http.MethodPost, "/upper/", json.RawMessage(""))
 	require.Equal(t, http.StatusBadRequest, resp.Status)
 	require.Equal(t, "Bad Request\n", resp.Body)
 	require.NotContains(t, resp.Body, "recovered")

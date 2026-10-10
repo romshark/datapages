@@ -1,16 +1,16 @@
 package acceptance_test
 
 import (
-	"context"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen"
 	"github.com/romshark/datapages/modules/messaging"
@@ -24,19 +24,26 @@ const applyType = `"type":"datapages-offline:apply"`
 // workerVersion is the value asserted in worker and middleware responses.
 const workerVersion = 42
 
-func newClient(t *testing.T, opts ...datapages.ServerOption) *client.Client {
+func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer), opts...))
+}
+
+// post sends the action at path from the index page of a new server, without
+// signals.
+func post(t *testing.T, path string) *datapagestest.Response {
+	t.Helper()
+	return serve(t).Visitor(t).Load(t, "/").Do(t, http.MethodPost, path, nil)
 }
 
 func TestGETEmbedsQueuedWrites(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/")
+	resp := v.Get(t, "/")
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "0", resp.Element(t, "held"),
+	require.Equal(t, "0", datapagestest.Text(resp.ElementByID(t, "held")),
 		"no header means nothing is cached")
 	require.Contains(t, resp.Body, applyType,
 		"a GET embeds queued writes in the page")
@@ -48,13 +55,13 @@ func TestGETEmbedsQueuedWrites(t *testing.T) {
 
 func TestGETReadsTheHeldVersion(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	req := c.Request(t, http.MethodGet, "/", "")
+	req := v.NewRequest(t, http.MethodGet, "/", nil)
 	req.Header.Set("X-Datapages-Offline-Version", "7")
-	resp := c.Do(t, req)
+	resp := v.Send(t, req)
 
-	require.Equal(t, "7", resp.Element(t, "held"),
+	require.Equal(t, "7", datapagestest.Text(resp.ElementByID(t, "held")),
 		"the handler reads the version the worker reports")
 	require.NotContains(t, resp.Body, applyType,
 		"the client holds the current copy, so the handler queues nothing")
@@ -62,9 +69,9 @@ func TestGETReadsTheHeldVersion(t *testing.T) {
 
 func TestGETWritesNothingWhenNothingIsQueued(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/offline/")
+	resp := v.Get(t, "/offline/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.NotContains(t, resp.Body, applyType,
 		"a page that never touches the cache carries no script")
@@ -72,23 +79,24 @@ func TestGETWritesNothingWhenNothingIsQueued(t *testing.T) {
 
 func TestActionFlushesOverItsStream(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
 
-	resp := c.Action(t, http.MethodPost, "/stream-write/", "")
+	resp := post(t, "/stream-write/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Body, applyType,
 		"an action with a stream delivers over it")
 	require.Contains(t, resp.Body, `"version":2`)
-	require.Contains(t, resp.Body, "done", "the action's own patch is sent too")
+	require.True(t, slices.ContainsFunc(resp.Events(t),
+		datapagestest.TextContains("out", "done").Matches),
+		"the action's own patch is sent too")
 }
 
 func TestRedirectCarriesWritesBeforeNavigating(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
 
-	resp := c.Action(t, http.MethodPost, "/redirect-write/", "")
+	resp := post(t, "/redirect-write/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/javascript")
+	require.Equal(t, "/", resp.Redirect(t))
 	require.Contains(t, resp.Body, applyType)
 	require.Contains(t, resp.Body, `"clearAll":true`)
 
@@ -105,12 +113,13 @@ func TestRedirectCarriesWritesBeforeNavigating(t *testing.T) {
 
 func TestUnclaimedURLEmbedsQueuedWrites(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	// The server canonicalizes the URL before the page sees it.
-	resp := c.Get(t, "/no-page-claims-this")
+	resp := v.Get(t, "/no-page-claims-this")
 	require.Equal(t, http.StatusNotFound, resp.Status)
-	require.Equal(t, "/no-page-claims-this/", resp.Element(t, "missing"))
+	require.Equal(t, "/no-page-claims-this/",
+		datapagestest.Text(resp.ElementByID(t, "missing")))
 	require.Contains(t, resp.Body, applyType,
 		"the inline 404 render delivers what its handler queued")
 	require.Contains(t, resp.Body, `"clears":["/no-page-claims-this/"]`)
@@ -118,11 +127,11 @@ func TestUnclaimedURLEmbedsQueuedWrites(t *testing.T) {
 
 func TestWithOfflineServesTheWorker(t *testing.T) {
 	t.Parallel()
-	c := newClient(t, datapagesgen.WithOffline(
+	v := serve(t, datapagesgen.WithOffline(
 		offline.Config{WorkerVersion: workerVersion},
-	))
+	)).Visitor(t)
 
-	resp := c.Get(t, offline.DefaultScriptURL)
+	resp := v.Get(t, offline.DefaultScriptURL)
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "/", resp.Header.Get("Service-Worker-Allowed"),
 		"the worker controls the whole origin, not the path it is served from")
@@ -133,27 +142,25 @@ func TestWithOfflineServesTheWorker(t *testing.T) {
 
 func TestWithOfflineRegistersOnlyWhileOutdated(t *testing.T) {
 	t.Parallel()
-	c := newClient(t, datapagesgen.WithOffline(
+	v := serve(t, datapagesgen.WithOffline(
 		offline.Config{WorkerVersion: workerVersion},
-	))
+	)).Visitor(t)
 
-	resp := c.Get(t, "/")
+	resp := v.Get(t, "/")
 	require.Contains(t, resp.Body, "serviceWorker.register(",
 		"a client with no worker is sent the registration script")
 
-	req := c.Request(t, http.MethodGet, "/", "")
-	req.Header.Del("Datastar-Request")
+	req := v.NewRequest(t, http.MethodGet, "/", nil)
 	req.Header.Set("X-Datapages-Worker-Version", "42")
-	current := c.Do(t, req)
+	current := v.Send(t, req)
 	require.NotContains(t, current.Body, "serviceWorker.register(",
 		"a client running the current worker is sent no registration script")
 }
 
 func TestAppLevelActionFlushesOverAStream(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
 
-	resp := c.Action(t, http.MethodPost, "/app-precache/", "")
+	resp := post(t, "/app-precache/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/event-stream")
 	require.Contains(t, resp.Body, applyType,
@@ -167,12 +174,11 @@ func TestAppLevelActionFlushesOverAStream(t *testing.T) {
 
 func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
 
-	resp := c.Action(t, http.MethodPost, "/app-body/", "")
+	resp := post(t, "/app-body/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
-	require.Equal(t, "done", resp.Element(t, "out"))
+	require.Equal(t, "done", datapagestest.Text(resp.ElementByID(t, "out")))
 	require.Contains(t, resp.Body, applyType,
 		"an app-level action embeds writes in its document")
 	require.Contains(t, resp.Body, `"version":12`)
@@ -180,13 +186,13 @@ func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 
 func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
 
-	resp := c.Action(t, http.MethodPost, "/stream-redirect-write/", "")
+	resp := post(t, "/stream-redirect-write/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Body, applyType,
 		"an action redirecting through its own stream delivers over it first")
 	require.Contains(t, resp.Body, `"version":14`)
+	require.Equal(t, "/", resp.Redirect(t))
 	require.Less(t, strings.Index(resp.Body, applyType),
 		strings.Index(resp.Body, "window.location.href"),
 		"the writes reach the worker ahead of the navigation")
@@ -196,20 +202,20 @@ func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
 // cache script inside the body. Shim updates replace only the body element.
 func TestEmbeddedWritesSitInsideTheBody(t *testing.T) {
 	t.Parallel()
-	for name, get := range map[string]func(*testing.T, *client.Client) string{
-		"get": func(t *testing.T, c *client.Client) string {
-			return c.Get(t, "/").Body
+	for name, get := range map[string]func(*testing.T, *datapagestest.Visitor) string{
+		"get": func(t *testing.T, v *datapagestest.Visitor) string {
+			return v.Get(t, "/").Body
 		},
-		"inline 404": func(t *testing.T, c *client.Client) string {
-			return c.Get(t, "/no-page-claims-this").Body
+		"inline 404": func(t *testing.T, v *datapagestest.Visitor) string {
+			return v.Get(t, "/no-page-claims-this").Body
 		},
-		"app action body": func(t *testing.T, c *client.Client) string {
-			return c.Action(t, http.MethodPost, "/app-body/", "").Body
+		"app action body": func(t *testing.T, v *datapagestest.Visitor) string {
+			return v.Load(t, "/").Do(t, http.MethodPost, "/app-body/", nil).Body
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			body := get(t, newClient(t))
+			body := get(t, serve(t).Visitor(t))
 			require.Contains(t, body, applyType)
 			require.Less(t, strings.Index(body, applyType),
 				strings.LastIndex(body, "</body>"))
@@ -222,11 +228,11 @@ func TestEmbeddedWritesSitInsideTheBody(t *testing.T) {
 // /list?page=2 from the entry for /list.
 func TestShimKeepsItsQuery(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/list/?page=2")
+	resp := v.Get(t, "/list/?page=2")
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "2", resp.Element(t, "page"))
+	require.Equal(t, "2", datapagestest.Text(resp.ElementByID(t, "page")))
 	require.Contains(t, resp.Body, `"url":"/list/?page=2"`)
 	require.Contains(t, resp.Body, `"shim":true`)
 	require.Contains(t, resp.Body,
@@ -241,10 +247,10 @@ func TestShimKeepsItsQuery(t *testing.T) {
 // client's copy and its embedded write to another.
 func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	require.Equal(t, "X-Datapages-Offline-Version", c.Get(t, "/").Header.Get("Vary"))
-	require.Empty(t, c.Get(t, "/offline/").Header.Get("Vary"),
+	require.Equal(t, "X-Datapages-Offline-Version", v.Get(t, "/").Header.Get("Vary"))
+	require.Empty(t, v.Get(t, "/offline/").Header.Get("Vary"),
 		"a page that never touches the cache does not vary")
 }
 
@@ -261,7 +267,7 @@ func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			resp := newClient(t).Action(t, http.MethodPost, tc.path, "")
+			resp := post(t, tc.path)
 			require.Equal(t, http.StatusOK, resp.Status)
 			require.Contains(t, resp.Header.Get("Content-Type"), tc.contentType)
 			require.Contains(t, resp.Body, applyType)
@@ -276,11 +282,7 @@ func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
 // get an HTTP redirect, which drops the queued writes.
 func TestPageCacheActionsRefusePlainRequests(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
-	// The default client follows a redirect, which hides the status.
-	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	v := serve(t).Visitor(t)
 
 	for name, path := range map[string]string{
 		"page stream":           "/stream-write/",
@@ -293,13 +295,8 @@ func TestPageCacheActionsRefusePlainRequests(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			req, err := http.NewRequestWithContext(context.Background(),
-				http.MethodPost, c.URL()+path, nil)
-			require.NoError(t, err, "building POST %s", path)
-			resp, err := hc.Do(req)
-			require.NoError(t, err, "POST %s", path)
-			_ = resp.Body.Close()
-			require.Equal(t, http.StatusNotAcceptable, resp.StatusCode)
+			resp := v.Send(t, v.NewRequest(t, http.MethodPost, path, nil))
+			require.Equal(t, http.StatusNotAcceptable, resp.Status)
 		})
 	}
 }
@@ -321,7 +318,7 @@ func TestCSPNonceReachesEveryScript(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			resp := newClient(t, opts...).Get(t, "/")
+			resp := serve(t, opts...).Visitor(t).Get(t, "/")
 			require.Equal(t, http.StatusOK, resp.Status)
 			require.Contains(t, resp.Body, applyType)
 			require.Contains(t, resp.Body, `<html data-nonce="`+nonce+`">`,

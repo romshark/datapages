@@ -4,9 +4,7 @@ package acceptance_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,26 +16,56 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
-	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/events/app"
 	"github.com/romshark/datapages/internal/acceptance/events/app/datapagesgen"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
+// settle is how long a test lets the server reach a state that no response and no
+// event shows, such as a handler held with events queued behind it.
+const settle = 200 * time.Millisecond
+
+func serve(t *testing.T, broker messaging.Broker) *datapagestest.Server {
+	t.Helper()
+	return datapagestest.New(t, mustNewServer(t, &app.App{}, broker))
+}
+
 // postOK sends an action and requires the server to accept it.
 // What the test is after is on the stream, not in this response.
-func postOK(t *testing.T, c *client.Client, path, body string) {
+func postOK(t *testing.T, tab *datapagestest.Tab, path string, signals any) {
 	t.Helper()
-	resp := c.Action(t, http.MethodPost, path, body)
-	require.Equal(t, http.StatusOK, resp.Status, "POST %s", path)
+	resp := tab.Do(t, http.MethodPost, path, signals)
+	require.Equal(t, http.StatusOK, resp.Status, "POST %s: %s", path, resp.Body)
+}
+
+func tick(n int) map[string]int { return map[string]int{"n": n} }
+
+func room(name string) map[string]string { return map[string]string{"room": name} }
+
+func say(room, text string) map[string]string {
+	return map[string]string{"room": room, "text": text}
 }
 
 // logOf reads what the application recorded while its handlers ran.
-func logOf(t *testing.T, c *client.Client) string {
+func logOf(t *testing.T, v *datapagestest.Visitor) string {
 	t.Helper()
-	return c.Get(t, "/log/").Element(t, "echo")
+	return datapagestest.Text(v.Get(t, "/log/").ElementByID(t, "echo"))
+}
+
+// openedID waits for StreamOpen of the one stream the test opened, which runs after
+// the response head, and returns the stream id it recorded.
+func openedID(t *testing.T, srv *datapagestest.Server, v *datapagestest.Visitor) string {
+	t.Helper()
+	var opened string
+	srv.WaitFor(t, "StreamOpen to run", func() bool {
+		opened = logOf(t, v)
+		return strings.HasPrefix(opened, "open(")
+	})
+	id, _, _ := strings.Cut(strings.TrimPrefix(opened, "open("), ")")
+	return id
 }
 
 // TestPublicEventReachesEveryStream tests an event with no subject field:
@@ -46,16 +74,16 @@ func logOf(t *testing.T, c *client.Client) string {
 func TestPublicEventReachesEveryStream(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		a := c.OpenStream(t, "/_$/", nil)
-		b := c.OpenStream(t, "/_$/", nil)
+		a := v.Load(t, "/").Connect(t, nil)
+		b := v.Load(t, "/").Connect(t, nil)
 
-		postOK(t, c, "/tick/", `{"n":7}`)
+		postOK(t, v.Load(t, "/"), "/tick/", tick(7))
 
-		require.True(t, a.Saw(`<div id="out">tick 7</div>`),
+		a.WaitFor(t, datapagestest.TextContains("out", "tick 7"),
 			"the first stream received no patch")
-		require.True(t, b.Saw(`<div id="out">tick 7</div>`),
+		b.WaitFor(t, datapagestest.TextContains("out", "tick 7"),
 			"the second stream received no patch")
 	})
 }
@@ -66,20 +94,18 @@ func TestPublicEventReachesEveryStream(t *testing.T) {
 func TestStreamHooks(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		srv := serve(t, broker)
+		v := srv.Visitor(t)
 
-		s := c.OpenStream(t, "/_$/", nil)
-		opened := logOf(t, c)
-		if !strings.HasPrefix(opened, "open(") {
-			t.Fatalf("StreamOpen did not run: %q", opened)
-		}
-		id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
+		s := v.Load(t, "/").Connect(t, nil)
+		id := openedID(t, srv, v)
 
 		s.Close()
 
-		if got, want := logOf(t, c), "open("+id+") close("+id+")"; got != want {
-			t.Errorf(" got: %s\nwant: %s", got, want)
-		}
+		srv.WaitFor(t, "StreamClose to run", func() bool {
+			return strings.Contains(logOf(t, v), "close(")
+		})
+		require.Equal(t, "open("+id+") close("+id+")", logOf(t, v))
 	})
 }
 
@@ -88,27 +114,31 @@ func TestStreamHooks(t *testing.T) {
 func TestStreamCloseRunsAfterTheEventHandlers(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		srv := serve(t, broker)
+		v := srv.Visitor(t)
 
-		s := c.OpenStream(t, "/_$/", nil)
-		opened := logOf(t, c)
-		id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
+		index := v.Load(t, "/")
+		s := index.Connect(t, nil)
+		id := openedID(t, srv, v)
 
 		// Hold the first tick in its handler and queue three behind it.
 		// Unheld, the stream drains each tick before the next arrives.
-		postOK(t, c, "/hold/", `{}`)
+		postOK(t, index, "/hold/", nil)
 		for n := range 4 {
-			postOK(t, c, "/tick/", fmt.Sprintf(`{"n":%d}`, n))
+			postOK(t, index, "/tick/", tick(n))
 		}
-		time.Sleep(client.Settle)
+		time.Sleep(settle)
 		s.Close()
-		time.Sleep(client.Settle)
-		postOK(t, c, "/release/", `{}`)
-		time.Sleep(client.Settle)
+		time.Sleep(settle)
+		postOK(t, index, "/release/", nil)
 
-		got := logOf(t, c)
 		closed := "close(" + id + ")"
-		require.Contains(t, got, closed, "StreamClose did not run")
+		srv.WaitFor(t, "StreamClose to run", func() bool {
+			return strings.Contains(logOf(t, v), closed)
+		})
+		// A handler that runs after StreamClose records right after it.
+		time.Sleep(settle)
+		got := logOf(t, v)
 		require.Equal(t, closed, got[strings.LastIndex(got, " ")+1:],
 			"a handler of the stream ran after StreamClose:\n%s", got)
 	})
@@ -119,18 +149,18 @@ func TestStreamCloseRunsAfterTheEventHandlers(t *testing.T) {
 func TestStreamIDReachesEventHandler(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		srv := serve(t, broker)
+		v := srv.Visitor(t)
 
-		_ = c.OpenStream(t, "/_$/", nil)
-		opened := logOf(t, c)
-		id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
+		index := v.Load(t, "/")
+		s := index.Connect(t, nil)
+		id := openedID(t, srv, v)
 
-		postOK(t, c, "/tick/", `{"n":3}`)
-		time.Sleep(client.Settle)
+		postOK(t, index, "/tick/", tick(3))
+		// The handler records before it patches.
+		s.WaitFor(t, datapagestest.TextContains("out", "tick 3"))
 
-		if got, want := logOf(t, c), "open("+id+") tick("+id+",3)"; got != want {
-			t.Errorf(" got: %s\nwant: %s", got, want)
-		}
+		require.Equal(t, "open("+id+") tick("+id+",3)", logOf(t, v))
 	})
 }
 
@@ -139,13 +169,12 @@ func TestStreamIDReachesEventHandler(t *testing.T) {
 func TestEmbeddedHandler(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		other := c.OpenStream(t, "/other/_$/", nil)
-		postOK(t, c, "/tick/", `{"n":1}`)
+		other := v.Load(t, "/other/").Connect(t, nil)
+		postOK(t, v.Load(t, "/"), "/tick/", tick(1))
 
-		require.True(t, other.Saw(`<div id="shared">shared 1</div>`),
-			"the embedding page received nothing from the embedded handler")
+		other.WaitFor(t, datapagestest.TextContains("shared", "shared 1"))
 	})
 }
 
@@ -155,16 +184,17 @@ func TestEmbeddedHandler(t *testing.T) {
 func TestTwoDispatchers(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		s := c.OpenStream(t, "/_$/", nil)
+		index := v.Load(t, "/")
+		s := index.Connect(t, nil)
 
-		postOK(t, c, "/both/", `{"n":3}`)
+		postOK(t, index, "/both/", tick(3))
 
-		require.True(t, s.Saw(`<div id="out">tick 3</div>`),
-			"the first dispatcher delivered nothing")
-		require.True(t, s.Saw(`<div id="pong">pong 3</div>`),
-			"the second dispatcher delivered nothing")
+		// The handler dispatches the tick first, and the broker delivers in
+		// publication order.
+		s.WaitFor(t, datapagestest.TextContains("out", "tick 3"))
+		s.WaitFor(t, datapagestest.TextContains("pong", "pong 3"))
 	})
 }
 
@@ -172,7 +202,7 @@ func TestTwoDispatchers(t *testing.T) {
 // The hook releases leases, presence rows and remote subscriptions:
 // a process exiting with it half-done leaves them held.
 //
-// It serves over ListenAndServe rather than httptest:
+// It serves over ListenAndServe rather than datapagestest:
 // only the server's own http.Server tracks the request the hook belongs to.
 func TestShutdownWaitsForStreamClose(t *testing.T) {
 	t.Parallel()
@@ -197,7 +227,7 @@ func TestShutdownWaitsForStreamClose(t *testing.T) {
 		select {
 		case err := <-done:
 			t.Fatalf("Shutdown returned while StreamClose was running: %v", err)
-		case <-time.After(client.Settle):
+		case <-time.After(settle):
 		}
 
 		a.ReleaseStreamClose()
@@ -242,32 +272,31 @@ func openStream(t *testing.T, url string) io.ReadCloser {
 func TestStreamCloseDispatches(t *testing.T) {
 	t.Parallel()
 	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
-	c := client.New(t, mustNewServer(t, &app.App{}, broker))
+	v := serve(t, broker).Visitor(t)
 
-	watcher := c.OpenStream(t, "/_$/", nil)
-	leaving := c.OpenStream(t, "/_$/", nil)
+	watcher := v.Load(t, "/").Connect(t, nil)
+	leaving := v.Load(t, "/").Connect(t, nil)
 
 	leaving.Close()
 
-	require.True(t, watcher.Saw(`<div id="gone">gone `),
-		"the event dispatched from StreamClose never arrived")
+	watcher.WaitFor(t, datapagestest.TextContains("gone", "gone "))
 }
 
 // TestEventDecodeIsNotCarriedOver tests a field the JSON of the second event
 // leaves out. The stream must show it empty, not what the first event carried.
 func TestEventDecodeIsNotCarriedOver(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t, inmem.New(messaging.DefaultBrokerChanBuffer)).Visitor(t)
 
-	s := c.OpenStream(t, "/_$/", nil)
+	index := v.Load(t, "/")
+	s := index.Connect(t, nil)
 
-	postOK(t, c, "/note/", `{"text":"first"}`)
-	require.True(t, s.Saw(`<div id="note">note=first</div>`),
-		"the first note never arrived")
+	postOK(t, index, "/note/", map[string]string{"text": "first"})
+	s.WaitFor(t, datapagestest.TextContains("note", "note=first"))
 
-	postOK(t, c, "/note/", `{"text":""}`)
-	require.True(t, s.Saw(`<div id="note">note=</div>`),
+	postOK(t, index, "/note/", map[string]string{"text": ""})
+	ev := s.WaitFor(t, datapagestest.Element("note"))
+	require.Equal(t, "note=", datapagestest.Text(ev.ElementByID(t, "note")),
 		"the empty note kept the text of the one before it")
 }
 
@@ -278,19 +307,21 @@ func TestEventDecodeIsNotCarriedOver(t *testing.T) {
 func TestDispatchCtx(t *testing.T) {
 	t.Parallel()
 	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
-	c := client.New(t, mustNewServer(t, &app.App{}, broker))
+	v := serve(t, broker).Visitor(t)
 
-	s := c.OpenStream(t, "/_$/", nil)
+	index := v.Load(t, "/")
+	s := index.Connect(t, nil)
 
-	postOK(t, c, "/tick/", `{"n":1}`)
-	require.True(t, s.Saw(`<div id="out">tick 1</div>`),
-		"the handler context was refused by the broker")
+	postOK(t, index, "/tick/", tick(1))
+	s.WaitFor(t, datapagestest.TextContains("out", "tick 1"))
 
-	resp := c.Action(t, http.MethodPost, "/canceled/", `{"n":2}`)
+	resp := index.Do(t, http.MethodPost, "/canceled/", tick(2))
 	require.Equal(t, http.StatusInternalServerError, resp.Status,
 		"the canceled context did not reach the broker")
-	require.True(t, s.Never("tick 2"),
-		"the event was published with a canceled context")
+	postOK(t, index, "/tick/", tick(3))
+	s.Absent(t,
+		datapagestest.TextContains("out", "tick 2"),
+		datapagestest.TextContains("out", "tick 3"))
 }
 
 // ctxBroker publishes only while the context it is given is alive.
@@ -311,21 +342,24 @@ func (b *ctxBroker) Publish(
 
 // TestSubjectScoping tests an event whose subject carries a value the stream
 // chose when it connected. Two streams of one page, two values, one dispatch:
-// only the addressed stream may see it.
+// only the addressed stream may see it. The later dispatch to the other value
+// is what shows the first one did not reach it.
 func TestSubjectScoping(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
-		blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
+		redTab := v.Load(t, "/room/")
+		red := redTab.Connect(t, room("red"))
+		blue := v.Load(t, "/room/").Connect(t, room("blue"))
 
-		postOK(t, c, "/room/say/", `{"room":"red","text":"hello red"}`)
+		postOK(t, redTab, "/room/say/", say("red", "hello red"))
+		red.WaitFor(t, datapagestest.TextContains("said", "hello red"))
 
-		require.True(t, red.Saw(`<div id="said">hello red</div>`),
-			"the addressed stream received nothing")
-		require.True(t, blue.Never("hello red"),
-			"a stream received an event addressed at another")
+		postOK(t, redTab, "/room/say/", say("blue", "hello blue"))
+		blue.Absent(t,
+			datapagestest.TextContains("said", "hello red"),
+			datapagestest.TextContains("said", "hello blue"))
 	})
 }
 
@@ -335,60 +369,53 @@ func TestSubjectScoping(t *testing.T) {
 func TestNestedSignalScoping(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
 		type chat struct {
 			Room   string `json:"room"`
 			Thread string `json:"thread"`
 		}
-		threadA := c.OpenStream(t, "/chat/_$/",
-			map[string]chat{"chat": {Room: "red", Thread: "a"}})
-		threadB := c.OpenStream(t, "/chat/_$/",
+		type said struct {
+			Chat chat   `json:"chat"`
+			Text string `json:"text"`
+		}
+		chatA := v.Load(t, "/chat/")
+		threadA := chatA.Connect(t, map[string]chat{"chat": {Room: "red", Thread: "a"}})
+		threadB := v.Load(t, "/chat/").Connect(t,
 			map[string]chat{"chat": {Room: "red", Thread: "b"}})
 
-		postOK(t, c, "/chat/say/",
-			`{"chat":{"room":"red","thread":"a"},"text":"hello a"}`)
+		postOK(t, chatA, "/chat/say/",
+			said{Chat: chat{Room: "red", Thread: "a"}, Text: "hello a"})
+		threadA.WaitFor(t, datapagestest.TextContains("said", "hello a"))
 
-		require.True(t, threadA.Saw(`<div id="said">hello a</div>`),
-			"the addressed stream received nothing")
-		require.True(t, threadB.Never("hello a"),
-			"a stream received an event addressed at another thread")
+		postOK(t, chatA, "/chat/say/",
+			said{Chat: chat{Room: "red", Thread: "b"}, Text: "hello b"})
+		threadB.Absent(t,
+			datapagestest.TextContains("said", "hello a"),
+			datapagestest.TextContains("said", "hello b"))
 	})
 }
 
 // TestOneCopyPerStream tests how many messages a subscription receives.
 // A page subscribes to one subject per event it handles, and the room page handles two,
 // which a broker that delivers per matching subscription can turn into more copies
-// than the page asked for.
+// than the page asked for. A second copy would arrive before the next dispatch.
 func TestOneCopyPerStream(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
+		redTab := v.Load(t, "/room/")
+		red := redTab.Connect(t, room("red"))
 
-		postOK(t, c, "/room/say/", `{"room":"red","text":"once"}`)
-		require.True(t, red.Saw(`<div id="said">once</div>`),
-			"the addressed stream received nothing")
+		postOK(t, redTab, "/room/say/", say("red", "once"))
+		red.WaitFor(t, datapagestest.TextContains("said", "once"))
 
-		// Never waits the window out, which lets any second copy land before the
-		// count below.
-		require.True(t, red.Never(`<div id="said">twice</div>`))
-
-		require.Equal(t, 1, countSeen(red, `<div id="said">once</div>`),
-			"the stream received the event more than once")
+		postOK(t, redTab, "/room/say/", say("red", "after"))
+		red.Absent(t,
+			datapagestest.TextContains("said", "once"),
+			datapagestest.TextContains("said", "after"))
 	})
-}
-
-// countSeen is how many of the stream's lines carry sub.
-func countSeen(s *client.Stream, sub string) int {
-	n := 0
-	for _, l := range s.Lines() {
-		if strings.Contains(l, sub) {
-			n++
-		}
-	}
-	return n
 }
 
 // TestSubjectFanout tests the plural form of a subject field.
@@ -397,21 +424,26 @@ func countSeen(s *client.Stream, sub string) int {
 func TestSubjectFanout(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
-		blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
-		green := c.OpenStream(t, "/room/_$/", map[string]string{"room": "green"})
+		redTab := v.Load(t, "/room/")
+		red := redTab.Connect(t, room("red"))
+		blue := v.Load(t, "/room/").Connect(t, room("blue"))
+		green := v.Load(t, "/room/").Connect(t, room("green"))
 
-		postOK(t, c, "/room/broadcast/",
-			`{"rooms":["red","blue"],"text":"to both"}`)
+		broadcast := func(text string, rooms ...string) {
+			postOK(t, redTab, "/room/broadcast/", map[string]any{
+				"rooms": rooms, "text": text,
+			})
+		}
+		broadcast("to both", "red", "blue")
+		red.WaitFor(t, datapagestest.TextContains("broadcast", "to both"))
+		blue.WaitFor(t, datapagestest.TextContains("broadcast", "to both"))
 
-		require.True(t, red.Saw(`<div id="broadcast">to both</div>`),
-			"the first addressed stream received nothing")
-		require.True(t, blue.Saw(`<div id="broadcast">to both</div>`),
-			"the second addressed stream received nothing")
-		require.True(t, green.Never("to both"),
-			"a stream outside the dispatch received the event")
+		broadcast("to green", "green")
+		green.Absent(t,
+			datapagestest.TextContains("broadcast", "to both"),
+			datapagestest.TextContains("broadcast", "to green"))
 	})
 }
 
@@ -424,46 +456,27 @@ func TestSubjectFanout(t *testing.T) {
 func TestStreamOpenRefuses(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
-
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-		req, err := http.NewRequestWithContext(
-			ctx, http.MethodGet, c.URL()+"/_$/?refuse=1", nil,
-		)
-		require.NoError(t, err, "building stream request")
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Accept-Encoding", "identity")
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err, "GET /_$/?refuse=1")
-		defer func() { _ = resp.Body.Close() }()
+		v := serve(t, broker).Visitor(t)
+		index := v.Load(t, "/")
 
 		// Whatever the status, the response has to end rather than hang:
 		// the client is waiting on a stream that will never carry anything.
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			_, _ = io.Copy(io.Discard, resp.Body)
-		}()
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Fatal("a refused stream was left open")
-		}
+		// Reading it fails the test once the deadline passes.
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		v.Send(t, index.NewRequest(t, http.MethodGet, "/_$/?refuse=1", nil).WithContext(ctx))
 
-		if got := logOf(t, c); strings.Contains(got, "open(") {
+		if got := logOf(t, v); strings.Contains(got, "open(") {
 			t.Errorf("the refused stream was recorded as opened: %s", got)
 		}
-		if got := logOf(t, c); strings.Contains(got, "close(") {
+		if got := logOf(t, v); strings.Contains(got, "close(") {
 			t.Errorf("StreamClose ran for a stream that never opened: %s", got)
 		}
 
 		// The server keeps serving streams that are not refused.
-		s := c.OpenStream(t, "/_$/", nil)
-		postOK(t, c, "/tick/", `{"n":9}`)
-		require.True(t, s.Saw(`<div id="out">tick 9</div>`),
-			"a later stream was not served")
+		s := index.Connect(t, nil)
+		postOK(t, index, "/tick/", tick(9))
+		s.WaitFor(t, datapagestest.TextContains("out", "tick 9"))
 	})
 }
 
@@ -476,43 +489,24 @@ func TestStreamOpenRefuses(t *testing.T) {
 func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
+		index := v.Load(t, "/")
 
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-		req, err := http.NewRequestWithContext(
-			ctx, http.MethodGet, c.URL()+"/_$/?panic=1", nil,
-		)
-		require.NoError(t, err, "building stream request")
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Accept-Encoding", "identity")
+		// Reading a stream left open fails the test once the deadline passes.
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		v.Send(t, index.NewRequest(t, http.MethodGet, "/_$/?panic=1", nil).WithContext(ctx))
 
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err, "GET /_$/?panic=1")
-		defer func() { _ = resp.Body.Close() }()
-
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			_, _ = io.Copy(io.Discard, resp.Body)
-		}()
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Fatal("a stream whose StreamOpen panicked was left open")
-		}
-
-		require.Contains(t, logOf(t, c), "open(",
+		require.Contains(t, logOf(t, v), "open(",
 			"StreamOpen did not run")
-		if got := logOf(t, c); strings.Contains(got, "close(") {
+		if got := logOf(t, v); strings.Contains(got, "close(") {
 			t.Errorf("StreamClose ran for a stream that never opened: %s", got)
 		}
 
 		// The panic did not take the server down.
-		s := c.OpenStream(t, "/_$/", nil)
-		postOK(t, c, "/tick/", `{"n":7}`)
-		require.True(t, s.Saw(`<div id="out">tick 7</div>`),
-			"a later stream was not served")
+		s := index.Connect(t, nil)
+		postOK(t, index, "/tick/", tick(7))
+		s.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 	})
 }
 
@@ -520,14 +514,9 @@ func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 func TestStreamRequiresDatastar(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		resp, err := http.Get(c.URL() + "/_$/")
-		require.NoError(t, err, "GET /_$/")
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusNotAcceptable {
-			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotAcceptable)
-		}
+		require.Equal(t, http.StatusNotAcceptable, v.Get(t, "/_$/").Status)
 	})
 }
 
@@ -537,19 +526,11 @@ func TestStreamRequiresDatastar(t *testing.T) {
 func TestMissingSubjectSignal(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
+		roomTab := v.Load(t, "/room/")
 
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodGet, c.URL()+"/room/_$/", nil)
-		require.NoError(t, err, "building request")
-		req.Header.Set("Datastar-Request", "true")
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err, "GET /room/_$/")
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
-		}
+		resp := v.Send(t, roomTab.NewRequest(t, http.MethodGet, "/room/_$/", nil))
+		require.Equal(t, http.StatusBadRequest, resp.Status)
 	})
 }
 
@@ -559,20 +540,21 @@ func TestMissingSubjectSignal(t *testing.T) {
 func TestSubjectSignalEscaped(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
 
-		star := c.OpenStream(t, "/room/_$/", map[string]string{"room": "*"})
-		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
+		starTab := v.Load(t, "/room/")
+		star := starTab.Connect(t, room("*"))
+		red := v.Load(t, "/room/").Connect(t, room("red"))
 
-		postOK(t, c, "/room/say/", `{"room":"red","text":"hello red"}`)
-		require.True(t, red.Saw(`<div id="said">hello red</div>`),
-			"the addressed stream received nothing")
-		require.True(t, star.Never("hello red"),
-			"a wildcard signal widened the subscription to another room")
+		postOK(t, starTab, "/room/say/", say("red", "hello red"))
+		red.WaitFor(t, datapagestest.TextContains("said", "hello red"))
 
-		postOK(t, c, "/room/say/", `{"room":"*","text":"hello star"}`)
-		require.True(t, star.Saw(`<div id="said">hello star</div>`),
-			"the stream scoped to a wildcard value received nothing")
+		// The stream scoped to the wildcard value receives what is published for
+		// that value, and nothing of another room before it.
+		postOK(t, starTab, "/room/say/", say("*", "hello star"))
+		star.Absent(t,
+			datapagestest.TextContains("said", "hello red"),
+			datapagestest.TextContains("said", "hello star"))
 	})
 }
 
@@ -581,21 +563,12 @@ func TestSubjectSignalEscaped(t *testing.T) {
 func TestEmptySubjectSignalRefused(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
+		roomTab := v.Load(t, "/room/")
 
-		encoded, err := json.Marshal(map[string]string{"room": ""})
-		require.NoError(t, err, "encoding signals")
-
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodGet,
-			c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
-		require.NoError(t, err, "building request")
-		req.Header.Set("Datastar-Request", "true")
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err, "GET /room/_$/")
-		_ = resp.Body.Close()
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+		target := "/room/_$/?datastar=" + url.QueryEscape(`{"room":""}`)
+		resp := v.Send(t, roomTab.NewRequest(t, http.MethodGet, target, nil))
+		require.Equal(t, http.StatusBadRequest, resp.Status,
 			"an empty signal was accepted")
 	})
 }
@@ -611,7 +584,7 @@ func TestEmptySubjectSignalRefused(t *testing.T) {
 func TestBrokerStreamInitialization(t *testing.T) {
 	t.Parallel()
 	broker := &initializingBroker{MessageBroker: inmem.New(messaging.DefaultBrokerChanBuffer)}
-	_ = client.New(t, mustNewServer(t, &app.App{}, broker))
+	_ = mustNewServer(t, &app.App{}, broker)
 
 	if broker.calls != 1 {
 		t.Fatalf("InitStreams ran %d times, want once", broker.calls)
@@ -680,19 +653,11 @@ func (b *initializingBroker) InitStreams(subjects []string) error {
 func TestPageWithoutStream(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		v := serve(t, broker).Visitor(t)
+		logTab := v.Load(t, "/log/")
 
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodGet, c.URL()+"/log/_$/", nil)
-		require.NoError(t, err, "building request")
-		req.Header.Set("Datastar-Request", "true")
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err, "GET /log/_$/")
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusNotFound {
-			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
-		}
+		resp := v.Send(t, logTab.NewRequest(t, http.MethodGet, "/log/_$/", nil))
+		require.Equal(t, http.StatusNotFound, resp.Status)
 	})
 }
 
@@ -702,22 +667,26 @@ func TestPageWithoutStream(t *testing.T) {
 func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		srv := serve(t, broker)
+		v := srv.Visitor(t)
 
-		panicking := c.OpenStream(t, "/panic-on-close/_$/", nil)
-		survivor := c.OpenStream(t, "/_$/", nil)
+		panicking := v.Load(t, "/panic-on-close/").Connect(t, nil)
+		index := v.Load(t, "/")
+		survivor := index.Connect(t, nil)
 
-		// Disconnecting is what runs StreamClose.
+		// Disconnecting is what runs StreamClose. It records before it panics.
 		panicking.Close()
+		srv.WaitFor(t, "StreamClose to run", func() bool {
+			return strings.Contains(logOf(t, v), "streamclose(")
+		})
 
-		resp := c.Get(t, "/")
+		resp := v.Get(t, "/")
 		require.Equal(t, http.StatusOK, resp.Status,
 			"the server stopped answering after the panic")
 
 		// The streams the panic did not belong to are still delivered to.
-		postOK(t, c, "/tick/", `{"n":7}`)
-		require.True(t, survivor.Saw(`<div id="out">tick 7</div>`),
-			"an unrelated stream stopped receiving after the panic")
+		postOK(t, index, "/tick/", tick(7))
+		survivor.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 	})
 }
 
@@ -726,12 +695,14 @@ func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
 func TestStreamClosePanicIsReported(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		srv := serve(t, broker)
+		v := srv.Visitor(t)
 
-		s := c.OpenStream(t, "/panic-on-close/_$/", nil)
+		s := v.Load(t, "/panic-on-close/").Connect(t, nil)
 		s.Close()
 
-		require.Contains(t, logOf(t, c), "streamclose(",
-			"StreamClose never ran")
+		srv.WaitFor(t, "StreamClose to run", func() bool {
+			return strings.Contains(logOf(t, v), "streamclose(")
+		})
 	})
 }

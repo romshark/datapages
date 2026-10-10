@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/multicall/app"
 	"github.com/romshark/datapages/internal/acceptance/multicall/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/multicall/app/datapagesgen/href"
@@ -56,17 +56,16 @@ func TestEveryConstructorServesTheSameApp(t *testing.T) {
 	t.Parallel()
 	for name, newServer := range constructors {
 		t.Run(name, func(t *testing.T) {
-			c := client.New(t, newServer(t))
+			v := datapagestest.New(t, newServer(t)).Visitor(t)
+			tab := v.Load(t, href.PageIndex())
+			require.Equal(t, "index",
+				datapagestest.Text(tab.Page().ElementByID(t, "echo")))
 
-			resp := c.Get(t, href.PageIndex())
+			st := tab.Connect(t, nil)
+
+			resp := tab.Do(t, http.MethodPost, "/tick/", map[string]int{"n": 7})
 			require.Equal(t, http.StatusOK, resp.Status)
-			require.Equal(t, "index", resp.Element(t, "echo"))
-
-			s := c.OpenStream(t, "/_$/", nil)
-			defer s.Close()
-
-			c.Action(t, http.MethodPost, "/tick/", `{"n":7}`)
-			require.True(t, s.Saw(`<div id="out">tick 7</div>`))
+			st.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 		})
 	}
 }
@@ -80,8 +79,9 @@ func TestActionsAreOneSetOfRoutes(t *testing.T) {
 
 	for name, newServer := range constructors {
 		t.Run(name, func(t *testing.T) {
-			c := client.New(t, newServer(t))
-			resp := c.Action(t, http.MethodPost, "/tick/", `{"n":1}`)
+			v := datapagestest.New(t, newServer(t)).Visitor(t)
+			tab := v.Load(t, href.PageIndex())
+			resp := tab.Do(t, http.MethodPost, "/tick/", map[string]int{"n": 1})
 			require.Equal(t, http.StatusOK, resp.Status)
 		})
 	}

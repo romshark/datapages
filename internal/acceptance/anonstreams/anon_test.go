@@ -3,7 +3,7 @@
 package acceptance_test
 
 import (
-	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,9 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
+	"github.com/romshark/datapages/internal/acceptance/anonstreams/app/datapagesgen"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
-	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
@@ -22,12 +23,33 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
-func newClient(t *testing.T, broker messaging.Broker) *client.Client {
-	t.Helper()
-	sessions := sessinmem.New[struct{}](
+func newSessions() *sessinmem.SessionManager[struct{}] {
+	return sessinmem.New[struct{}](
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
-	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions))
+}
+
+func serve(t *testing.T, broker messaging.Broker) *datapagestest.Server {
+	t.Helper()
+	return datapagestest.New(t, mustNewServer(t, &app.App{}, broker, newSessions()))
+}
+
+// postOK sends an action and requires the server to accept it.
+// What the test is after is on the stream, not in this response.
+func postOK(t *testing.T, tab *datapagestest.Tab, path string, signals any) {
+	t.Helper()
+	resp := tab.Do(t, http.MethodPost, path, signals)
+	require.Equal(t, http.StatusOK, resp.Status, "POST %s: %s", path, resp.Body)
+}
+
+func room(name string) map[string]string { return map[string]string{"room": name} }
+
+func post(room, text string) map[string]string {
+	return map[string]string{"room": room, "text": text}
+}
+
+func count(n int) datapagestest.Match {
+	return datapagestest.TextContains("count", fmt.Sprintf("count %d", n))
 }
 
 // TestAnonStreamSubscribesBySignal tests a visitor with no session on a page
@@ -36,19 +58,21 @@ func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 func TestAnonStreamSubscribesBySignal(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := newClient(t, broker)
+		v := serve(t, broker).Visitor(t)
 
-		one := c.OpenStream(t, "/rooms/_$/", map[string]string{"room": "one"})
-		two := c.OpenStream(t, "/rooms/_$/", map[string]string{"room": "two"})
+		oneTab := v.Load(t, "/rooms/")
+		one := oneTab.Connect(t, room("one"))
+		two := v.Load(t, "/rooms/").Connect(t, room("two"))
 
-		resp := c.Action(t, http.MethodPost, "/rooms/post/",
-			`{"room":"one","text":"hello"}`)
-		require.Equal(t, http.StatusOK, resp.Status)
+		postOK(t, oneTab, "/rooms/post/", post("one", "hello"))
+		one.WaitFor(t, datapagestest.TextContains("out", "room one: hello"))
 
-		require.True(t, one.Saw(`<div id="out">room one: hello</div>`),
-			"the anonymous stream received nothing for the room it connected with")
-		require.True(t, two.Never("hello"),
-			"the anonymous stream received what was published for another room")
+		// The later post to room two is the anchor: the post to room one would reach
+		// the stream before it.
+		postOK(t, oneTab, "/rooms/post/", post("two", "after"))
+		two.Absent(t,
+			datapagestest.TextContains("out", "hello"),
+			datapagestest.TextContains("out", "room two: after"))
 	})
 }
 
@@ -67,17 +91,20 @@ func TestAnonStreamRedirectKeepsThePathValue(t *testing.T) {
 			"space":    "a b",
 		} {
 			t.Run(name, func(t *testing.T) {
-				c := newClient(t, broker)
-				path := "/post/" + url.PathEscape(slug) + "/_$/"
+				v := serve(t, broker).Visitor(t)
+				tab := v.Load(t, "/post/"+url.PathEscape(slug)+"/")
 
-				// OpenStream requires 200: reaching it at all is the claim.
-				s := c.OpenStream(t, path, nil)
+				// Connect follows the redirect to the anonymous stream and fails unless
+				// it answers 200 with text/event-stream, which the page's HTML route
+				// does not.
+				st := tab.Connect(t, nil)
+				require.Equal(t, "/post/"+slug+"/_$/anon/", st.Path(),
+					"the redirect lost the path value")
 
-				resp := c.Action(t, http.MethodPost, "/rooms/post/",
-					`{"room":"one","text":"x"}`)
-				require.Equal(t, http.StatusOK, resp.Status)
-				require.True(t, s.Never("<!DOCTYPE html>"),
-					"the reconnect landed on the page's HTML route")
+				// The stream carries the page's live updates.
+				datapagestest.Publish(t, broker, datapagesgen.EvSubjTicked,
+					app.EventTicked{N: 1})
+				st.WaitFor(t, datapagestest.TextContains("out", "tick 1"))
 			})
 		}
 	})
@@ -88,16 +115,18 @@ func TestAnonStreamRedirectKeepsThePathValue(t *testing.T) {
 func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := newClient(t, broker)
+		tab := serve(t, broker).Visitor(t).Load(t, "/rooms/")
+		st := tab.Connect(t, room("one"))
 
-		s := c.OpenStream(t, "/rooms/_$/", map[string]string{"room": "one"})
+		postOK(t, tab, "/rooms/notice/",
+			map[string]string{"user": "alice", "text": "for alice"})
 
-		resp := c.Action(t, http.MethodPost, "/rooms/notice/",
-			`{"user":"alice","text":"for alice"}`)
-		require.Equal(t, http.StatusOK, resp.Status)
-
-		require.True(t, s.Never("for alice"),
-			"a private event reached a stream of a visitor with no session")
+		// A post to the stream's room is the anchor: the private event would reach the
+		// stream before it.
+		postOK(t, tab, "/rooms/post/", post("one", "after"))
+		st.Absent(t,
+			datapagestest.TextContains("out", "for alice"),
+			datapagestest.TextContains("out", "room one: after"))
 	})
 }
 
@@ -106,9 +135,7 @@ func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 // select the anonymous stream that allocates the page's state.
 func TestStatefulPageRendersAnonStreamInit(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := newClient(t, broker)
-
-		page := c.Get(t, "/tabs/")
+		page := serve(t, broker).Visitor(t).Get(t, "/tabs/")
 		require.Equal(t, http.StatusOK, page.Status)
 		require.Contains(t, page.Body,
 			`data-init="@get('/tabs/_$/anon/',{retry:'always',retryMaxCount:Infinity})"`,
@@ -121,25 +148,28 @@ func TestStatefulPageRendersAnonStreamInit(t *testing.T) {
 // value that belongs to it.
 func TestAnonStreamHoldsPerTabState(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := newClient(t, broker)
+		v := serve(t, broker).Visitor(t)
 
-		a := c.OpenTab(t, "/tabs/", "/tabs/_$/")
-		b := c.OpenTab(t, "/tabs/", "/tabs/_$/")
+		aTab := v.Load(t, "/tabs/")
+		a := aTab.Connect(t, nil)
+		bTab := v.Load(t, "/tabs/")
+		b := bTab.Connect(t, nil)
 
-		require.NotEqual(t, a.InstanceID(), b.InstanceID(),
+		require.NotEqual(t, aTab.Instance(), bTab.Instance(),
 			"two page loads share one instance id")
 
 		for range 2 {
-			require.Equal(t, http.StatusOK,
-				a.Act(t, http.MethodPost, "/tabs/bump/", "").Status, "bumping")
+			postOK(t, aTab, "/tabs/bump/", nil)
 		}
 
 		// The event is public. Both tabs render, each from its own state.
-		require.True(t, a.Saw(`<div id="count">count 2</div>`),
-			"the tab that acted does not hold its own count")
-		require.True(t, b.Saw(`<div id="count">count 0</div>`),
-			"the other tab was not rendered from its own state")
-		require.True(t, b.Never("count 2"), "one tab sees the count of another")
+		a.WaitFor(t, count(2), "the tab that acted does not hold its own count")
+		b.WaitFor(t, count(0), "the other tab was not rendered from its own state")
+
+		// The other tab's own bump is the anchor. It renders count 1 from that tab's
+		// state, and the count of the first tab would arrive before it.
+		postOK(t, bTab, "/tabs/bump/", nil)
+		b.Absent(t, count(2), count(1), "one tab sees the count of another")
 	})
 }
 
@@ -168,22 +198,16 @@ func TestBackgroundStreamingKeepsBothStreamsOpen(t *testing.T) {
 
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
-				store := sessinmem.New[struct{}](
-					sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-				)
-				c := client.New(t, mustNewServer(t, &app.App{}, broker, store))
-				req := c.Request(t, http.MethodGet, tt.path, "")
-				// A page load, which Datastar does not send.
-				req.Header.Del("Datastar-Request")
+				store := newSessions()
+				v := datapagestest.New(t,
+					mustNewServer(t, &app.App{}, broker, store)).Visitor(t)
 				if tt.signedIn {
-					token, err := store.CreateSession(context.Background(),
+					token, err := store.CreateSession(t.Context(),
 						sessions.Record[struct{}]{UserID: "alice"})
 					require.NoError(t, err)
-					req.AddCookie(&http.Cookie{
-						Name: datapages.DefaultSessionCookieName, Value: token,
-					})
+					v.SetSessionToken(token)
 				}
-				resp := c.Do(t, req)
+				resp := v.Get(t, tt.path)
 
 				require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 				require.Contains(t, resp.Body,
@@ -203,21 +227,19 @@ func TestAnonStreamRecoversHandlerPanic(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		a := &app.App{}
-		store := sessinmem.New[struct{}](
-			sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-		)
-		c := client.New(t, mustNewServer(t, a, broker, store))
+		srv := datapagestest.New(t, mustNewServer(t, a, broker, newSessions()))
 
-		s := c.OpenStream(t, "/panic/_$/anon/", nil)
-		resp := c.Action(t, http.MethodPost, "/panic/fault/", "")
-		require.Equal(t, http.StatusOK, resp.Status)
+		tab := srv.Visitor(t).Load(t, "/panic/")
+		st := tab.Connect(t, nil)
+		require.Equal(t, "/panic/_$/anon/", st.Path())
+		postOK(t, tab, "/panic/fault/", nil)
 
-		require.True(t, s.Saw(`<div id="out">recovered: panic: the faulted handler panicked</div>`),
-			"RecoverError did not answer on the stream")
-		require.True(t, client.WaitFor(func() bool {
+		st.WaitFor(t, datapagestest.TextContains("out",
+			"recovered: panic: the faulted handler panicked"))
+		srv.WaitFor(t, "StreamClose to run", func() bool {
 			_, closed := a.PanicStreams()
 			return closed > 0
-		}, client.Await), "StreamClose did not run")
+		})
 		opened, closed := a.PanicStreams()
 		require.Equal(t, 1, opened, "StreamOpen")
 		require.Equal(t, 1, closed, "StreamClose")
