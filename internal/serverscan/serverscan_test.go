@@ -17,7 +17,7 @@ const modulePath = "example.com/mod"
 func write(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
-	files["go.mod"] = "module " + modulePath + "\n\ngo 1.27.1\n"
+	files["go.mod"] = "module " + modulePath + "\n\ngo 1.27.2\n"
 	for name, content := range files {
 		p := filepath.Join(root, filepath.FromSlash(name))
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
@@ -144,7 +144,7 @@ func main() {}
 		"nested module is skipped": {
 			files: map[string]string{
 				"app/app.go":      "package app\n",
-				"sub/go.mod":      "module example.com/other\n\ngo 1.27.1\n",
+				"sub/go.mod":      "module example.com/other\n\ngo 1.27.2\n",
 				"sub/cmd/main.go": mainGo("app", "app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server", ""),
 			},
 			appDirs:  []string{"app"},

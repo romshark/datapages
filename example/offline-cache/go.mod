@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/offline-cache
 
-go 1.27.1
+go 1.27.2
 
 replace github.com/romshark/datapages => ../../
 

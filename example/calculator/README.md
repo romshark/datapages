@@ -14,7 +14,7 @@ Both the HTTP server and the [Wails v3](https://v3.wails.io/) desktop app run th
 
 ## Requirements
 
-- Go 1.27.1 or later
+- Go 1.27.2 or later
 - [Mage](https://magefile.org/)
 - `templ` and [Datapages](https://github.com/romshark/datapages) CLIs for code generation and development
 - [Maestro](https://maestro.dev/) for UI tests only

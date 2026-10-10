@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/internal/acceptance/multicall
 
-go 1.27.1
+go 1.27.2
 
 replace github.com/romshark/datapages => ../../../
 

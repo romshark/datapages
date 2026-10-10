@@ -1,6 +1,6 @@
 module datapagestest/fixture/err_state_subject_id_without_state
 
-go 1.27.1
+go 1.27.2
 
 require github.com/romshark/datapages v0.10.1
 
