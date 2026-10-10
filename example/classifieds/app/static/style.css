@@ -482,7 +482,7 @@ body {
         }
 
         & .chat svg,
-        & .chat .badge-outline {
+        & .chat .badge {
             width: 2rem;
         }
 

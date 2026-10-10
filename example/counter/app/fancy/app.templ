@@ -10,7 +10,7 @@ templ head() {
 	<title>Fancy Counter</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
 	<script type="module">
-		import "https://esm.sh/number-flow@0.6.0"
+		import "https://esm.sh/number-flow@0.6.2"
 		customElements.whenDefined("number-flow").then(() => {
 			const data = document.getElementById("counter-data")
 			const flow = document.getElementById("counter-value")
@@ -157,7 +157,9 @@ templ pageCounter(value int32) {
 		<number-flow id="counter-value"></number-flow>
 		@counterValue(value)
 		<div class="buttons">
-			<button data-on:click={ action.PageIndex.Set.POST(math.MinInt32) }>min</button>
+			<button data-on:click={ action.PageIndex.Set.POST(math.MinInt32) }>
+				min
+			</button>
 			<button
 				data-on:click={ action.PageIndex.Add.POST(
 					action.PageIndex.Add.POSTQuery(-1),
@@ -168,7 +170,9 @@ templ pageCounter(value int32) {
 					action.PageIndex.Add.POSTQuery(1),
 				) }
 			>+</button>
-			<button data-on:click={ action.PageIndex.Set.POST(math.MaxInt32) }>max</button>
+			<button data-on:click={ action.PageIndex.Set.POST(math.MaxInt32) }>
+				max
+			</button>
 		</div>
 		<div class="set-group">
 			<input data-bind="setvalue" type="number" placeholder="Enter integer value"/>
