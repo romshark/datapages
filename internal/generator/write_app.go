@@ -1705,6 +1705,11 @@ func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handle
 		return
 	}
 	stack := debug.Stack()
+	if p, ok := v.(datapages.PanicError); ok {
+		// httpserve.ServeFile carries a panic of the file's Body over from
+		// the goroutine of http.ServeContent, with the stack it had there.
+		v, stack = p.Value, p.Stack
+	}
 	s.Logger().Error("recovered panic",
 		slog.String("handler", handler),
 		slog.Any("panic", v),

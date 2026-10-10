@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -56,15 +57,22 @@ var reservedHeaders = map[string]bool{
 // nothing and returns [ErrFileNoBody], [ErrFileNoType], [ErrFileInvalidETag],
 // [ErrFileInvalidCache] or [ErrFileReservedHeader] for an incomplete or
 // invalid f.
+//
+// A panic in Body panics ServeFile. For a multi-range request, [http.ServeContent]
+// reads Body on a goroutine of its own. ServeFile recovers a panic there and
+// panics with a [datapages.PanicError] that carries the stack of that goroutine,
+// once Body is closed.
 func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	if f.Body == nil {
 		return ErrFileNoBody
 	}
 	body := f.Body
+	var guard *guardedBody
 	if strings.Contains(r.Header.Get("Range"), ",") {
 		// [http.ServeContent] reads the parts of a multi-range response from
 		// a goroutine it doesn't wait for once the copy to the client fails.
-		body = &guardedBody{body: body}
+		guard = &guardedBody{body: body}
+		body = guard
 	}
 	defer func() { _ = body.Close() }()
 	cacheControl, err := cacheControl(f.Cache)
@@ -99,6 +107,13 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	}
 	addHeader(h, f.Header)
 	http.ServeContent(w, r, "", f.ModTime, body)
+	if guard != nil {
+		// Close waits for the goroutine's call of Body under way, and none follows.
+		_ = guard.Close()
+		if p := guard.recovered(); p != nil {
+			panic(*p)
+		}
+	}
 	return nil
 }
 
@@ -122,28 +137,64 @@ func addHeader(h, extra http.Header) {
 
 // guardedBody is a Body whose Close waits for a Read or Seek under way.
 // Read and Seek after Close return [os.ErrClosed] without reaching the Body.
+//
+// A panic in Read or Seek is recovered: [http.ServeContent] calls them on
+// a goroutine that no recover covers. The panic is returned as the error of
+// the call, which ends the response, and of every later call.
 type guardedBody struct {
-	lock   sync.Mutex
-	body   io.ReadSeekCloser
-	closed bool
+	lock     sync.Mutex
+	body     io.ReadSeekCloser
+	closed   bool
+	panicked *datapages.PanicError
 }
 
-func (g *guardedBody) Read(p []byte) (int, error) {
+func (g *guardedBody) Read(p []byte) (n int, err error) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.closed {
-		return 0, os.ErrClosed
+	if err := g.unusable(); err != nil {
+		return 0, err
 	}
+	defer g.recoverPanic(&err)
 	return g.body.Read(p)
 }
 
-func (g *guardedBody) Seek(offset int64, whence int) (int64, error) {
+func (g *guardedBody) Seek(offset int64, whence int) (n int64, err error) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	if g.closed {
-		return 0, os.ErrClosed
+	if err := g.unusable(); err != nil {
+		return 0, err
 	}
+	defer g.recoverPanic(&err)
 	return g.body.Seek(offset, whence)
+}
+
+// unusable returns why a Read or Seek must not reach the Body, nil if it may.
+func (g *guardedBody) unusable() error {
+	switch {
+	case g.panicked != nil:
+		return *g.panicked
+	case g.closed:
+		return os.ErrClosed
+	}
+	return nil
+}
+
+// recoverPanic keeps a panic of the Body and returns it in *err.
+// It's deferred while g.lock is held.
+func (g *guardedBody) recoverPanic(err *error) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	g.panicked = &datapages.PanicError{Value: v, Stack: debug.Stack()}
+	*err = *g.panicked
+}
+
+// recovered returns the panic of a Read or Seek, nil without one.
+func (g *guardedBody) recovered() *datapages.PanicError {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	return g.panicked
 }
 
 func (g *guardedBody) Close() error {

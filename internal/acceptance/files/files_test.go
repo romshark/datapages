@@ -4,11 +4,19 @@
 package acceptance_test
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/files/app"
 	"github.com/romshark/datapages/internal/acceptance/files/app/datapagesgen/href"
@@ -211,6 +219,76 @@ func TestFileError(t *testing.T) {
 			require.Equal(t, tc.wantBody, resp.Body)
 			require.NotContains(t, resp.Body, "no type",
 				"the body of an incomplete file was sent")
+		})
+	}
+}
+
+// syncBuffer is a server's log, which its handlers write while a test reads it.
+type syncBuffer struct {
+	lock sync.Mutex
+	buf  bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.String()
+}
+
+// TestFileBodyPanic tests a Body whose Read panics after the status went out.
+// The response ends early, the panic is logged with the stack the Body
+// panicked on, and the server keeps serving. For 2 ranges, net/http reads the
+// Body on a goroutine of its own, where an unrecovered panic ends the process.
+func TestFileBodyPanic(t *testing.T) {
+	t.Parallel()
+
+	for name, rng := range map[string]string{
+		"whole":    "",
+		"1 range":  "bytes=0-1",
+		"2 ranges": "bytes=0-1,3-4",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log syncBuffer
+			c := client.New(t, mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(slog.New(slog.NewJSONHandler(&log, nil)))))
+
+			req := c.Request(t, http.MethodGet,
+				href.App.File("a.txt", href.App.FileQuery("body-panic", false)), "")
+			req.Header.Del("Datastar-Request")
+			if rng != "" {
+				req.Header.Set("Range", rng)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			_, err = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			require.Error(t, err, "the response did not end early")
+
+			var record struct {
+				Panic any    `json:"panic"`
+				Stack string `json:"stack"`
+			}
+			require.True(t, client.WaitFor(func() bool {
+				for line := range strings.Lines(log.String()) {
+					if strings.Contains(line, `"msg":"recovered panic"`) {
+						return json.Unmarshal([]byte(line), &record) == nil
+					}
+				}
+				return false
+			}, 5*time.Second), "no recovered panic was logged")
+			require.Equal(t, "body panicked", record.Panic)
+			require.Contains(t, record.Stack, "panicBody.Read")
+
+			require.Equal(t, http.StatusOK, get(t, c, "/files/a.txt").Status,
+				"the server stopped serving")
 		})
 	}
 }

@@ -504,6 +504,61 @@ func TestServeFileMultiRangeClientGone(t *testing.T) {
 	}
 }
 
+// panickingBody panics in Read, or with seek in a Seek to a nonzero offset,
+// which http.ServeContent makes only to serve a range.
+type panickingBody struct {
+	*strings.Reader
+	seek   bool
+	closed bool
+}
+
+func (b *panickingBody) Read(p []byte) (int, error) {
+	if !b.seek {
+		panic("body panicked")
+	}
+	return b.Reader.Read(p)
+}
+
+func (b *panickingBody) Seek(offset int64, whence int) (int64, error) {
+	if b.seek && offset != 0 {
+		panic("body panicked")
+	}
+	return b.Reader.Seek(offset, whence)
+}
+
+func (b *panickingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+// TestServeFileMultiRangePanic tests a Body that panics on the goroutine
+// [http.ServeContent] reads the parts of a multi-range response on. ServeFile
+// closes Body and panics with the value and the stack of that panic.
+// Unrecovered there, the panic ends the test binary.
+func TestServeFileMultiRangePanic(t *testing.T) {
+	t.Parallel()
+
+	for name, seek := range map[string]bool{"read": false, "seek": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := &panickingBody{Reader: strings.NewReader("abcdefgh"), seek: seek}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.Header.Set("Range", "bytes=1-2,4-5")
+			var v any
+			func() {
+				defer func() { v = recover() }()
+				_ = httpserve.ServeFile(httptest.NewRecorder(), r,
+					datapages.File{Type: "text/plain", Body: body})
+			}()
+			p, ok := v.(datapages.PanicError)
+			require.True(t, ok, "ServeFile panicked with %#v", v)
+			require.Equal(t, "body panicked", p.Value)
+			require.Contains(t, string(p.Stack), "(*panickingBody).")
+			require.True(t, body.closed, "Body was not closed before the panic")
+		})
+	}
+}
+
 // TestIsDocumentRequest tests that only Sec-Fetch-Dest: document counts.
 func TestIsDocumentRequest(t *testing.T) {
 	t.Parallel()

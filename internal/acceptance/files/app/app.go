@@ -54,6 +54,12 @@ type memBody struct{ *strings.Reader }
 
 func (memBody) Close() error { return nil }
 
+// panicBody is a File body whose Read panics. Its Seek works, which lets
+// net/http find the size and send the status before the first Read.
+type panicBody struct{ memBody }
+
+func (panicBody) Read([]byte) (int, error) { panic("body panicked") }
+
 // GETFile is /files/{name}
 //
 // Serves the name back as text. The query selects a failure.
@@ -76,6 +82,11 @@ func (*App) GETFile(
 		panic("the handler panicked")
 	case "type":
 		return datapages.File{Body: memBody{strings.NewReader("no type")}}, nil
+	case "body-panic":
+		return datapages.File{
+			Type: "text/plain; charset=utf-8",
+			Body: panicBody{memBody{strings.NewReader("never read")}},
+		}, nil
 	}
 	f := datapages.File{
 		Type:    "text/plain; charset=utf-8",
