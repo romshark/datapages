@@ -1951,7 +1951,8 @@ func (w *Writer) writeActionMethodCall(
 
 // writeFileCall emits the call of a handler that returns a datapages.File and
 // the response it serves. The parser refuses any other output next to the file,
-// which leaves no session, redirect or body to write.
+// which leaves no session, redirect or body to write. A handler that takes the
+// session answers with Vary: Cookie.
 // owner is the page type or "App".
 func (w *Writer) writeFileCall(recv, owner string, h *model.Handler, args []string) {
 	label := owner + "." + h.Name
@@ -1965,6 +1966,13 @@ func (w *Writer) writeFileCall(recv, owner string, h *model.Handler, args []stri
 		w.Linef(2, "s.httpErrFile(w, r, %q, err)", "handling action "+label)
 		w.Line(2, "return")
 		w.Line(1, "}")
+	}
+	if hasSessionInput(h) {
+		// A browser keys its cache by URL alone. After a sign-in as another user
+		// it revalidates the previous user's copy, which a ModTime that is not
+		// later answers with 304.
+		w.Line(1, "// The file depends on the session cookie.")
+		w.Line(1, `w.Header().Add("Vary", "Cookie")`)
 	}
 	w.Line(1, "if err := httpserve.ServeFile(w, r, file); err != nil {")
 	w.Linef(2, "s.httpErrFile(w, r, %q, err)", "serving the file of action "+label)

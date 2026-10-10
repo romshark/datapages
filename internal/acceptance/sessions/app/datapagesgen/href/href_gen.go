@@ -40,6 +40,17 @@ func External(url string) string {
 	return url
 }
 
+// App holds the URL builders of the GET actions of App.
+var App app
+
+type app struct{}
+
+// Avatar references /me/avatar
+func (app) Avatar() string { return "/me/avatar" }
+
+// Terms references /terms
+func (app) Terms() string { return "/terms" }
+
 // PageError404 references /not-found/{$}
 func PageError404() string { return "/not-found/" }
 

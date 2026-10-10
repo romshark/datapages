@@ -103,14 +103,16 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 }
 
 // addHeader writes extra into h. A name in extra replaces the values h holds
-// for it, except Set-Cookie, whose values add to the cookies set before.
+// for it, except Set-Cookie and Vary, whose values add to the ones set before.
+// Vary lists the request headers the response depends on, each added by what
+// made it depend on one, such as Cookie for a handler that takes the session.
 // Keys that spell one name differently are joined in sorted order,
 // which writes the same values on every request.
 func addHeader(h, extra http.Header) {
 	replaced := make(map[string]bool, len(extra))
 	for _, key := range slices.Sorted(maps.Keys(extra)) {
 		name := textproto.CanonicalMIMEHeaderKey(key)
-		if name != "Set-Cookie" && !replaced[name] {
+		if name != "Set-Cookie" && name != "Vary" && !replaced[name] {
 			replaced[name] = true
 			delete(h, name)
 		}

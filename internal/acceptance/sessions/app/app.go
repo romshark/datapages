@@ -288,6 +288,34 @@ func (a *App) POSTSignOutCached(
 	return true, nil
 }
 
+// memBody is a File body held in memory, which has nothing to close.
+type memBody struct{ *strings.Reader }
+
+func (memBody) Close() error { return nil }
+
+// GETAvatar is /me/avatar
+//
+// A file that depends on the session: one URL, a different file per user.
+func (*App) GETAvatar(_ *http.Request, session Session) (datapages.File, error) {
+	if session.IsGuest() {
+		return datapages.File{}, datapages.ErrForbidden
+	}
+	return datapages.File{
+		Type: "text/plain; charset=utf-8",
+		Body: memBody{strings.NewReader("avatar of " + session.UserID())},
+	}, nil
+}
+
+// GETTerms is /terms
+//
+// A file that is the same for every visitor. Its handler takes no session.
+func (*App) GETTerms(_ *http.Request) datapages.File {
+	return datapages.File{
+		Type: "text/plain; charset=utf-8",
+		Body: memBody{strings.NewReader("terms")},
+	}
+}
+
 // PageSignOutLink is /sign-out-link
 //
 // Signing out through a plain navigation: the GET closes the session rather

@@ -376,8 +376,8 @@ func TestServeFileRefused(t *testing.T) {
 }
 
 // TestServeFileHeader tests the headers File.Header adds: one replaces the
-// value a middleware set before, except Set-Cookie, whose values add to the
-// cookies set before. 2 spellings of one name write their values in sorted
+// value a middleware set before, except Set-Cookie and Vary, whose values add
+// to the ones set before. 2 spellings of one name write their values in sorted
 // order of the spellings, the same on every request.
 func TestServeFileHeader(t *testing.T) {
 	t.Parallel()
@@ -414,6 +414,11 @@ func TestServeFileHeader(t *testing.T) {
 			want: http.Header{
 				"Set-Cookie": {"session=; Max-Age=0", "theme=dark"},
 			},
+		},
+		"vary set before": {
+			middleware: http.Header{"Vary": {"Cookie"}},
+			header:     http.Header{"vary": {"Accept-Encoding"}},
+			want:       http.Header{"Vary": {"Cookie", "Accept-Encoding"}},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
