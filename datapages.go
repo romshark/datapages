@@ -367,6 +367,9 @@ type Redirect struct {
 // as a CDN, then stores one copy per cookie: serve a file that is the same for
 // every visitor from a handler that takes no Session.
 //
+// A client that stops reading ends the response after the time
+// [WithFileSendTimeout] sets, a minute by default.
+//
 // Do not use File to render application HTML. Return a [Component] so Templ
 // can escape values for their HTML context and datapages lint can check the markup.
 //

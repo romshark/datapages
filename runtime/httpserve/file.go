@@ -58,6 +58,10 @@ var reservedHeaders = map[string]bool{
 // [ErrFileInvalidCache] or [ErrFileReservedHeader] for an incomplete or
 // invalid f.
 //
+// A write that blocks for the send timeout of the server ends the response,
+// see [datapages.WithFileSendTimeout]. A middleware that wraps w without
+// an Unwrap method leaves the writes unlimited.
+//
 // A panic in Body panics ServeFile. For a multi-range request, [http.ServeContent]
 // reads Body on a goroutine of its own. ServeFile recovers a panic there and
 // panics with a [datapages.PanicError] that carries the stack of that goroutine,
@@ -106,6 +110,7 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		h.Set("Content-Disposition", v)
 	}
 	addHeader(h, f.Header)
+	limitFileWrites(w)
 	http.ServeContent(w, r, "", f.ModTime, body)
 	if guard != nil {
 		// Close waits for the goroutine's call of Body under way, and none follows.
