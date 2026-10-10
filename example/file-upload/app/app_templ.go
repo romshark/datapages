@@ -740,7 +740,7 @@ func fileList(files []store.File, tab, origin string) templ.Component {
 					return nil
 				})
 				templ_7745c5c3_Err = neo.Link(neo.LinkOpts{
-					Href:    neo.Set(href.Asset("files/" + f.ID)),
+					Href:    neo.Set(href.App.File(f.ID)),
 					Variant: neo.Set(neo.LinkVariantButtonPrimary),
 				}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
@@ -834,7 +834,7 @@ func fileList(files []store.File, tab, origin string) templ.Component {
 					return nil
 				})
 				templ_7745c5c3_Err = neo.Clipcopy(neo.ClipcopyOpts{
-					Value: neo.Set(origin + href.Asset("files/"+f.ID)),
+					Value: neo.Set(origin + href.App.File(f.ID)),
 				}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -2136,9 +2136,9 @@ func actionsMenu(f store.File, tab, origin string) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var89 string
-					templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.ResolveAttributeValue(href.Asset("files/" + f.ID))
+					templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.ResolveAttributeValue(href.App.File(f.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 681, Col: 45}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 681, Col: 37}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var89)
 					if templ_7745c5c3_Err != nil {
@@ -2183,7 +2183,7 @@ func actionsMenu(f store.File, tab, origin string) templ.Component {
 						return nil
 					})
 					templ_7745c5c3_Err = neo.Clipcopy(neo.ClipcopyOpts{
-						Value: neo.Set(origin + href.Asset("files/"+f.ID)),
+						Value: neo.Set(origin + href.App.File(f.ID)),
 					}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var90), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
