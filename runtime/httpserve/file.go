@@ -62,6 +62,10 @@ var reservedHeaders = map[string]bool{
 // see [datapages.WithFileSendTimeout]. A middleware that wraps w without
 // an Unwrap method leaves the writes unlimited.
 //
+// A writer between w and the server that edits response bodies passes the file
+// through unchanged if it has a PassThrough method, as the one
+// offline.Middleware installs does.
+//
 // A panic in Body panics ServeFile. For a multi-range request, [http.ServeContent]
 // reads Body on a goroutine of its own. ServeFile recovers a panic there and
 // panics with a [datapages.PanicError] that carries the stack of that goroutine,
@@ -110,6 +114,7 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		h.Set("Content-Disposition", v)
 	}
 	addHeader(h, f.Header)
+	passFileThrough(w)
 	limitFileWrites(w)
 	http.ServeContent(w, r, "", f.ModTime, body)
 	if guard != nil {
@@ -120,6 +125,23 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		}
 	}
 	return nil
+}
+
+// passFileThrough makes every writer between w and the server that edits
+// response bodies, such as the one offline.Middleware installs, pass the file
+// through unchanged: its bytes, its length and its ranges are the file's.
+// Such a writer has a PassThrough method.
+func passFileThrough(w http.ResponseWriter) {
+	for {
+		if p, ok := w.(interface{ PassThrough() }); ok {
+			p.PassThrough()
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
 }
 
 // addHeader writes extra into h. A name in extra replaces the values h holds

@@ -131,6 +131,7 @@ Run `datapages gen` to apply these.
 - Remove a response from the offline worker's cache when the network answers 401, 403, 404 or 410. The worker kept serving the stored copy of a file after the server stopped authorizing it or deleted it, until `offline.Config.WorkerVersion` changed. Increase `offline.Config.WorkerVersion`, which deletes what the previous worker stored.
 - Stop the offline worker from copying a range response with status 206, such as a video that a `video` element streams, for its cache, which refuses it. Nothing read the copy, which can keep every byte the page has read in memory.
 - End the response of a static asset when its client accepts no more of the file for 1 minute. A client that stopped reading held the request and the open file for as long as it kept the connection. `datapages.WithFileSendTimeout` changes the time, which also applies to `datapages.File`.
+- Stop `offline.Middleware` from adding its scripts to a range response, status 206, of an HTML file, such as a static asset that a download manager resumes. The body was longer than its `Content-Range` said, and the saved file was corrupt.
 
 #### `datapages init`
 

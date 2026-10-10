@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/offline"
+	"github.com/romshark/datapages/runtime/httpserve"
 )
 
 func TestServiceWorkerJS(t *testing.T) {
@@ -245,8 +247,8 @@ func TestMiddlewareServeContent(t *testing.T) {
 	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
 	const page = "<!DOCTYPE html><html><head></head><body>x</body></html>"
 	for name, tc := range map[string]struct {
-		file, content, wantBody string
-		wantReadFrom            bool
+		file, content, rng, wantBody string
+		wantReadFrom                 bool
 	}{
 		"stylesheet": {
 			file: "a.css", content: "body{color:red}", wantBody: "body{color:red}",
@@ -257,19 +259,81 @@ func TestMiddlewareServeContent(t *testing.T) {
 			wantBody: "<!DOCTYPE html><html><head>" + injectedScript(mw) +
 				"</head><body>x</body></html>",
 		},
+		"range of a page": {
+			file: "a.html", content: page, rng: "bytes=0-14",
+			wantBody: page[:15], wantReadFrom: true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			rec := &readFromRecorder{ResponseRecorder: httptest.NewRecorder()}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.rng != "" {
+				r.Header.Set("Range", tc.rng)
+			}
 			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				http.ServeContent(
 					w, r, tc.file, time.Time{}, strings.NewReader(tc.content),
 				)
-			})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+			})).ServeHTTP(rec, r)
 
 			require.Equal(t, tc.wantBody, rec.Body.String())
 			require.Equal(t, tc.wantReadFrom, rec.readFrom,
 				"whether io.Copy reached the ReadFrom of the writer underneath")
+		})
+	}
+}
+
+// memBody is a File body held in memory, which has nothing to close.
+type memBody struct{ *strings.Reader }
+
+func (memBody) Close() error { return nil }
+
+// TestMiddlewareFile tests that a datapages.File passes through unchanged,
+// an HTML one included: an uploaded page a visitor downloads is the file
+// that was uploaded, whole, as a range or as the length a HEAD reports.
+func TestMiddlewareFile(t *testing.T) {
+	t.Parallel()
+
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+	const upload = "<!DOCTYPE html><html><head><title>t</title></head>" +
+		"<body>up</body></html>"
+	for name, tc := range map[string]struct {
+		method, rng string
+		wantStatus  int
+		wantBody    string
+	}{
+		"whole": {http.MethodGet, "", http.StatusOK, upload},
+		"range": {http.MethodGet, "bytes=0-14", http.StatusPartialContent, upload[:15]},
+		"head":  {http.MethodHead, "", http.StatusOK, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := &readFromRecorder{ResponseRecorder: httptest.NewRecorder()}
+			r := httptest.NewRequest(tc.method, "/", nil)
+			if tc.rng != "" {
+				r.Header.Set("Range", tc.rng)
+			}
+			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.NoError(t, httpserve.ServeFile(w, r, datapages.File{
+					Type:        "text/html; charset=utf-8",
+					Body:        memBody{strings.NewReader(upload)},
+					Disposition: datapages.FileDisposition{Download: true},
+				}))
+			})).ServeHTTP(rec, r)
+
+			require.Equal(t, tc.wantStatus, rec.Code)
+			require.Equal(t, tc.wantBody, rec.Body.String())
+			if tc.method == http.MethodHead {
+				require.Equal(t,
+					strconv.Itoa(len(upload)),
+					rec.Header().Get("Content-Length"))
+			} else {
+				require.Equal(t, strconv.Itoa(len(tc.wantBody)), rec.Header().Get("Content-Length"))
+				require.True(t, rec.readFrom,
+					"io.Copy did not reach the ReadFrom of the writer underneath")
+			}
+			require.Empty(t, rec.Header().Values("Vary"))
 		})
 	}
 }
