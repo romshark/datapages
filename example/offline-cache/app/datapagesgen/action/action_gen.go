@@ -203,16 +203,16 @@ type pageIndex struct {
 
 type pageIndex_Search struct{}
 
-// POST references /search/
-func (pageIndex_Search) POST(options ...Option) string {
+// QUERY references /search/
+func (pageIndex_Search) QUERY(options ...Option) string {
 	if len(options) == 0 {
-		return "@post('/search/')"
+		return "@query('/search/')"
 	}
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/search/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@query('/search/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/search/'")
+	b.WriteString("@query('/search/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

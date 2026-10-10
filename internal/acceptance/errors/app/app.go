@@ -12,7 +12,12 @@ import (
 	"github.com/romshark/datapages"
 )
 
-type App struct{}
+type App struct {
+	// Error404Fails makes PageError404 fail with ErrNotFound, the way a 404 page
+	// fails when the data it shows is missing too. The server answers that page
+	// load by rendering PageError404, which is the page that failed.
+	Error404Fails bool
+}
 
 func echo(s string) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + s + "</pre>")
@@ -27,16 +32,20 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 
 // PageError404 is /not-found
 //
-// The page the app supplies for a URL no page claims.
+// The page the app supplies for a URL no page claims
+// and for a page load that fails with ErrNotFound.
 type PageError404 struct{ App *App }
 
-func (PageError404) GET(r *http.Request) (body datapages.Component, err error) {
+func (p PageError404) GET(r *http.Request) (body datapages.Component, err error) {
+	if p.App.Error404Fails {
+		return nil, datapages.ErrNotFound
+	}
 	return echo("not found: " + r.URL.Path), nil
 }
 
 // PageError500 is /server-error
 //
-// The page the app supplies for a handler that failed.
+// The page the app supplies for a handler that failed without a sentinel.
 type PageError500 struct{ App *App }
 
 func (PageError500) GET(_ *http.Request) (body datapages.Component, err error) {
@@ -49,6 +58,23 @@ type PageBoom struct{ App *App }
 // GET fails, the way a page load fails when its data cannot be read.
 func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
 	return nil, errors.New("the page could not be built")
+}
+
+// PageGone is /gone
+type PageGone struct{ App *App }
+
+// GET fails with ErrNotFound, the way a page load fails for an unknown slug.
+func (PageGone) GET(_ *http.Request) (body datapages.Component, err error) {
+	return nil, fmt.Errorf("%w: %w", datapages.ErrNotFound, errors.New("no such item"))
+}
+
+// PageDenied is /denied
+//
+// No page of the app stands for 403.
+type PageDenied struct{ App *App }
+
+func (PageDenied) GET(_ *http.Request) (body datapages.Component, err error) {
+	return nil, fmt.Errorf("%w: %w", datapages.ErrForbidden, errors.New("not the owner"))
 }
 
 // POSTPlain is /boom/plain

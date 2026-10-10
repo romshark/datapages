@@ -121,6 +121,17 @@ func TestMethods(t *testing.T) {
 			expr:   action.App.Ping.POST(),
 			want:   "ping",
 		},
+		"query on a page": {
+			method: "QUERY",
+			expr:   action.PageForm.Search.QUERY(),
+			body:   `{"term":"ada"}`,
+			want:   `search term="ada"`,
+		},
+		"query on the app": {
+			method: "QUERY",
+			expr:   action.App.Lookup.QUERY(),
+			want:   "lookup",
+		},
 	}
 
 	for name, tt := range tests {
@@ -287,17 +298,18 @@ func TestDatastarOnlyActions(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
 
-	for name, url := range map[string]string{
-		"action reading signals": "/form/submit/",
-		"action writing on sse":  "/form/patch/",
+	for name, tc := range map[string]struct{ method, url string }{
+		"action reading signals":       {http.MethodPost, "/form/submit/"},
+		"action writing on sse":        {http.MethodPost, "/form/patch/"},
+		"query action reading signals": {"QUERY", "/form/search/"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			req, err := http.NewRequestWithContext(
-				context.Background(), http.MethodPost, srv.URL+url, nil,
+				context.Background(), tc.method, srv.URL+tc.url, nil,
 			)
 			require.NoError(t, err, "building request")
 			resp, err := srv.Client().Do(req)
-			require.NoError(t, err, "POST %s", url)
+			require.NoError(t, err, "%s %s", tc.method, tc.url)
 			defer func() { _ = resp.Body.Close() }()
 			require.Equal(t, http.StatusNotAcceptable, resp.StatusCode)
 		})
@@ -343,6 +355,36 @@ func TestCrossOriginFormAction(t *testing.T) {
 			}
 			resp, err := client.Do(req)
 			require.NoError(t, err, "POST /form/go/")
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, tc.wantStatus, resp.StatusCode)
+		})
+	}
+}
+
+// TestCrossOriginQuery tests a QUERY action that takes no signals. A request
+// without the Datastar header reaches it, and the origin check refuses one from
+// another site: [http.CrossOriginProtection] exempts only GET, HEAD and OPTIONS.
+// A Go release that also exempts QUERY fails this test.
+func TestCrossOriginQuery(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	for name, tc := range map[string]struct {
+		site       string
+		wantStatus int
+	}{
+		"cross site":  {site: "cross-site", wantStatus: http.StatusForbidden},
+		"same site":   {site: "same-site", wantStatus: http.StatusForbidden},
+		"same origin": {site: "same-origin", wantStatus: http.StatusOK},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(
+				context.Background(), "QUERY", srv.URL+"/lookup/", nil,
+			)
+			require.NoError(t, err, "building request")
+			req.Header.Set("Sec-Fetch-Site", tc.site)
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "QUERY /lookup/")
 			defer func() { _ = resp.Body.Close() }()
 			require.Equal(t, tc.wantStatus, resp.StatusCode)
 		})
@@ -554,6 +596,10 @@ func TestActionExpressions(t *testing.T) {
 		"delete on the app": {
 			action.App.All.DELETE(),
 			"@delete('/all/')",
+		},
+		"query on a page": {
+			action.PageForm.Search.QUERY(),
+			"@query('/form/search/')",
 		},
 		"path variable": {
 			action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(0)),

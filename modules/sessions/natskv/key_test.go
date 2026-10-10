@@ -3,6 +3,8 @@ package natskv
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -40,8 +42,7 @@ func TestCompositeKeyRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.userID, uid, "the user ID did not survive the key")
 
-			token, err := encrypt(aead, key)
-			require.NoError(t, err)
+			token := encrypt(aead, make([]byte, 32), key)
 			back, err := decrypt(aeads, token)
 			require.NoError(t, err)
 			require.Equal(t, string(key), back,
@@ -52,4 +53,38 @@ func TestCompositeKeyRoundTrip(t *testing.T) {
 				"the key is not under the pattern a revocation watches")
 		})
 	}
+}
+
+// TestTokenIsStable tests the token a session key encrypts to. Every call gives
+// the same one, which lets a listed session be compared with its cookie,
+// and two keys get two nonces: GCM leaks its authentication key when one nonce
+// encrypts two plaintexts. A token with a random nonce, the format of the
+// cookies of earlier releases, still decrypts.
+func TestTokenIsStable(t *testing.T) {
+	block, err := aes.NewCipher(make([]byte, 16))
+	require.NoError(t, err)
+	aead, err := cipher.NewGCM(block)
+	require.NoError(t, err)
+	nonceKey := []byte("0123456789abcdef0123456789abcdef")
+	first := compositeKey("alice", "s1")
+	second := compositeKey("alice", "s2")
+
+	require.Equal(t, encrypt(aead, nonceKey, first), encrypt(aead, nonceKey, first))
+
+	// Comparing whole tokens would pass with one nonce for every key:
+	// the ciphertexts differ with the plaintexts.
+	firstRaw, err := base64.RawURLEncoding.DecodeString(encrypt(aead, nonceKey, first))
+	require.NoError(t, err)
+	secondRaw, err := base64.RawURLEncoding.DecodeString(encrypt(aead, nonceKey, second))
+	require.NoError(t, err)
+	n := aead.NonceSize()
+	require.NotEqual(t, firstRaw[:n], secondRaw[:n], "two session keys share a nonce")
+
+	nonce := make([]byte, aead.NonceSize())
+	_, err = rand.Read(nonce)
+	require.NoError(t, err)
+	legacy := base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, first, nil))
+	back, err := decrypt([]cipher.AEAD{aead}, legacy)
+	require.NoError(t, err)
+	require.Equal(t, string(first), back)
 }

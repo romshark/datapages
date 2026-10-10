@@ -1,0 +1,18 @@
+package template
+
+import "datapagestest/fixture/err_templ_subpackage/datapagesgen/action"
+
+templ ProfilePage() {
+	<h1>Profile</h1>
+	@SaveButton()
+}
+
+templ SettingsPage() {
+	/* ErrHardcodedHref: in a package other than the app package */
+	<a href="/profile">Profile</a>
+	@SaveButton()
+}
+
+templ SaveButton() {
+	<button data-on:click={ action.PageProfile.Save.POST() }>Save</button>
+}

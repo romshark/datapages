@@ -141,3 +141,49 @@ type PageMulti struct {
 	AbstractLevel1
 	AbstractLevel3
 }
+
+// Saver defines the action suffix Save for two HTTP methods.
+type Saver struct{ App *App }
+
+// POSTSave is /verbs/save
+func (Saver) POSTSave(r *http.Request) error { return nil }
+
+// PUTSave is /verbs/save
+func (Saver) PUTSave(r *http.Request) error { return nil }
+
+// PageVerbs is /verbs
+//
+// This page embeds Saver and shadows its POSTSave.
+// It keeps Saver's PUTSave, which has the same suffix and another method.
+type PageVerbs struct {
+	App *App
+	Saver
+}
+
+func (PageVerbs) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
+}
+
+// POSTSave is /verbs/save
+func (PageVerbs) POSTSave(r *http.Request) error { return nil }
+
+// Archiver defines the action suffix Archive for two HTTP methods.
+type Archiver struct{ App *App }
+
+// POSTArchive is /archive/archive
+func (Archiver) POSTArchive(r *http.Request) error { return nil }
+
+// DELETEArchive is /archive/archive
+func (Archiver) DELETEArchive(r *http.Request) error { return nil }
+
+// PageArchive is /archive
+//
+// This page embeds Archiver and keeps both of its actions.
+type PageArchive struct {
+	App *App
+	Archiver
+}
+
+func (PageArchive) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
+}

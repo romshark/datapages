@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -82,7 +83,7 @@ func (p PagePurchase) POSTConfirm(
 	case errors.Is(err, domain.ErrShowNotFound):
 		return datapages.Redirect{}, datapages.ErrNotFound
 	case errors.Is(err, domain.ErrShowSoldOut):
-		return datapages.Redirect{}, datapages.ErrBadRequest
+		return datapages.Redirect{}, fmt.Errorf("%w: %w", datapages.ErrConflict, err)
 	default:
 		return datapages.Redirect{}, err
 	}

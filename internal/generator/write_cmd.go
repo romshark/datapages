@@ -12,10 +12,11 @@ import (
 // GenerateCmd generates a default cmd/server main.go at dstDir.  appImportPath and
 // genImportPath are the full Go import paths of the app and generated packages.
 // genPkgName is the Go package name of the generated package (e.g. "datapagesgen").
+// datastarJS is the URL of the Datastar bundle, empty for the default.
 func GenerateCmd(
 	dstDir string,
 	appImportPath, genImportPath, genPkgName string,
-	prometheus bool, m *model.App,
+	prometheus bool, datastarJS string, m *model.App,
 	perm os.FileMode,
 ) error {
 	appPkgName := "app"
@@ -35,16 +36,28 @@ func GenerateCmd(
 			collectSessionDataPkgs(m),
 			skeleton.MainGoTaken(appPkgName, genPkgName),
 			map[string]string{m.PkgPath: appPkg},
+			false,
 		)
 		sessionData = renderTypeIn(imports.Qualifier(), m.Session.Data)
 		for _, imp := range imports.Extra() {
 			extraImports = append(extraImports, skeleton.Import(imp))
 		}
 	}
-	src, err := skeleton.MainGo(
-		appImportPath, appPkgName, genImportPath, genPkgName, prometheus,
-		sessionData, extraImports,
-	)
+	var assetsVar string
+	if m != nil {
+		assetsVar = m.Assets.Var
+	}
+	src, err := skeleton.MainGo(skeleton.MainGoConfig{
+		AppImport:    appImportPath,
+		AppPkgName:   appPkgName,
+		GenImport:    genImportPath,
+		GenPkgName:   genPkgName,
+		Prometheus:   prometheus,
+		SessionData:  sessionData,
+		ExtraImports: extraImports,
+		AssetsVar:    assetsVar,
+		DatastarJS:   datastarJS,
+	})
 	if err != nil {
 		return fmt.Errorf("generating cmd/main.go: %w", err)
 	}

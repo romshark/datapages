@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/calculator/app"
@@ -17,6 +19,10 @@ import (
 func main() {
 	fHost := flag.String("host", "localhost:8080", "server host address")
 	flag.Parse()
+
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	// The application dispatches no events: every update is the reply to the
 	// action that caused it. NewServer still requires a broker.
@@ -34,7 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = s.ListenAndServe(context.Background(), *fHost)
+	err = s.ListenAndServe(ctx, *fHost)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		panic(err)
 	}

@@ -1,0 +1,437 @@
+/* The document page. Overrides the Quill styles, which come first. */
+
+.doc {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 6px;
+}
+
+.doc-logo {
+  display: grid;
+  place-items: center;
+}
+
+.doc-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-title {
+  width: min(40ch, 100%);
+  margin-left: -7px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+}
+
+.doc-title:hover {
+  border-color: var(--border);
+}
+
+.doc-title:focus {
+  border-color: var(--accent);
+  outline: none;
+  background: var(--surface);
+}
+
+.doc-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.collaborators {
+  display: flex;
+  padding-left: 6px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  margin-left: -6px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: default;
+}
+
+.share {
+  margin-left: 8px;
+  padding: 10px 24px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+  font-weight: 500;
+}
+
+.export {
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* The offline page shows a title it cannot change. */
+.offline .doc-title:hover {
+  border-color: transparent;
+}
+
+/* Lays out the toolbar and the canvas of the offline page as children of .doc,
+   which keeps the toolbar sticky. */
+.offline-doc {
+  display: contents;
+}
+
+.stored {
+  padding: 20px max(16px, calc((100% - 880px) / 2)) 24px;
+}
+
+.stored h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+docs-stored ul {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  list-style: none;
+}
+
+docs-stored a {
+  color: var(--accent);
+}
+
+docs-stored span {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.notice {
+  margin: 0 16px 8px;
+  padding: 10px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border-radius: 8px;
+  background: var(--notice);
+  color: var(--on-notice);
+  font-size: 14px;
+}
+
+#toolbar.ql-toolbar.ql-snow {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 16px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--toolbar);
+}
+
+/* Until Quill fills it, the toolbar holds empty controls. */
+#toolbar:not(.ql-toolbar) {
+  visibility: hidden;
+  height: 40px;
+}
+
+.canvas {
+  flex: 1;
+  padding: 16px 16px 48px;
+}
+
+docs-editor {
+  display: block;
+  max-width: 816px;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(60 64 67 / 15%);
+}
+
+docs-editor .ql-container.ql-snow {
+  height: auto;
+  border: 0;
+  font-family: Arial, sans-serif;
+  font-size: 15px;
+}
+
+docs-editor .ql-editor {
+  min-height: 1056px;
+  height: auto;
+  padding: 72px 96px;
+  overflow: visible;
+  line-height: 1.5;
+}
+
+docs-editor .ql-editor.ql-blank::before {
+  left: 96px;
+  right: 96px;
+}
+
+@media (max-width: 720px) {
+  docs-editor .ql-editor {
+    min-height: 60vh;
+    padding: 32px 24px;
+  }
+
+  docs-editor .ql-editor.ql-blank::before {
+    left: 24px;
+    right: 24px;
+  }
+}
+
+.remote-cursors {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.remote-selection {
+  position: absolute;
+  opacity: 0.25;
+}
+
+.remote-caret {
+  position: absolute;
+}
+
+.remote-flag {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  padding: 1px 4px;
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font: 600 11px/1.3 system-ui, sans-serif;
+  white-space: nowrap;
+}
+
+.image-toolbar {
+  position: absolute;
+  z-index: 2;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 20%);
+  font: 500 13px/1 system-ui, sans-serif;
+}
+
+.image-toolbar[hidden] {
+  display: none;
+}
+
+.image-toolbar button {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+}
+
+.image-toolbar button:hover {
+  background: var(--surface-alt);
+}
+
+.image-toolbar button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--on-accent-soft);
+}
+
+.image-toolbar label {
+  padding: 0 4px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.image-toolbar :is(input, select) {
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.image-toolbar input {
+  width: 8ch;
+  padding: 0 6px;
+}
+
+.image-toolbar select {
+  margin-right: 2px;
+  padding: 0 4px;
+}
+
+.image-toolbar :is(input, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.image-toolbar .separator {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 4px;
+  background: var(--border);
+}
+
+/* Text and highlight colors keep the values chosen for white paper.
+   MirroredColor in docs-editor.ts also writes them to --color and
+   --background, from which dark mode derives a readable color of the same hue:
+   text at oklch lightness 0.75 or more, highlights between 0.3 and 0.4.
+   !important overrides the inline style with the original color. */
+@media screen and (prefers-color-scheme: dark) {
+  .ql-editor [style*="--color"] {
+    color: oklch(from var(--color) max(calc(1 - l), 0.75) c h) !important;
+  }
+
+  .ql-editor [style*="--background"] {
+    background-color: oklch(
+      from var(--background) clamp(0.3, calc(1.2 - l), 0.4) c h
+    ) !important;
+  }
+
+  docs-editor .ql-editor.ql-blank::before {
+    color: rgb(255 255 255 / 60%);
+  }
+
+  /* Quill draws its controls and its content for a light page. */
+  .ql-snow .ql-stroke,
+  .ql-snow .ql-stroke-miter {
+    stroke: var(--muted);
+  }
+
+  .ql-snow .ql-fill,
+  .ql-snow .ql-stroke.ql-fill {
+    fill: var(--muted);
+  }
+
+  .ql-snow .ql-picker {
+    color: var(--muted);
+  }
+
+  /* Quill colors a hovered or active control #06c, too dark here. */
+  #toolbar :is(button:hover, button:focus, button.ql-active),
+  #toolbar :is(.ql-picker-label:hover, .ql-picker-label.ql-active),
+  #toolbar :is(.ql-picker-item:hover, .ql-picker-item.ql-selected) {
+    color: var(--accent);
+  }
+
+  #toolbar :is(button:hover, button:focus, button.ql-active) :is(.ql-stroke, .ql-stroke-miter),
+  #toolbar :is(.ql-picker-label:hover, .ql-picker-label.ql-active) .ql-stroke {
+    stroke: var(--accent);
+  }
+
+  #toolbar :is(button:hover, button:focus, button.ql-active) .ql-fill,
+  #toolbar :is(.ql-picker-label:hover, .ql-picker-label.ql-active) .ql-fill {
+    fill: var(--accent);
+  }
+
+  .ql-snow .ql-picker-options,
+  .ql-snow .ql-tooltip {
+    background-color: var(--surface);
+  }
+
+  .ql-toolbar.ql-snow .ql-picker.ql-expanded :is(.ql-picker-label, .ql-picker-options),
+  .ql-snow .ql-tooltip,
+  .ql-snow .ql-tooltip input[type="text"] {
+    border-color: var(--border);
+  }
+
+  .ql-toolbar.ql-snow .ql-color-picker .ql-picker-item:is(.ql-selected, :hover) {
+    border-color: var(--text);
+  }
+
+  .ql-snow .ql-tooltip {
+    box-shadow: none;
+    color: var(--text);
+  }
+
+  .ql-snow .ql-tooltip a.ql-action::after {
+    border-right-color: var(--border);
+  }
+
+  .ql-snow a {
+    color: var(--accent);
+  }
+
+  .ql-snow .ql-editor code,
+  .ql-snow .ql-editor .ql-code-block-container {
+    background-color: var(--surface-alt);
+  }
+
+  .ql-snow .ql-editor blockquote {
+    border-left-color: var(--border);
+  }
+}
+
+/* Print the document alone, which the print dialog can save as a PDF.
+   Paper margins replace the screen margins. */
+@page {
+  margin: 20mm;
+}
+
+@media print {
+  .doc-header,
+  .notice,
+  .toast,
+  #datapages-offline-banner,
+  #toolbar,
+  .remote-cursors,
+  .image-toolbar,
+  .ql-tooltip {
+    display: none !important;
+  }
+
+  .canvas {
+    padding: 0;
+  }
+
+  docs-editor {
+    max-width: none;
+    border: 0;
+    box-shadow: none;
+  }
+
+  docs-editor .ql-editor {
+    min-height: 0;
+    padding: 0;
+    /* Browsers skip background colors when printing,
+       which drops highlights and code backgrounds. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  docs-editor .ql-editor :is(h1, h2, h3) {
+    break-after: avoid;
+  }
+}

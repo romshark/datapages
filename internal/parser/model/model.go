@@ -30,7 +30,7 @@ type App struct {
 
 	Pages   []*Page
 	Events  []*Event
-	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
+	Actions []*Handler // App-level POST/PUT/PATCH/DELETE/QUERY actions.
 
 	// States are all state types the source package declares, keyed by type name.
 	// Pages reference them directly or through embedded abstract pages.
@@ -41,6 +41,9 @@ type App struct {
 // Assets is the static file serving an embed.FS variable of the app package
 // declares by naming a URL path in its doc comment.
 type Assets struct {
+	// Var is the name of the embed.FS variable.
+	Var string
+
 	// URLPrefix is the URL path the files are served under.
 	URLPrefix string
 
@@ -165,6 +168,7 @@ type Handler struct {
 
 	OutputBody           *TemplComponent // datapages.Component body (actions only)
 	OutputHead           *TemplComponent // datapages.Component head (actions only)
+	OutputFile           *Output         // datapages.File (actions only)
 	OutputRedirect       *Output
 	OutputNewSession     *Output
 	OutputCloseSession   *Output
@@ -173,6 +177,10 @@ type Handler struct {
 	OutputErr            *Output
 	OrderedOutputs       []*Output // Outputs in user-defined order.
 }
+
+// IsGETAction reports whether h is an action that answers GET:
+// a method named GET followed by a name, which returns a datapages.File.
+func (h *Handler) IsGETAction() bool { return h.HTTPMethod == "GET" && h.Name != "" }
 
 type InputDispatch struct {
 	*Input
@@ -228,6 +236,7 @@ const (
 	OutputKindCloseSession   = "closeSession"
 	OutputKindEnableBgStream = "enableBackgroundStreaming"
 	OutputKindDisableRefresh = "disableRefreshAfterHidden"
+	OutputKindFile           = "file"
 	OutputKindErr            = "err"
 )
 

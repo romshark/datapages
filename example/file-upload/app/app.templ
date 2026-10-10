@@ -209,7 +209,7 @@ templ fileList(files []store.File, tab, origin string) {
 							// match through data-neo-link. The response names the file
 							// and asks for a download, hence no download attribute.
 							@neo.Link(neo.LinkOpts{
-								Href:    neo.Set(href.Asset("files/" + f.ID)),
+								Href:    neo.Set(href.App.File(f.ID)),
 								Variant: neo.Set(neo.LinkVariantButtonPrimary),
 							}) {
 								@iconDownload()
@@ -218,7 +218,7 @@ templ fileList(files []store.File, tab, origin string) {
 							// Clipcopy copies a literal, which is why the server hands
 							// it the whole address rather than the path the link carries.
 							@neo.Clipcopy(neo.ClipcopyOpts{
-								Value: neo.Set(origin + href.Asset("files/"+f.ID)),
+								Value: neo.Set(origin + href.App.File(f.ID)),
 							}) {
 								// The first child is the trigger and both faces
 								// belong inside it: the host styles nothing of its
@@ -678,7 +678,7 @@ templ actionsMenu(f store.File, tab, origin string) {
 					// The row carries the address instead, which templ escapes,
 					// rather than a URL built into an expression.
 					<neo-menuitem
-						data-href={ href.Asset("files/" + f.ID) }
+						data-href={ href.App.File(f.ID) }
 						data-on:click="window.location.href = el.dataset.href"
 					>
 						@iconDownload()
@@ -686,7 +686,7 @@ templ actionsMenu(f store.File, tab, origin string) {
 					</neo-menuitem>
 					<neo-menuitem>
 						@neo.Clipcopy(neo.ClipcopyOpts{
-							Value: neo.Set(origin + href.Asset("files/"+f.ID)),
+							Value: neo.Set(origin + href.App.File(f.ID)),
 						}) {
 							<span>
 								@iconCopy()

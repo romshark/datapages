@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -178,7 +180,8 @@ func TestParse_Basic(t *testing.T) {
 }
 
 // TestParse_Embed tests a page embedding a struct: the embedded GET, actions and
-// event handlers become the page's own.
+// event handlers become the page's own. A method the page declares shadows the embedded
+// method of that name only, not one sharing its suffix under another HTTP method.
 func TestParse_Embed(t *testing.T) {
 	app, err := parse(t, "embed")
 	require := require.New(t)
@@ -249,6 +252,25 @@ func TestParse_Embed(t *testing.T) {
 		require.NotNil(p.GET)
 		require.Empty(p.Actions)
 	}
+
+	// PageVerbs
+	// - Own: POSTSave
+	// - Saver: POSTSave (shadowed), PUTSave
+	{
+		p := findPage(app, "PageVerbs")
+		require.NotNil(p)
+		require.ElementsMatch([]string{"POSTSave", "PUTSave"},
+			actionMethodNames(p.Actions))
+	}
+
+	// PageArchive
+	// - Archiver: POSTArchive, DELETEArchive
+	{
+		p := findPage(app, "PageArchive")
+		require.NotNil(p)
+		require.ElementsMatch([]string{"POSTArchive", "DELETEArchive"},
+			actionMethodNames(p.Actions))
+	}
 }
 
 // TestParse_ActionHandlerSSE tests an action taking a datapages.SSE parameter,
@@ -271,12 +293,12 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		p := findPage(app, "PageActions")
 		require.NotNil(p)
 		require.Equal("/actions", p.Route)
-		require.Len(p.Actions, 9)
+		require.Len(p.Actions, 11)
 		require.Len(p.EventHandlers, 1)
 
 		// Actions at same path as page
-		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-			a := findAction(p.Actions, "SamePath")
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE", "QUERY"} {
+			a := findActionByMethod(p.Actions, method, "SamePath")
 			require.NotNil(a, "missing %sSamePath", method)
 			require.Equal("/actions", a.Route)
 		}
@@ -312,11 +334,25 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		require.Equal("DELETE", deleteWithout.HTTPMethod)
 		require.Nil(deleteWithout.InputSSE)
 
+		// QUERY with SSE
+		queryWith := findActionByMethod(p.Actions, "QUERY", "WithSSE")
+		require.NotNil(queryWith)
+		require.Equal("/actions/query-with-sse", queryWith.Route)
+		require.NotNil(queryWith.InputSSE)
+
 		// Event handler MUST have SSE
 		evHandler := p.EventHandlers[0]
 		require.Equal("EventFoo", evHandler.Name)
 		require.NotNil(evHandler.InputSSE)
 		require.Equal("sse", evHandler.InputSSE.Name)
+	}
+
+	{ // App-level QUERY action
+		require.Len(app.Actions, 1)
+		a := app.Actions[0]
+		require.Equal("QUERY", a.HTTPMethod)
+		require.Equal("Lookup", a.Name)
+		require.Equal("/lookup", a.Route)
 	}
 }
 
@@ -465,6 +501,7 @@ func TestParse_ErrActionHandlerNoName(t *testing.T) {
 		parser.ErrActionNameMissing, // DELETE
 		parser.ErrActionNameMissing, // PATCH
 		parser.ErrActionNameMissing, // PUT
+		parser.ErrActionNameMissing, // QUERY
 	)
 }
 
@@ -531,7 +568,30 @@ func TestParse_ErrRouteDuplicatePage(t *testing.T) {
 	)
 }
 
+// TestParse_ErrRouteIndexShadowed tests pages besides PageIndex at "/".
+// The router gives "/" to the more specific "/{$}" such a page is registered at,
+// which leaves PageIndex unreachable. The error lands on the other page,
+// whatever their names sort as.
+func TestParse_ErrRouteIndexShadowed(t *testing.T) {
+	_, err := parse(t, "err_route_index_shadowed")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteConflict, // PageHome
+		parser.ErrRouteConflict, // PageRoot
+	)
+	for i, owner := range map[int]string{0: "PageHome", 1: "PageRoot"} {
+		var conflict *parser.RouteConflictError
+		_, e := err.Entry(i)
+		require.ErrorAs(t, e, &conflict)
+		require.Equal(t, owner, conflict.Owner)
+		require.Equal(t, "GET /{$}", conflict.Pattern)
+		require.Equal(t, "PageIndex", conflict.OtherOwner)
+	}
+}
+
 // TestParse_ErrRouteDuplicateAction tests two actions declaring one path.
+// The report names each action as declared, HTTP method included.
 func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_route_duplicate_action")
@@ -540,6 +600,14 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrRouteConflict,
+	)
+	_, e := err.Entry(0)
+	var conflict *parser.RouteConflictError
+	require.ErrorAs(e, &conflict)
+	require.Equal(
+		`conflicting route: PageIndex.POSTOther cannot serve "POST /same/{$}", `+
+			"PageIndex.POSTSame already serves it",
+		conflict.Error(),
 	)
 }
 
@@ -555,6 +623,25 @@ func TestParse_ErrFieldTypeUnexported(t *testing.T) {
 		parser.ErrFieldTypeUnexported,
 		parser.ErrFieldTypeUnexported,
 	)
+}
+
+// TestParse_ErrValuesTypeUnexported tests unexported defined types as path,
+// query and signals type arguments, one of them behind an exported alias.
+// The generated package cannot name them from outside the app package.
+func TestParse_ErrValuesTypeUnexported(t *testing.T) {
+	_, err := parse(t, "err_values_type_unexported")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrValuesTypeUnexported, // Query behind QueryAlias
+		parser.ErrValuesTypeUnexported, // Signals
+		parser.ErrValuesTypeUnexported, // Path
+		parser.ErrValuesTypeUnexported, // Query
+	)
+	for i, want := range [][2]int{{33, 8}, {41, 10}, {51, 7}, {52, 8}} {
+		pos, _ := err.Entry(i)
+		requirePosEqual(t, "app.go", want[0], want[1], pos)
+	}
 }
 
 // TestParse_ErrAppUnsupportedMethod tests the page methods declared on App,
@@ -630,6 +717,54 @@ func TestParse_ErrRouteUnparsablePatternHasNoOwner(t *testing.T) {
 	require.Contains(t, conflict.Error(), "bad wildcard segment")
 }
 
+// TestParse_ErrRouteChar tests that page, page action and app action routes
+// refuse double quotes, backslashes, backticks, question marks, number signs
+// and percent signs that start no percent-encoding, and accept their
+// percent-encoded forms.
+func TestParse_ErrRouteChar(t *testing.T) {
+	_, err := parse(t, "err_route_char")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteCharInvalid, // PageQuote
+		parser.ErrRouteCharInvalid, // PageBackslash
+		parser.ErrRouteCharInvalid, // PageBackslash.POSTSave
+		parser.ErrRouteCharInvalid, // App.POSTQuote
+		parser.ErrRouteCharInvalid, // PageTick
+		parser.ErrRouteCharInvalid, // PageTick.POSTPing
+		parser.ErrRouteCharInvalid, // PageSearch
+		parser.ErrRouteCharInvalid, // PageSharp
+		parser.ErrRouteCharInvalid, // PagePercent
+		parser.ErrRouteCharInvalid, // App.POSTRate
+	)
+	for i, want := range map[int]struct {
+		owner string
+		char  rune
+		route string
+	}{
+		2: {"PageBackslash.POSTSave", '\\', `/back\slash/save`},
+		3: {"App.POSTQuote", '"', `/quote"`},
+		5: {"PageTick.POSTPing", '`', "/back`tick/ping"},
+		6: {"PageSearch", '?', "/search?q"},
+		7: {"PageSharp", '#', "/c#"},
+		8: {"PagePercent", '%', "/100%"},
+		9: {"App.POSTRate", '%', "/rate%2"},
+	} {
+		var d *parser.RouteCharInvalidError
+		_, e := err.Entry(i)
+		require.ErrorAs(t, e, &d)
+		require.Equal(t, want.owner, d.Owner)
+		require.Equal(t, want.char, d.Char)
+		require.Equal(t, want.route, d.Route)
+	}
+
+	// A route may hold accepted percent-encodings,
+	// which a report of '%' alone would contradict.
+	_, e := err.Entry(8)
+	require.ErrorContains(t, e,
+		`'%' without two hex digits after it in PagePercent route "/100%"`)
+}
+
 // TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard
 // and which also opens a stream. The stream endpoint sits under the page path,
 // where a wildcard would swallow it.
@@ -641,6 +776,91 @@ func TestParse_ErrRouteWildcardStream(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrRouteWildcardStream,
+	)
+}
+
+// TestParse_ErrRouteWildcardAction tests a page whose path ends in a wildcard
+// and which has actions. Each action is reported once,
+// whatever its path comment says, the adopted one included.
+func TestParse_ErrRouteWildcardAction(t *testing.T) {
+	_, err := parse(t, "err_route_wildcard_action")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteWildcardAction, // Archiver.POSTArchive
+		parser.ErrRouteWildcardAction, // POSTDelete
+		parser.ErrRouteWildcardAction, // POSTSave
+		parser.ErrRouteWildcardAction, // POSTMove
+	)
+	var d *parser.RouteWildcardActionError
+	_, e := err.Entry(0)
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, "PageFiles", d.TypeName)
+	require.Equal(t, "/files/{rest...}", d.Route)
+	require.Equal(t, "POSTArchive", d.MethodName)
+}
+
+// TestParse_ErrRouteExactMatchStream tests a page whose path ends in {$} and
+// which handles an event. The {$} declares a page that serves only GET.
+func TestParse_ErrRouteExactMatchStream(t *testing.T) {
+	_, err := parse(t, "err_route_exact_match_stream")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteExactMatchStream,
+	)
+}
+
+// TestParse_ErrRouteExactMatchAction tests a page whose path ends in {$} and
+// which has actions. The {$} declares a page that serves only GET. Each action
+// is reported once, whatever its path comment says, the adopted one included.
+func TestParse_ErrRouteExactMatchAction(t *testing.T) {
+	_, err := parse(t, "err_route_exact_match_action")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteExactMatchAction, // Archiver.POSTArchive
+		parser.ErrRouteExactMatchAction, // POSTSave
+		parser.ErrRouteExactMatchAction, // POSTReset
+		parser.ErrRouteExactMatchAction, // POSTMove
+	)
+	var d *parser.RouteExactMatchActionError
+	_, e := err.Entry(1)
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, "PageSettings", d.TypeName)
+	require.Equal(t, "/settings/{$}", d.Route)
+	require.Equal(t, "POSTSave", d.MethodName)
+}
+
+// TestParse_ErrActionRouteWildcard tests actions whose route ends in a
+// wildcard, on App, adopted from an embedded type and on a page. Each is
+// reported once, and none as a conflict on the pattern it is registered under.
+func TestParse_ErrActionRouteWildcard(t *testing.T) {
+	_, err := parse(t, "err_action_route_wildcard")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrActionRouteWildcard, // App.POSTUpload
+		parser.ErrActionRouteWildcard, // Dropper.POSTDrop
+		parser.ErrActionRouteWildcard, // PageItem.POSTAttach
+	)
+	var d *parser.ActionRouteWildcardError
+	_, e := err.Entry(0)
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, "App", d.Recv)
+	require.Equal(t, "POSTUpload", d.MethodName)
+	require.Equal(t, "/upload/{path...}", d.Route)
+}
+
+// TestParse_ErrEmbedGETInput tests a GET declared on an embedded type that
+// fails to parse. Its parameter is the one error: the page adopts it without
+// checking its return values or its path against the page route.
+func TestParse_ErrEmbedGETInput(t *testing.T) {
+	_, err := parse(t, "err_embed_get_input")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureUnsupportedInput,
 	)
 }
 
@@ -747,6 +967,40 @@ func TestParse_ErrEventHandler(t *testing.T) {
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,
 	)
+}
+
+// TestParse_ErrEventHandlerMultiName tests that each name of a multi-name field is
+// a parameter of its own, and that an event handler takes the SSE and the stream ID
+// once, as every other handler does. A string next to stateID matches no input.
+func TestParse_ErrEventHandlerMultiName(t *testing.T) {
+	_, err := parse(t, "err_event_handler_multi_name")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureUnsupportedInput, // OnPing: sse2
+		parser.ErrSignatureUnsupportedInput, // OnPong: streamID2
+		parser.ErrSignatureUnsupportedInput, // OnTick: extra
+		parser.ErrSignatureUnsupportedInput, // OnTock: again
+	)
+	for i, want := range [][2]int{{40, 7}, {48, 12}, {57, 11}, {65, 2}} {
+		pos, _ := err.Entry(i)
+		requirePosEqual(t, "app.go", want[0], want[1], pos)
+	}
+}
+
+// TestParse_ErrEventPointer tests an event handler that takes its event by pointer,
+// which is reported at the parameter type with the name of the event.
+func TestParse_ErrEventPointer(t *testing.T) {
+	_, err := parse(t, "err_event_pointer")
+
+	requireParseErrors(t, err, parser.ErrSignatureEvHandEventPointer)
+	pos, e := err.Entry(0)
+	requirePosEqual(t, "app.go", 25, 8, pos)
+	var d *parser.SignatureEvHandEventPointerError
+	require.ErrorAs(t, e, &d)
+	require.Equal(t, parser.SignatureEvHandEventPointerError{
+		Recv: "PageIndex", MethodName: "OnPing", EventType: "EventPing",
+	}, *d)
 }
 
 // TestParse_ErrEventSubjectUserNoSession tests a user-scoped event subject in an
@@ -1054,6 +1308,71 @@ func TestParse_ErrEventSubjectFieldUnexported(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectUserDuplicate tests events with two
+// datapages.SubjectUser fields, on one declaration line and on two.
+// A stream subscribes by one user position, which leaves a user named
+// in the second field without the event.
+func TestParse_ErrEventSubjectUserDuplicate(t *testing.T) {
+	_, err := parse(t, "err_event_subject_user_duplicate")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectUserDuplicate, // EventDMed.Cc
+		parser.ErrEventSubjectUserDuplicate, // EventPaid.To
+	)
+	for i, want := range map[int]string{
+		0: "EventDMed.Cc next to EventDMed.To",
+		1: "EventPaid.To next to EventPaid.From",
+	} {
+		_, e := err.Entry(i)
+		require.ErrorContains(t, e, want)
+	}
+}
+
+// TestParse_ErrEventSubjectContained tests event fields whose types hold a subject type:
+// a slice, an array, a map value and key, a pointer, a channel, a type declared from
+// a slice and a slice of a type declared from a subject type. Each would be
+// a payload field that looks like a list of recipients and routes nothing.
+func TestParse_ErrEventSubjectContained(t *testing.T) {
+	_, err := parse(t, "err_event_subject_contained")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectContained, // EventSlice.Recipients
+		parser.ErrEventSubjectContained, // EventArray.Pair
+		parser.ErrEventSubjectContained, // EventMapValue.ByIndex
+		parser.ErrEventSubjectContained, // EventMapKey.ByRoom
+		parser.ErrEventSubjectContained, // EventPointer.Maybe
+		parser.ErrEventSubjectContained, // EventNamed.To
+		parser.ErrEventSubjectContained, // EventDerived.IDs
+		parser.ErrEventSubjectContained, // EventStateIDs.Tabs
+		parser.ErrEventSubjectContained, // EventCascade.Recipients
+		parser.ErrEventSubjectContained, // EventChan.Feed
+	)
+	const user = "datapages.SubjectUser"
+	for i, want := range map[int]struct {
+		field, fieldType, subjectType string
+	}{
+		0: {"EventSlice.Recipients", "[]datapages.SubjectUser", user},
+		1: {"EventArray.Pair", "[2]datapages.SubjectUser", user},
+		2: {"EventMapValue.ByIndex", "map[int]datapages.SubjectUser", user},
+		3: {"EventMapKey.ByRoom", "map[datapages.Subject]string", "datapages.Subject"},
+		4: {"EventPointer.Maybe", "*datapages.SubjectUser", user},
+		5: {"EventNamed.To", "Recipients", user},
+		6: {"EventDerived.IDs", "[]UserID", user},
+		7: {"EventStateIDs.Tabs", "[]datapages.SubjectStateID", "datapages.SubjectStateID"},
+		8: {"EventCascade.Recipients", "[]datapages.SubjectUser", user},
+		9: {"EventChan.Feed", "chan datapages.Subject", "datapages.Subject"},
+	} {
+		var d *parser.EventSubjectContainedError
+		_, e := err.Entry(i)
+		require.ErrorAs(t, e, &d)
+		require.Equal(t, want.field, d.TypeName+"."+d.FieldName)
+		require.Equal(t, want.fieldType, d.FieldType, want.field)
+		require.Equal(t, want.subjectType, d.SubjectTypeName, want.field)
+	}
+}
+
 // TestParse_SignalSubjectFields tests subject fields filled from signals:
 // the subscription a page opens is built from what the client sends,
 // one wildcard per field left unbound.
@@ -1109,12 +1428,13 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 			isSignalScoped: true,
 		},
 		// Two names on one declaration line are two subject fields.
-		// Reading only the first drops the rest and publishes to the bare subject.
-		"EventMultiUser": {
+		// Reading only the first drops the rest from the subject.
+		"EventMultiField": {
 			subject: "multi",
 			subjectFields: []model.SubjectField{
-				{FieldName: "To", Kind: model.SubjectKindUser},
-				{FieldName: "Cc", Kind: model.SubjectKindUser},
+				{FieldName: "Recipient", Kind: model.SubjectKindUser},
+				{FieldName: "Room", Kind: model.SubjectKindValue},
+				{FieldName: "Topic", Kind: model.SubjectKindValue},
 			},
 			isPrivate:      true,
 			isSignalScoped: false,
@@ -1206,6 +1526,23 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
+// TestParse_ErrEmbedAmbiguous tests an action defined by two embedded types and
+// a GET inherited through two embedding paths. Go treats both selectors as ambiguous.
+// A shallower action may shadow a deeper one.
+func TestParse_ErrEmbedAmbiguous(t *testing.T) {
+	_, err := parse(t, "err_embed_ambiguous")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrPageAmbiguousEmbed, // PageTwo.POSTSave
+		parser.ErrPageAmbiguousEmbed, // PageDiamond.GET
+	)
+	for i, line := range []int{33, 62} {
+		pos, _ := err.Entry(i)
+		requirePosEqual(t, "app.go", line, 6, pos)
+	}
+}
+
 // TestParse_NameCollisions tests the name pairs that concatenate into one
 // identifier when spelled as one. Each pair is accepted:
 // a page name ending in an HTTP verb against another page's action, the same
@@ -1287,9 +1624,49 @@ func TestParse_Path(t *testing.T) {
 	}
 }
 
+// TestParse_WrapperAlias tests parameters typed with an alias of
+// datapages.Path, datapages.Query, datapages.Signals and datapages.State.
+// Each is read as the type the alias stands for, with its type argument,
+// and not as the wrapper struct with its Values field.
+func TestParse_WrapperAlias(t *testing.T) {
+	app, err := parse(t, "wrapper_alias")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
+
+	requireFields := func(t *testing.T, in *model.Input, want ...string) {
+		t.Helper()
+		require.NotNil(t, in)
+		st, ok := in.Type.Resolved.Underlying().(*types.Struct)
+		require.True(t, ok, "Values type %s is not a struct", in.Type.Resolved)
+		var got []string
+		for field := range st.Fields() {
+			got = append(got, field.Name())
+		}
+		require.Equal(t, want, got)
+	}
+
+	requireFields(t, app.PageIndex.GET.InputQuery, "Term")
+
+	p := findPage(app, "PageItem")
+	require.NotNil(t, p)
+	requireFields(t, p.GET.InputPath, "ID")
+	requireFields(t, p.StreamOpen.InputSignals, "Text")
+	require.NotNil(t, p.State)
+	require.Equal(t, "Counter", p.State.TypeName)
+
+	a := findAction(p.Actions, "Save")
+	require.NotNil(t, a)
+	requireFields(t, a.InputPath, "ID")
+	requireFields(t, a.InputSignals, "Text")
+	require.NotNil(t, a.InputState)
+	require.Equal(t, "Counter", a.InputState.StateTypeName)
+}
+
 // TestParse_ErrPath tests every refused path parameter: not a struct,
 // an unexported field, a type that cannot be parsed from a URL segment, a missing or
 // duplicated tag, and a field or route variable the other side has no match for.
+// An App action reports each mismatch on its own, as a page does.
+// [TestParse_ErrorPositions] checks where each one is reported.
 func TestParse_ErrPath(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_path")
@@ -1304,6 +1681,9 @@ func TestParse_ErrPath(t *testing.T) {
 		parser.ErrPathFieldNotInRoute,
 		parser.ErrPathMissingRouteVar,
 		parser.ErrPathFieldDuplicateTag,
+		parser.ErrPathMissingRouteVar, // App.POSTMove {id}
+		parser.ErrPathMissingRouteVar, // App.POSTMove {slug}
+		parser.ErrPathFieldNotInRoute, // App.POSTMove Name
 	)
 }
 
@@ -1659,17 +2039,45 @@ func TestParse_SessionCloseOnly(t *testing.T) {
 	require.Equal("struct{}", app.Session.Data.Resolved.String())
 }
 
-// TestParse_ErrSessionTypeConflict tests two handlers naming
-// different session data types. One application has one.
+// TestParse_ErrSessionTypeConflict tests handlers naming different session data types.
+// One application has one: the first page by name declares it,
+// and the others conflict with it in every parse.
 func TestParse_ErrSessionTypeConflict(t *testing.T) {
-	require := require.New(t)
-	_, err := parse(t, "err_session_conflict")
-	require.NotZero(err.Error())
+	// Each parse reads the pages in a new map order.
+	for range 3 {
+		_, err := parse(t, "err_session_conflict")
 
-	requireParseErrors(
-		t, err,
-		parser.ErrSessionTypeConflict,
-	)
+		requireParseErrors(
+			t, err,
+			parser.ErrSessionTypeConflict, // PageIndex
+			parser.ErrSessionTypeConflict, // PageItem
+			parser.ErrSessionTypeConflict, // PageOther
+		)
+	}
+}
+
+// TestParse_ErrEventSharedFieldOrder tests a field that four events reach
+// through one struct type. Each event reports it at the same position,
+// and the reports follow the event names in every parse.
+func TestParse_ErrEventSharedFieldOrder(t *testing.T) {
+	// Each parse reads the events in a new map order.
+	for range 10 {
+		_, err := parse(t, "err_event_shared_field")
+
+		requireParseErrors(
+			t, err,
+			parser.ErrEventFieldMissingTag,
+			parser.ErrEventFieldMissingTag,
+			parser.ErrEventFieldMissingTag,
+			parser.ErrEventFieldMissingTag,
+		)
+		for i, event := range []string{"EventA", "EventB", "EventC", "EventD"} {
+			var d *parser.EventFieldMissingTagError
+			_, e := err.Entry(i)
+			require.ErrorAs(t, e, &d)
+			require.Equal(t, event, d.TypeName)
+		}
+	}
 }
 
 // TestParse_Redirect tests a handler returning datapages.Redirect,
@@ -1804,6 +2212,108 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 		parser.ErrSessionOutputErrorPage,
 		parser.ErrSessionOutputErrorPage,
 		parser.ErrSessionOutputErrorPage,
+	)
+}
+
+// TestParse_ErrBodyWithSSE tests an action that takes an SSE and returns a body,
+// with a head and without. The stream has sent its headers by the time the
+// handler returns, and the document would land in the event stream as text.
+func TestParse_ErrBodyWithSSE(t *testing.T) {
+	_, err := parse(t, "err_body_with_sse")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrBodyWithSSE, // POSTRender
+		parser.ErrBodyWithSSE, // POSTRenderWithHead
+	)
+}
+
+// TestParse_GETAction tests GET actions on App, on a page and on an abstract page,
+// and a POST action that returns a datapages.File.
+func TestParse_GETAction(t *testing.T) {
+	app, err := parse(t, "get_action")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	actions := map[string]*model.Handler{}
+	for _, a := range app.Actions {
+		actions[a.HTTPMethod+a.Name] = a
+	}
+	require.Len(actions, 3)
+
+	img := actions["GETImage"]
+	require.NotNil(img)
+	require.True(img.IsGETAction())
+	require.Equal("/images/{name}", img.Route)
+	require.NotNil(img.InputPath)
+	require.NotNil(img.InputQuery)
+	require.NotNil(img.OutputFile)
+	require.Equal(model.OutputKindFile, img.OutputFile.Kind)
+	require.NotNil(img.OutputErr)
+
+	feed := actions["GETFeed"]
+	require.NotNil(feed)
+	require.NotNil(feed.OutputFile)
+	require.Nil(feed.OutputErr)
+
+	export := actions["POSTExport"]
+	require.NotNil(export)
+	require.False(export.IsGETAction())
+	require.NotNil(export.InputSession)
+	require.NotNil(export.InputSignals)
+	require.NotNil(export.OutputFile)
+
+	// The page keeps its own GET. The GET action of the abstract page it embeds
+	// is one of its actions, not a second GET.
+	p := findPage(app, "PageDoc")
+	require.NotNil(p)
+	require.NotNil(p.GET)
+	require.Empty(p.GET.Name)
+	require.NotNil(p.GET.OutputBody)
+	pageActions := map[string]*model.Handler{}
+	for _, a := range p.Actions {
+		pageActions[a.HTTPMethod+a.Name] = a
+	}
+	require.Len(pageActions, 2)
+	require.NotNil(pageActions["GETExport"])
+	require.NotNil(pageActions["GETExport"].InputSession)
+	require.NotNil(pageActions["GETManual"])
+	require.True(pageActions["GETManual"].IsGETAction())
+}
+
+// TestParse_ErrGETAction tests the parameters and the return values
+// a GET action refuses, and a GET action that has the name of the query
+// constructor of another.
+func TestParse_ErrGETAction(t *testing.T) {
+	_, err := parse(t, "err_get_action")
+	requireParseErrors(
+		t, err,
+		parser.ErrGETActionInput,        // GETStream
+		parser.ErrGETActionInput,        // GETSignals
+		parser.ErrGETActionInput,        // GETCache
+		parser.ErrGETActionInput,        // GETDispatch
+		parser.ErrGETActionMissingFile,  // GETNothing
+		parser.ErrGETActionMissingFile,  // GETDocument
+		parser.ErrFileWithOutput,        // GETRedirect
+		parser.ErrGETActionNameConflict, // GETImageQuery
+	)
+}
+
+// TestParse_ErrFile tests a datapages.File returned where it cannot be served:
+// from the GET of a page, next to another return value, with an sse or a page
+// cache parameter. A GET action is not the GET of its page and takes no
+// option of it.
+func TestParse_ErrFile(t *testing.T) {
+	_, err := parse(t, "err_file")
+	requireParseErrors(
+		t, err,
+		parser.ErrFileOnPageGET,            // GET
+		parser.ErrFileWithOutput,           // POSTBody
+		parser.ErrFileWithSSE,              // POSTStream
+		parser.ErrFileWithPageCache,        // POSTCache
+		parser.ErrSignatureDuplicateOutput, // POSTTwo
+		parser.ErrEnableBgStreamNotGET,     // GETStreaming
 	)
 }
 
@@ -2114,6 +2624,9 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrPathFieldNotInRoute, "app.go", 85, 3},
 			{parser.ErrPathMissingRouteVar, "app.go", 97, 23},
 			{parser.ErrPathFieldDuplicateTag, "app.go", 110, 3},
+			{parser.ErrPathMissingRouteVar, "app.go", 124, 2},
+			{parser.ErrPathMissingRouteVar, "app.go", 124, 2},
+			{parser.ErrPathFieldNotInRoute, "app.go", 125, 3},
 		},
 		"err_query": {
 			{parser.ErrQueryParamNotStruct, "app.go", 26, 25},
@@ -2132,6 +2645,24 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_unsupported_output": {
 			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 30},
 			{parser.ErrSignatureUnsupportedOutput, "app.go", 36, 4},
+		},
+		"err_get_action": {
+			{parser.ErrGETActionInput, "app.go", 29, 19},
+			{parser.ErrGETActionInput, "app.go", 39, 2},
+			{parser.ErrGETActionInput, "app.go", 50, 19},
+			{parser.ErrGETActionInput, "app.go", 59, 19},
+			{parser.ErrGETActionMissingFile, "app.go", 67, 13},
+			{parser.ErrGETActionMissingFile, "app.go", 72, 13},
+			{parser.ErrFileWithOutput, "app.go", 79, 13},
+			{parser.ErrGETActionNameConflict, "app.go", 101, 13},
+		},
+		"err_file": {
+			{parser.ErrFileOnPageGET, "app.go", 19, 28},
+			{parser.ErrFileWithOutput, "app.go", 27, 18},
+			{parser.ErrFileWithSSE, "app.go", 36, 18},
+			{parser.ErrFileWithPageCache, "app.go", 45, 18},
+			{parser.ErrSignatureDuplicateOutput, "app.go", 54, 47},
+			{parser.ErrEnableBgStreamNotGET, "app.go", 63, 2},
 		},
 		"err_event_handler": {
 			{parser.ErrSignatureEvHandMissingSSE, "app.go", 58, 18},
@@ -2404,6 +2935,17 @@ func TestParse_ErrSubjectStateIDPageMixed(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrSubjectStateIDPageMixed)
 }
 
+// TestParse_ErrSubjectSignalPathConflict tests a page that subscribes by the
+// signal chat and by chat.room. Datastar holds chat either as a value or as the
+// object holding room, which leaves the stream unable to read both.
+func TestParse_ErrSubjectSignalPathConflict(t *testing.T) {
+	_, err := parse(t, "err_subj_signal_path_conflict")
+	requireParseErrors(t, err, parser.ErrSubjectSignalPathConflict)
+	_, e := err.Entry(0)
+	require.EqualError(t, e, parser.ErrSubjectSignalPathConflict.Error()+
+		`: PageIndex.OnChatSaid needs "chat", PageIndex.OnRoomSaid needs "chat.room"`)
+}
+
 func fixtureDir(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join("testdata", name)
@@ -2475,6 +3017,15 @@ func getHandlerNames(hs []*model.EventHandler) []string {
 	names := make([]string, 0, len(hs))
 	for _, h := range hs {
 		names = append(names, h.Name)
+	}
+	return names
+}
+
+// actionMethodNames returns the Go method names of actions, such as "PUTSave".
+func actionMethodNames(actions []*model.Handler) []string {
+	names := make([]string, 0, len(actions))
+	for _, a := range actions {
+		names = append(names, a.HTTPMethod+a.Name)
 	}
 	return names
 }
@@ -2779,7 +3330,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 
 		require.Len(p.Actions, 1)
 		a := p.Actions[0]
-		require.Equal("POST", a.HTTPMethod)
+		require.Equal("QUERY", a.HTTPMethod)
 		require.Equal("ParamChange", a.Name)
 		require.Equal("/search/paramchange/{$}", a.Route)
 		require.NotNil(a.InputSSE)
@@ -2835,7 +3386,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 	{
 		p := findPage(app, "PageUser")
 		require.NotNil(p)
-		require.Equal("/user/{name}/{$}", p.Route)
+		require.Equal("/user/{name}", p.Route)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
 		require.NotNil(p.GET.OutputHead)
@@ -2850,13 +3401,13 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 }
 
 // TestParse_Assets tests the assets declaration:
-// the URL prefix and the directory it serves from.
+// the variable, the URL prefix and the directory it serves from.
 func TestParse_Assets(t *testing.T) {
 	app, errs := parse(t, "assets")
 	requireParseErrors(t, errs /*none*/)
 	require.NotNil(t, app)
 	require.Equal(t,
-		model.Assets{URLPrefix: "/static/", Dir: "static"}, app.Assets)
+		model.Assets{Var: "AssetsFS", URLPrefix: "/static/", Dir: "static"}, app.Assets)
 }
 
 // TestParse_AssetsMissing tests an application declaring no assets,
@@ -2872,4 +3423,44 @@ func TestParse_AssetsMissing(t *testing.T) {
 func TestParse_ErrAssets(t *testing.T) {
 	_, errs := parse(t, "err_assets")
 	requireParseErrors(t, errs, validate.ErrAssetsURLPrefixNoTrailingSlash)
+}
+
+// TestParse_ErrAssetsEmbedNotDir tests go:embed patterns that name files
+// rather than one directory. The server would serve the pattern as its root,
+// a directory that does not exist.
+func TestParse_ErrAssetsEmbedNotDir(t *testing.T) {
+	for name, fixture := range map[string]string{
+		"glob": "err_assets_embed_glob",
+		"file": "err_assets_embed_file",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, errs := parse(t, fixture)
+			requireParseErrors(t, errs, parser.ErrAssetsEmbedPatterns)
+		})
+	}
+}
+
+// TestPosFromPackagesError tests the positions go/packages reports a load error at,
+// "file:line:col", "file:line" and a file alone, on Unix and Windows paths.
+// A single number is the line, and a drive letter is part of the file name.
+func TestPosFromPackagesError(t *testing.T) {
+	for name, tt := range map[string]struct {
+		pos       string
+		file      string
+		line, col int
+	}{
+		"line and column":         {"/a/b/app.go:12:3", "/a/b/app.go", 12, 3},
+		"line":                    {"/a/b/app.go:12", "/a/b/app.go", 12, 0},
+		"file":                    {"/a/b/app.go", "/a/b/app.go", 0, 0},
+		"windows line and column": {`C:\a\b\app.go:12:3`, `C:\a\b\app.go`, 12, 3},
+		"windows line":            {`C:\a\b\app.go:12`, `C:\a\b\app.go`, 12, 0},
+		"windows file":            {`C:\a\b\app.go`, `C:\a\b\app.go`, 0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t,
+				// Errors carry the base name, which depends on the OS for a Windows path.
+				token.Position{Filename: filepath.Base(tt.file), Line: tt.line, Column: tt.col},
+				parser.PosFromPackagesError(packages.Error{Pos: tt.pos}))
+		})
+	}
 }

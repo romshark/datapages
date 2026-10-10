@@ -3,7 +3,8 @@
   'use strict';
   if (!('serviceWorker' in navigator)) return;
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('__SCRIPT_URL__').catch(function (err) {
+    // Without a scope, the worker controls only the directory of its script URL.
+    navigator.serviceWorker.register('__SCRIPT_URL__', { scope: '/' }).catch(function (err) {
       console.error('offline: service worker registration failed', err);
     });
   });

@@ -22,9 +22,9 @@ Use `struct{}` when the session has no application data. Every handler must use 
 
 ## Read
 
-Pages, actions, event handlers and stream hooks may take `session Session`. It is read-only and provides `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. Datapages treats an expired session as unauthenticated and deletes its cookie. A stream opened with the session ends at `ExpiresAt()`.
+Pages, actions, event handlers and stream hooks may take `session Session`. It is read-only and provides `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. Datapages treats an expired session as unauthenticated and deletes its cookie. A stream opened with the session ends when the session closes or reaches `ExpiresAt()`, and its page reloads after 1s.
 
-Add `session Session` to every action that must reject a closed or expired session. Without this parameter, Datapages checks only that the request has a session cookie. It does not read the session store.
+Add `session Session` to every action that must reject a closed or expired session. Without this parameter, Datapages does not read the session store. It checks the CSRF token against the session cookie if the request has one, and accepts a request without a cookie: guests can call the action. Take `session Session` and check `IsGuest()` when only signed-in users may call it.
 
 ## Open and close
 
@@ -66,7 +66,7 @@ navigation after login. See `datapages-offline`.
 
 ## CSRF
 
-CSRF protection is enabled for every app with a session type. Datapages derives the token from the session. Do not set a CSRF header in a template. A normal browser form submission does not include the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection.
+CSRF protection is enabled for every app with a session type. Datapages derives the token from the session. Do not set a CSRF header in a template. A normal browser form submission does not include the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection. A `QUERYXXX` action skips the check. Never change state in it.
 
 ## Manager
 
@@ -82,4 +82,4 @@ Use `modules/sessions/natskv`. Use `modules/sessions/inmem` only for development
 
 Datapages does not scan the store for expired records. It deletes an expired record only when a client sends that session. Call `mgr.DeleteExpired(ctx)` on a ticker to delete all other expired records.
 
-<!-- written by datapages sha256:cc5621d9daf69b8c -->
+<!-- written by datapages sha256:d7887e4d804b4882 -->

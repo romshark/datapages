@@ -187,6 +187,15 @@ type DerivedSubjectField struct {
 	Pos             token.Pos // position of the field name identifier
 }
 
+// ContainedSubjectField is an exported event field whose type holds
+// a subject segment type, as []datapages.SubjectUser does.
+type ContainedSubjectField struct {
+	FieldName       string    // e.g. "Recipients"
+	FieldType       string    // e.g. "[]datapages.SubjectUser"
+	SubjectTypeName string    // e.g. "datapages.SubjectUser"
+	Pos             token.Pos // position of the field name identifier
+}
+
 // SubjectFieldResult holds the result of inspecting a struct for subject fields.
 type SubjectFieldResult struct {
 	// Fields are the valid subject fields found, in definition order.
@@ -219,11 +228,15 @@ type SubjectFieldResult struct {
 	// JSONExcluded lists subject fields tagged json:"-". The payload carries
 	// a subject field's value, the subject only routes the event.
 	JSONExcluded []SubjectField
+	// Contained lists exported fields whose type holds a subject segment type,
+	// such as []datapages.SubjectUser. Each would be a payload field that looks
+	// like a list of recipients and routes nothing.
+	Contained []ContainedSubjectField
 }
 
 // SubjectFields inspects a type spec for fields typed as datapages subject
-// segments ([github.com/romshark/datapages.Subject], .Subjects, .SubjectUser
-// and .SubjectUsers). Returns them in definition order together with the
+// segments ([github.com/romshark/datapages.Subject], .SubjectUser and
+// .SubjectStateID). Returns them in definition order together with the
 // violations found along the way.
 func SubjectFields(
 	ts *ast.TypeSpec, pkg *packages.Package,
@@ -277,6 +290,18 @@ func SubjectFields(
 			if !kind.IsSubject() {
 				// Not a subject field, it's a payload field.
 				if ident.IsExported() {
+					// The field was meant to route the event. Reported here,
+					// it isn't a payload field a later subject field follows.
+					contained := typecheck.ContainedSubjectKind(fieldType, pkg)
+					if contained.IsSubject() {
+						result.Contained = append(result.Contained, ContainedSubjectField{
+							FieldName:       name,
+							FieldType:       types.TypeString(fieldType, qualifier(pkg)),
+							SubjectTypeName: contained.String(),
+							Pos:             ident.Pos(),
+						})
+						continue
+					}
 					seenPayload = true
 					if strings.HasPrefix(name, "Subject") {
 						result.Prefixed = append(result.Prefixed, SubjectField{
@@ -333,6 +358,17 @@ func SubjectFields(
 
 // declTypeName renders t as it is written in pkg: the bare type name for a
 // type pkg declares, package-qualified for one it imports.
+// qualifier writes a type of pkg unqualified and one of another package
+// by package name, as Go source refers to it.
+func qualifier(pkg *packages.Package) types.Qualifier {
+	return func(p *types.Package) string {
+		if p.Path() == pkg.PkgPath {
+			return ""
+		}
+		return p.Name()
+	}
+}
+
 func declTypeName(pkg *packages.Package, t types.Type) string {
 	named, ok := types.Unalias(t).(*types.Named)
 	if !ok {

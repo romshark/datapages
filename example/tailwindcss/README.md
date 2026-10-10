@@ -1,8 +1,6 @@
 # TailwindCSS Example
 
-Demonstrates how to integrate [TailwindCSS](https://tailwindcss.com) with
-Datapages using a custom watcher that rebuilds `output.css` whenever
-`.templ` files or `input.tw.css` change.
+Demonstrates how to integrate [TailwindCSS](https://tailwindcss.com) with Datapages using a custom watcher that rebuilds `output.css` whenever `.templ` files or `input.tw.css` change.
 
 ## How It Works
 
@@ -22,12 +20,9 @@ custom-watchers:
     requires: reload
 ```
 
-Whenever a watched source file changes, Datapages runs the `tailwindcss` command
-to regenerate `app/static/output.css`. That write lands under `app/static/`,
-which the second watcher watches, and it triggers the browser reload.
+Whenever a watched source file changes, Datapages runs the `tailwindcss` command to regenerate `app/static/output.css`. That write lands under `app/static/`, which the second watcher watches, and it triggers the browser reload.
 
-TailwindCSS v4 uses a CSS-first configuration. `input.tw.css` imports the
-framework and declares which source files to scan for utility classes:
+TailwindCSS v4 uses a CSS-first configuration. `input.tw.css` imports the framework and declares which source files to scan for utility classes:
 
 ```css
 @import "tailwindcss";
@@ -57,8 +52,7 @@ npx tailwindcss --version  # verify
 datapages watch
 ```
 
-The watcher proxy starts at `http://localhost:7331`. The app itself listens
-on `http://localhost:8080` (configure via `HOST`/`PORT` env vars or `.env`).
+The watcher proxy starts at `http://localhost:7331`. The app itself listens on `http://localhost:8080` (configure via `HOST`/`PORT` env vars or `.env`).
 
 ## Build for Production
 

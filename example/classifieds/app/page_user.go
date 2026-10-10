@@ -9,7 +9,7 @@ import (
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 )
 
-// PageUser is /user/{name}/{$}
+// PageUser is /user/{name}
 type PageUser struct {
 	App *App
 	Base

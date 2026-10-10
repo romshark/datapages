@@ -30,8 +30,8 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return pageCalculator("", false), nil
 }
 
-// POSTInput is /input/{$}
-func (PageIndex) POSTInput(
+// QUERYInput is /input/{$}
+func (PageIndex) QUERYInput(
 	r *http.Request,
 	sse datapages.SSE,
 	query datapages.Query[struct {
@@ -51,11 +51,9 @@ func (PageIndex) POSTInput(
 		if !numRe.MatchString(signals.Values.Num) {
 			return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidNum)
 		}
-		input := signals.Values.Input
-		if signals.Values.Fresh {
-			input = ""
-		}
-		return sse.PatchElement(pageCalculator(input+signals.Values.Num, false))
+		input, fresh := calc.Paste(
+			signals.Values.Input, signals.Values.Fresh, signals.Values.Num)
+		return sse.PatchElement(pageCalculator(input, fresh))
 	}
 	btn := calc.CalcButton(query.Values.Btn)
 	if !calc.ValidButton(btn) {

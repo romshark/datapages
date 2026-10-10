@@ -37,6 +37,17 @@ func TestErrorPageStatus(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp.Status)
 }
 
+// TestErrorPage404ReadsQuery tests that a 404 page receives the unmatched URL's query.
+func TestErrorPage404ReadsQuery(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/no-such-page/?q=needle")
+
+	require.Equal(t, http.StatusNotFound, resp.Status)
+	require.Contains(t, resp.Body, `<p id="term">needle</p>`)
+}
+
 // TestErrorPage404Redirects tests a 404 page that returns a redirect instead of a body.
 // The response carries the redirect's own status and Location,
 // not the 404 the route would otherwise write.

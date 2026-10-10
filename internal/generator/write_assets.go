@@ -26,7 +26,7 @@ func (w *Writer) WritePkgAssets() {
 	w.Byte('\n')
 	w.Line(0, "")
 	w.Line(0, "// Path returns the URL path for a static asset file.")
-	w.Line(0, "// For example, Path(\"style.css\") returns \"/static/style.css\".")
+	w.Linef(0, `// For example, Path("style.css") returns %q.`, w.assetsURLPrefix+"style.css")
 	w.Line(0, "func Path(p string) string {")
 	w.Line(1, "return hrefcheck.AssetPath(URLPrefix, p)")
 	w.Line(0, "}")

@@ -129,7 +129,8 @@ func TestStreamInitCarriesNoQuote(t *testing.T) {
 			expr := resp.Body[i+len(attr):]
 			expr = expr[:strings.Index(expr, `"`)]
 
-			require.Equal(t, 2, strings.Count(expr, "'"),
+			// The URL and the retry option are the only quoted strings.
+			require.Equal(t, 4, strings.Count(expr, "'"),
 				"the expression carries a quote of its own: %s", expr)
 			require.NotContains(t, expr, "<",
 				"the expression carries a tag of its own: %s", expr)

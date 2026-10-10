@@ -21,6 +21,11 @@ var (
 	ErrEmailAlreadyInUse  = errors.New("email already in use")
 )
 
+// MaxPasswordLen is the longest password in bytes that [Store.Register] takes.
+// bcrypt operates on at most 72 bytes, and [bcrypt.GenerateFromPassword]
+// refuses a longer password.
+const MaxPasswordLen = 72
+
 type User struct {
 	ID    string
 	Name  string

@@ -52,6 +52,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	sessionToken string,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
@@ -59,6 +60,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:       status,
 		CSRF:         s.Manager,
 		SessionToken: sessionToken,
 		HeadGeneric:  headGeneric,
@@ -513,7 +515,7 @@ func (s pageDoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageDone", err)
 		return
@@ -573,7 +575,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
 			if ($term) params.set('term', $term); else params.delete('term');
@@ -583,7 +585,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, s.SessionCookie(r), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -891,7 +893,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -954,7 +956,7 @@ func (s pageOldHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageOld", err)
 		return
@@ -988,14 +990,14 @@ func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/room/_$/')"`)
+			_, _ = io.WriteString(w, `/room/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `/room/_$/anon/')"`)
+			_, _ = io.WriteString(w, `/room/_$/anon/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageRoom", err)
 		return
@@ -1118,6 +1120,7 @@ func (s pageRoomHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageRoom anonymous stream")
 			var eventRoomSaid dpapp.EventRoomSaid
 			for msg := range ch {
 				switch {

@@ -198,6 +198,11 @@ func IsRedirectType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "Redirect")
 }
 
+// IsFileType reports whether expr resolves to datapages.File.
+func IsFileType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "File")
+}
+
 // IsSessionType reports whether expr resolves to datapages.Session[Data].
 func IsSessionType(expr ast.Expr, info *types.Info) bool {
 	_, ok := SessionDataType(expr, info)
@@ -296,7 +301,8 @@ func EventNamedOf(expr ast.Expr, info *types.Info) (*types.Named, bool) {
 	if t == nil {
 		return nil, false
 	}
-	// Allow both EventFoo and *EventFoo.
+	// *EventFoo counts as EventFoo, which lets the event handler parser
+	// report the pointer instead of a missing event.
 	if ptr, ok := types.Unalias(t).(*types.Pointer); ok {
 		t = ptr.Elem()
 	}
@@ -376,6 +382,57 @@ func TypeArgExpr(expr ast.Expr) ast.Expr {
 // Go rejects a cycle among type declarations:
 // the cap only guards against an unexpected type graph.
 const maxSubjectDeriveDepth = 16
+
+// ContainedSubjectKind reports the datapages subject segment type t holds
+// in a pointer, slice, array, map or channel, directly or through a type declared
+// from one, such as `type Recipients []datapages.SubjectUser`. Only a field of
+// the subject type itself routes an event: such a field would be a payload field
+// that looks like a list of recipients.
+//
+// A struct ends the search. It is a payload type of its own.
+// pkg is the package t is written in, which [DerivedSubjectKindOf] reads.
+func ContainedSubjectKind(t types.Type, pkg *packages.Package) model.SubjectKind {
+	seen := map[*types.Named]bool{}
+	var elem func(t types.Type) model.SubjectKind
+	var walk func(t types.Type) model.SubjectKind
+	elem = func(t types.Type) model.SubjectKind {
+		if k := SubjectKindOf(t); k.IsSubject() {
+			return k
+		}
+		if k := DerivedSubjectKindOf(t, pkg); k.IsSubject() {
+			return k
+		}
+		return walk(t)
+	}
+	walk = func(t types.Type) model.SubjectKind {
+		t = types.Unalias(t)
+		if named, ok := t.(*types.Named); ok {
+			// A type may refer to itself, as `type Tree map[string]Tree` does.
+			if seen[named] {
+				return model.SubjectKindNone
+			}
+			seen[named] = true
+			t = named.Underlying()
+		}
+		switch u := t.(type) {
+		case *types.Pointer:
+			return elem(u.Elem())
+		case *types.Slice:
+			return elem(u.Elem())
+		case *types.Array:
+			return elem(u.Elem())
+		case *types.Chan:
+			return elem(u.Elem())
+		case *types.Map:
+			if k := elem(u.Key()); k.IsSubject() {
+				return k
+			}
+			return elem(u.Elem())
+		}
+		return model.SubjectKindNone
+	}
+	return walk(t)
+}
 
 // DerivedSubjectKindOf reports which datapages subject segment type t is declared from,
 // e.g. [model.SubjectKindUser] for `type UserID datapages.SubjectUser`.

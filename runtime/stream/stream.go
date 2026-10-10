@@ -90,6 +90,14 @@ func NewHandler(
 //
 // Handle recovers panics from onClose because no other caller can report them.
 // The caller owns panics from fn; generated implementations recover them.
+// A panic from fn runs onClose on its way out of Handle.
+//
+// The page reconnects its stream whenever the stream ends. On shutdown, Handle runs
+// onClose and then aborts the stream with [http.ErrAbortHandler]:
+// pages from earlier Datapages releases reconnect only a stream that fails, and the
+// new process can then reload a page from an old build. When the session ends,
+// Handle sends [reloadScript]. When onOpen or the session watcher fails,
+// the last event carries [reconnectDelay].
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request,
 	sessionKey, userID string, expiresAt time.Time,
@@ -130,15 +138,22 @@ func (h *Handler) Handle(
 		}
 	}()
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := newSSE(w, r, datastar.WithCompression())
+	if sse == nil {
+		return
+	}
 
 	subC := sub.C()
 	if onOpen != nil {
 		if err := callOnOpen(onOpen, streamID, sse); err != nil {
 			h.onErr(w, r, sse, "handling stream open hook", err)
+			delayReconnect(sse)
 			return
 		}
 	}
+	// onClose gives back what onOpen took, such as a per-tab state instance.
+	// The defer runs it after fn, a panic in fn included.
+	defer h.runCloseHook(onClose, streamID)
 
 	// A nil channel never fires, which is what a stream without a session selects on.
 	var sessionClosed chan struct{}
@@ -151,10 +166,8 @@ func (h *Handler) Handle(
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
 			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
-			// The open hook already ran. This stream holds whatever it took:
-			// on a stateful page an instance, which only onClose gives back.
-			h.runCloseHook(onClose, streamID)
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
+			delayReconnect(sse)
 			return
 		}
 	}
@@ -168,6 +181,9 @@ func (h *Handler) Handle(
 		start = time.Now()
 	}
 
+	// The watcher stores shutdown and sessionEnded before it
+	// closes the subscription, which ends fn.
+	var shutdown, sessionEnded atomic.Bool
 	handedOff = true
 	go func() {
 		// [sessions.CloseNotifier.NotifyClosed] does not report expiry.
@@ -183,12 +199,15 @@ func (h *Handler) Handle(
 		select {
 		case <-sessionClosed:
 			reason = "close"
+			sessionEnded.Store(true)
 		case <-expired:
 			reason = "expired"
+			sessionEnded.Store(true)
 		case <-r.Context().Done():
 			reason = "client"
 		case <-h.core.ShutdownCh():
 			reason = "shutdown"
+			shutdown.Store(true)
 		}
 		if h.metrics != nil {
 			h.metrics.Disconnect(reason)
@@ -199,9 +218,79 @@ func (h *Handler) Handle(
 
 	fn(streamID, sse, subC)
 
-	// fn may drain buffered messages through handlers that need state released
-	// by onClose. Run onClose synchronously after fn so [http.Server.Shutdown] waits.
-	h.runCloseHook(onClose, streamID)
+	switch {
+	case shutdown.Load():
+		// net/http resets the connection and logs nothing for this value.
+		panic(http.ErrAbortHandler)
+	case sessionEnded.Load():
+		_ = sse.ExecuteScript(reloadScript,
+			datastar.WithExecuteScriptRetryDuration(reconnectDelay))
+	}
+}
+
+// Reload answers a stream request with [reloadScript].
+//
+// Generated code calls it for a guest on a stream that requires a session.
+// Only a page rendered for a session opens that stream. The session ended while
+// the stream was disconnected, which Handle could not report.
+// A refusal would leave the page showing that session,
+// and the page retries a refused stream without a limit.
+func (h *Handler) Reload(w http.ResponseWriter, r *http.Request) {
+	h.core.Logger().Debug("stream request from a page whose session ended",
+		slog.String("path", r.URL.Path))
+	sse := newSSE(w, r)
+	if sse == nil {
+		return
+	}
+	_ = sse.ExecuteScript(reloadScript,
+		datastar.WithExecuteScriptRetryDuration(reconnectDelay))
+}
+
+// newSSE calls [datastar.NewSSE] and returns nil if the client disconnected
+// before the response headers were sent. NewSSE panics in that case,
+// and net/http logs the panic with a stack trace. Other panics still propagate,
+// such as the one for a writer that cannot flush.
+func newSSE(
+	w http.ResponseWriter, r *http.Request, opts ...datastar.SSEOption,
+) (sse *datastar.ServerSentEventGenerator) {
+	defer func() {
+		if sse == nil && r.Context().Err() != nil {
+			_ = recover()
+		}
+	}()
+	return datastar.NewSSE(w, r, opts...)
+}
+
+// reconnectDelay is how long the page waits to reconnect a stream whose open
+// failed or whose session ended. Handle and [Handler.Reload] send it as the
+// SSE retry field.
+//
+// Datastar waits 1s before it reconnects a stream that ended, and every 200
+// resets its backoff. Without the delay, a StreamOpen that keeps failing runs
+// every second for each open tab. 5s limits it to 12 runs a minute.
+// It also exceeds the 1s delay of [reloadScript], which lets a page reload before
+// it reconnects. Datastar keeps the value until the page loads again, which makes
+// it the first wait after a later shutdown too.
+const reconnectDelay = 5 * time.Second
+
+// reloadScript reloads the page after its session ends. The page shows what
+// that session could see. The reload renders it for the session the browser
+// holds now, if any.
+//
+// The 1s delay lets the tab that signed out follow the sign-out redirect.
+// Its stream ends when the action closes the session, before the redirect
+// arrives, and a reload would replace that navigation.
+// history.replaceState changes a form POST history entry to GET so that
+// location.reload does not submit the form again.
+const reloadScript = `setTimeout(() => { ` +
+	`try { history.replaceState(history.state, "", location.href) } catch {} ` +
+	`location.reload() }, 1000)`
+
+// delayReconnect sends [reconnectDelay] as the retry field of an empty signal patch,
+// which changes nothing on the page.
+func delayReconnect(sse *datastar.ServerSentEventGenerator) {
+	_ = sse.PatchSignals([]byte("{}"),
+		datastar.WithPatchSignalsRetryDuration(reconnectDelay))
 }
 
 // callOnOpen runs the stream open hook and turns a panic in it into a

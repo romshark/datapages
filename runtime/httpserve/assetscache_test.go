@@ -156,7 +156,8 @@ func TestAssetsCacheSkipsNonFiles(t *testing.T) {
 }
 
 // TestAssetsCacheDevMode tests that dev mode overrides asset cache settings
-// with no-store and no ETag.
+// with no-cache, no ETag and no Last-Modified, which could answer 304 for a file
+// saved twice within one second.
 func TestAssetsCacheDevMode(t *testing.T) {
 	t.Setenv("DATAPAGES_DEV_MODE", "1")
 
@@ -170,8 +171,9 @@ func TestAssetsCacheDevMode(t *testing.T) {
 
 	w := serve(t, c, "/static/hello.txt")
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, "no-store, max-age=0", w.Header().Get("Cache-Control"))
+	require.Equal(t, "no-cache", w.Header().Get("Cache-Control"))
 	require.Empty(t, w.Header().Get("ETag"))
+	require.Empty(t, w.Header().Get("Last-Modified"))
 }
 
 // TestAssetsCacheIndexHTML tests the headers for

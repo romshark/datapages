@@ -40,12 +40,14 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		HeadGeneric:     headGeneric,
 		Head:            head,
 		Body:            body,
@@ -165,6 +167,9 @@ func setupHandlers(s *Server) {
 		"POST /ping/{$}",
 		appHandlers{s}.POSTPing)
 	s.Mux().HandleFunc(
+		"QUERY /lookup/{$}",
+		appHandlers{s}.QUERYLookup)
+	s.Mux().HandleFunc(
 		"DELETE /all/{$}",
 		appHandlers{s}.DELETEAll)
 	s.Mux().HandleFunc(
@@ -179,6 +184,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"DELETE /form/remove/{$}",
 		pageFormHandlers{s}.DELETERemove)
+	s.Mux().HandleFunc(
+		"QUERY /form/search/{$}",
+		pageFormHandlers{s}.QUERYSearch)
 	s.Mux().HandleFunc(
 		"POST /form/{id}/bump/{$}",
 		pageFormHandlers{s}.POSTBump)
@@ -241,6 +249,19 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s appHandlers) QUERYLookup(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.Lookup")
+	err := s.app.QUERYLookup(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Lookup", err)
+		return
+	}
+}
+
 func (s appHandlers) DELETEAll(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckSameOrigin(w, r) {
 		return
@@ -269,7 +290,7 @@ func (s pageFormHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageForm", err)
 		return
@@ -353,6 +374,31 @@ func (s pageFormHandlers) DELETERemove(
 	}
 }
 
+func (s pageFormHandlers) QUERYSearch(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Term string `json:"term"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageForm.Search")
+	p := dpapp.PageForm{
+		App: s.app,
+	}
+	err := p.QUERYSearch(r, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageForm.Search", err)
+		return
+	}
+}
+
 func (s pageFormHandlers) POSTBump(
 	w http.ResponseWriter, r *http.Request,
 ) {
@@ -414,7 +460,7 @@ func (s pageFormHandlers) POSTRender(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageForm.POSTRender", err)
 		return
@@ -617,7 +663,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -639,7 +685,7 @@ func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLog", err)
 		return

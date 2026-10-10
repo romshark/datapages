@@ -95,6 +95,10 @@ type ServerConfig struct {
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
 
+	// BuildID identifies the application build, set by [WithBuildID].
+	// Empty selects the hash of the executable.
+	BuildID string
+
 	// sessionManager is what [WithSessionManager] carries.
 	// ServerConfig is not generic, hence the manager travels as any and
 	// [NewServer] asserts it once to the type the application declares.
@@ -232,8 +236,7 @@ func WithHTTPServer(server *http.Server) ServerOption {
 // Without it the page shell loads
 // [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
 //
-// src stands unescaped in a src attribute, hence it must be an http/https or
-// relative URL, valid per RFC 3986.
+// src must be an http, https or relative URL according to RFC 3986.
 func WithDatastarJS(src string) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := validateDatastarJS(src); err != nil {
@@ -244,7 +247,9 @@ func WithDatastarJS(src string) ServerOption {
 	}
 }
 
-// validateDatastarJS holds src to what may stand unescaped in a src attribute.
+// validateDatastarJS refuses a src that is not a URL according to RFC 3986,
+// which is a configuration mistake to report at startup.
+// The checks do not protect the page: the page shell writes src HTML-escaped.
 // net/url takes characters RFC 3986 has no place for, a quote and a space among them,
 // hence the check of its own.
 func validateDatastarJS(src string) error {
@@ -252,11 +257,8 @@ func validateDatastarJS(src string) error {
 		return errors.New("empty URL")
 	}
 	for _, r := range src {
-		switch {
-		case r == '"' || r == '\'' || r == '<' || r == '>' || r == '&':
-			return fmt.Errorf("URL contains %q", r)
-		case r <= 0x20 || r == 0x7f:
-			return fmt.Errorf("URL contains the control character %q", r)
+		if !isURLChar(r) {
+			return fmt.Errorf("URL contains %q, which RFC 3986 does not allow", r)
 		}
 	}
 	u, err := url.Parse(src)
@@ -269,6 +271,16 @@ func validateDatastarJS(src string) error {
 		return nil
 	}
 	return fmt.Errorf("URL scheme %q is neither http nor https", u.Scheme)
+}
+
+// isURLChar reports whether RFC 3986 allows r in a URL: the unreserved and the
+// reserved characters, and the % of a percent-encoding, which [url.Parse] checks.
+func isURLChar(r rune) bool {
+	switch {
+	case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z', '0' <= r && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("-._~:/?#[]@!$&'()*+,;=%", r)
 }
 
 // WithAssets serves the static files embedded in fsys.
@@ -346,7 +358,8 @@ type AssetsCacheConfig struct {
 // Set [AssetsCacheConfig.DisableETag] for a [WithAssetsFS] file system whose
 // files can change while the server runs.
 //
-// Dev mode ignores this option and sends Cache-Control: no-store.
+// Dev mode ignores this option and sends Cache-Control:
+// no-cache without Last-Modified.
 func WithAssetsCache(conf AssetsCacheConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		switch {
@@ -445,8 +458,8 @@ func WithLogSampling(conf LogSamplingConfig) ServerOption {
 	}
 }
 
-// WithBodySizeLimit caps how much of an action's request body is read.
-// Signals travel in that body, which makes the cap what a page may send.
+// WithBodySizeLimit caps the request body of an action that declares [Signals].
+// A handler that reads r.Body itself must cap it with [http.MaxBytesReader].
 //
 // Optional.
 // Defaults to [github.com/romshark/datapages/runtime/httpserve.DefaultBodySizeLimit].
@@ -486,6 +499,56 @@ func WithShutdownTimeout(d time.Duration) ServerOption {
 		c.ShutdownTimeout = d
 		return nil
 	}
+}
+
+// maxBuildIDLen limits IDs accepted by [WithBuildID].
+const maxBuildIDLen = 128
+
+// WithBuildID sets the ID that distinguishes one application build from another.
+//
+// Optional. The default is a hash of the executable. Replicas that run the same
+// binary share an ID. Set a shared release ID when replicas use different
+// binaries but serve the same pages.
+//
+// Each page sends the ID in [HeaderBuild] with Datastar requests.
+// A server with a different ID returns 205 Reset Content without running the handler.
+// The page then reloads.
+//
+// id must contain 1 to 128 printable ASCII characters without spaces.
+func WithBuildID(id string) ServerOption {
+	return func(c *ServerConfig) error {
+		if err := checkBuildID(id); err != nil {
+			return fmt.Errorf("WithBuildID: %w", err)
+		}
+		c.BuildID = id
+		return nil
+	}
+}
+
+// checkBuildID rejects an id that would not reach the server unchanged in
+// [HeaderBuild]. Fetch rejects control chars and chars above U+00FF,
+// strips surrounding whitespace and sends U+0080 to U+00FF as Latin-1 bytes.
+// A changed ID makes every Datastar request fail or reload its page.
+// An empty ID would select the executable hash,
+// and [maxBuildIDLen] keeps the header short.
+func checkBuildID(id string) error {
+	if id == "" {
+		return errors.New("id is empty")
+	}
+	if len(id) > maxBuildIDLen {
+		return fmt.Errorf("id length (%d) exceeds %d bytes", len(id), maxBuildIDLen)
+	}
+	for i, r := range id {
+		switch {
+		case r == ' ':
+			return fmt.Errorf("id contains a space at byte %d", i)
+		case r < ' ' || r == 0x7f:
+			return fmt.Errorf("id contains control character %q at byte %d", r, i)
+		case r > '~':
+			return fmt.Errorf("id contains non-ASCII character %q at byte %d", r, i)
+		}
+	}
+	return nil
 }
 
 // WithCSRFProtection configures the Cross-Site-Request-Forgery protection of

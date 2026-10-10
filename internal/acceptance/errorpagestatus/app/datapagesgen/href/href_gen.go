@@ -6,6 +6,8 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync/atomic"
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
@@ -41,7 +43,59 @@ func External(url string) string {
 }
 
 // PageError404 references /not-found/{$}
-func PageError404() string { return "/not-found/" }
+func PageError404(query QueryPageError404) string {
+	var (
+		termStr string
+	)
+
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.Term != ""
+
+	var b strings.Builder
+	l := len("/not-found/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/not-found/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageError404 is the query parameters for PageError404
+type QueryPageError404 struct {
+	Term string `query:"q"`
+}
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }

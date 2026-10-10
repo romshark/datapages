@@ -173,7 +173,8 @@ func WithRequestCancellationController(expr string) Option {
 var App app
 
 type app struct {
-	Ping app_Ping
+	Ping   app_Ping
+	Status app_Status
 }
 
 type app_Ping struct{}
@@ -188,6 +189,24 @@ func (app_Ping) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/ping/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/ping/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type app_Status struct{}
+
+// QUERY references /status/
+func (app_Status) QUERY(options ...Option) string {
+	if len(options) == 0 {
+		return "@query('/status/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@query('/status/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@query('/status/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
@@ -245,8 +264,27 @@ func (pageInbox_MarkRead) POST(options ...Option) string {
 var PageIndex pageIndex
 
 type pageIndex struct {
+	Count  pageIndex_Count
 	Delete pageIndex_Delete
 	SignIn pageIndex_SignIn
+}
+
+type pageIndex_Count struct{}
+
+// QUERY references /count/
+func (pageIndex_Count) QUERY(options ...Option) string {
+	if len(options) == 0 {
+		return "@query('/count/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@query('/count/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@query('/count/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
 }
 
 type pageIndex_Delete struct{}

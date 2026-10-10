@@ -4,7 +4,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -183,6 +185,48 @@ func TestDelete(t *testing.T) {
 	left, err := filepath.Glob(filepath.Join(dir, "*"))
 	require.NoError(t, err, "listing the store directory")
 	require.Empty(t, left, "the deleted file left something behind")
+}
+
+// TestConcurrentRenamesKeepNamesApart tests that files renamed to one name at
+// the same time end up under distinct names.
+//
+// Against a Rename that picks the name and assigns it under separate holds of
+// the store lock, about three rounds in four list two files under one name on
+// two or more CPUs. On one CPU none do, and the test cannot fail.
+func TestConcurrentRenamesKeepNamesApart(t *testing.T) {
+	const files = 64
+	for round := range 20 {
+		s := newStore(t, t.TempDir())
+		ids := make([]string, files)
+		for i := range ids {
+			f, err := s.Create("file "+strconv.Itoa(i)+".txt", "notes.txt", "text/plain", 1)
+			require.NoError(t, err, "creating file %d", i)
+			ids[i] = f.ID
+		}
+
+		start := make(chan struct{})
+		errs := make(chan error, files)
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Go(func() {
+				<-start
+				_, err := s.Rename(id, "notes.txt")
+				errs <- err
+			})
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			require.NoError(t, err, "round %d: renaming", round)
+		}
+
+		seen := make(map[string]bool, files)
+		for _, f := range s.List() {
+			require.False(t, seen[f.Name], "round %d: two files are listed as %q", round, f.Name)
+			seen[f.Name] = true
+		}
+	}
 }
 
 // TestCleanName tests the names the store accepts and what it makes of them.

@@ -34,7 +34,7 @@ func IsCookieName(s string) bool {
 }
 
 // CookieValue returns the value of the named cookie of r.
-// It reads the Cookie header the way [net/http.Request.Cookie] reads it:
+// It reads the Cookie header the way [http.Request.Cookie] reads it:
 // a pair whose value carries a byte no cookie value may carry is skipped.
 func CookieValue(r *http.Request, name string) (value string, ok bool) {
 	if !IsCookieName(name) {

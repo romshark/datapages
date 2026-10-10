@@ -34,16 +34,12 @@ var (
 	ErrAssetsURLPrefixBackslash = errors.New(
 		"Assets.URLPrefix must not contain backslashes",
 	)
-	ErrAssetsURLPrefixEncodedTraversal = errors.New(
-		"Assets.URLPrefix must not contain percent-encoded dots, " +
-			"slashes, or backslashes",
-	)
 	ErrAssetsURLPrefixRoot = errors.New(
 		"Assets.URLPrefix must not be \"/\"; it would conflict with page routes",
 	)
 	ErrAssetsURLPrefixInvalidChar = errors.New(
 		"Assets.URLPrefix contains invalid characters; " +
-			"use only ASCII letters, digits, hyphens, underscores, and slashes",
+			"use only ASCII letters, digits, '-', '.', '_', '~' and slashes",
 	)
 )
 
@@ -67,51 +63,27 @@ func AssetsURLPrefix(s string) error {
 	if strings.Contains(s, "#") {
 		return ErrAssetsURLPrefixFragment
 	}
-	if strings.Contains(s, "/.") {
+	// The prefix starts and ends with a slash, which puts every segment
+	// between two of them.
+	if strings.Contains(s, "/./") || strings.Contains(s, "/../") {
 		return ErrAssetsURLPrefixDotSegment
 	}
 	if strings.Contains(s, `\`) {
 		return ErrAssetsURLPrefixBackslash
 	}
-	if i := strings.Index(s, "%"); i >= 0 {
-		if err := checkPercentEncoding(s[i:]); err != nil {
-			return err
-		}
-	}
 	for i := range len(s) {
-		c := s[i]
-		if c <= ' ' || c >= 0x7f || c == '{' || c == '}' ||
-			c == '<' || c == '>' || c == '|' || c == '^' || c == '`' {
+		if !isURLPrefixChar(s[i]) {
 			return ErrAssetsURLPrefixInvalidChar
 		}
 	}
 	return nil
 }
 
-// checkPercentEncoding scans s (starting from the first '%') for percent-encoded
-// sequences and rejects encoded dots (%2e/%2E), slashes (%2f/%2F), and
-// backslashes (%5c/%5C) that could bypass path traversal checks.
-func checkPercentEncoding(s string) error {
-	for i := 0; i < len(s); i++ {
-		if s[i] != '%' {
-			continue
-		}
-		if i+2 >= len(s) {
-			return ErrAssetsURLPrefixInvalidChar
-		}
-		hi, lo := s[i+1], s[i+2]
-		if !isHexDigit(hi) || !isHexDigit(lo) {
-			return ErrAssetsURLPrefixInvalidChar
-		}
-		upper := strings.ToUpper(string([]byte{hi, lo}))
-		if upper == "2E" || upper == "2F" || upper == "5C" {
-			return ErrAssetsURLPrefixEncodedTraversal
-		}
-		i += 2
-	}
-	return nil
-}
-
-func isHexDigit(c byte) bool {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+// isURLPrefixChar reports whether c may appear in an assets URL prefix:
+// a letter, a digit, '-', '.', '_', '~' or '/'. None of these needs percent-encoding.
+// The server compares the prefix with the decoded request path,
+// which an encoded prefix such as /my%20files/ never matches.
+func isURLPrefixChar(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' ||
+		c == '-' || c == '.' || c == '_' || c == '~' || c == '/'
 }

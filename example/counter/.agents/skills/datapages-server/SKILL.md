@@ -52,15 +52,17 @@ opts = append(opts,
 )
 ```
 
-`WithBodySizeLimit` limits an action request body, including its signals. The default is 1 MiB. An over-limit request returns 400 while reading signals. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams.
+`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams.
 
-`WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns.
+`WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
+
+Deployments need no application code. Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Shutdown resets open SSE streams. Datastar then reconnects to the next process. The ID defaults to a hash of the executable. Set `WithBuildID` when replicas use different binaries for one release. During a rolling deployment, route each client to one build.
 
 The session cookie uses the `Secure` attribute. Set `DisableSecureCookie` only when the complete deployment uses plain HTTP, where the browser would reject the secure cookie. `datapages.IsDevMode()` reports whether the dev server is active. `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable development behavior. Log at `slog.LevelDebug` when you need to inspect that behavior.
 
 Declaring `PageOffline` generates `datapagesgen.WithOffline(offline.Config{...})`. The option serves the service worker. See `datapages-offline`.
 
-If `WithMiddleware` adds a `Content-Security-Policy`, it must allow `script-src 'unsafe-inline' 'unsafe-eval'`. Datapages writes the CSRF script and the instance ID script inline. Datastar compiles every `data-*` expression at run time.
+If `WithMiddleware` adds a `Content-Security-Policy`, it must allow `script-src 'unsafe-inline' 'unsafe-eval'`. Datapages writes the build script, the CSRF script and the instance ID script inline. Datastar compiles every `data-*` expression at run time.
 
 `WithCSPNonce(func(r *http.Request) string)` replaces both allowances with a nonce. The application mints the nonce and puts it in its own policy header. Datapages reads it back, writes it on the `html` element as `data-nonce` and on every script it writes. Mint the nonce in middleware and store it in the request context: Datapages calls the function several times per response and every call with the same request must return the same value. `data-nonce` turns on Datastar's CSP mode, which compiles expressions through a nonced script element instead of `Function`. It needs Datastar 1.0.3 or later. The nonce must differ per response.
 
@@ -81,7 +83,7 @@ An `embed.FS` in the app package enables file serving. Its doc comment defines t
 var StaticFS embed.FS
 ```
 
-Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. The directive must name exactly one directory inside the app package.
+Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. It may contain only ASCII letters, digits, `-`, `.`, `_`, `~` and `/`: the server matches it against the decoded request path, which a percent-encoded prefix never matches. The directive must name exactly one directory inside the app package.
 
 `datapages.WithAssets(app.StaticFS, false)` supplies the filesystem and the directory-browsing setting. Generated code supplies the URL prefix, source directory and development disk path. In development mode, Datapages reads files from disk and disables caching. Asset changes then need no rebuild. The server rejects `WithAssets` when the app declares no assets.
 
@@ -91,7 +93,7 @@ Without `WithAssetsCache`, Datapages sends neither `Cache-Control` nor `ETag` fo
 
 Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` omits both headers.
 
-The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-store`.
+The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
 
 Use `assets.Path("style.css")` from the generated `assets` package to reference a file. Use `href.Asset("style.css")` inside an `<a href>`. The linter checks app-internal URLs in `<a href>` and Datastar action attributes. It does not check asset URLs in `<link>` or `<script>` elements.
 
@@ -112,4 +114,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:09d9723416d70b71 -->
+<!-- written by datapages sha256:8497dc569a4ee075 -->

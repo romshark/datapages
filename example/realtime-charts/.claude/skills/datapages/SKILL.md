@@ -28,7 +28,7 @@ go build ./...
 
 An earlier `templ generate` can produce references to helpers that do not exist yet. Remove those references, run `templ generate`, then run `datapages gen`. Restore the references and run `templ generate` again. After an initial parse failure, the generator may write empty stub helper packages.
 
-Use Templ `v0.3.1020`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
+Use Templ `v0.3.1070`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
 
 ### Never run `templ generate` while `datapages watch` runs
 
@@ -51,7 +51,8 @@ To restore rendering, save a `.templ` file or restart the watcher.
 
 - Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
 - Never hardcode an app-internal URL. `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
-- Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. JS only for browser APIs Datastar cannot reach, such as the clipboard.
+- Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. Keep interaction state, such as an open menu or a selected tab, in local Datastar signals, whose `_` prefix keeps them out of requests. Write JavaScript only where Datastar attributes are impractical: a browser API such as the clipboard, a library such as a map or a rich text editor, or client state that runs ahead of the server, such as typed text the server has not confirmed. Put such JavaScript in a Web Component when it needs more than a one-statement expression; see `datapages-templates`.
+- Return application HTML as a Templ `datapages.Component`. Do not render it into a `datapages.File`: its bytes bypass Templ's contextual escaping and the Datapages template linter.
 - Never open an SSE stream, set a CSRF header, add the Datastar script or register a service worker by hand. Datapages does all four.
 - Submit `<form>` elements through Datastar actions. Browser form submissions do not carry the CSRF token; see `datapages-templates`.
 - Do not put build-constrained files in the app package. The generator reads its pages, actions and events for the host platform, so a platform-specific declaration can disappear from generated code elsewhere.
@@ -78,7 +79,7 @@ The parser reads names and doc comments. Both decide behaviour.
 | kind | name | doc comment |
 | ---- | ---- | ----------- |
 | page | `Page` + uppercase + alnum | `// PageX is /route` |
-| action | `POST`/`PUT`/`PATCH`/`DELETE` + uppercase + alnum | `// POSTX is /route` |
+| action | `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`QUERY` + uppercase + alnum | `// GETX is /route` |
 | event | `Event` + uppercase + alnum | `// EventX is "subject.name"` |
 | event handler | `On` + the event name after `Event`: `OnFoo` for `EventFoo` | none |
 | stream hook | `StreamOpen`, `StreamClose` | none |
@@ -86,7 +87,7 @@ The parser reads names and doc comments. Both decide behaviour.
 
 Do not use underscores or a lowercase letter after the prefix. The word `is` is required. Quote event subjects but not routes. If a route comment has more text, add a blank `//` line after its first line.
 
-`PageIndex`, the page for `/`, is required. A page struct declares `App *App` and no other named field. It may also embed types. Page methods use value receivers. App methods such as `Head`, `RecoverError` and app actions use `*App`.
+`PageIndex`, the page for `/`, is required. No other page may use `/`. A page struct declares `App *App` and no other named field. It may also embed types. Page methods use value receivers. App methods such as `Head`, `RecoverError` and app actions use `*App`.
 
 The generator matches handler parameters and return values by type, not by position. Parameter names are unrestricted except for `stateID`. Declare only the values that the handler needs.
 
@@ -100,7 +101,7 @@ Test the app over HTTP with the `github.com/romshark/datapages/datapagestest` pa
 | ----- | ------------ |
 | `datapages-architecture` | a new app, or a feature whose constructs are not decided |
 | `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
-| `datapages-actions` | POST/PUT/PATCH/DELETE handlers, signals, SSE, errors |
+| `datapages-actions` | GET file actions, POST/PUT/PATCH/DELETE/QUERY handlers, signals, SSE, errors |
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
 | `datapages-state` | per-tab state, state IDs and state-scoped events |
 | `datapages-sessions` | authentication, session data, CSRF |
@@ -110,4 +111,4 @@ Test the app over HTTP with the `github.com/romshark/datapages/datapagestest` pa
 | `datapages-testing` | tests of pages, actions, streams, events and sessions |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:3048d625774a77ce -->
+<!-- written by datapages sha256:eb2cab6523e550e8 -->

@@ -1,4 +1,17 @@
 package app
+[[- if .AssetsImport]]
+
+import "[[.AssetsImport]]"
+[[- end]]
+[[- if .Components]]
+
+// head loads the Web Components.
+templ head() {
+[[- if .AssetsImport]]
+	[[.Script]]
+[[- end]]
+}
+[[- end]]
 
 templ pageIndex() {
 	<style>
@@ -53,6 +66,16 @@ templ pageIndex() {
 				Run <code>make dev</code> to start the dev server with live reload.
 			</li>
 		</ol>
+[[- if .Components]]
+		<h2>Web Components</h2>
+		<p data-signals:_clicks="0">
+			<click-counter step="1" data-on:count-change="$_clicks = evt.detail.count">Click me</click-counter>
+			Clicked <span data-text="$_clicks">0</span> times.
+		</p>
+		<p>
+			The counter is in <code>[[.Dir]]</code>. It takes attributes and dispatches events.
+		</p>
+[[- end]]
 		<p>
 			<a href="https://github.com/romshark/datapages" target="_blank">Documentation</a>
 		</p>

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"time"
 
 	"github.com/romshark/datapages"
 )
@@ -48,10 +49,12 @@ func Redirect(
 	return true
 }
 
-// DevNoCache stops the browser from caching what next serves.
+// DevNoCache makes the browser ask the server before every reuse of what
+// next serves. no-store would also keep it out of the offline worker's cache,
+// which then has no copy to answer with offline.
 func DevNoCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 		next.ServeHTTP(w, r)
@@ -104,6 +107,33 @@ func AssetsFileSystem(
 	return http.FS(sub), nil
 }
 
+// noModTimeFS reports a zero modification time for every file, which keeps
+// [http.FileServer] from sending Last-Modified and from answering If-Modified-Since.
+// Its whole-second precision answers 304 for a file saved twice within one second.
+type noModTimeFS struct{ fsys http.FileSystem }
+
+func (f noModTimeFS) Open(name string) (http.File, error) {
+	file, err := f.fsys.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return noModTimeFile{file}, nil
+}
+
+type noModTimeFile struct{ http.File }
+
+func (f noModTimeFile) Stat() (fs.FileInfo, error) {
+	info, err := f.File.Stat()
+	if err != nil {
+		return nil, err
+	}
+	return noModTimeInfo{info}, nil
+}
+
+type noModTimeInfo struct{ fs.FileInfo }
+
+func (noModTimeInfo) ModTime() time.Time { return time.Time{} }
+
 // notBrowsableFS returns fs.ErrNotExist for a directory that holds no index.html,
 // which [http.FileServer] turns into 404.
 // Without it a GET on the assets URL prefix lists the whole tree.
@@ -133,19 +163,24 @@ func (f notBrowsableFS) Open(name string) (http.File, error) {
 	return file, nil
 }
 
-// WriteErrStatus writes the HTTP error response err maps to.
+// ErrStatus returns the HTTP status err maps to.
 // The datapages error sentinels select the status, anything else is a 500.
-func WriteErrStatus(w http.ResponseWriter, err error) {
-	code := http.StatusInternalServerError
+func ErrStatus(err error) int {
 	switch {
 	case errors.Is(err, datapages.ErrBadRequest):
-		code = http.StatusBadRequest
+		return http.StatusBadRequest
 	case errors.Is(err, datapages.ErrForbidden):
-		code = http.StatusForbidden
+		return http.StatusForbidden
 	case errors.Is(err, datapages.ErrNotFound):
-		code = http.StatusNotFound
+		return http.StatusNotFound
 	case errors.Is(err, datapages.ErrConflict):
-		code = http.StatusConflict
+		return http.StatusConflict
 	}
+	return http.StatusInternalServerError
+}
+
+// WriteErrStatus writes the status [ErrStatus] maps err to and its standard text.
+func WriteErrStatus(w http.ResponseWriter, err error) {
+	code := ErrStatus(err)
 	http.Error(w, http.StatusText(code), code)
 }

@@ -176,6 +176,7 @@ var App app
 type app struct {
 	AppBody     app_AppBody
 	AppPrecache app_AppPrecache
+	AppRedirect app_AppRedirect
 }
 
 type app_AppBody struct{}
@@ -208,6 +209,24 @@ func (app_AppPrecache) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/app-precache/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/app-precache/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type app_AppRedirect struct{}
+
+// POST references /app-redirect/
+func (app_AppRedirect) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/app-redirect/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/app-redirect/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/app-redirect/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

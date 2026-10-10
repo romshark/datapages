@@ -1,8 +1,8 @@
 package app
 
-// Stub import so the IDE can resolve action references without errors.
 import "datapagestest/fixture/err_templ_action_not_on_page/datapagesgen/action"
 
+// Stub import so the IDE can resolve action references without errors.
 templ indexPage() {
 	<h1>Index</h1>
 }
@@ -33,4 +33,12 @@ templ settingsActions() {
 	<form action={ action.PageProfile.Save.POST() }>
 		<button type="submit">Nolinted but still wrong page</button>
 	</form>
+	/* ErrTemplActionWrongPage: in a conditional attribute */
+	<button
+		if true {
+			data-on:click={ action.PageProfile.Save.POST() }
+		}
+	>
+		Wrong page, conditional
+	</button>
 }

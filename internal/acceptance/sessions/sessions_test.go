@@ -85,6 +85,13 @@ func (s server) client(t *testing.T) *client {
 
 func (c *client) get(t *testing.T, path string) (int, string) {
 	t.Helper()
+	status, _, body := c.getResponse(t, path)
+	return status, body
+}
+
+// getResponse is get with the header of the response.
+func (c *client) getResponse(t *testing.T, path string) (int, http.Header, string) {
+	t.Helper()
 	req, err := http.NewRequestWithContext(
 		context.Background(), http.MethodGet, c.srv.URL+path, nil,
 	)
@@ -101,7 +108,7 @@ func (c *client) get(t *testing.T, path string) (int, string) {
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
 	}
-	return resp.StatusCode, string(b)
+	return resp.StatusCode, resp.Header, string(b)
 }
 
 // post sends an action request carrying the visitor's CSRF token.
@@ -265,6 +272,32 @@ func TestAnonymous(t *testing.T) {
 	})
 }
 
+// TestDocumentCacheControl tests the cache header of a document. One rendered
+// for a session carries a CSRF token derived from it, which a shared cache would
+// serve to the next visitor, whose actions then fail with 403: it is private.
+// The 404 page, which has a status of its own to send, is private too.
+// A guest's document carries no token and stays cacheable.
+func TestDocumentCacheControl(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+
+		_, header, _ := srv.client(t).getResponse(t, "/")
+		require.Empty(t, header.Get("Cache-Control"), "the page of a guest")
+
+		c := srv.client(t)
+		c.signIn(t, "alice", "Alice")
+		for path, wantStatus := range map[string]int{
+			"/":         http.StatusOK,
+			"/missing/": http.StatusNotFound,
+		} {
+			status, header, body := c.getResponse(t, path)
+			require.Equal(t, wantStatus, status, "%s\n%s", path, body)
+			require.Equal(t, "private", header.Get("Cache-Control"), path)
+		}
+	})
+}
+
 // TestCookieHeaderVariants tests the Cookie header shapes the generated
 // reader must read the way net/http.Request.Cookie reads them.
 // The expectation comes from that method, not from a hand written table.
@@ -372,6 +405,35 @@ func TestSignInAndOut(t *testing.T) {
 		if got, want := logOf(t, c), "login(alice) signout(alice)"; got != want {
 			t.Errorf(" got: %s\nwant: %s", got, want)
 		}
+	})
+}
+
+// TestPageCacheStreamSession tests a sign-in on a page and a sign-out on App
+// that clear the page cache and return neither a redirect nor a document.
+// Their cache writes go out on an event stream, which sent its headers before
+// the handler returned: the cookie of the session came too late, and an error
+// was written into the stream instead of answering with its status.
+func TestPageCacheStreamSession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+
+		c := srv.client(t)
+
+		status, _ := c.postWithToken(t, "/login/submit-cached/", `{"user":""}`, "")
+		require.Equal(t, http.StatusBadRequest, status)
+
+		status, body := c.postWithToken(t, "/login/submit-cached/", `{"user":"alice"}`, "")
+		require.Equal(t, http.StatusOK, status, body)
+		require.NotNil(t, c.setCookie(), "signing in set no session cookie")
+		_, body = c.get(t, "/")
+		require.True(t, strings.HasPrefix(echoed(t, body), "user=alice "), body)
+
+		c.token = csrfToken(t, srv.csrf, c.sessionToken(t))
+		status, body = c.post(t, "/sign-out-cached/", "")
+		require.Equal(t, http.StatusOK, status, body)
+		_, body = c.get(t, "/")
+		require.Equal(t, "anonymous", echoed(t, body))
 	})
 }
 
@@ -749,6 +811,79 @@ func TestStreamEndsAtSessionExpiry(t *testing.T) {
 		}
 		require.False(t, time.Now().Before(expiresAt),
 			"the stream ended before its session expired")
+		require.True(t, s.saw("location.reload()"),
+			"the page was not told to reload after its session expired")
+	})
+}
+
+// TestStreamReloadsAtSignOut tests a stream whose session an action closes.
+// The stream ends and tells the page to reload, which renders it for the guest
+// instead of leaving the signed-out user's page in place.
+func TestStreamReloadsAtSignOut(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		alice := srv.client(t)
+		alice.signIn(t, "alice", "Al")
+		s := alice.openStream(t)
+
+		status, body := alice.post(t, "/sign-out/", "")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+
+		select {
+		case <-s.done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("the stream is still open after its session closed")
+		}
+		require.True(t, s.saw("location.reload()"),
+			"the page was not told to reload after its session closed")
+	})
+}
+
+// TestStreamReloadsAfterMissedSessionEnd tests a private stream that reconnects
+// after its session ended while it was disconnected, as after a laptop sleeps.
+// The stream tells the page to reload instead of refusing the guest. The page
+// retries a refused stream without a limit and keeps showing the old session.
+func TestStreamReloadsAfterMissedSessionEnd(t *testing.T) {
+	t.Parallel()
+	ends := map[string]func(t *testing.T, srv server) (token string){
+		"closed": func(t *testing.T, srv server) string {
+			token, err := srv.sessions.CreateSession(context.Background(),
+				sessions.Record[app.SessionData]{UserID: "alice"})
+			require.NoError(t, err)
+			require.NoError(t, srv.sessions.CloseSession(context.Background(), token))
+			return token
+		},
+		"expired": func(t *testing.T, srv server) string {
+			token, err := srv.sessions.CreateSession(context.Background(),
+				sessions.Record[app.SessionData]{
+					UserID: "alice", ExpiresAt: time.Now().Add(-time.Second),
+				})
+			require.NoError(t, err)
+			return token
+		},
+	}
+
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		for name, end := range ends {
+			t.Run(name, func(t *testing.T) {
+				srv := newServer(t, broker)
+				alice := srv.client(t)
+				alice.setSessionCookie(t, end(t, srv))
+
+				// /room/ has no anonymous stream a guest could be sent to.
+				s := alice.openStreamAt(t, "/room/_$/", map[string]string{"calc_id": "c1"})
+				select {
+				case <-s.done:
+				case <-time.After(2 * time.Second):
+					t.Fatal("the stream is still open without a session")
+				}
+				require.True(t, s.saw("location.reload()"),
+					"the page was not told to reload after its session ended")
+				require.True(t, s.saw("retry: 5000"),
+					"the page can reconnect before it reloads")
+			})
+		}
 	})
 }
 

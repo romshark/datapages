@@ -174,6 +174,10 @@ func newID() string {
 	return ulid.Make().String()
 }
 
+// Login returns the name of the user whose name or email is emailOrUsername.
+// [Repository.NewUser] and [Repository.RenameUser] refuse a name equal to
+// another user's email and an email equal to another user's name.
+// At most one user matches, whatever order the map yields them in.
 func (r *Repository) Login(
 	emailOrUsername, passwordPlaintext string,
 ) (userName string, err error) {
@@ -277,9 +281,15 @@ func (r *Repository) NewUser(
 	if _, ok := r.usersByName[name]; ok {
 		return "", ErrUserNameReserved
 	}
+	if _, ok := r.usersByName[email]; ok {
+		return "", ErrUserEmailReserved
+	}
 	for _, u := range r.usersByName {
-		if u.Email == email {
+		switch u.Email {
+		case email:
 			return "", ErrUserEmailReserved
+		case name:
+			return "", ErrUserNameReserved
 		}
 	}
 
@@ -301,6 +311,8 @@ func (r *Repository) NewUser(
 }
 
 // RenameUser changes the name of the user named oldName.
+// It returns [ErrUserNameReserved] for a name that another user
+// holds as name or email: [Repository.Login] accepts both.
 //
 // The name is the user's identity: it keys usersByName and it is the sender of
 // chatsByKey, both of which are rewritten here.
@@ -318,6 +330,11 @@ func (r *Repository) RenameUser(_ context.Context, oldName, newName string) erro
 	}
 	if _, ok := r.usersByName[newName]; ok {
 		return ErrUserNameReserved
+	}
+	for _, other := range r.usersByName {
+		if other != u && other.Email == newName {
+			return ErrUserNameReserved
+		}
 	}
 
 	delete(r.usersByName, oldName)
@@ -687,6 +704,8 @@ func (r *Repository) RecentlyPosted(_ context.Context) ([]Post, error) {
 	return posts[:limit], nil
 }
 
+// SimilarPosts returns the newest posts in the category of the post postID,
+// at most limit and newest first. The post postID is not among them.
 func (r *Repository) SimilarPosts(
 	_ context.Context, postID string, limit int,
 ) ([]Post, error) {
@@ -709,13 +728,13 @@ func (r *Repository) SimilarPosts(
 		}
 	}
 
-	if len(similar) > limit {
-		similar = similar[:limit]
-	}
-
 	slices.SortFunc(similar, func(a, b Post) int {
 		return b.TimePosted.Compare(a.TimePosted)
 	})
+
+	if len(similar) > limit {
+		similar = similar[:limit]
+	}
 
 	return similar, nil
 }

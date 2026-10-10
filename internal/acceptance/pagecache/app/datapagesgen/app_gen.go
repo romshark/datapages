@@ -119,9 +119,10 @@ func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 }
 
 type pageCacheWriter struct {
-	s        *Server
-	r        *http.Request
-	sse      *datastar.ServerSentEventGenerator // nil for GET handlers
+	s *Server
+	r *http.Request
+	// sse is nil, unless the handler takes [datapages.SSE].
+	sse      *datastar.ServerSentEventGenerator
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -200,7 +201,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 			body = withShimHydrate(body)
 		}
 		if err := c.s.writeHTML(
-			&buf, c.r, nil, body, nil, nil,
+			&buf, c.r, http.StatusOK, nil, body, nil, nil,
 		); err != nil {
 			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
 		}
@@ -241,6 +242,19 @@ func (c *pageCacheWriter) flush() error {
 		return err
 	}
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// flushToNewStream answers with an SSE stream carrying the queued writes, for a
+// handler that takes no stream of its own. The stream opens once the handler has
+// returned and the writes are rendered: the cookie of a session output then goes
+// out with its headers, and a panic in a rendered body still gets a status.
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
+	payload, err := c.payload()
+	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	if err != nil || payload == "" {
+		return err
+	}
+	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -315,12 +329,14 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -445,6 +461,9 @@ func setupHandlers(s *Server) {
 		"POST /app-body/{$}",
 		appHandlers{s}.POSTAppBody)
 	s.Mux().HandleFunc(
+		"POST /app-redirect/{$}",
+		appHandlers{s}.POSTAppRedirect)
+	s.Mux().HandleFunc(
 		"POST /stream-write/{$}",
 		pageIndexHandlers{s}.POSTStream)
 	s.Mux().HandleFunc(
@@ -458,11 +477,42 @@ func setupHandlers(s *Server) {
 		pageIndexHandlers{s}.POSTBranch)
 }
 
+// httpErr404 reports an error of PageError404.GET.
+// It answers ErrNotFound on a page load with the plain status
+// so PageError404 can't render itself.
+func (s *Server) httpErr404(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	if httpserve.IsDatastarRequest(r.Header) ||
+		httpserve.ErrStatus(err) != http.StatusNotFound {
+		s.httpErrIntern(w, r, nil, msg, err)
+		return
+	}
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
+	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if !httpserve.IsDatastarRequest(r.Header) {
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
+		return
+	}
 	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -482,12 +532,11 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, pageCache)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
-	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusNotFound, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -501,19 +550,18 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	defer s.recoverPanic(w, r, sse, "App.AppPrecache")
-	pageCache := newPageCache(w, s.Server, r, sse)
+	defer s.recoverPanic(w, r, nil, "App.AppPrecache")
+	pageCache := newPageCache(w, s.Server, r, nil)
 	err := s.app.POSTAppPrecache(r, pageCache)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "handling action App.AppPrecache", err)
+		s.httpErrIntern(w, r, nil, "handling action App.AppPrecache", err)
 		return
 	}
-	_ = pageCache.flush()
+	_ = pageCache.flushToNewStream(w)
 }
 
 func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckSameOrigin(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
@@ -525,9 +573,26 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.writeHTML(
-		w, r, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of App.POSTAppBody", err)
+		return
+	}
+}
+
+func (s appHandlers) POSTAppRedirect(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.AppRedirect")
+	pageCache := newPageCache(w, s.Server, r, nil)
+	redirect, err := s.app.POSTAppRedirect(r, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.AppRedirect", err)
+		return
+	}
+	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
 }
@@ -542,12 +607,12 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, pageCache)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -574,7 +639,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -676,7 +741,7 @@ func (s pageIndexHandlers) POSTBranch(
 		return
 	}
 	if err := s.writeHTML(
-		w, r, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageIndex.POSTBranch", err)
 		return
@@ -704,7 +769,7 @@ func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageList", err)
 		return
@@ -725,7 +790,7 @@ func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageOffline", err)
 		return

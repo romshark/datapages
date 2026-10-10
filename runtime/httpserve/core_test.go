@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -187,6 +188,112 @@ func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
 	}
 }
 
+// TestWriteStringThroughServeHTTP tests io.WriteString on the writer
+// Core.ServeHTTP wraps every response in. It reaches the WriteString of the
+// writer underneath without copying the string into a new byte slice,
+// and it counts as a body written.
+func TestWriteStringThroughServeHTTP(t *testing.T) {
+	var allocs float64
+	var written bool
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		allocs = testing.AllocsPerRun(100, func() {
+			_, _ = io.WriteString(w, "<p>x</p>")
+		})
+		written = httpserve.ResponseBodyWritten(w)
+	})
+	c.Build()
+	c.ServeHTTP(discardRW{http.Header{}}, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.Zero(t, allocs, "allocations per io.WriteString")
+	require.True(t, written, "a body written with io.WriteString is not reported")
+}
+
+// discardRW drops the body. Like the writer net/http hands a handler,
+// it has a WriteString that copies nothing.
+type discardRW struct{ h http.Header }
+
+func (w discardRW) Header() http.Header             { return w.h }
+func (discardRW) Write(p []byte) (int, error)       { return len(p), nil }
+func (discardRW) WriteString(s string) (int, error) { return len(s), nil }
+func (discardRW) WriteHeader(int)                   {}
+
+// TestServeContentReadFrom tests http.ServeContent through Core.ServeHTTP.
+// A file reaches the ReadFrom of the writer underneath, where net/http sends
+// it with sendfile. Any other source is copied through Write.
+func TestServeContentReadFrom(t *testing.T) {
+	t.Parallel()
+
+	const content = "body{color:red}"
+	path := filepath.Join(t.TempDir(), "a.css")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	for name, tc := range map[string]struct {
+		open         func(t *testing.T) io.ReadSeeker
+		wantReadFrom bool
+	}{
+		"file": {
+			open: func(t *testing.T) io.ReadSeeker {
+				f, err := os.Open(path)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = f.Close() })
+				return f
+			},
+			wantReadFrom: true,
+		},
+		"reader": {
+			open: func(*testing.T) io.ReadSeeker { return strings.NewReader(content) },
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := mustCore(t, datapages.ServerConfig{}, "")
+			c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				http.ServeContent(w, r, "a.css", time.Time{}, tc.open(t))
+			})
+			c.Build()
+			rec := &readFromRecorder{ResponseRecorder: httptest.NewRecorder()}
+			c.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+			require.Equal(t, content, rec.Body.String())
+			require.Equal(t, tc.wantReadFrom, rec.readFrom,
+				"whether io.Copy reached the ReadFrom of the writer underneath")
+		})
+	}
+}
+
+// readFromRecorder records whether io.Copy reached its ReadFrom.
+type readFromRecorder struct {
+	*httptest.ResponseRecorder
+	readFrom bool
+}
+
+func (r *readFromRecorder) ReadFrom(src io.Reader) (int64, error) {
+	r.readFrom = true
+	return io.Copy(r.ResponseRecorder, src)
+}
+
+// TestReadFromThroughServeHTTP tests io.Copy from a source that is not a file
+// into the writer Core.ServeHTTP wraps every response in. It copies through
+// a pooled buffer and allocates nothing per response.
+func TestReadFromThroughServeHTTP(t *testing.T) {
+	var allocs float64
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		sr := strings.NewReader("")
+		lr := &io.LimitedReader{R: sr}
+		allocs = testing.AllocsPerRun(100, func() {
+			sr.Reset("body{color:red}")
+			lr.N = int64(sr.Len())
+			_, _ = io.Copy(w, lr)
+		})
+	})
+	c.Build()
+	c.ServeHTTP(discardRW{http.Header{}}, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.Zero(t, allocs, "allocations per io.Copy")
+}
+
 // TestResponseControllerReachesTheRealWriter tests the deadline controls of
 // [http.ResponseController], which walk Unwrap and nothing else.
 // Core.ServeHTTP wraps every response.
@@ -339,17 +446,26 @@ func TestBuildDefaults(t *testing.T) {
 	require.Nil(t, c.AssetsFS())
 }
 
-// TestDatastarJSOption tests that a custom script URL replaces the bundled one
-// in the HTML prefix, which is where every page picks it up.
+// TestDatastarJSOption tests that a custom script URL replaces the
+// bundled one in the HTML prefix, which is where every page picks it up.
+// The URL is HTML-escaped there: RFC 3986 allows & and ' in it.
 func TestDatastarJSOption(t *testing.T) {
 	t.Parallel()
 
-	c := mustCore(t, datapages.ServerConfig{
-		DatastarJS: "/static/ds.js",
-	}, "")
-	c.Build()
+	for name, tc := range map[string]struct{ src, want string }{
+		"path":  {"/static/ds.js", `src="/static/ds.js"`},
+		"query": {"/static/ds.js?v=1&min=1", `src="/static/ds.js?v=1&amp;min=1"`},
+		"quote": {"/o'neil/ds.js", `src="/o&#39;neil/ds.js"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Contains(t, c.HTMLPrefix(), `src="/static/ds.js"`)
+			c := mustCore(t, datapages.ServerConfig{DatastarJS: tc.src}, "")
+			c.Build()
+
+			require.Contains(t, c.HTMLPrefix(), tc.want)
+		})
+	}
 }
 
 // TestShutdownEndsListenAndServe tests that the context ends the server
@@ -660,33 +776,41 @@ func TestStateBudgetIsPerCore(t *testing.T) {
 }
 
 // BenchmarkServeAsset measures the asset route, which http.FileServer serves
-// through the response wrapper Core.ServeHTTP installs.
+// through the response wrapper Core.ServeHTTP installs. net/http sends a file
+// of http.Dir with sendfile and copies a file of http.FS,
+// which datapages.WithAssets serves outside dev mode.
 func BenchmarkServeAsset(b *testing.B) {
 	dir := b.TempDir()
-	require.NoError(b, os.WriteFile(
-		filepath.Join(dir, "big.bin"), make([]byte, 1<<20), 0o644,
-	))
+	data := make([]byte, 1<<20)
+	require.NoError(b, os.WriteFile(filepath.Join(dir, "big.bin"), data, 0o644))
 
-	c, err := httpserve.NewCore(datapages.ServerConfig{
-		AssetsFS: http.Dir(dir),
-		Logger:   slog.New(slog.DiscardHandler),
-	}, "/static/")
-	require.NoError(b, err)
-	c.Build()
+	for name, fsys := range map[string]http.FileSystem{
+		"http.Dir": http.Dir(dir),
+		"http.FS":  http.FS(fstest.MapFS{"big.bin": {Data: data}}),
+	} {
+		b.Run(name, func(b *testing.B) {
+			c, err := httpserve.NewCore(datapages.ServerConfig{
+				AssetsFS: fsys,
+				Logger:   slog.New(slog.DiscardHandler),
+			}, "/static/")
+			require.NoError(b, err)
+			c.Build()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(b, err)
-	srv := &http.Server{Handler: c}
-	go func() { _ = srv.Serve(ln) }()
-	b.Cleanup(func() { _ = srv.Close() })
-	url := "http://" + ln.Addr().String() + "/static/big.bin"
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(b, err)
+			srv := &http.Server{Handler: c}
+			go func() { _ = srv.Serve(ln) }()
+			b.Cleanup(func() { _ = srv.Close() })
+			url := "http://" + ln.Addr().String() + "/static/big.bin"
 
-	b.ReportAllocs()
-	for b.Loop() {
-		resp, err := http.Get(url)
-		require.NoError(b, err)
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
+			b.ReportAllocs()
+			for b.Loop() {
+				resp, err := http.Get(url)
+				require.NoError(b, err)
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+			}
+		})
 	}
 }
 

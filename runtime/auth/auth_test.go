@@ -230,3 +230,31 @@ func TestWriteCSRFScriptFromSessionCookie(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckCSRFMethods tests which methods need the token of a signed-in visitor.
+// The read methods pass without one. Every other method is answered with 403.
+func TestCheckCSRFMethods(t *testing.T) {
+	t.Parallel()
+	for method, pass := range map[string]bool{
+		http.MethodGet:     true,
+		http.MethodHead:    true,
+		http.MethodOptions: true,
+		"QUERY":            true,
+		http.MethodPost:    false,
+		http.MethodPut:     false,
+		http.MethodPatch:   false,
+		http.MethodDelete:  false,
+	} {
+		t.Run(method, func(t *testing.T) {
+			t.Parallel()
+			m, _ := newManager(t)
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(method, "/", nil)
+			r.AddCookie(&http.Cookie{Name: m.CookieName(), Value: "tok"})
+			require.Equal(t, pass, m.CheckCSRFOnly(w, r))
+			if !pass {
+				require.Equal(t, http.StatusForbidden, w.Code)
+			}
+		})
+	}
+}

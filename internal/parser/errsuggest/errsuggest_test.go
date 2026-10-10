@@ -61,6 +61,22 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `body datapages.Component` to return values, or drop the head",
 		},
 
+		"ErrBodyWithSSE": {
+			err:  parser.ErrBodyWithSSE,
+			want: "fix: Send the body with sse.PatchElement and drop the body return value",
+		},
+
+		"ErrGETActionMissingFile": {
+			err:  parser.ErrGETActionMissingFile,
+			want: "fix: Add `file datapages.File` to return values",
+		},
+
+		"ErrFileOnPageGET": {
+			err: parser.ErrFileOnPageGET,
+			want: "fix: Return the file from a GET action, " +
+				"a method named GET followed by a name, such as GETDownload",
+		},
+
 		"ErrSignatureEvHandMissingSSE": {
 			err:  parser.ErrSignatureEvHandMissingSSE,
 			want: "fix: Add `sse datapages.SSE` parameter",
@@ -83,6 +99,18 @@ func TestSuggest(t *testing.T) {
 			err: fmt.Errorf("%w: PageFoo.OnEventBar",
 				parser.ErrSignatureEvHandMissingEvent),
 			want: "fix: Add a parameter of an EventXXX type",
+		},
+		"ErrSignatureEvHandEventPointer": {
+			err: &parser.SignatureEvHandEventPointerError{
+				Recv: "PageFoo", MethodName: "OnBar", EventType: "EventBar",
+			},
+			want: "fix: Take the event as `EventBar`, not `*EventBar`",
+		},
+		"ErrSignatureEvHandEventPointer/qualified": {
+			err: &parser.SignatureEvHandEventPointerError{
+				Recv: "PageFoo", MethodName: "OnBar", EventType: "shared.EventBar",
+			},
+			want: "fix: Take the event as `shared.EventBar`, not `*shared.EventBar`",
 		},
 
 		"ErrPageMissingFieldApp": {
@@ -192,6 +220,95 @@ func TestSuggest(t *testing.T) {
 				MethodName: "DELETEItem",
 			},
 			want: "fix: Use `// DELETEItem is /items/item`",
+		},
+		"ErrActionPathNotUnderPage/query": {
+			err: &parser.ActionPathNotUnderPageError{
+				PagePath:   "/items/",
+				Recv:       "PageItems",
+				MethodName: "QUERYSearch",
+			},
+			want: "fix: Use `// QUERYSearch is /items/search`",
+		},
+		"ErrActionRouteWildcard": {
+			err: &parser.ActionRouteWildcardError{
+				Recv:       "App",
+				MethodName: "POSTUpload",
+				Route:      "/upload/{path...}",
+			},
+			want: "fix: Pass {path...} in a query parameter or a signal instead",
+		},
+		"ErrRouteWildcardStream": {
+			err: &parser.RouteWildcardStreamError{
+				TypeName: "PageFiles",
+				Route:    "/files/{rest...}",
+			},
+			want: "fix: Remove {rest...} from the route of PageFiles",
+		},
+		"ErrRouteWildcardAction": {
+			err: &parser.RouteWildcardActionError{
+				TypeName:   "PageFiles",
+				Route:      "/files/{rest...}",
+				MethodName: "POSTDelete",
+			},
+			want: "fix: Remove {rest...} from the route of PageFiles",
+		},
+		"ErrRouteExactMatchStream": {
+			err: &parser.RouteExactMatchStreamError{
+				TypeName: "PageUser",
+				Route:    "/user/{name}/{$}",
+			},
+			want: "fix: Remove {$} from the route of PageUser",
+		},
+		"ErrRouteExactMatchAction": {
+			err: &parser.RouteExactMatchActionError{
+				TypeName:   "PageSettings",
+				Route:      "/settings/{$}",
+				MethodName: "POSTSave",
+			},
+			want: "fix: Remove {$} from the route of PageSettings",
+		},
+
+		"ErrRouteCharInvalid/quote": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageSay", Route: `/say"hi"`, Char: '"',
+			},
+			want: `fix: Write '"' as %22. ` +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/backslash": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageBack", Route: `/back\slash`, Char: '\\',
+			},
+			want: `fix: Write '\\' as %5C. ` +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/backtick": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageTick", Route: "/back`tick", Char: '`',
+			},
+			want: "fix: Write '`' as %60. " +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/question mark": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageSearch", Route: "/search?q", Char: '?',
+			},
+			want: "fix: Write '?' as %3F. " +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/number sign": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PageSharp", Route: "/c#", Char: '#',
+			},
+			want: "fix: Write '#' as %23. " +
+				"net/http decodes it before matching the route.",
+		},
+		"ErrRouteCharInvalid/percent sign": {
+			err: &parser.RouteCharInvalidError{
+				Owner: "PagePercent", Route: "/100%", Char: '%',
+			},
+			want: "fix: Write '%' as %25. " +
+				"net/http decodes it before matching the route.",
 		},
 
 		"ErrEventCommMissing": {
@@ -333,6 +450,21 @@ func TestSuggest(t *testing.T) {
 			err: &parser.EventSubjectUserSignalError{TypeName: "EventChat"},
 			want: "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
 				" is always bound to the authenticated user's ID",
+		},
+		"ErrEventSubjectContained": {
+			err: &parser.EventSubjectContainedError{
+				FieldName: "Recipients", TypeName: "EventDirectMessage",
+				FieldType:       "[]datapages.SubjectUser",
+				SubjectTypeName: "datapages.SubjectUser",
+			},
+			want: "fix: Type Recipients in EventDirectMessage as " +
+				"datapages.SubjectUser and dispatch the event once per value",
+		},
+		"ErrEventSubjectUserDuplicate": {
+			err: fmt.Errorf("%w: EventDM.Cc next to EventDM.To",
+				parser.ErrEventSubjectUserDuplicate),
+			want: "fix: Keep one datapages.SubjectUser field " +
+				"and dispatch the event once per user.",
 		},
 
 		"ErrTemplHrefRelative/simple": {

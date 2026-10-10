@@ -193,8 +193,10 @@ The generated code picks how queued writes reach the worker from the handler sig
 | action taking `sse` | sent over that stream |
 | action returning `redirect` | sent in its `text/javascript` response; navigation waits up to 500ms for the worker. This applies even when the action also returns a body |
 | action returning only a body | embedded in the rendered document |
-| action returning neither | sent over an SSE stream opened for that purpose, readable only by a Datastar request |
+| action returning neither | sent over an SSE stream opened for that purpose |
+
+An action that takes `datapages.PageCacheWriter` answers 406 to a request without `Datastar-Request: true`. Call it through a Datastar action, not a plain form: an HTTP redirect cannot carry the writes.
 
 `newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. Navigation waits up to 500ms for the worker to apply `ClearAll` before loading the destination.
 
-<!-- written by datapages sha256:09292e5e7f3057ff -->
+<!-- written by datapages sha256:9e7cc8d05dafdf86 -->

@@ -1,5 +1,5 @@
 // Package app exercises CSRF protection of a state-changing action that
-// declares neither session nor sessionToken.
+// declares neither session nor sessionToken, and the QUERY actions it exempts.
 package app
 
 import (
@@ -63,6 +63,20 @@ func (p PageIndex) POSTDelete(
 	return nil
 }
 
+// QUERYCount is /count
+//
+// Reading the session runs the CSRF check, which a QUERY passes without a token.
+func (p PageIndex) QUERYCount(_ *http.Request, session Session) (
+	body datapages.Component, err error,
+) {
+	p.App.mu.Lock()
+	defer p.App.mu.Unlock()
+	return templ.Raw(fmt.Sprintf(
+		`<pre id="echo">user=%s deleted=%d</pre>`,
+		session.UserID(), p.App.deleted,
+	)), nil
+}
+
 // EventMailed is "mailed"
 //
 // [datapages.SubjectUser] marks the event as private.
@@ -112,6 +126,12 @@ func (PageAbout) POSTPreview(_ *http.Request) (
 //
 // Every page can call this app-level action.
 func (*App) POSTPing(_ *http.Request) error { return nil }
+
+// QUERYStatus is /status
+//
+// It takes no session. An action of another method with this signature checks
+// the CSRF token against the cookie. A QUERY action checks nothing.
+func (*App) QUERYStatus(_ *http.Request) error { return nil }
 
 // PageError404 is /not-found
 //

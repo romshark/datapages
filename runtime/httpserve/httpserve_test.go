@@ -111,7 +111,7 @@ func TestDevNoCache(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 
-	require.Equal(t, "no-store, max-age=0", w.Header().Get("Cache-Control"))
+	require.Equal(t, "no-cache", w.Header().Get("Cache-Control"))
 	require.Equal(t, "no-cache", w.Header().Get("Pragma"))
 	require.Equal(t, "0", w.Header().Get("Expires"))
 	require.Equal(t, "body", w.Body.String())
@@ -131,7 +131,8 @@ func TestWriteReloadOnVisibility(t *testing.T) {
 }
 
 // TestWriteErrStatus tests the mapping from the error sentinels to status codes,
-// including a wrapped sentinel. Anything else, nil included, is a 500.
+// including a wrapped sentinel, and the response written for it.
+// Anything else, nil included, is a 500.
 func TestWriteErrStatus(t *testing.T) {
 	t.Parallel()
 
@@ -152,6 +153,7 @@ func TestWriteErrStatus(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+			require.Equal(t, tc.want, httpserve.ErrStatus(tc.err))
 			rec := httptest.NewRecorder()
 			httpserve.WriteErrStatus(rec, tc.err)
 			require.Equal(t, tc.want, rec.Code)

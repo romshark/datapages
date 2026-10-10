@@ -1,7 +1,10 @@
 package hrefcheck_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 
 	"github.com/a-h/templ"
 	"github.com/stretchr/testify/require"
@@ -139,10 +142,50 @@ func TestAssetPath(t *testing.T) {
 		"unclean":       {"/static/", "css//app.css", "/static/css/app.css"},
 		"trailing dots": {"/static/", "a/./b", "/static/a/b"},
 		"other prefix":  {"/assets/", "logo.svg", "/assets/logo.svg"},
+		"hash":          {"/static/", "a#b.css", "/static/a%23b.css"},
+		"question mark": {"/static/", "a?b.css", "/static/a%3Fb.css"},
+		"percent":       {"/static/", "100%.css", "/static/100%25.css"},
+		"space":         {"/static/", "my file.css", "/static/my%20file.css"},
+		"unclean hash":  {"/static/", "css//a#b.css", "/static/css/a%23b.css"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tc.want, hrefcheck.AssetPath(tc.prefix, tc.p))
+		})
+	}
+}
+
+// TestAssetPathReachesTheFile tests that the URL of a file whose name holds a
+// byte a URL path cannot carry as it is reaches that file through an asset
+// handler set up as httpserve.Core sets it up. Written as it is, a '#' or '?'
+// would end the path and a '%' would make the request fail to parse.
+func TestAssetPathReachesTheFile(t *testing.T) {
+	t.Parallel()
+
+	files := map[string]string{
+		"hash":          "a#b.css",
+		"question mark": "a?b.css",
+		"percent":       "100%.css",
+		"space":         "my file.css",
+		"subdirectory":  "css/a#b.css",
+	}
+	fsys := fstest.MapFS{}
+	for _, file := range files {
+		fsys[file] = &fstest.MapFile{Data: []byte(file)}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /static/",
+		http.StripPrefix("/static/", http.FileServer(http.FS(fsys))))
+
+	for name, file := range files {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet,
+				hrefcheck.AssetPath("/static/", file), nil)
+			mux.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, file, rec.Body.String())
 		})
 	}
 }

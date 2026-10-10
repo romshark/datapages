@@ -14,12 +14,12 @@ answered outside this package, by the acceptance cases under
 [../acceptance](../acceptance). Each is an application with its generated code
 committed next to it, tested over HTTP.
 
-Two tests read generated source. `TestExamplesAreUpToDate` reads it because the
+Three tests read generated source. `TestExamplesAreUpToDate` reads it because the
 committed files are the artifact. `TestError500PageReportsWithoutRenderingItself`
-reads it because running the code it checks overflows the stack and takes the
-rest of the test binary with it. Every other assertion is a request, a response,
-a call to a generated function, or a value the application recorded while a
-generated handler ran.
+and `TestError404PageReportsWithoutRenderingItself` read it because running the
+code they check overflows the stack and takes the rest of the test binary with it.
+Every other assertion is a request, a response, a call to a generated function,
+or a value the application recorded while a generated handler ran.
 
 ## TestCompileFixtures
 

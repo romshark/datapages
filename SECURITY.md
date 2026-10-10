@@ -16,17 +16,18 @@ You can expect an initial response within 72 hours. Once the issue is confirmed,
 
 What the generated server provides:
 
-- **Request limits.** A read timeout, a header read timeout, a header size limit and a 1 MiB request body limit.
+- **Request limits.** A read timeout, a header read timeout, a header size limit and a 1 MiB limit on the request body of an action that declares `Signals`.
 - **Sessions and CSRF.** Modules the application wires in.
 - **Per-tab state isolation.** State access requires the tab's 16-byte random identifier. The identifier stays out of message broker subjects.
 
 What is the responsibility of the application or of the deployment instead. A report about one of these is a feature request rather than a vulnerability.
 
 - **Volumetric abuse.** Nothing is metered per IP or per client. `MaxConcurrentInstances` bounds per-tab state for the whole process and nothing else is counted. An instance lives no longer than its stream, which leaves a per-client connection limit bounding how many one client can hold. Put one in front of the server. `SPECIFICATION.md` explains how middleware caps instances per session.
+- **Request bodies a handler reads.** A handler that reads `r.Body` itself gets no size limit. Wrap the body in `http.MaxBytesReader`.
 - **Authorization.** The framework routes a request and hands the handler its session. What that session may see or change is the application's decision.
 - **Cross-site scripting.** `templ` escapes the values a template interpolates into text and into attributes. Two places need more than that. `templ.Raw` writes markup verbatim. A value interpolated into a Datastar attribute lands inside a JavaScript expression, where the browser decodes the HTML escaping before the expression is parsed. Both are the application's to get right.
 - **The identity of per-tab state.** An instance is not bound to a session or a user and survives a sign-out. Do not keep in it what the next session on that tab may not see.
-- **Offline page snapshots.** A snapshot is not bound to a session and survives a sign-out. Any script on the origin can read it from the browser's cache. Do not cache what the next visitor on that device must not see.
+- **Offline page snapshots.** A snapshot is not bound to a session and survives a sign-out. Any script on the origin can read it from the browser's cache. Do not cache what the next visitor on that device must not see. The worker also stores the same-origin responses that elements and `fetch` load, such as an image a GET action serves, unless the response is marked `no-store`. Serve a private file with `FileCache{Private: true, NoStore: true}`, or call `ClearAll()` on sign-out, which empties the whole cache.
 - **Key management.** The application supplies the session encryption key. The application controls its storage and rotation.
 - **Transport.** TLS versions, ciphers, HSTS and the certificate lifecycle belong to whatever terminates TLS, including when that is `ListenAndServeTLS`.
 - **Slow readers.** The write timeout is disabled by default because SSE requires it.

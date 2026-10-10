@@ -82,6 +82,8 @@ func outputVar(out *model.Output) string {
 		return "enableBackgroundStreaming"
 	case model.OutputKindDisableRefresh:
 		return "disableRefreshAfterHidden"
+	case model.OutputKindFile:
+		return "file"
 	}
 	return out.Name
 }
@@ -160,8 +162,8 @@ func handlerOutputVars(h *model.Handler) []string {
 }
 
 // handlerInputArgs builds the argument list for a handler call
-// in the order defined by h.OrderedInputs. dispatchPrefix names the dispatch
-// closures the call passes, see dispatchVarName.
+// in the order defined by h.OrderedInputs.
+// dispatchPrefix names the dispatch closures the call passes, see dispatchVarName.
 func handlerInputArgs(
 	h *model.Handler, skipSSE bool, dispatchPrefix, appPkgQual string,
 ) []string {
@@ -323,24 +325,9 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
-	// Read signals.
-	//
-	// A page load carries them in the datastar query parameter,
-	// which the Datastar client adds and a visitor typing the URL does not.
-	// Their absence is the ordinary case and leaves the handler the zero value;
-	// only a malformed value is an error.
 	if h.InputSignals != nil {
 		hasBody = true
-		w.Line(0, "")
-		w.Raw("\tvar signals ")
-		w.Raw(w.renderSignalsType(h.InputSignals, m))
-		w.Byte('\n')
-		w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
-		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
-		w.Line(3, `s.HTTPErrBad(w, "reading signals", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
+		w.writeReadGETSignals(h.InputSignals, m)
 	}
 
 	// Dispatch closures.
@@ -376,30 +363,42 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	w.Line(0, "}")
 }
 
-// writeSubjectSignalsRead emits the read of the signal values a page subscribes by.
+// writeReadGETSignals emits code that reads the signals of a page GET.
+//
+// A page load carries them in the datastar query parameter,
+// which the Datastar client adds and a visitor typing the URL does not.
+// Their absence is the ordinary case and leaves the handler the zero value;
+// only a malformed value is an error.
+func (w *Writer) writeReadGETSignals(input *model.Input, m *model.App) {
+	w.Line(0, "")
+	w.Raw("\tvar signals ")
+	w.Raw(w.renderSignalsType(input, m))
+	w.Byte('\n')
+	w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
+	w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+	w.Line(3, `s.HTTPErrBad(w, "reading signals", err)`)
+	w.Line(3, "return")
+	w.Line(2, "}")
+	w.Line(1, "}")
+}
+
+// writeSubjectSignalsRead emits the read of the signal values a page subscribes by
+// and returns the selector of each value in subjSignals, in signalFields order.
 // Both stream handlers need it: the subjects a stream subscribes to do not depend on
 // whether the client holds a session.
-func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
-	idents := signalIdents(signalFields)
+func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) []string {
+	typ, selectors := subjectSignalStruct(signalFields)
 	w.Line(0, "")
-	w.Line(1, "var subjSignals struct {")
-	for i, sf := range signalFields {
-		w.Raw("\t\t")
-		w.Raw(idents[i])
-		w.Raw(` string `)
-		w.Raw("`json:\"")
-		w.Raw(sf.SignalName)
-		w.Raw("\"`")
-		w.Byte('\n')
-	}
-	w.Line(1, "}")
+	w.Raw("\tvar subjSignals ")
+	w.Raw(typ)
+	w.Byte('\n')
 	w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
 	w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 	w.Line(2, "return")
 	w.Line(1, "}")
 	for i, sf := range signalFields {
 		w.Raw("\tif subjSignals.")
-		w.Raw(idents[i])
+		w.Raw(selectors[i])
 		w.Raw(" == \"\" {\n")
 		w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
 		w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
@@ -408,6 +407,7 @@ func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+	return selectors
 }
 
 func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
@@ -438,6 +438,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 		if isPageError500(p, m) {
 			// httpErrIntern renders PageError500. The error page can't use it.
 			w.Raw("\t\ts.httpErrFinal(w, \"handling ")
+		} else if isPageError404(p, m) {
+			// httpErrIntern answers ErrNotFound by rendering this page again.
+			w.Raw("\t\ts.httpErr404(w, r, \"handling ")
 		} else {
 			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
 		}
@@ -485,11 +488,12 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	}
 
 	w.Line(0, "")
+	status := "http.StatusOK"
 	if isPageError500(p, m) {
-		w.Line(1, "w.WriteHeader(status)")
+		status = "status"
 	}
 	w.Line(1, "if err := s.writeHTML(")
-	w.Raw("\t\tw, r, ")
+	w.Raw("\t\tw, r, " + status + ", ")
 	if m.Session != nil {
 		w.Raw(getSessArg)
 		w.Raw(", ")
@@ -518,9 +522,14 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Line(1, "}")
 }
 
-// isPageError500 reports whether p is the page httpErrIntern renders.
+// isPageError500 reports whether p is the page httpErrIntern renders for a 500.
 func isPageError500(p *model.Page, m *model.App) bool {
 	return m.PageError500 != nil && p == m.PageError500
+}
+
+// isPageError404 reports whether p is the page httpErrIntern renders for a 404.
+func isPageError404(p *model.Page, m *model.App) bool {
+	return hasRender404(m) && p == m.PageError404
 }
 
 func hasSessionInput(h *model.Handler) bool {
@@ -644,6 +653,17 @@ func (w *Writer) renderSessionVar(
 // hasSess indicates whether a "sess" variable is in scope.
 func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 	w.Raw("\tgenericHead := s.app.Head(")
+	sessArg := w.sessionType + "{}"
+	if hasSess {
+		sessArg = "sess"
+	}
+	w.writeHeadArgs(gh, sessArg)
+	w.Raw(")\n")
+}
+
+// writeHeadArgs writes the arguments of an App.Head call in the order Head
+// declares them, which the parser leaves free.
+func (w *Writer) writeHeadArgs(gh *model.GlobalHead, sessArg string) {
 	for i, kind := range gh.OrderedInputs {
 		if i > 0 {
 			w.Raw(", ")
@@ -652,38 +672,25 @@ func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 			w.Raw("r")
 			continue
 		}
-		if hasSess {
-			w.Raw("sess")
-			continue
-		}
-		w.Raw(w.sessionType)
-		w.Raw("{}")
+		w.Raw(sessArg)
 	}
-	w.Raw(")\n")
 }
 
 // streamInitTail closes the data-init attribute of a page after the quoted
-// stream path: the Datastar option object, when the page needs one, then the
-// closing parenthesis of the call and the closing quote of the attribute.
+// stream path: the Datastar option object, then the closing parenthesis of the
+// call and the closing quote of the attribute.
 //
-// retry is written for a stateful page. Its stream connect is answered 503
-// once the server holds datapages.StateConfig.MaxConcurrentInstances, and the
-// default policy retries network errors only, which leaves a tab refused at
-// the cap with no stream and no way back until the visitor reloads the page.
-// "error" covers a status, which is what lets such a tab reconnect on its own
-// once the server has room again.
-func streamInitTail(openWhenHidden, retry bool) string {
-	var opts []string
+// A page needs its stream for as long as it is open. "always" reconnects after
+// a network error, after an error response such as 503 at
+// [datapages.StateConfig.MaxConcurrentInstances] or a reverse proxy's 502 while
+// the application restarts, and after a stream the server ends. Datastar stops
+// after 10 failed attempts by default, about three minutes. Infinity keeps
+// the page trying through a longer outage, once every 30s.
+func streamInitTail(openWhenHidden bool) string {
 	if openWhenHidden {
-		opts = append(opts, "openWhenHidden:true")
+		return `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`
 	}
-	if retry {
-		opts = append(opts, "retry:'error'")
-	}
-	if len(opts) == 0 {
-		return `)"`
-	}
-	return ",{" + strings.Join(opts, ",") + `})"`
+	return `,{retry:'always',retryMaxCount:Infinity})"`
 }
 
 func (w *Writer) writeGETBodyAttrs(
@@ -787,23 +794,39 @@ func (w *Writer) writeGETBodyAttrs(
 	// Fun fact: this is a writer writing a writer writing an attribute.
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
-		streamPath := routepattern.StreamPath(p.Route)
-		// Only a stateful stream is ever refused for want of capacity.
-		tail := streamInitTail(false, p.State != nil)
-		tailBg := streamInitTail(true, p.State != nil)
+		// The path stands in a JavaScript string in an HTML attribute.
+		// A route may contain a quote, as /o'reilly does, or an ampersand.
+		streamPath := htmlattr.SignalString(routepattern.StreamPath(p.Route))
+		tail := streamInitTail(false)
+		tailBg := streamInitTail(true)
+		// writeTailChoice emits the tail the GET's
+		// enableBackgroundStreaming output selects at run time.
+		writeTailChoice := func(indent int) {
+			w.Linef(indent, "if %s {", outputVar(h.OutputEnableBgStream))
+			w.Linef(indent+1, "_, _ = io.WriteString(w, `%s`)", tailBg)
+			w.Line(indent, "} else {")
+			w.Linef(indent+1, "_, _ = io.WriteString(w, `%s`)", tail)
+			w.Line(indent, "}")
+		}
 		if hasPrivate && hasSess {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
 				// Need to handle path variables.
+				// Both streams take the same tail, written after the path
+				// when it depends on enableBackgroundStreaming.
+				mixedTail := tail
+				if hasEnableBgStream {
+					mixedTail = ""
+				}
 				if h.InputPath != nil {
 					// Dynamic path.
 					w.Line(0, "")
 					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", mixedTail)
 					w.Line(2, "} else {")
-					w.Linef(3, "_, _ = io.WriteString(w, `_$/anon/'%s`)", tail)
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/anon/'%s`)", mixedTail)
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -811,12 +834,15 @@ func (w *Writer) writeGETBodyAttrs(
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Rawf("'%s`)\n", tail)
+					w.Rawf("'%s`)\n", mixedTail)
 					w.Line(2, "} else {")
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Rawf("anon/'%s`)\n", tail)
+					w.Rawf("anon/'%s`)\n", mixedTail)
 					w.Line(2, "}")
+				}
+				if hasEnableBgStream {
+					writeTailChoice(2)
 				}
 			} else {
 				// Auth-only stream.
@@ -827,13 +853,7 @@ func (w *Writer) writeGETBodyAttrs(
 					if hasEnableBgStream {
 						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `_$/'`)")
-						w.Raw("\t\t\tif ")
-						w.Raw(outputVar(h.OutputEnableBgStream))
-						w.Raw(" {\n")
-						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
-						w.Line(3, "} else {")
-						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
-						w.Line(3, "}")
+						writeTailChoice(3)
 						w.Line(2, "}")
 					} else {
 						w.Line(2, `if sess.UserID() != "" {`)
@@ -846,13 +866,7 @@ func (w *Writer) writeGETBodyAttrs(
 					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("'`)\n")
-					w.Raw("\t\t\tif ")
-					w.Raw(outputVar(h.OutputEnableBgStream))
-					w.Raw(" {\n")
-					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
-					w.Line(3, "} else {")
-					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
-					w.Line(3, "}")
+					writeTailChoice(3)
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -871,13 +885,7 @@ func (w *Writer) writeGETBodyAttrs(
 				w.writeStreamPathSegments(p.Route, h.InputPath)
 				if hasEnableBgStream {
 					w.Line(2, "_, _ = io.WriteString(w, `_$/'`)")
-					w.Raw("\t\tif ")
-					w.Raw(outputVar(h.OutputEnableBgStream))
-					w.Raw(" {\n")
-					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
-					w.Line(2, "} else {")
-					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
-					w.Line(2, "}")
+					writeTailChoice(2)
 				} else {
 					w.Linef(2, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 				}
@@ -886,13 +894,7 @@ func (w *Writer) writeGETBodyAttrs(
 				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
-				w.Raw("\t\tif ")
-				w.Raw(outputVar(h.OutputEnableBgStream))
-				w.Raw(" {\n")
-				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
-				w.Line(2, "} else {")
-				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
-				w.Line(2, "}")
+				writeTailChoice(2)
 			} else {
 				w.Line(0, "")
 				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
@@ -943,7 +945,8 @@ func (w *Writer) writeGETBodyAttrs(
 			// The values sit in a JavaScript string inside an HTML attribute.
 			// The browser decodes HTML entities before evaluating JavaScript,
 			// so [htmlattr.WritePathValue] percent-encodes each value before
-			// escaping it for the attribute.
+			// escaping it for the attribute. The literals keep their characters,
+			// which [htmlattr.SignalString] escapes for the string and the attribute.
 			writeRoute := func(r string) {
 				literals, vars := routepattern.Segments(r)
 				for i, lit := range literals {
@@ -952,7 +955,7 @@ func (w *Writer) writeGETBodyAttrs(
 						// route carries none: the caller trimmed it.
 						lit = strings.TrimSuffix(lit, "/")
 					}
-					w.Raw(lit)
+					w.Raw(htmlattr.SignalString(lit))
 					if i >= len(vars) {
 						continue
 					}
@@ -973,9 +976,9 @@ func (w *Writer) writeGETBodyAttrs(
 			w.Line(2, "\"`)")
 		} else {
 			w.Raw("\t\t\twindow.history.replaceState(null, '', (query ? '")
-			w.Raw(route)
+			w.Raw(htmlattr.SignalString(route))
 			w.Raw("?' + query : '")
-			w.Raw(route)
+			w.Raw(htmlattr.SignalString(route))
 			w.Raw("') + location.hash);\n")
 			w.Line(2, "\"`)")
 		}
@@ -985,7 +988,8 @@ func (w *Writer) writeGETBodyAttrs(
 	return hasBodyAttrs, true
 }
 
-// writeStreamPathSegments writes the page route with its path values filled in.
+// writeStreamPathSegments writes the page route with its path values filled in,
+// escaped for a JavaScript string in an HTML attribute.
 // The last literal of [routepattern.Segments] carries a trailing slash,
 // which is why the caller appends the stream suffix without one.
 func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
@@ -1001,7 +1005,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	literals, vars := routepattern.Segments(route)
 	for i, lit := range literals {
 		w.Raw("\t\t_, _ = io.WriteString(w, `")
-		w.Raw(lit)
+		w.Raw(htmlattr.SignalString(lit))
 		w.Raw("`)\n")
 		if i < len(vars) {
 			f := tagToField[vars[i]]
@@ -1021,6 +1025,12 @@ func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 		sse = "sse"
 	}
 	w.Linef(1, "defer s.recoverPanic(w, r, %s, %q)", sse, handler)
+}
+
+// writeDeferRecoverFile registers the deferred recover of a handler that
+// answers with a file.
+func (w *Writer) writeDeferRecoverFile(handler string) {
+	w.Linef(1, "defer s.recoverPanicFile(w, r, %q)", handler)
 }
 
 // signalIsJSLiteral reports whether t renders as a JavaScript number or boolean.
@@ -1126,9 +1136,12 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		} else {
+			// The page writes the data-init of this stream only for a session.
+			// A guest request comes from a page whose session ended while the
+			// stream was disconnected. See [stream.Handler.Reload].
 			w.Line(0, "")
 			w.Line(1, `if sess.UserID() == "" {`)
-			w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
+			w.Line(2, "s.streams.Reload(w, r)")
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
@@ -1136,9 +1149,9 @@ func (w *Writer) writePageGETStreamHandler(
 
 	// Read signal-scoped subject values for subscription.
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
-	signalIdents := signalIdents(signalFields)
+	var signalSels []string
 	if hasSignalScoped {
-		w.writeSubjectSignalsRead(signalFields)
+		signalSels = w.writeSubjectSignalsRead(signalFields)
 	}
 
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
@@ -1196,21 +1209,21 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw("(stateID),\n")
 	case hasPrivate && hasSignalScoped:
 		w.Raw("(sess.UserID()")
-		for _, ident := range signalIdents {
+		for _, sel := range signalSels {
 			w.Raw(", subjSignals.")
-			w.Raw(ident)
+			w.Raw(sel)
 		}
 		w.Raw("),\n")
 	case hasPrivate:
 		w.Raw("(sess.UserID()),\n")
 	case hasSignalScoped:
 		w.Raw("(")
-		for i, ident := range signalIdents {
+		for i, sel := range signalSels {
 			if i > 0 {
 				w.Raw(", ")
 			}
 			w.Raw("subjSignals.")
-			w.Raw(ident)
+			w.Raw(sel)
 		}
 		w.Raw("),\n")
 	default:
@@ -1223,10 +1236,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
 	if len(p.EventHandlers) > 0 {
-		// A panic here would reach net/http through the stream. Recovering it
-		// ends this stream, which the client reopens, and leaves the rest
-		// running.
-		w.Linef(2, "defer s.recoverPanic(w, r, sse, %q)", p.TypeName+" stream")
+		w.writeStreamRecover(p.TypeName + " stream")
 	}
 	if len(p.EventHandlers) == 0 {
 		w.Line(2, "for range ch {")
@@ -1264,6 +1274,12 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 	w.Line(1, "})")
 	w.Line(0, "}")
+}
+
+// writeStreamRecover emits the deferred recover of a stream's message loop. A panic in
+// an event handler then takes the handler error path instead of dropping the connection.
+func (w *Writer) writeStreamRecover(handler string) {
+	w.Linef(2, "defer s.recoverPanic(w, r, sse, %q)", handler)
 }
 
 // writeStreamEventVars declares the event of every case of the message loop.
@@ -1560,9 +1576,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	// It therefore has to subscribe by the same values as the authenticated one,
 	// which it cannot do without reading them.
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
-	signalIdents := signalIdents(signalFields)
+	var signalSels []string
 	if len(signalFields) > 0 {
-		w.writeSubjectSignalsRead(signalFields)
+		signalSels = w.writeSubjectSignalsRead(signalFields)
 	}
 
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
@@ -1609,9 +1625,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
 	w.Raw("(sess.UserID()")
-	for _, ident := range signalIdents {
+	for _, sel := range signalSels {
 		w.Raw(", subjSignals.")
-		w.Raw(ident)
+		w.Raw(sel)
 	}
 	w.Raw("),\n")
 	w.writePageStreamOpenHook(p)
@@ -1634,6 +1650,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		}
 	}
 
+	if len(publicHandlers) > 0 {
+		w.writeStreamRecover(p.TypeName + " anonymous stream")
+	}
 	w.writeStreamEventVars(publicHandlers, appPkg)
 	w.Line(2, "for msg := range ch {")
 
@@ -1665,16 +1684,20 @@ func (w *Writer) writePageActionHandler(
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
-	if h.InputSSE != nil || h.InputSignals != nil || h.InputPageCache != nil {
+	switch {
+	case h.IsGETAction():
+		// A GET changes nothing. A page on another site may load it,
+		// as it may load an image.
+	case needsDatastarRequest(h):
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
-	} else {
-		// The Datastar header is what keeps the other actions unreachable from
-		// another origin: a fetch that sets it is preflighted and a form cannot
-		// set it at all. An action that needs neither signals nor an SSE
-		// connection is a plain form target, which a page on another site can
-		// host as well, hence the origin check in its place.
+	default:
+		// The Datastar header is what keeps the actions [needsDatastarRequest]
+		// reports unreachable from another origin: a fetch that sets it is
+		// preflighted and a form cannot set it at all. Any other action is a
+		// plain form target, which a page on another site can host as well,
+		// hence the origin check in its place.
 		w.Line(1, "if !s.CheckSameOrigin(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1737,14 +1760,19 @@ func (w *Writer) writePageActionHandler(
 	// Dispatch closures.
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
-	// SSE for actions that take it, or need it to flush the page cache.
+	// SSE for actions that take it. An action that takes none and delivers its
+	// page cache over a stream opens it after the call, see flushToNewStream.
 	// A redirect or HTML body sends its offline writes in that response.
-	if h.InputSSE != nil || pageCacheViaStream(h) {
+	if h.InputSSE != nil {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
 
-	w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
+	if h.OutputFile != nil {
+		w.writeDeferRecoverFile(p.TypeName + "." + h.Name)
+	} else {
+		w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
+	}
 
 	w.writeDatapagesHandles(h)
 
@@ -1759,10 +1787,24 @@ func (w *Writer) writePageActionHandler(
 	// Deliver queued offline writes over the SSE stream on success.
 	// Redirect and HTML delivery occur while those responses are written.
 	if pageCacheViaStream(h) {
-		w.Line(1, "_ = pageCache.flush()")
+		if h.InputSSE != nil {
+			w.Line(1, "_ = pageCache.flush()")
+		} else {
+			w.Line(1, "_ = pageCache.flushToNewStream(w)")
+		}
 	}
 
 	w.Line(0, "}")
+}
+
+// needsDatastarRequest reports whether h serves only Datastar requests:
+// it reads signals, answers with an event stream or takes a page cache.
+// Page cache writes reach the worker through a script in the response, which an
+// HTTP redirect, the answer to a plain request, cannot carry. A plain request
+// for a body could receive them and is refused too, which keeps one rule for
+// every page cache action. Any other action is a plain form target.
+func needsDatastarRequest(h *model.Handler) bool {
+	return h.InputSSE != nil || h.InputSignals != nil || h.InputPageCache != nil
 }
 
 // pageCacheViaRedirect reports whether h sends offline writes in a JavaScript
@@ -1803,7 +1845,7 @@ func (w *Writer) writePageCacheBodyArg(h *model.Handler) {
 // writeDatapagesHandles emits the requested page cache handle.
 func (w *Writer) writeDatapagesHandles(h *model.Handler) {
 	if h.InputPageCache != nil {
-		if pageCacheViaStream(h) {
+		if h.InputSSE != nil {
 			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
 		} else {
 			w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
@@ -1819,6 +1861,11 @@ func (w *Writer) writeActionMethodCall(
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
+
+	if h.OutputFile != nil {
+		w.writeFileCall("p", p.TypeName, h, args)
+		return
+	}
 
 	methodName := h.HTTPMethod + h.Name
 
@@ -1872,7 +1919,7 @@ func (w *Writer) writeActionMethodCall(
 				actionSessionInScope(h, m))
 		}
 		w.Line(1, "if err := s.writeHTML(")
-		w.Raw("\t\tw, r, ")
+		w.Raw("\t\tw, r, http.StatusOK, ")
 		if m.Session != nil {
 			w.Raw(actSessArg)
 			w.Raw(", ")
@@ -1900,6 +1947,28 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+}
+
+// writeFileCall emits the call of a handler that returns a datapages.File and
+// the response it serves. The parser refuses any other output next to the file,
+// which leaves no session, redirect or body to write.
+// owner is the page type or "App".
+func (w *Writer) writeFileCall(recv, owner string, h *model.Handler, args []string) {
+	label := owner + "." + h.Name
+	w.Byte('\t')
+	w.writeCommaSep(handlerOutputVars(h))
+	w.Raw(" := ")
+	w.writeCallExpr(recv, h.HTTPMethod+h.Name, args)
+	w.Byte('\n')
+	if h.OutputErr != nil {
+		w.Line(1, "if err != nil {")
+		w.Linef(2, "s.httpErrFile(w, r, %q, err)", "handling action "+label)
+		w.Line(2, "return")
+		w.Line(1, "}")
+	}
+	w.Line(1, "if err := httpserve.ServeFile(w, r, file); err != nil {")
+	w.Linef(2, "s.httpErrFile(w, r, %q, err)", "serving the file of action "+label)
+	w.Line(1, "}")
 }
 
 func (w *Writer) writeActionErrCheck(

@@ -25,6 +25,8 @@ make dev        # datapages watch
 
 `init` creates `PageIndex`, `PageError404`, `PageError500`, `Head` and `RecoverError`. It writes only missing files and deletes nothing. You can run it again without overwriting existing files.
 
+`init` asks which Web Component setup to scaffold with the app package: Datastar Rocket, TypeScript bundled by esbuild, JavaScript modules or none. `--web-components rocket|typescript|javascript|none` answers without the prompt, and `-n` alone picks none. Pick one only when the app needs JavaScript that would be impractical in Datastar attributes; see `datapages-templates`.
+
 Before the first page, decide:
 
 | question | decides |
@@ -85,7 +87,9 @@ Give each value one owner:
 | One user across tabs and restarts | Session data and its store | Every handler uses the same data type. |
 | One browser tab | `datapages.State[T]` | Reconnect starts zeroed. `StreamOpen` rebuilds it. |
 | Shareable URL state that survives reload | `Query` field with `reflectsignal` | Seeds the signal on load and rewrites the URL on change. |
-| Interaction-only state such as draft text or an open menu | Datastar signal | The server sees it when an action sends it. |
+| Interaction-only state such as an open menu or a selected tab | Local Datastar signal, named with a `_` prefix | Requests do not carry it. |
+| Input an action sends, such as draft text | Datastar signal without the prefix | The server sees it when an action sends it. |
+| Client state a library holds or that runs ahead of the server, such as a map viewport or unconfirmed editor text | Web Component | The server keeps what it confirmed. The element sends changes as events. See `datapages-templates`. |
 | Derived value | Nowhere | Compute it. Storing the same fact twice can create inconsistent values. |
 
 An `On` handler receives no request or signals. Put what it needs on the event or in `State[T]`.
@@ -102,12 +106,15 @@ For example, copy a user-selected filter into `State[T]` in `StreamOpen` or in t
 | Server decides, only the acting tab needs the result | Take `datapages.SSE` in the action and patch. |
 | Authoritative state changed and open pages must update | Command mutates state and dispatches an event; `On` handlers read current state and render it. |
 | Navigate to another page | `href`, or `datapages.Redirect` from the action. |
+| The input of a Web Component changed | Render its attributes from current state, and the morph changes them. Use `data-attr` with a signal for an element that morphs skip, and `ExecuteScript` for a stream of changes. See `datapages-templates`. |
 
 The acting tab also receives subscribed events. A command that dispatches an event rarely needs `SSE`. Using both usually sends the same state twice.
 
 For server-rendered updates, render a complete DOM tree from current state. Avoid coordinating many small patches or client-side signal updates.
 
 Shrink morph targets only for a measured reason. A complete HTML fragment is often simpler because Datastar preserves unchanged DOM while morphing the received tree.
+
+A morph also sets the attributes of a Web Component and morphs its light DOM. The component observes the attributes that can change and builds its own DOM in a shadow root, which morphs do not enter; see `datapages-templates`.
 
 Events are notifications, not durable state. Delivery is at most once and has no replay. A hidden tab, interrupted stream or full buffer can miss an event. Later renders must use authoritative state. They must not depend on every earlier event.
 
@@ -199,4 +206,4 @@ Deviate when the requirements make a simpler or different model more suitable.
 
 A page that re-reads data on navigation is correct before events exist. Add events only when changes must reach already open pages. Add `State[T]` only when a handler without a request needs a per-tab value.
 
-<!-- written by datapages sha256:d1762c756b9aa883 -->
+<!-- written by datapages sha256:332d483113643eb4 -->

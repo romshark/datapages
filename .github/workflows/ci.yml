@@ -43,6 +43,8 @@ jobs:
             name: "fast-shim"
           - path: "example/file-upload"
             name: "file-upload"
+          - path: "example/docs"
+            name: "docs"
           - path: "example/realtime-charts"
             name: "realtime-charts"
         deps: [locked, latest]
@@ -76,13 +78,16 @@ jobs:
               name: "file-upload"
             deps: latest
           - project:
+              name: "docs"
+            deps: latest
+          - project:
               name: "realtime-charts"
             deps: latest
     steps:
-      - name: Install Go 1.27.1
+      - name: Install Go 1.27.2
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
           check-latest: true
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -130,11 +135,25 @@ jobs:
       # PATH. Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
         if: matrix.project.name == 'root'
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1020
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
 
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
         run: go test -timeout 15m -covermode=atomic -coverprofile=coverage.out ./...
+
+      # The editor of example/docs merges concurrent changes in the browser.
+      # Node runs its TypeScript tests without a build step from version 24.
+      - name: Install Node.js
+        if: matrix.project.name == 'docs' && matrix.deps == 'locked'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Test the editor of example/docs
+        if: matrix.project.name == 'docs' && matrix.deps == 'locked'
+        working-directory: example/docs/web
+        run: |
+          npm ci
+          npm test
 
       - name: Upload coverage to Coveralls
         if: matrix.deps == 'locked'

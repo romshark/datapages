@@ -286,8 +286,12 @@ func renderStruct(st *types.Struct, qual func(*types.Package) string) string {
 	b.WriteString("struct {\n")
 	for i := range st.NumFields() {
 		f := st.Field(i)
-		b.WriteString(f.Name())
-		b.WriteByte(' ')
+		// An embedded field is written as its type alone. Written with its name,
+		// it's a named field, and the struct is a different type.
+		if !f.Embedded() {
+			b.WriteString(f.Name())
+			b.WriteByte(' ')
+		}
 		if nested, ok := f.Type().(*types.Struct); ok {
 			b.WriteString(renderStruct(nested, qual))
 		} else {
@@ -304,9 +308,11 @@ func renderStruct(st *types.Struct, qual func(*types.Package) string) string {
 	return b.String()
 }
 
-// isNamedType returns true if the type is a named type (not anonymous struct).
+// isNamedType reports whether t is a defined type, directly or behind an alias,
+// rather than an anonymous struct. A defined type is written by its name:
+// the struct it is defined as is a different type argument.
 func isNamedType(t model.Type) bool {
-	_, ok := t.Resolved.(*types.Named)
+	_, ok := types.Unalias(t.Resolved).(*types.Named)
 	return ok
 }
 
@@ -347,83 +353,25 @@ func (w *Writer) structFields(t types.Type) []structFieldInfo {
 type appUsage struct {
 	// hasSession: whether the app defines a Session type.
 	hasSession bool
-	// auth: func (s *Server) auth(...)
-	auth bool
-	// createSession: func (s *Server) createSession(...)
-	createSession bool
-	// closeSession: func (s *Server) closeSession(...)
-	closeSession bool
-	// httpRedirect: func httpRedirect(...)
+	// httpRedirect: whether any handler returns a datapages.Redirect,
+	// which, with a page cache, needs func httpRedirectOffline(...).
 	httpRedirect bool
 	// stream: func (s *Server) handleStreamRequest(...)
 	stream bool
 	// streamAuth: whether any stream handler needs auth (page has private events).
-	streamAuth bool
-	// recoverError: httpErrIntern asks httpserve.IsDatastarRequest for an app that has
-	// PageError500, RecoverError, or both. The two features are independent
-	// and either one makes the helper's answer decide what the response is.
-	recoverError bool
-	// datapagesSSE: whether any handler takes a datapages.SSE param
-	// (needs the datapages import and the generated sseWrapper).
-	datapagesSSE bool
-	pageCache    bool
-	offlinePage  bool
+	streamAuth  bool
+	pageCache   bool
+	offlinePage bool
 	// stateRuntime: whether any page (including via embedded abstract pages)
 	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
-	// signalSubjects: subject.Encode is called by any page that builds
-	// a subscription subject from a client-provided signal.
-	signalSubjects bool
-	// dispatchSubjects: subject.Encode is called by any dispatch that
-	// builds a publish subject from the subject fields of its event.
-	dispatchSubjects bool
-	// userSubjects: whether any event addresses a user, which makes the ID of
-	// the session owner name a subject.
-	userSubjects bool
-	// actions: whether the application defines any action, which is what makes
-	// the generated action package carry helpers and its own reporter.
+	// actions: whether the application defines any action the action package
+	// writes a helper for, which is what makes it carry its own reporter.
+	// A GET action has none: it is reached through the href package.
 	actions bool
-}
-
-// dispatchesSubjectFields reports whether any handler dispatches an event whose
-// subject carries field values. Such a dispatch builds its subject at runtime
-// and needs every value guarded: one that is not a single token produces a
-// subject no subscription matches and the event reaches nobody.
-func dispatchesSubjectFields(
-	m *model.App, eventByName map[string]*model.Event,
-) bool {
-	dispatches := func(h *model.Handler) bool {
-		if h == nil {
-			return false
-		}
-		for _, d := range h.InputDispatches {
-			ev := eventByName[d.EventTypeName]
-			if ev != nil && ev.HasSubjectFields() {
-				return true
-			}
-		}
-		return false
-	}
-	if slices.ContainsFunc(m.Actions, dispatches) {
-		return true
-	}
-	for _, p := range m.Pages {
-		if p.GET != nil && dispatches(p.GET.Handler) {
-			return true
-		}
-		if dispatches(p.StreamOpen) || dispatches(p.StreamClose) {
-			return true
-		}
-		if slices.ContainsFunc(p.Actions, dispatches) {
-			return true
-		}
-	}
-	for _, p := range []*model.Page{m.PageError404, m.PageError500} {
-		if p != nil && p.GET != nil && dispatches(p.GET.Handler) {
-			return true
-		}
-	}
-	return false
+	// files: whether any handler returns a datapages.File,
+	// which needs httpErrFile and recoverPanicFile.
+	files bool
 }
 
 // computeAppUsage scans the model to determine which optional helpers are needed.
@@ -431,44 +379,23 @@ func computeAppUsage(m *model.App) appUsage {
 	var u appUsage
 
 	u.hasSession = m.Session != nil
-
-	// A global Head that takes a session has every page handler read one,
-	// whatever the handler itself asks for.
-	if m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession {
-		u.auth = true
-	}
-
-	if m.RecoverError != nil || m.PageError500 != nil {
-		u.recoverError = true
-	}
-	if m.RecoverError != nil {
-		// RecoverError always receives a datapages.SSE.
-		u.datapagesSSE = true
-	}
 	u.offlinePage = m.PageOffline != nil
 
 	checkHandler := func(h *model.Handler) {
-		if h.InputSession != nil {
-			u.auth = true
-		}
-		if needsCSRFOnly(h, m) {
-			// The handler calls the session helper for its CSRF check.
-			u.auth = true
-		}
-		if h.OutputNewSession != nil {
-			u.createSession = true
-		}
-		if h.OutputCloseSession != nil {
-			u.closeSession = true
-		}
 		if h.OutputRedirect != nil {
 			u.httpRedirect = true
 		}
-		if h.InputSSE != nil {
-			u.datapagesSSE = true
-		}
 		if h.InputPageCache != nil {
 			u.pageCache = true
+		}
+		if h.OutputFile != nil {
+			u.files = true
+		}
+	}
+	checkAction := func(h *model.Handler) {
+		checkHandler(h)
+		if !h.IsGETAction() {
+			u.actions = true
 		}
 	}
 
@@ -478,39 +405,21 @@ func computeAppUsage(m *model.App) appUsage {
 		eventByName[e.TypeName] = e
 	}
 
-	u.dispatchSubjects = dispatchesSubjectFields(m, eventByName)
-	for _, e := range m.Events {
-		if e.HasSubjectUser() {
-			u.userSubjects = true
-			break
-		}
-	}
-
-	u.actions = len(m.Actions) > 0
 	for _, h := range m.Actions {
-		checkHandler(h)
+		checkAction(h)
 	}
 	for _, p := range m.Pages {
-		if len(p.Actions) > 0 {
-			u.actions = true
-		}
 		if p.GET != nil {
 			checkHandler(p.GET.Handler)
 		}
 		if pageHasStream(p) {
 			u.stream = true
-			// Event handlers and stream hooks receive a datapages.SSE.
-			u.datapagesSSE = true
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
-				u.auth = true
-			}
-			if pageHasSignalScopedEvent(p, eventByName) {
-				u.signalSubjects = true
 			}
 		}
 		for _, h := range p.Actions {
-			checkHandler(h)
+			checkAction(h)
 		}
 		if p.State != nil {
 			u.stateRuntime = true
@@ -842,6 +751,85 @@ func signalIdents(fields []model.SubjectField) []string {
 		idents[i] = ident
 	}
 	return idents
+}
+
+// subjectSignalStruct returns the struct type the subject signals of a page
+// decode into and the selector of each field's value in it, in fields order.
+//
+// A signal path gets one nested struct per step. Datastar sends the signal
+// chat.room as {"chat":{"room":"lobby"}}, which a json:"chat.room" key never matches.
+// The parser refuses a page whose paths would make one step both
+// a value and a struct, such as chat and chat.room.
+func subjectSignalStruct(fields []model.SubjectField) (typ string, selectors []string) {
+	var root []*signalStep
+	selectors = make([]string, len(fields))
+	for i, sf := range fields {
+		level := &root
+		var path []string
+		for key := range strings.SplitSeq(sf.SignalName, ".") {
+			step := findSignalStep(*level, key)
+			if step == nil {
+				step = &signalStep{key: key, ident: uniqueSignalIdent(*level, key)}
+				*level = append(*level, step)
+			}
+			path = append(path, step.ident)
+			level = &step.next
+		}
+		selectors[i] = strings.Join(path, ".")
+	}
+	var b strings.Builder
+	writeSignalSteps(&b, root, 1)
+	return b.String(), selectors
+}
+
+// signalStep is one step of the subject signal paths of a page.
+type signalStep struct {
+	key   string        // the JSON key
+	ident string        // the Go field name, unique among the steps beside it
+	next  []*signalStep // empty for the step that holds the value
+}
+
+func findSignalStep(steps []*signalStep, key string) *signalStep {
+	for _, s := range steps {
+		if s.key == key {
+			return s
+		}
+	}
+	return nil
+}
+
+// uniqueSignalIdent numbers the identifier of key when a step beside it has
+// it already, as calc_id and calcId would both be CalcID.
+func uniqueSignalIdent(steps []*signalStep, key string) string {
+	base := signalIdent(key)
+	ident := base
+	for n := 2; slices.ContainsFunc(steps, func(s *signalStep) bool {
+		return s.ident == ident
+	}); n++ {
+		ident = base + itoa(n)
+	}
+	return ident
+}
+
+// writeSignalSteps writes the struct type of steps for a declaration
+// indented by depth tabs.
+func writeSignalSteps(b *strings.Builder, steps []*signalStep, depth int) {
+	b.WriteString("struct {\n")
+	for _, s := range steps {
+		b.WriteString(strings.Repeat("\t", depth+1))
+		b.WriteString(s.ident)
+		b.WriteByte(' ')
+		if len(s.next) == 0 {
+			b.WriteString("string")
+		} else {
+			writeSignalSteps(b, s.next, depth+1)
+		}
+		b.WriteString(" `json:\"")
+		b.WriteString(s.key)
+		b.WriteString("\"`\n")
+	}
+	b.WriteString(strings.Repeat("\t", depth))
+	b.WriteByte('}')
 }
 
 // signalIdentMap maps each signal name to the identifier signalIdents gave it.

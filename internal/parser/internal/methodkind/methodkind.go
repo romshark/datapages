@@ -1,5 +1,7 @@
 // Package methodkind classifies handler method names into
-// HTTP method kinds (GET, POST, PUT, PATCH, DELETE) or event handlers.
+// HTTP method kinds (GET, POST, PUT, PATCH, DELETE, QUERY) or event handlers.
+// A method named GET alone is the page's GET handler, GET followed by a name
+// is an action that answers GET.
 package methodkind
 
 import "strings"
@@ -11,23 +13,27 @@ type Kind int8
 const (
 	_ Kind = iota
 	GETHandler
+	ActionGETHandler
 	ActionPOSTHandler
 	ActionPUTHandler
 	ActionPATCHHandler
 	ActionDELETEHandler
+	ActionQUERYHandler
 	StreamOpenHook
 	StreamCloseHook
 	EventHandler
 )
 
 // IsAction reports whether the kind is an action
-// (POST, PUT, PATCH, or DELETE).
+// (GET with a name, POST, PUT, PATCH, DELETE or QUERY).
 func (k Kind) IsAction() bool {
 	switch k {
-	case ActionPOSTHandler,
+	case ActionGETHandler,
+		ActionPOSTHandler,
 		ActionPUTHandler,
 		ActionPATCHHandler,
-		ActionDELETEHandler:
+		ActionDELETEHandler,
+		ActionQUERYHandler:
 		return true
 	}
 	return false
@@ -36,7 +42,7 @@ func (k Kind) IsAction() bool {
 // HTTPMethod returns the HTTP method string for the kind.
 func (k Kind) HTTPMethod() string {
 	switch k {
-	case GETHandler:
+	case GETHandler, ActionGETHandler:
 		return "GET"
 	case ActionPOSTHandler:
 		return "POST"
@@ -46,6 +52,8 @@ func (k Kind) HTTPMethod() string {
 		return "PATCH"
 	case ActionDELETEHandler:
 		return "DELETE"
+	case ActionQUERYHandler:
+		return "QUERY"
 	}
 	return ""
 }
@@ -66,6 +74,8 @@ func Classify(name string) (kind Kind, suffix string) {
 	switch {
 	case name == "GET":
 		return GETHandler, ""
+	case strings.HasPrefix(name, "GET"):
+		return ActionGETHandler, name[len("GET"):]
 	case strings.HasPrefix(name, "POST"):
 		return ActionPOSTHandler, name[len("POST"):]
 	case strings.HasPrefix(name, "PUT"):
@@ -74,6 +84,8 @@ func Classify(name string) (kind Kind, suffix string) {
 		return ActionPATCHHandler, name[len("PATCH"):]
 	case strings.HasPrefix(name, "DELETE"):
 		return ActionDELETEHandler, name[len("DELETE"):]
+	case strings.HasPrefix(name, "QUERY"):
+		return ActionQUERYHandler, name[len("QUERY"):]
 	case name == "StreamOpen":
 		return StreamOpenHook, ""
 	case name == "StreamClose":

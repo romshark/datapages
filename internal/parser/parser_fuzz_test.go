@@ -53,7 +53,7 @@ func FuzzParser(f *testing.F) {
 go 1.27
 
 require (
-	github.com/a-h/templ v0.3.1020
+	github.com/a-h/templ v0.3.1070
 	github.com/starfederation/datastar-go v1.2.2
 )
 `
@@ -124,7 +124,7 @@ func FuzzParserEventHandlerParams(f *testing.F) {
 go 1.27
 
 require (
-	github.com/a-h/templ v0.3.1020
+	github.com/a-h/templ v0.3.1070
 	github.com/starfederation/datastar-go v1.2.2
 )
 `
@@ -214,7 +214,7 @@ func FuzzParserActionHandlerParams(f *testing.F) {
 go 1.27
 
 require (
-	github.com/a-h/templ v0.3.1020
+	github.com/a-h/templ v0.3.1070
 	github.com/starfederation/datastar-go v1.2.2
 )
 `

@@ -180,9 +180,9 @@ type pageIndex struct {
 
 type pageIndex_Input struct{}
 
-// POST references /input/
-func (pageIndex_Input) POST(
-	query pageIndex_Input_POSTQuery,
+// QUERY references /input/
+func (pageIndex_Input) QUERY(
+	query pageIndex_Input_QUERYQuery,
 	options ...Option,
 ) string {
 	var (
@@ -202,7 +202,7 @@ func (pageIndex_Input) POST(
 
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	l := bl + len("@post('/input/'") + actionexpr.OptionsLen(options) + len(")") + al
+	l := bl + len("@query('/input/'") + actionexpr.OptionsLen(options) + len(")") + al
 	if anyQuery {
 		l += len("?")
 	}
@@ -224,7 +224,7 @@ func (pageIndex_Input) POST(
 	b.Grow(l)
 
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/input/")
+	b.WriteString("@query('/input/")
 	if anyQuery {
 		b.WriteString("?")
 	}
@@ -252,16 +252,16 @@ func (pageIndex_Input) POST(
 	return b.String()
 }
 
-type pageIndex_Input_POSTQuery struct {
+type pageIndex_Input_QUERYQuery struct {
 	Btn   int  `query:"btn"`
 	Paste bool `query:"paste"`
 }
 
-func (pageIndex_Input) POSTQuery(
+func (pageIndex_Input) QUERYQuery(
 	vBtn int,
 	vPaste bool,
-) pageIndex_Input_POSTQuery {
-	return pageIndex_Input_POSTQuery{
+) pageIndex_Input_QUERYQuery {
+	return pageIndex_Input_QUERYQuery{
 		Btn:   vBtn,
 		Paste: vPaste,
 	}

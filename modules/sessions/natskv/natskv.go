@@ -5,6 +5,10 @@
 // ({encodedUserID}.{encodedSessionID}) to enable efficient per-user prefix lookups.
 // The cookie value is the composite key encrypted with AES-128-GCM,
 // such that the userID is never exposed to the client.
+// The nonce is derived from the composite key, which gives a session the same
+// token wherever it is handed out: [SessionManager.UserSessions] and
+// [SessionManager.CloseAllUserSessions] yield the token its cookie carries,
+// unless the cookie was issued under a previous key or by an earlier release.
 //
 // The bucket holds the session data and nothing the client sends:
 // a token is rebuilt from the key when one is asked for,
@@ -15,12 +19,13 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
+	"crypto/hkdf"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"iter"
 	"strings"
 	"time"
@@ -89,6 +94,13 @@ func New[Data any](
 		}
 	}
 
+	nonceKey, err := hkdf.Key(
+		sha256.New, conf.EncryptionKey, nil, nonceKeyInfo, sha256.Size,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("deriving the nonce key: %w", err)
+	}
+
 	kvConfig := conf.KVConfig
 	if kvConfig.Bucket == "" {
 		kvConfig.Bucket = DefaultBucket
@@ -112,6 +124,7 @@ func New[Data any](
 		conf:                  conf,
 		kv:                    kv,
 		aeads:                 aeads,
+		nonceKey:              nonceKey,
 		sessionTokenGenerator: sessionTokenGenerator,
 	}, nil
 }
@@ -122,9 +135,12 @@ type Config struct {
 	// encrypt session tokens stored in cookies. Required.
 	EncryptionKey []byte
 
-	// PreviousEncryptionKeys is a list of previous 16-byte AES-128 keys used only for
-	// decrypting existing cookies during key rotation.
-	// New cookies are always encrypted with EncryptionKey.
+	// PreviousEncryptionKeys is a list of previous 16-byte AES-128 keys
+	// used only for decrypting existing cookies during key rotation.
+	// New cookies are always encrypted with [Config.EncryptionKey],
+	// and so are the tokens [SessionManager.UserSessions] and
+	// [SessionManager.CloseAllUserSessions] hand out: for a session
+	// created under a previous key, they differ from its cookie.
 	PreviousEncryptionKeys [][]byte
 
 	KVConfig nats.KeyValueConfig
@@ -135,6 +151,7 @@ type SessionManager[Data any] struct {
 	conf                  Config
 	kv                    nats.KeyValue
 	aeads                 []cipher.AEAD // [0] is primary
+	nonceKey              []byte        // derives the nonce of aeads[0]
 	sessionTokenGenerator SessionTokenGenerator
 }
 
@@ -336,10 +353,7 @@ func (s *SessionManager[Data]) CreateSession(
 	}
 
 	kvKey := compositeKey(rec.UserID, uniqueSessionID)
-	token, err = encrypt(s.aeads[0], kvKey)
-	if err != nil {
-		return "", fmt.Errorf("encrypting session token: %w", err)
-	}
+	token = encrypt(s.aeads[0], s.nonceKey, kvKey)
 
 	value, err := marshalRecord(rec)
 	if err != nil {
@@ -374,19 +388,23 @@ func (s *SessionManager[Data]) CloseSession(
 
 // CloseAllUserSessions closes all sessions for a user and appends the encrypted
 // tokens of the closed ones to buffer, which may be nil.
+// They are the tokens [SessionManager.UserSessions] yields.
 // Only sees sessions that exist at call time;
 // sessions created during iteration are not closed.
+//
+// The end of ctx does not stop it. A request context ends when the client
+// disconnects, and a revocation cut short leaves the remaining sessions signed in.
+// The JetStream request timeout bounds each NATS request and each wait for the
+// next key of the user.
 func (s *SessionManager[Data]) CloseAllUserSessions(
-	ctx context.Context, buffer []string, userID string,
+	_ context.Context, buffer []string, userID string,
 ) ([]string, error) {
 	if userID == "" {
 		return buffer, ErrEmptyUserID
 	}
 	prefix := userKeyPattern(userID)
 	// The token is rebuilt from the key, so the payload is never read here.
-	opts := []nats.WatchOpt{
-		nats.IgnoreDeletes(), nats.Context(ctx), nats.MetaOnly(),
-	}
+	opts := []nats.WatchOpt{nats.IgnoreDeletes(), nats.MetaOnly()}
 	watcher, err := s.kv.Watch(prefix, opts...)
 	if err != nil {
 		return buffer, fmt.Errorf("watching user sessions: %w", err)
@@ -394,39 +412,65 @@ func (s *SessionManager[Data]) CloseAllUserSessions(
 	defer func() { _ = watcher.Stop() }()
 
 	var errs []error
-	for entry := range watcher.Updates() {
-		if entry == nil {
-			break
-		}
+	err = replay(watcher, func(entry nats.KeyValueEntry) {
 		kvKey := entry.Key()
 		if err := s.kv.Delete(kvKey); err != nil {
 			errs = append(errs, fmt.Errorf("deleting session %q: %w", kvKey, err))
-			continue
+			return
 		}
-		token, err := encrypt(s.aeads[0], []byte(kvKey))
-		if err != nil {
-			errs = append(errs, fmt.Errorf(
-				"encrypting token for session %q: %w", kvKey, err,
-			))
-			continue
-		}
-		buffer = append(buffer, token)
+		buffer = append(buffer, encrypt(s.aeads[0], s.nonceKey, []byte(kvKey)))
+	})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("watching user sessions: %w", err))
 	}
-
 	return buffer, errors.Join(errs...)
 }
 
+// errWatchEnded reports a watch that ended before its replay did,
+// which nats.go does when the connection closes.
+var errWatchEnded = errors.New("watch ended before replaying every key")
+
+// replay calls fn with each entry w replays: what the bucket holds under the
+// watched keys when the watch starts. It returns an error unless the replay ran
+// to its end. nats.go closes the updates channel when the context of w ends or
+// the connection closes. It also ends the replay early, with
+// [nats.ErrKeyWatcherTimeout] on [nats.KeyWatcher.Error], when no key arrives
+// within the JetStream request timeout.
+func replay(w nats.KeyWatcher, fn func(nats.KeyValueEntry)) error {
+	for entry := range w.Updates() {
+		if entry != nil {
+			fn(entry)
+			continue
+		}
+		// nats.go sends the error of a stalled replay before its nil entry.
+		select {
+		case err := <-w.Error():
+			return err
+		default:
+			return nil
+		}
+	}
+	if ctx := w.Context(); ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return errWatchEnded
+}
+
 // Session retrieves a session record by its encrypted token.
+// It returns an error matching [ErrSessionNotFound] for a token that names no session,
+// including one that does not decrypt.
 func (s *SessionManager[Data]) Session(
 	_ context.Context, token string,
 ) (rec sessions.Record[Data], err error) {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return rec, fmt.Errorf("decrypting session token: %w", err)
+		return rec, fmt.Errorf("%w: decrypting session token: %w",
+			ErrSessionNotFound, err)
 	}
 	uid, err := parseCompositeKeyUserID(kvKey)
 	if err != nil {
-		return rec, fmt.Errorf("parsing composite key: %w", err)
+		return rec, fmt.Errorf("%w: parsing composite key: %w",
+			ErrSessionNotFound, err)
 	}
 
 	entry, err := s.kv.Get(kvKey)
@@ -451,13 +495,12 @@ func (s *SessionManager[Data]) Session(
 	return rec, nil
 }
 
-// UserSessions returns an iterator over all current
-// sessions for a given user (snapshot, not streaming).
-// Yields (token, session) pairs where token is the encrypted
-// session token usable with CloseSession, Session, and NotifyClosed.
-//
-// The watch is set up before the iterator so that an unreachable store is an
-// error rather than a user with no sessions.
+// UserSessions reads the current sessions of userID before it returns.
+// Its iterator yields them as (token, record) pairs on every range.
+// The token works with [SessionManager.CloseSession], [SessionManager.Session] and
+// [SessionManager.NotifyClosed]. It's the token the session's cookie carries,
+// unless the cookie was encrypted under one of the [Config.PreviousEncryptionKeys]
+// or with a random nonce, the format of earlier releases.
 func (s *SessionManager[Data]) UserSessions(
 	ctx context.Context, userID string,
 ) (iter.Seq2[string, sessions.Record[Data]], error) {
@@ -469,36 +512,39 @@ func (s *SessionManager[Data]) UserSessions(
 	if err != nil {
 		return nil, fmt.Errorf("watching user sessions: %w", err)
 	}
+	defer func() { _ = watcher.Stop() }()
+
+	type userSession struct {
+		token string
+		rec   sessions.Record[Data]
+	}
+	var list []userSession
+	err = replay(watcher, func(entry nats.KeyValueEntry) {
+		var kvRec kvRecord
+		if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
+			return
+		}
+
+		var rec sessions.Record[Data]
+		if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
+			return
+		}
+		// The prefix this scan runs over is the user, so the payload
+		// cannot name another one without the list contradicting itself.
+		rec.UserID = userID
+
+		list = append(list, userSession{
+			token: encrypt(s.aeads[0], s.nonceKey, []byte(entry.Key())),
+			rec:   rec,
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("watching user sessions: %w", err)
+	}
 
 	return func(yield func(string, sessions.Record[Data]) bool) {
-		defer func() { _ = watcher.Stop() }()
-
-		for entry := range watcher.Updates() {
-			if entry == nil {
-				break
-			}
-
-			var kvRec kvRecord
-			if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
-				continue
-			}
-
-			var rec sessions.Record[Data]
-			if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
-				continue
-			}
-			// The prefix this scan runs over is the user, so the payload
-			// cannot name another one without the list contradicting itself.
-			rec.UserID = userID
-
-			// A fresh nonce per call gives a different ciphertext that
-			// decrypts back to the same key, which is all a token is.
-			token, err := encrypt(s.aeads[0], []byte(entry.Key()))
-			if err != nil {
-				continue
-			}
-
-			if !yield(token, rec) {
+		for _, us := range list {
+			if !yield(us.token, us.rec) {
 				return
 			}
 		}
@@ -542,14 +588,25 @@ func parseCompositeKeyUserID(kvKey string) (string, error) {
 	return string(uid), nil
 }
 
+// nonceKeyInfo separates the key that derives nonces from
+// [Config.EncryptionKey], which also keys the cipher.
+const nonceKeyInfo = "datapages natskv token nonce"
+
 // encrypt encrypts plaintext using AES-128-GCM and returns a base64url-encoded string.
-func encrypt(aead cipher.AEAD, plaintext []byte) (string, error) {
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("generating nonce: %w", err)
-	}
+//
+// The nonce is an HMAC of plaintext under nonceKey, which makes the token of a
+// session key the same on every call. GCM forbids one nonce for two plaintexts,
+// which here takes two session keys whose HMACs share their first 96 bits.
+// Like random nonces, these stay within the limit of NIST SP 800-38D,
+// section 8.3, for up to 2^32 sessions under one [Config.EncryptionKey].
+func encrypt(aead cipher.AEAD, nonceKey, plaintext []byte) string {
+	mac := hmac.New(sha256.New, nonceKey)
+	mac.Write(plaintext)
+	n := aead.NonceSize()
+	nonce := make([]byte, n, n+len(plaintext)+aead.Overhead())
+	copy(nonce, mac.Sum(nil))
 	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
-	return base64.RawURLEncoding.EncodeToString(ciphertext), nil
+	return base64.RawURLEncoding.EncodeToString(ciphertext)
 }
 
 // decrypt decodes a base64url string and decrypts it using AES-128-GCM,
@@ -587,29 +644,28 @@ func (s *SessionManager[Data]) DeleteExpired(ctx context.Context) (int, error) {
 	now := time.Now()
 	deleted := 0
 	var errs []error
-	for entry := range watcher.Updates() {
-		if entry == nil {
-			break // The replay of what the bucket holds ended.
-		}
-
+	err = replay(watcher, func(entry nats.KeyValueEntry) {
 		var kvRec kvRecord
 		if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
-			continue
+			return
 		}
 		var rec sessions.Record[Data]
 		if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
-			continue
+			return
 		}
 		if rec.ExpiresAt.IsZero() || now.Before(rec.ExpiresAt) {
-			continue
+			return
 		}
 
 		if err := s.kv.Delete(entry.Key()); err != nil {
 			errs = append(errs,
 				fmt.Errorf("deleting session %q: %w", entry.Key(), err))
-			continue
+			return
 		}
 		deleted++
+	})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("watching sessions: %w", err))
 	}
 	return deleted, errors.Join(errs...)
 }

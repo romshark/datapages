@@ -43,8 +43,14 @@ func External(url string) string {
 // PageBoom references /boom/{$}
 func PageBoom() string { return "/boom/" }
 
+// PageDenied references /denied/{$}
+func PageDenied() string { return "/denied/" }
+
 // PageError404 references /not-found/{$}
 func PageError404() string { return "/not-found/" }
+
+// PageGone references /gone/{$}
+func PageGone() string { return "/gone/" }
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }

@@ -32,3 +32,12 @@ type PageBoom struct{ App *App }
 func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
 	return nil, errors.New("the page could not be built")
 }
+
+// PageGone is /gone
+//
+// The app supplies no PageError404.
+type PageGone struct{ App *App }
+
+func (PageGone) GET(_ *http.Request) (body datapages.Component, err error) {
+	return nil, datapages.ErrNotFound
+}

@@ -16,9 +16,9 @@ import (
 // the block binds.
 //
 // The table is what newAppImports names a package the model brings along against.
-// An import missing from it is one a foreign package can be named after,
-// which leaves a single identifier naming two packages. A path with the
-// wrong identifier is worse: the type renders under a name nothing imports.
+// A path with the wrong identifier renders a model type under a name nothing
+// imports. A path missing from it is imported a second time, under an alias,
+// for a model type from that package.
 //
 // The header is written with every option on, since a name is taken for good
 // once any model can take it.
@@ -68,14 +68,16 @@ func TestAppFixedImportsCoverTheHeader(t *testing.T) {
 	require.Equal(t, appFixedImports, got)
 }
 
-// TestNewGenImportsAliasesATakenName tests the three answers the table gives a package:
-// the app package keeps the identifier the caller fixed for it,
-// a free declared name is kept, and a taken one takes the "dp" prefix.
+// TestNewGenImportsAliasesATakenName tests the answers the table gives a package:
+// the app package keeps the identifier the caller fixed for it, a free declared
+// name is kept unless the caller aliases every package, and a taken one takes
+// the "dp" prefix.
 func TestNewGenImportsAliasesATakenName(t *testing.T) {
 	t.Parallel()
 
 	for name, tt := range map[string]struct {
 		pkgs      []fakePkg
+		aliasAll  bool
 		wantIdent map[string]string
 		wantExtra []genImport
 	}{
@@ -84,6 +86,14 @@ func TestNewGenImportsAliasesATakenName(t *testing.T) {
 			wantIdent: map[string]string{"example.com/m/mytypes": "mytypes"},
 			wantExtra: []genImport{
 				{Path: "example.com/m/mytypes", Ident: "mytypes"},
+			},
+		},
+		"free name is prefixed when every package is aliased": {
+			pkgs:      []fakePkg{{path: "example.com/m/query", name: "query"}},
+			aliasAll:  true,
+			wantIdent: map[string]string{"example.com/m/query": "dpQuery"},
+			wantExtra: []genImport{
+				{Path: "example.com/m/query", Ident: "dpQuery", Aliased: true},
 			},
 		},
 		"taken name is prefixed": {
@@ -123,7 +133,7 @@ func TestNewGenImportsAliasesATakenName(t *testing.T) {
 				pkgs = append(pkgs, types.NewPackage(p.path, p.name))
 			}
 			g := newGenImports(pkgs, appTakenIdents(),
-				map[string]string{"example.com/m/app": appPkgQual})
+				map[string]string{"example.com/m/app": appPkgQual}, tt.aliasAll)
 
 			qual := g.Qualifier()
 			require.Equal(t, appPkgQual,

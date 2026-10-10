@@ -170,30 +170,35 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-var PageRooms pageRooms
+var PagePanic pagePanic
 
-type pageRooms struct {
-	DM     pageRooms_DM
-	Notice pageRooms_Notice
-	Post   pageRooms_Post
+type pagePanic struct {
+	Fault pagePanic_Fault
 }
 
-type pageRooms_DM struct{}
+type pagePanic_Fault struct{}
 
-// POST references /rooms/dm/
-func (pageRooms_DM) POST(options ...Option) string {
+// POST references /panic/fault/
+func (pagePanic_Fault) POST(options ...Option) string {
 	if len(options) == 0 {
-		return "@post('/rooms/dm/')"
+		return "@post('/panic/fault/')"
 	}
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/rooms/dm/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@post('/panic/fault/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/rooms/dm/'")
+	b.WriteString("@post('/panic/fault/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
 	return b.String()
+}
+
+var PageRooms pageRooms
+
+type pageRooms struct {
+	Notice pageRooms_Notice
+	Post   pageRooms_Post
 }
 
 type pageRooms_Notice struct{}

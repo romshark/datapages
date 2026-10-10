@@ -12,6 +12,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -22,6 +23,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/serverscan"
 	"github.com/romshark/datapages/runtime/hrefcheck"
 )
 
@@ -42,6 +44,8 @@ func posFromRange(filename string, r templparser.Range) token.Position {
 // in parsed Go expressions. It handles both qualified (pkg.Func()) and
 // dot-imported (Func()) call patterns.
 type pkgMatcher struct {
+	// path is the import path of the package.
+	path string
 	// localName is the import qualifier (e.g. "href", "myhref").
 	// Empty for dot-imports.
 	localName string
@@ -100,22 +104,28 @@ func selectorPath(expr ast.Expr) (root *ast.Ident, path []string) {
 	}
 }
 
-// parsedTempl holds a pre-parsed .templ file and its base filename.
+// parsedTempl holds a pre-parsed .templ file, its base filename
+// and the checker of its package matching its imports.
 type parsedTempl struct {
 	file     *templparser.TemplateFile
 	filename string // base filename
+	c        checker
 }
 
-// checker holds resolved state shared across all checks.  hrefPkg and actionPkg are
-// the matchers of the file being checked, set by [checker.forFile].
+// checker holds resolved state shared across all checks of one package.
+// hrefPkg, actionPkg and imports belong to the file being checked,
+// set by [checker.forFile].
 type checker struct {
 	errFn        ErrFunc
+	pkgPath      string
 	constValues  map[string]string
 	importConsts map[string]map[string]string // localName -> constName -> value
 	hrefPkgs     map[string]*pkgMatcher       // .templ filename -> matcher
 	actionPkgs   map[string]*pkgMatcher
+	fileImports  map[string]templImports // .templ filename -> imports
 	hrefPkg      *pkgMatcher
 	actionPkg    *pkgMatcher
+	imports      templImports
 }
 
 // forFile returns a copy of c matching the imports of one .templ file.
@@ -125,54 +135,95 @@ func (c *checker) forFile(filename string) checker {
 	fc := *c
 	fc.hrefPkg = c.hrefPkgs[filename]
 	fc.actionPkg = c.actionPkgs[filename]
+	fc.imports = c.fileImports[filename]
 	return fc
 }
 
-// Check validates .templ files in pkg and reports errors via errFn.
+// Check validates the .templ files of pkg and of the packages of its module
+// that pkg imports, directly or not, and reports errors via errFn.
 func Check(
 	pkg *packages.Package,
 	app *model.App,
 	errFn ErrFunc,
 ) {
-	c := checker{
-		errFn:        errFn,
-		constValues:  resolveConstValues(pkg),
-		importConsts: resolveImportConsts(pkg),
-		hrefPkgs:     resolvePkgMatchers(pkg, "/href", "href"),
-		actionPkgs:   resolvePkgMatchers(pkg, "/action", "action"),
-	}
-	templPaths := templFilesFromPackage(pkg)
 	var parsed []parsedTempl
-	for _, templPath := range templPaths {
-		tf, err := templparser.Parse(templPath)
-		if err != nil {
-			continue
+	for _, p := range templPackages(pkg) {
+		c := checker{
+			errFn:        errFn,
+			pkgPath:      p.PkgPath,
+			constValues:  resolveConstValues(p),
+			importConsts: resolveImportConsts(p),
+			hrefPkgs:     resolvePkgMatchers(p, "/href", "href"),
+			actionPkgs:   resolvePkgMatchers(p, "/action", "action"),
+			fileImports:  resolveTemplImports(p),
 		}
-		parsed = append(parsed, parsedTempl{
-			file:     tf,
-			filename: filepath.Base(templPath),
-		})
+		for _, templPath := range templFilesFromPackage(p) {
+			tf, err := templparser.Parse(templPath)
+			if err != nil {
+				continue
+			}
+			filename := filepath.Base(templPath)
+			parsed = append(parsed, parsedTempl{
+				file:     tf,
+				filename: filename,
+				c:        c.forFile(filename),
+			})
+		}
 	}
 	for _, pt := range parsed {
-		fc := c.forFile(pt.filename)
-		fc.checkParsedTemplFile(pt.filename, pt.file)
+		pt.c.checkParsedTemplFile(pt.filename, pt.file)
 	}
 	if app != nil {
-		c.checkActionOwnership(pkg, app, parsed)
+		checkActionOwnership(pkg, app, parsed, errFn)
 	}
+}
+
+// templPackages returns root and the packages of its module that root imports,
+// directly or not, and that hold templ files: root first, the others by path.
+func templPackages(root *packages.Package) []*packages.Package {
+	pkgs := []*packages.Package{root}
+	if root.Module == nil {
+		return pkgs
+	}
+	var deps []*packages.Package
+	seen := map[string]bool{root.PkgPath: true}
+	var walk func(p *packages.Package)
+	walk = func(p *packages.Package) {
+		for _, imp := range p.Imports {
+			if seen[imp.PkgPath] {
+				continue
+			}
+			seen[imp.PkgPath] = true
+			if imp.Module != nil && imp.Module.Path == root.Module.Path &&
+				len(templFilesFromPackage(imp)) > 0 {
+				deps = append(deps, imp)
+			}
+			walk(imp)
+		}
+	}
+	walk(root)
+	slices.SortFunc(deps, func(a, b *packages.Package) int {
+		return strings.Compare(a.PkgPath, b.PkgPath)
+	})
+	return append(pkgs, deps...)
 }
 
 // resolveConstValues builds a map from package-level constant names to their
 // string values. This allows the linter to detect hardcoded URLs hidden behind
 // named constants. Only constants are trusted (variables can be reassigned).
+//
+// A template expression is matched by name alone. A function-local constant of
+// the same name would compete with the package-level one for the entry,
+// and which one won would change from run to run.
 func resolveConstValues(pkg *packages.Package) map[string]string {
 	m := map[string]string{}
-	for ident, obj := range pkg.TypesInfo.Defs {
-		c, ok := obj.(*types.Const)
+	scope := pkg.Types.Scope()
+	for _, name := range scope.Names() {
+		c, ok := scope.Lookup(name).(*types.Const)
 		if !ok || c.Val().Kind() != constant.String {
 			continue
 		}
-		m[ident.Name] = constant.StringVal(c.Val())
+		m[name] = constant.StringVal(c.Val())
 	}
 	return m
 }
@@ -263,6 +314,43 @@ func resolvePkgMatchers(
 	return out
 }
 
+// templImports are the imports of one .templ file a templ call can name a
+// component through: the path by the name a call qualifies it with,
+// and the paths imported with a dot.
+type templImports struct {
+	named map[string]string
+	dot   []string
+}
+
+// resolveTemplImports reads the imports of each .templ file of pkg from its
+// _templ.go file, keyed by the .templ filename.
+func resolveTemplImports(pkg *packages.Package) map[string]templImports {
+	out := map[string]templImports{}
+	for _, f := range pkg.Syntax {
+		filename := pkg.Fset.Position(f.Pos()).Filename
+		if !strings.HasSuffix(filename, "_templ.go") {
+			continue
+		}
+		imps := templImports{named: map[string]string{}}
+		for _, imp := range f.Imports {
+			importPath, _ := strconv.Unquote(imp.Path.Value)
+			switch {
+			case imp.Name == nil:
+				if dep := pkg.Imports[importPath]; dep != nil && dep.Name != "" {
+					imps.named[dep.Name] = importPath
+				}
+			case imp.Name.Name == ".":
+				imps.dot = append(imps.dot, importPath)
+			case imp.Name.Name != "_":
+				imps.named[imp.Name.Name] = importPath
+			}
+		}
+		base := filepath.Base(filename)
+		out[strings.TrimSuffix(base, "_templ.go")+".templ"] = imps
+	}
+	return out
+}
+
 // fileMatcher returns the matcher for the import of one file, nil when the
 // file imports no such package or imports it in a way that admits no call.
 func fileMatcher(
@@ -287,12 +375,12 @@ func fileMatcher(
 				if len(exports) == 0 {
 					return nil
 				}
-				return &pkgMatcher{exports: exports}
+				return &pkgMatcher{path: importPath, exports: exports}
 			default:
-				return &pkgMatcher{localName: imp.Name.Name}
+				return &pkgMatcher{path: importPath, localName: imp.Name.Name}
 			}
 		}
-		return &pkgMatcher{localName: defaultName}
+		return &pkgMatcher{path: importPath, localName: defaultName}
 	}
 	return nil
 }
@@ -338,7 +426,7 @@ func (c *checker) walkChildren(filename string, nodes []templparser.Node) {
 			continue
 		case *templparser.Element:
 			if !prevIsNolint {
-				c.checkElementAttrs(filename, n)
+				c.checkElementAttrs(filename, n.Name, n.Attributes)
 			}
 			c.walkChildren(filename, n.Children)
 		case templparser.CompositeNode:
@@ -348,9 +436,16 @@ func (c *checker) walkChildren(filename string, nodes []templparser.Node) {
 	}
 }
 
-func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
-	for _, attr := range el.Attributes {
+// checkElementAttrs checks attrs, the attributes of an element named elName.
+func (c *checker) checkElementAttrs(
+	filename, elName string, attrs []templparser.Attribute,
+) {
+	for _, attr := range attrs {
 		switch a := attr.(type) {
+		case *templparser.ConditionalAttribute:
+			// Either branch can render.
+			c.checkElementAttrs(filename, elName, a.Then)
+			c.checkElementAttrs(filename, elName, a.Else)
 		case *templparser.ConstantAttribute:
 			key, ok := a.Key.(templparser.ConstantAttributeKey)
 			if !ok {
@@ -358,12 +453,12 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 			}
 			switch key.Name {
 			case "href":
-				if el.Name != "a" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
+				if elName != "a" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
 					continue
 				}
 				c.errFn(posFromRange(filename, a.Range), &HrefRelativeError{URL: a.Value})
 			case "action":
-				if el.Name != "form" {
+				if elName != "form" {
 					continue
 				}
 				c.errFn(posFromRange(filename, a.Range), &FormActionError{})
@@ -385,7 +480,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 			exprAST, parseErr := goparser.ParseExpr(a.Expression.Value)
 			switch key.Name {
 			case "href":
-				if el.Name != "a" {
+				if elName != "a" {
 					continue
 				}
 				if parseErr != nil {
@@ -402,7 +497,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 					)
 				}
 			case "action":
-				if el.Name != "form" {
+				if elName != "form" {
 					continue
 				}
 				c.errFn(exprPos, &FormActionError{})
@@ -495,7 +590,7 @@ func hasAttrPrefix(name, prefix string) bool {
 // hardcodedActionRE matches Datastar action calls with literal URL arguments,
 // e.g. @post('/login') or @get("/api/data").
 var hardcodedActionRE = regexp.MustCompile(
-	`@(?:post|get|put|delete|patch)\s*\(\s*['"]([^'"]*)['"]\s*\)`,
+	`@(?:post|get|put|delete|patch|query)\s*\(\s*['"]([^'"]*)['"]\s*\)`,
 )
 
 // extractHardcodedActionURLs returns the URLs from hardcoded Datastar action
@@ -803,8 +898,9 @@ func findPkgCalls(expr string, m *pkgMatcher, fn func(funcName string)) {
 }
 
 // funcInfo holds information extracted from a single templ function definition.
+// A function is keyed by its package path, a dot and its name, as are its calls.
 type funcInfo struct {
-	name       string
+	key        string
 	filename   string // base filename
 	childCalls []string
 	actionRefs []actionRef
@@ -818,26 +914,36 @@ type actionRef struct {
 
 // checkActionOwnership verifies that action.XXX() calls in templ templates
 // are only used in pages that own those actions.
-func (c *checker) checkActionOwnership(
+//
+// A template belongs to every page whose GET handler reaches it, directly or
+// through other templates, whichever package of parsed declares it.
+// Only calls into the action package generated for app count:
+// another app of the module has its own.
+func checkActionOwnership(
 	pkg *packages.Package,
 	app *model.App,
 	parsed []parsedTempl,
+	errFn ErrFunc,
 ) {
 	// Build action ownership map: generated func name -> page type name (or "App").
 	actionOwner := buildActionOwnerMap(app)
 	if len(actionOwner) == 0 {
 		return
 	}
+	actionPath := pkg.PkgPath + "/" + serverscan.GenSubdir + "/action"
 
 	// Extract function info from pre-parsed templ files.
-	funcsByName := map[string]*funcInfo{}
+	funcs := map[string]*funcInfo{}
 	for _, pt := range parsed {
-		fc := c.forFile(pt.filename)
-		for _, fi := range fc.extractTemplFuncInfos(pt.filename, pt.file) {
-			funcsByName[fi.name] = fi
+		c := pt.c
+		if c.actionPkg != nil && c.actionPkg.path != actionPath {
+			c.actionPkg = nil
+		}
+		for _, fi := range c.extractTemplFuncInfos(pt.filename, pt.file) {
+			funcs[fi.key] = fi
 		}
 	}
-	if len(funcsByName) == 0 {
+	if len(funcs) == 0 {
 		return
 	}
 
@@ -851,8 +957,8 @@ func (c *checker) checkActionOwnership(
 		if fd == nil {
 			continue
 		}
-		entries := extractTemplCallsFromBody(fd.Body, funcsByName)
-		reachable := bfsTemplFuncs(entries, funcsByName)
+		entries := extractTemplCallsFromBody(pkg.TypesInfo, fd.Body, funcs)
+		reachable := bfsTemplFuncs(entries, funcs)
 
 		for _, fi := range reachable {
 			for _, ref := range fi.actionRefs {
@@ -868,7 +974,7 @@ func (c *checker) checkActionOwnership(
 					Line:     ref.line,
 					Column:   ref.col,
 				}
-				c.errFn(pos, &ActionWrongPageError{
+				errFn(pos, &ActionWrongPageError{
 					ActionFunc: ref.funcName,
 					PageType:   page.TypeName,
 					OwnerPage:  owner,
@@ -911,7 +1017,7 @@ func (c *checker) extractTemplFuncInfos(
 		if name == "" {
 			continue
 		}
-		fi := &funcInfo{name: name, filename: filename}
+		fi := &funcInfo{key: c.pkgPath + "." + name, filename: filename}
 		c.collectTemplCalls(tmpl.Children, fi)
 		funcs = append(funcs, fi)
 	}
@@ -933,18 +1039,14 @@ func (c *checker) collectTemplCalls(nodes []templparser.Node, fi *funcInfo) {
 	for _, node := range nodes {
 		switch n := node.(type) {
 		case *templparser.TemplElementExpression:
-			if name := templCallName(n.Expression.Value); name != "" {
-				fi.childCalls = append(fi.childCalls, name)
-			}
+			fi.childCalls = append(fi.childCalls, c.templCallKeys(n.Expression.Value)...)
 			c.collectActionRefs(n.Expression, fi)
 			c.collectTemplCalls(n.Children, fi)
 		case *templparser.CallTemplateExpression:
-			if name := templCallName(n.Expression.Value); name != "" {
-				fi.childCalls = append(fi.childCalls, name)
-			}
+			fi.childCalls = append(fi.childCalls, c.templCallKeys(n.Expression.Value)...)
 			c.collectActionRefs(n.Expression, fi)
 		case *templparser.Element:
-			c.collectElementActionRefs(n, fi)
+			c.collectElementActionRefs(n.Attributes, fi)
 			c.collectTemplCalls(n.Children, fi)
 		case *templparser.StringExpression:
 			c.collectActionRefs(n.Expression, fi)
@@ -954,19 +1056,35 @@ func (c *checker) collectTemplCalls(nodes []templparser.Node, fi *funcInfo) {
 	}
 }
 
-// templCallName extracts a local function name from a templ call expression.
-// "header()" -> "header", "pkg.Foo()" -> "" (not local).
-func templCallName(expr string) string {
-	expr = strings.TrimSpace(expr)
-	i := strings.IndexByte(expr, '(')
-	if i <= 0 {
-		return ""
+// templCallKeys returns the keys of the functions a templ call can name:
+// "header()" one of this package or of a package imported with a dot,
+// "ui.Card()" one of the package the file imports as ui.
+func (c *checker) templCallKeys(expr string) []string {
+	x, err := goparser.ParseExpr(expr)
+	if err != nil {
+		return nil
 	}
-	name := strings.TrimSpace(expr[:i])
-	if strings.ContainsAny(name, ". ") {
-		return "" // qualified or complex expression
+	call, ok := x.(*ast.CallExpr)
+	if !ok {
+		return nil
 	}
-	return name
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		keys := []string{c.pkgPath + "." + fun.Name}
+		for _, path := range c.imports.dot {
+			keys = append(keys, path+"."+fun.Name)
+		}
+		return keys
+	case *ast.SelectorExpr:
+		qualifier, ok := fun.X.(*ast.Ident)
+		if !ok {
+			return nil
+		}
+		if path, ok := c.imports.named[qualifier.Name]; ok {
+			return []string{path + "." + fun.Sel.Name}
+		}
+	}
+	return nil
 }
 
 // collectActionRefs parses a Go expression and collects action.XXX() references.
@@ -980,15 +1098,17 @@ func (c *checker) collectActionRefs(expr templparser.Expression, fi *funcInfo) {
 	})
 }
 
-// collectElementActionRefs scans an element's expression attributes for
-// action.XXX() references.
-func (c *checker) collectElementActionRefs(el *templparser.Element, fi *funcInfo) {
-	for _, attr := range el.Attributes {
-		ea, ok := attr.(*templparser.ExpressionAttribute)
-		if !ok {
-			continue
+// collectElementActionRefs scans the expression attributes of an element,
+// in either branch of a conditional attribute too, for action.XXX() references.
+func (c *checker) collectElementActionRefs(attrs []templparser.Attribute, fi *funcInfo) {
+	for _, attr := range attrs {
+		switch a := attr.(type) {
+		case *templparser.ExpressionAttribute:
+			c.collectActionRefs(a.Expression, fi)
+		case *templparser.ConditionalAttribute:
+			c.collectElementActionRefs(a.Then, fi)
+			c.collectElementActionRefs(a.Else, fi)
 		}
-		c.collectActionRefs(ea.Expression, fi)
 	}
 }
 
@@ -1026,11 +1146,12 @@ func recvTypeName(expr ast.Expr) string {
 	return ""
 }
 
-// extractTemplCallsFromBody walks a Go function body and returns the names
-// of templ functions that are called (identified by matching known templ
-// function names).
-func extractTemplCallsFromBody(body *ast.BlockStmt, known map[string]*funcInfo) []string {
-	if body == nil {
+// extractTemplCallsFromBody returns the keys of the known templ functions
+// a Go function body calls, in its own package or in another.
+func extractTemplCallsFromBody(
+	info *types.Info, body *ast.BlockStmt, known map[string]*funcInfo,
+) []string {
+	if info == nil || body == nil {
 		return nil
 	}
 	seen := map[string]bool{}
@@ -1039,20 +1160,25 @@ func extractTemplCallsFromBody(body *ast.BlockStmt, known map[string]*funcInfo) 
 		if !ok {
 			return true
 		}
-		ident, ok := call.Fun.(*ast.Ident)
-		if !ok {
+		var id *ast.Ident
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			id = fun
+		case *ast.SelectorExpr:
+			id = fun.Sel
+		default:
 			return true
 		}
-		if _, exists := known[ident.Name]; exists {
-			seen[ident.Name] = true
+		fn, ok := info.Uses[id].(*types.Func)
+		if !ok || fn.Pkg() == nil || fn.Signature().Recv() != nil {
+			return true
+		}
+		if key := fn.Pkg().Path() + "." + fn.Name(); known[key] != nil {
+			seen[key] = true
 		}
 		return true
 	})
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	return names
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // bfsTemplFuncs returns all templ functions reachable from the given

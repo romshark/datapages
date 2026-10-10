@@ -53,6 +53,7 @@ func toSnakeCase(s string) string {
 //   - ErrSignatureEvHandReturnMustBeError: message names the required return type
 //   - ErrPageHasExtraFields: message states to remove the fields
 //   - ErrPageConflictingGETEmbed: message names the conflicting embedded types
+//   - ErrPageAmbiguousEmbed: message identifies the page and the method
 //   - ErrPageNameInvalid: naming rule is clear from valid examples
 //   - ErrAppUnsupportedMethod: message names what App takes
 //   - ErrPageNotStruct: message names the required type form
@@ -65,6 +66,7 @@ func toSnakeCase(s string) string {
 //   - ErrEventFieldUnexported: fix is obvious: capitalize the field name
 //   - ErrEventFieldDuplicateTag: message names the duplicate value
 //   - ErrFieldTypeUnexported: fix is obvious: export the type
+//   - ErrValuesTypeUnexported: fix is obvious: export the type
 //   - ErrPathParamNotStruct: type constraint is clear from message
 //   - ErrPathFieldUnexported: fix is obvious: capitalize the field name
 //   - ErrPathFieldDuplicateTag: message names the duplicate value
@@ -89,6 +91,11 @@ func toSnakeCase(s string) string {
 //   - ErrSSEOnGET: message states where sse is not allowed
 //   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
 //   - ErrDisableRefreshNotGET: message states it must be in a GET handler
+//   - ErrGETActionInput: message names the parameters a GET action takes
+//   - ErrGETActionNameConflict: message names both GET actions
+//   - ErrFileWithOutput: message states what may be returned with the file
+//   - ErrFileWithSSE: message states the mutual exclusion
+//   - ErrFileWithPageCache: message states the mutual exclusion
 //   - ErrEventSubjectUserNoSession: has a dedicated suggestion
 //   - ErrEventSubjectAfterPayload: has a dedicated suggestion
 func Suggest(err error) string {
@@ -116,6 +123,16 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureActionHeadWithoutBody):
 		return "fix: Add `body datapages.Component` to return values, or drop the head"
 
+	case errors.Is(err, parser.ErrBodyWithSSE):
+		return "fix: Send the body with sse.PatchElement and drop the body return value"
+
+	case errors.Is(err, parser.ErrGETActionMissingFile):
+		return "fix: Add `file datapages.File` to return values"
+
+	case errors.Is(err, parser.ErrFileOnPageGET):
+		return "fix: Return the file from a GET action, " +
+			"a method named GET followed by a name, such as GETDownload"
+
 	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
 		return "fix: Add `sse datapages.SSE` parameter"
 
@@ -124,6 +141,14 @@ func Suggest(err error) string {
 
 	case errors.Is(err, parser.ErrSignatureEvHandMultipleEvents):
 		return "fix: Keep one parameter of an EventXXX type and remove the rest"
+
+	case errors.Is(err, parser.ErrSignatureEvHandEventPointer):
+		var d *parser.SignatureEvHandEventPointerError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Take the event as `%s`, not `*%s`",
+			d.EventType, d.EventType)
 
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.PageMissingFieldAppError
@@ -164,6 +189,42 @@ func Suggest(err error) string {
 		suffix := methodPathSuffix(d.MethodName)
 		path := urlpath.Clean(d.PagePath) + "/" + suffix
 		return fmt.Sprintf("fix: Use `// %s is %s`", d.MethodName, path)
+
+	case errors.Is(err, parser.ErrRouteWildcardStream):
+		var d *parser.RouteWildcardStreamError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
+	case errors.Is(err, parser.ErrRouteWildcardAction):
+		var d *parser.RouteWildcardActionError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
+	case errors.Is(err, parser.ErrRouteExactMatchStream):
+		var d *parser.RouteExactMatchStreamError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
+	case errors.Is(err, parser.ErrRouteExactMatchAction):
+		var d *parser.RouteExactMatchActionError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return removeRouteEnd(d.TypeName, d.Route)
+
+	case errors.Is(err, parser.ErrActionRouteWildcard):
+		var d *parser.ActionRouteWildcardError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Pass %s in a query parameter or a signal instead",
+			d.Route[strings.LastIndex(d.Route, "/")+1:])
 
 	case errors.Is(err, parser.ErrPageMissingGET):
 		var d *parser.PageMissingGETError
@@ -210,6 +271,16 @@ func Suggest(err error) string {
 			"fix: Rename {%s} to a Go identifier that is not a keyword. "+
 				"The generated href and action builders name a parameter after it.",
 			d.Var,
+		)
+
+	case errors.Is(err, parser.ErrRouteCharInvalid):
+		var d *parser.RouteCharInvalidError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Write %q as %%%02X. net/http decodes it before matching the route.",
+			d.Char, d.Char,
 		)
 
 	case errors.Is(err, parser.ErrEventCommMissing):
@@ -342,6 +413,10 @@ func Suggest(err error) string {
 		return "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
 			" is always bound to the authenticated user's ID"
 
+	case errors.Is(err, parser.ErrEventSubjectUserDuplicate):
+		return "fix: Keep one datapages.SubjectUser field " +
+			"and dispatch the event once per user."
+
 	case errors.Is(err, parser.ErrEventSubjectPrefixedField):
 		var d *parser.EventSubjectPrefixedFieldError
 		if !errors.As(err, &d) {
@@ -361,6 +436,16 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Type %s in %s as %s instead of %s",
 			d.FieldName, d.TypeName, d.SubjectTypeName, d.DeclTypeName,
+		)
+
+	case errors.Is(err, parser.ErrEventSubjectContained):
+		var d *parser.EventSubjectContainedError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Type %s in %s as %s and dispatch the event once per value",
+			d.FieldName, d.TypeName, d.SubjectTypeName,
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectSignalInvalid):
@@ -571,11 +656,18 @@ func pageTypePath(typeName string) string {
 	return "/" + strings.ToLower(suffix) + "/"
 }
 
+// removeRouteEnd suggests removing the {$} or {name...} wildcard a page route
+// ends in, which limits the page to GET. Without {$} the page keeps its URL.
+func removeRouteEnd(typeName, route string) string {
+	return fmt.Sprintf("fix: Remove %s from the route of %s",
+		route[strings.LastIndex(route, "/")+1:], typeName)
+}
+
 // methodPathSuffix derives a suggested URL path segment from an action method name
 // by stripping the HTTP method prefix and lowercasing the remainder.
 // E.g., "POSTFoo" -> "foo", "DELETEFooBar" -> "foobar".
 func methodPathSuffix(method string) string {
-	for _, prefix := range []string{"DELETE", "PATCH", "POST", "PUT", "GET"} {
+	for _, prefix := range []string{"DELETE", "PATCH", "POST", "PUT", "QUERY", "GET"} {
 		if after, ok := strings.CutPrefix(method, prefix); ok && after != "" {
 			return strings.ToLower(after)
 		}

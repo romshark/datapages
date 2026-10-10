@@ -72,26 +72,6 @@ func namedType(t *testing.T, src string) types.Type {
 	return obj.Type()
 }
 
-// fakeStructInfo returns an *ast.Field whose Type is
-// an *ast.StructType, paired with a types.Info that maps
-// that expression to a non-struct type. This triggers the
-// defensive second Underlying() check.
-func fakeStructInfo() (*ast.Field, *types.Info) {
-	st := &ast.StructType{
-		Fields: &ast.FieldList{},
-	}
-	f := &ast.Field{
-		Names: []*ast.Ident{{Name: "x"}},
-		Type:  st,
-	}
-	info := &types.Info{
-		Types: map[ast.Expr]types.TypeAndValue{
-			st: {Type: types.Typ[types.Int]},
-		},
-	}
-	return f, info
-}
-
 // wrapperSrc declares the datapages input types and a function taking one
 // parameter of each, plus one that is none of them. It is type-checked under
 // the import path of the datapages package, which is what the predicates match.
@@ -277,9 +257,7 @@ func f(path struct {
 			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
-			err := ValidatePathStruct(
-				p.Type, info, "Recv", "Method",
-			)
+			err := ValidatePathStruct(info.TypeOf(p.Type), "Recv", "Method")
 			if tt.wantErr == nil {
 				require.NoError(t, err)
 			} else {
@@ -290,10 +268,7 @@ func f(path struct {
 
 	t.Run("resolved type not struct", func(t *testing.T) {
 		t.Parallel()
-		f, info := fakeStructInfo()
-		err := ValidatePathStruct(
-			f.Type, info, "Recv", "Method",
-		)
+		err := ValidatePathStruct(types.Typ[types.Int], "Recv", "Method")
 		require.ErrorIs(t, err, ErrPathParamNotStruct)
 	})
 }
@@ -425,9 +400,7 @@ func f(query struct {
 			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
-			err := ValidateQueryStruct(
-				p.Type, info, "Recv", "Method",
-			)
+			err := ValidateQueryStruct(info.TypeOf(p.Type), "Recv", "Method")
 			if tt.wantErr == nil {
 				require.NoError(t, err)
 			} else {
@@ -438,10 +411,7 @@ func f(query struct {
 
 	t.Run("resolved type not struct", func(t *testing.T) {
 		t.Parallel()
-		f, info := fakeStructInfo()
-		err := ValidateQueryStruct(
-			f.Type, info, "Recv", "Method",
-		)
+		err := ValidateQueryStruct(types.Typ[types.Int], "Recv", "Method")
 		require.ErrorIs(t, err, ErrQueryParamNotStruct)
 	})
 }
@@ -512,9 +482,7 @@ func f(signals struct {
 			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
-			err := ValidateSignalsStruct(
-				p.Type, info, "Recv", "Method",
-			)
+			err := ValidateSignalsStruct(info.TypeOf(p.Type), "Recv", "Method")
 			if tt.wantErr == nil {
 				require.NoError(t, err)
 			} else {
@@ -525,10 +493,7 @@ func f(signals struct {
 
 	t.Run("resolved type not struct", func(t *testing.T) {
 		t.Parallel()
-		f, info := fakeStructInfo()
-		err := ValidateSignalsStruct(
-			f.Type, info, "Recv", "Method",
-		)
+		err := ValidateSignalsStruct(types.Typ[types.Int], "Recv", "Method")
 		require.ErrorIs(
 			t, err, ErrSignalsParamNotStruct,
 		)

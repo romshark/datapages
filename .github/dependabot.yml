@@ -35,6 +35,7 @@ updates:
     directories:
       - /example/tailwindcss
       - /example/webcomponents/js
+      - /example/docs/web
     schedule:
       interval: weekly
     commit-message:

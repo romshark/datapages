@@ -50,12 +50,14 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:      status,
 		HeadGeneric: headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
 			// The id authorizes access to one tab's state. The fetch wrapper keeps
@@ -485,11 +487,11 @@ func (s pageCloseStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/closestate/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/closestate/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageCloseState", err)
 		return
@@ -618,11 +620,11 @@ func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/failopen/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/failopen/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageFailOpen", err)
 		return
@@ -708,11 +710,11 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -868,11 +870,11 @@ func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/panicclose/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/panicclose/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PagePanicOnClose", err)
 		return

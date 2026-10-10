@@ -124,7 +124,7 @@ const (
 			const isReq=i instanceof Request
 			const r=isReq ? i:new Request(i,init)
 			if (r.headers.get("Datastar-Request")!=="true" ||
-				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
+				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"||r.method=="QUERY"
 			) return isReq ? o(r,init):o(r)
 			const h=new Headers(r.headers)
 			h.set("X-CSRF-Token",'`
@@ -244,7 +244,7 @@ func (m *Manager[Data]) SessionCookie(r *http.Request) string {
 }
 
 // CheckCSRF answers r and returns false when the request carries no valid CSRF token.
-// A read method, a guest and disabled protection all pass.
+// A read method (GET, HEAD, OPTIONS or QUERY), a guest and disabled protection all pass.
 func (m *Manager[Data]) CheckCSRF(
 	w http.ResponseWriter, r *http.Request, sessionToken string,
 ) (ok bool) {
@@ -252,6 +252,7 @@ func (m *Manager[Data]) CheckCSRF(
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
+		r.Method == "QUERY" ||
 		m.csrfDisabled {
 		return true
 	}

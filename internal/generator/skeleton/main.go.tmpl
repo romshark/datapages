@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 
 	"github.com/romshark/datapages"
@@ -39,7 +40,8 @@ func main() {
 	host := envOr("HOST", "localhost")
 	port := envOr("PORT", "8080")
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	var opts []datapages.ServerOption
@@ -49,6 +51,14 @@ func main() {
 {{- end}}
 {{- if .Prometheus}}
 	initMetrics(&opts)
+{{- end}}
+{{- if .AssetsVar}}
+	opts = append(opts, datapages.WithAssets({{.AppPkg}}.{{.AssetsVar}}, false))
+{{- end}}
+{{- if .DatastarJS}}
+	// The components import rocket from the same URL,
+	// which keeps one copy of Datastar in the page.
+	opts = append(opts, datapages.WithDatastarJS({{printf "%q" .DatastarJS}}))
 {{- end}}
 
 {{- if .HasSession}}

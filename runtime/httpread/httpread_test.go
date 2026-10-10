@@ -22,7 +22,7 @@ func cookieOracle(t *testing.T, header, name string) (string, bool) {
 }
 
 // TestCookieValue tests the header shapes the allocation-free reader must agree
-// with net/http on. The expectation comes from [net/http.Request.Cookie] rather
+// with net/http on. The expectation comes from [http.Request.Cookie] rather
 // than a hand written table, since agreeing with that method is the whole point.
 func TestCookieValue(t *testing.T) {
 	t.Parallel()
@@ -113,7 +113,7 @@ func TestIsCookieName(t *testing.T) {
 }
 
 // FuzzCookieValue tests arbitrary Cookie headers against
-// [net/http.Request.Cookie] as the oracle.
+// [http.Request.Cookie] as the oracle.
 func FuzzCookieValue(f *testing.F) {
 	for _, seed := range []string{
 		"sessiontoken=abc", `sessiontoken="abc"`, "a=b; sessiontoken=abc",
@@ -138,9 +138,9 @@ func FuzzCookieValue(f *testing.F) {
 	})
 }
 
-// TestQueryValue tests the query shapes the reader must agree with net/url on:
+// TestQueryValue tests the query shapes the reader must agree with [url] on:
 // plus as a space, percent escapes, a malformed escape, repeated keys and keys
-// without a value. [net/url.ParseQuery] is the oracle.
+// without a value. [url.ParseQuery] is the oracle.
 func TestQueryValue(t *testing.T) {
 	t.Parallel()
 
@@ -170,7 +170,7 @@ func TestQueryValue(t *testing.T) {
 }
 
 // FuzzQueryValue tests arbitrary query strings and keys against
-// [net/url.ParseQuery] as the oracle.
+// [url.ParseQuery] as the oracle.
 func FuzzQueryValue(f *testing.F) {
 	for _, seed := range []string{
 		"term=x", "term=a+b", "te%72m=x", "term=1&term=2", "term=a;b",

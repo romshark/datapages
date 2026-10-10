@@ -71,9 +71,10 @@ func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 }
 
 type pageCacheWriter struct {
-	s        *Server
-	r        *http.Request
-	sse      *datastar.ServerSentEventGenerator // nil for GET handlers
+	s *Server
+	r *http.Request
+	// sse is nil, unless the handler takes [datapages.SSE].
+	sse      *datastar.ServerSentEventGenerator
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -152,7 +153,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 			body = withShimHydrate(body)
 		}
 		if err := c.s.writeHTML(
-			&buf, c.r, c.s.pageCacheHead(c.r), nil, body, nil, nil,
+			&buf, c.r, http.StatusOK, c.s.pageCacheHead(c.r), nil, body, nil, nil,
 		); err != nil {
 			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
 		}
@@ -193,6 +194,19 @@ func (c *pageCacheWriter) flush() error {
 		return err
 	}
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// flushToNewStream answers with an SSE stream carrying the queued writes, for a
+// handler that takes no stream of its own. The stream opens once the handler has
+// returned and the writes are rendered: the cookie of a session output then goes
+// out with its headers, and a panic in a rendered body still gets a status.
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
+	payload, err := c.payload()
+	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	if err != nil || payload == "" {
+		return err
+	}
+	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -267,12 +281,14 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		HeadGeneric:     headGeneric,
 		Head:            head,
 		Body:            body,
@@ -428,7 +444,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -450,7 +466,7 @@ func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageNoShim", err)
 		return
@@ -472,7 +488,7 @@ func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageNoShim2", err)
 		return
@@ -495,7 +511,7 @@ func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, pageCache.embedInto(body), nil, nil,
+		w, r, http.StatusOK, genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSubpage", err)
 		return

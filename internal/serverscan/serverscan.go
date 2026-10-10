@@ -176,7 +176,7 @@ type Result struct {
 // package alone and Fallback is true.
 func Scan(moduleDir, modulePath string) (Result, error) {
 	var errs Errors
-	calls := scanDir(moduleDir, moduleDir, &errs)
+	calls := scanDir(moduleDir, modulePath, moduleDir, &errs)
 	if errs.Len() > 0 {
 		return Result{}, errs.Err()
 	}
@@ -412,7 +412,7 @@ func dirOf(a TypeArg, modulePath string) (string, error) {
 
 // scanDir reads every package under dir, skipping nested modules,
 // and returns the NewServer calls it found.
-func scanDir(root, dir string, errs *Errors) []Call {
+func scanDir(root, modulePath, dir string, errs *Errors) []Call {
 	var calls []Call
 	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
@@ -421,7 +421,7 @@ func scanDir(root, dir string, errs *Errors) []Call {
 		if p != dir && skipDir(p, d.Name()) {
 			return filepath.SkipDir
 		}
-		calls = append(calls, scanPackage(root, p, errs)...)
+		calls = append(calls, scanPackage(root, modulePath, p, errs)...)
 		return nil
 	})
 	return calls
@@ -439,7 +439,7 @@ func skipDir(path, name string) bool {
 }
 
 // scanPackage reads the Go files of one directory, without recursing.
-func scanPackage(root, dir string, errs *Errors) []Call {
+func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -463,11 +463,16 @@ func scanPackage(root, dir string, errs *Errors) []Call {
 			// Scan then reports Fallback and gen rewrites
 			// datapagesgen from the default settings.
 			pos := token.Position{Filename: name}
+			msg := err.Error()
 			var el scanner.ErrorList
 			if errors.As(err, &el) && len(el) > 0 {
-				pos = el[0].Pos
+				// The text of the list starts with the absolute position again.
+				pos, msg = el[0].Pos, el[0].Msg
+				if len(el) > 1 {
+					msg = fmt.Sprintf("%s (and %d more errors)", msg, len(el)-1)
+				}
 			}
-			errs.addf(relTo(root, pos), "parsing Go file: %s", err)
+			errs.addf(relTo(root, pos), "parsing Go file: %s", msg)
 			continue
 		}
 		files = append(files, f)
@@ -489,15 +494,15 @@ func scanPackage(root, dir string, errs *Errors) []Call {
 		if dp == "" {
 			continue
 		}
-		found := scanFile(fset, f, dp, errs)
+		pkgName := func(path string) string {
+			return packageName(root, modulePath, path)
+		}
+		found := scanFile(fset, f, dp, root, pkgName, errs)
 		for i := range found {
 			found[i].Dir = relDir
 			found[i].Main = f.Name.Name == "main"
 		}
 		calls = append(calls, found...)
-	}
-	for i := range calls {
-		calls[i].Pos.Filename = relTo(root, calls[i].Pos).Filename
 	}
 	return calls
 }
@@ -535,9 +540,12 @@ func neverBuilt(path string) bool {
 	return false
 }
 
-// scanFile reads the NewServer calls of one file.
+// scanFile reads the NewServer calls of one file. root is the module root,
+// which positions are relative to. pkgName returns the name of the package
+// at an import path, which an unaliased import binds.
 func scanFile(
-	fset *token.FileSet, f *ast.File, dp string, errs *Errors,
+	fset *token.FileSet, f *ast.File, dp, root string,
+	pkgName func(path string) string, errs *Errors,
 ) []Call {
 	var calls []Call
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -549,10 +557,12 @@ func scanFile(
 		if !ok {
 			return true
 		}
-		pos := fset.Position(call.Lparen)
-		if len(targs) != 4 {
+		pos := relTo(root, fset.Position(call.Lparen))
+		// A fifth type argument is PS, which Go infers from S when left out.
+		// The compiler holds it to *S, which is all the scan would read of it.
+		if len(targs) != 4 && len(targs) != 5 {
 			errs.addf(pos,
-				"datapages.NewServer needs four type arguments, got %d",
+				"datapages.NewServer needs 4 or 5 type arguments, got %d",
 				len(targs))
 			errs.hint("fix: datapages.NewServer[app.App, " +
 				"datapages." + DisableSessions + ", " +
@@ -561,10 +571,10 @@ func scanFile(
 		}
 		c := Call{
 			Pos:         pos,
-			App:         typeArg(f, targs[0]),
-			SessionData: typeArg(f, targs[1]),
-			Metrics:     typeArg(f, targs[2]),
-			Server:      typeArg(f, targs[3]),
+			App:         typeArg(f, targs[0], pkgName),
+			SessionData: typeArg(f, targs[1], pkgName),
+			Metrics:     typeArg(f, targs[2], pkgName),
+			Server:      typeArg(f, targs[3], pkgName),
 		}
 		c.HasSession = c.SessionData.Import != DatapagesImport ||
 			c.SessionData.Name != DisableSessions
@@ -618,7 +628,7 @@ func typeArgsOf(fun ast.Expr, pkg, name string) ([]ast.Expr, bool) {
 }
 
 // typeArg renders one type argument and resolves its qualifier to an import path.
-func typeArg(f *ast.File, e ast.Expr) TypeArg {
+func typeArg(f *ast.File, e ast.Expr, pkgName func(path string) string) TypeArg {
 	switch t := e.(type) {
 	case *ast.Ident:
 		return TypeArg{Src: t.Name, Name: t.Name}
@@ -626,7 +636,7 @@ func typeArg(f *ast.File, e ast.Expr) TypeArg {
 		if id, ok := t.X.(*ast.Ident); ok {
 			return TypeArg{
 				Src:    id.Name + "." + t.Sel.Name,
-				Import: importPath(f, id.Name),
+				Import: importPath(f, id.Name, pkgName),
 				Name:   t.Sel.Name,
 			}
 		}
@@ -659,21 +669,60 @@ func importName(f *ast.File, path string) (name string, dot *ast.ImportSpec) {
 }
 
 // importPath returns the path bound to name in f, empty when there is none.
-func importPath(f *ast.File, name string) string {
+// An unaliased import binds the name pkgName returns for its path.
+func importPath(f *ast.File, name string, pkgName func(path string) string) string {
 	for _, im := range f.Imports {
 		p, err := strconv.Unquote(im.Path.Value)
 		if err != nil {
 			continue
 		}
-		bound := p[strings.LastIndex(p, "/")+1:]
+		var bound string
 		if im.Name != nil {
 			bound = im.Name.Name
+		} else {
+			bound = pkgName(p)
 		}
 		if bound == name {
 			return p
 		}
 	}
 	return ""
+}
+
+// packageName returns the name an unaliased import of path binds. For a package
+// of the module at root, that is the name its package clause declares, which need
+// not be the last element of path: the directory go-app may hold package app.
+// Any other path, and a package with no Go file yet, such as a datapagesgen package
+// the first run has not written, gets the last element.
+func packageName(root, modulePath, path string) string {
+	last := path[strings.LastIndex(path, "/")+1:]
+	rel, ok := strings.CutPrefix(path, modulePath+"/")
+	if !ok {
+		return last
+	}
+	dir := filepath.Join(root, filepath.FromSlash(rel))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return last
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file := filepath.Join(dir, name)
+		if neverBuilt(file) {
+			continue
+		}
+		f, err := parser.ParseFile(fset, file, nil, parser.PackageClauseOnly)
+		if err != nil {
+			continue
+		}
+		return f.Name.Name
+	}
+	return last
 }
 
 // isGenerated reports whether f carries the datapages generated header.

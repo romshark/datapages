@@ -62,10 +62,12 @@ func PageTypeName(name string) error {
 
 // ActionMethodName validates action handler method names:
 //
+//	GETX...
 //	POSTX...
 //	PUTX...
 //	PATCHX...
 //	DELETEX...
+//	QUERYX...
 //
 // where X is [A-Z], followed by [A-Za-z0-9]*.
 func ActionMethodName(name string) error {
@@ -91,6 +93,10 @@ func ActionMethodName(name string) error {
 	}
 
 	switch {
+	case strings.HasPrefix(name, "GET"):
+		if isValidActionSuffix(name, 3) {
+			return nil
+		}
 	case strings.HasPrefix(name, "POST"):
 		if isValidActionSuffix(name, 4) {
 			return nil
@@ -105,6 +111,10 @@ func ActionMethodName(name string) error {
 		}
 	case strings.HasPrefix(name, "DELETE"):
 		if isValidActionSuffix(name, 6) {
+			return nil
+		}
+	case strings.HasPrefix(name, "QUERY"):
+		if isValidActionSuffix(name, 5) {
 			return nil
 		}
 	}

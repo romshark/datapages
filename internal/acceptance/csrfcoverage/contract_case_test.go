@@ -35,6 +35,7 @@ func TestContract(t *testing.T) {
 		},
 		WithMiddleware: contract.OptVariadic(datapages.WithMiddleware),
 		WithDatastarJS: contract.Opt(datapages.WithDatastarJS),
+		WithBuildID:    contract.Opt(datapages.WithBuildID),
 		WithHTTPServer: contract.Opt(datapages.WithHTTPServer),
 		WithLogger:     contract.Opt(datapages.WithLogger),
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
@@ -48,7 +49,9 @@ func TestContract(t *testing.T) {
 			action.PageIndex.Delete.POST(),
 			action.PageInbox.MarkRead.POST(),
 			action.PageAbout.Preview.POST(),
+			action.PageIndex.Count.QUERY(),
 			action.App.Ping.POST(),
+			action.App.Status.QUERY(),
 		},
 		SignalActions: []string{action.PageIndex.SignIn.POST()},
 		OptionedAction: action.PageIndex.SignIn.POST(

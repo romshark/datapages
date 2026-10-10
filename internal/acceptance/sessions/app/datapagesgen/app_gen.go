@@ -11,8 +11,10 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
+	"github.com/a-h/templ"
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
@@ -42,9 +44,282 @@ const (
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
+func httpRedirectOffline(
+	w http.ResponseWriter, r *http.Request,
+	redirect datapages.Redirect, oc *pageCacheWriter,
+) (exit bool) {
+	if redirect.URL == "" {
+		return false
+	}
+
+	if httpserve.IsDatastarRequest(r.Header) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		js, err := oc.redirectScript(redirect.URL)
+		if err != nil {
+			js = fmt.Sprintf("window.location = %q;", redirect.URL)
+		}
+		_, _ = w.Write([]byte(js))
+		return true
+	}
+
+	status := redirect.Status
+	switch status {
+	case http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect:
+	default:
+		status = http.StatusFound
+	}
+
+	http.Redirect(w, r, redirect.URL, status)
+	return true
+}
+
+func newPageCache(
+	w http.ResponseWriter, s *Server, r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
+) *pageCacheWriter {
+	// The response body depends on the version header Version reads.
+	// Without Vary a shared cache in front of the application can hand
+	// one client's page and its embedded cache write to another.
+	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
+	return &pageCacheWriter{s: s, r: r, sse: sse}
+}
+
+// pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
+// through the same writeHTML the live pages use.
+type pageCacheBuf struct {
+	b strings.Builder
+	h http.Header
+}
+
+func (p *pageCacheBuf) Header() http.Header {
+	if p.h == nil {
+		p.h = http.Header{}
+	}
+	return p.h
+}
+func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
+func (p *pageCacheBuf) WriteHeader(int)             {}
+
+func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
+	return s.app.Head(datapages.Session[dpapp.SessionData]{}, r)
+}
+
+type pageCacheWriter struct {
+	s *Server
+	r *http.Request
+	// sse is nil, unless the handler takes [datapages.SSE].
+	sse      *datastar.ServerSentEventGenerator
+	clearAll bool
+	sets     []pageCachePendingSet
+	clears   []string
+}
+
+type pageCachePendingSet struct {
+	url     string
+	body    datapages.Component
+	version uint64
+	shim    bool
+}
+
+// Version reports the cached version for this request's URL. A missing or
+// malformed header becomes 0, which causes the handler to cache the page again.
+func (c *pageCacheWriter) Version() uint64 {
+	v, _ := strconv.ParseUint(
+		c.r.Header.Get(datapages.HeaderOfflineVersion), 10, 64,
+	)
+	return v
+}
+
+func (c *pageCacheWriter) Set(url string, body datapages.Component, version uint64) {
+	c.sets = append(c.sets, pageCachePendingSet{url: url, body: body, version: version})
+}
+
+func (c *pageCacheWriter) SetShim(
+	url string, body datapages.Component, version uint64,
+) {
+	c.sets = append(c.sets, pageCachePendingSet{
+		url: url, body: body, version: version, shim: true,
+	})
+}
+
+func (c *pageCacheWriter) Clear(url string) { c.clears = append(c.clears, url) }
+
+func (c *pageCacheWriter) ClearAll() { c.clearAll = true }
+
+type pageCacheEntry struct {
+	URL     string `json:"url"`
+	HTML    string `json:"html"`
+	Version uint64 `json:"version"`
+	Shim    bool   `json:"shim,omitempty"`
+}
+
+// shimHydrateScript adds a data-init element because Datastar has no imperative
+// request API. Datastar observes the element and requests the current URL. The
+// header lets the worker answer with its prefetched response or a new fetch.
+// The live response replaces the element. Removing it earlier could precede
+// Datastar's deferred module load.
+func withShimHydrate(body datapages.Component) datapages.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if err := body.Render(ctx, w); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, shimHydrateScript)
+		return err
+	})
+}
+
+const shimHydrateScript = `<script>(function(){
+var el=document.createElement("div");
+el.setAttribute("data-init","@get(window.location.pathname+window.location.search,{headers:{'X-Datapages-Shim-Hydrate':'1'}})");
+document.body.appendChild(el);
+})();</script>`
+
+func (c *pageCacheWriter) payload() (string, error) {
+	if !c.clearAll && len(c.sets) == 0 && len(c.clears) == 0 {
+		return "", nil
+	}
+	entries := make([]pageCacheEntry, 0, len(c.sets))
+	for _, s := range c.sets {
+		// A cached entry needs the same complete document as a live page.
+		var buf pageCacheBuf
+		body := s.body
+		if s.shim {
+			body = withShimHydrate(body)
+		}
+		if err := c.s.writeHTML(
+			&buf, c.r, http.StatusOK, "", c.s.pageCacheHead(c.r), nil, body, nil, nil,
+		); err != nil {
+			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
+		}
+		entries = append(entries, pageCacheEntry{
+			URL: s.url, HTML: buf.b.String(), Version: s.version, Shim: s.shim,
+		})
+	}
+	msg := struct {
+		Type     string           `json:"type"`
+		ClearAll bool             `json:"clearAll"`
+		Sets     []pageCacheEntry `json:"sets"`
+		Clears   []string         `json:"clears"`
+	}{
+		Type:     "datapages-offline:apply",
+		ClearAll: c.clearAll,
+		Sets:     entries,
+		Clears:   c.clears,
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func pageCachePostToWorkerJS(payloadJSON string) string {
+	return "navigator.serviceWorker&&navigator.serviceWorker.ready.then(function(reg){" +
+		"var w=reg.active||navigator.serviceWorker.controller;if(w)w.postMessage(" +
+		payloadJSON + ");});"
+}
+
+func (c *pageCacheWriter) flush() error {
+	if c.sse == nil {
+		return nil
+	}
+	payload, err := c.payload()
+	if err != nil || payload == "" {
+		return err
+	}
+	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// flushToNewStream answers with an SSE stream carrying the queued writes, for a
+// handler that takes no stream of its own. The stream opens once the handler has
+// returned and the writes are rendered: the cookie of a session output then goes
+// out with its headers, and a panic in a rendered body still gets a status.
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
+	payload, err := c.payload()
+	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	if err != nil || payload == "" {
+		return err
+	}
+	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// embedInto returns body followed by the queued writes as a <script>, which the
+// worker applies on load. The script must sit inside <body>: a shimmed page
+// updates only that element. Content after </body> would not reach the browser.
+//
+// The queue is complete by render time: the handler has already returned.
+// A payload that fails to render is omitted without failing the page response.
+func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if body != nil {
+			if err := body.Render(ctx, w); err != nil {
+				return err
+			}
+		}
+		payload, err := c.payload()
+		if err != nil {
+			c.s.LogErr("rendering page cache writes", err)
+			return nil
+		}
+		if payload == "" {
+			return nil
+		}
+		if _, err := io.WriteString(w, c.s.ScriptTagOpen(c.r)); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
+			return err
+		}
+		_, err = io.WriteString(w, "</script>")
+		return err
+	})
+}
+
+// redirectScript returns JavaScript that sends queued writes to the worker and
+// then navigates to target. Redirect actions return this JavaScript instead of
+// an SSE stream.
+//
+// Navigation waits for the worker to apply the writes because that worker also
+// serves the destination. The 500ms timeout supports older workers that do not
+// acknowledge the message.
+func (c *pageCacheWriter) redirectScript(target string) (string, error) {
+	tj, err := json.Marshal(target)
+	if err != nil {
+		return "", err
+	}
+	nav := "window.location=" + string(tj) + ";"
+
+	payload, err := c.payload()
+	if err != nil {
+		return "", err
+	}
+	if payload == "" {
+		return nav, nil
+	}
+
+	var b strings.Builder
+	b.WriteString("(function(){var go=function(){")
+	b.WriteString(nav)
+	b.WriteString("};if(!navigator.serviceWorker){go();return;}")
+	b.WriteString("var done=false,once=function(){if(!done){done=true;go();}};")
+	b.WriteString("navigator.serviceWorker.ready.then(function(reg){")
+	b.WriteString("var w=reg.active||navigator.serviceWorker.controller;")
+	b.WriteString("if(!w){once();return;}")
+	b.WriteString("var ch=new MessageChannel();ch.port1.onmessage=once;")
+	b.WriteString("w.postMessage(")
+	b.WriteString(payload)
+	b.WriteString(",[ch.port2]);},once);setTimeout(once,500);})();")
+	return b.String(), nil
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	sessionToken string,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
@@ -52,6 +327,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		CSRF:            s.Manager,
 		SessionToken:    sessionToken,
 		HeadGeneric:     headGeneric,
@@ -259,6 +535,9 @@ func setupHandlers(s *Server) {
 		"POST /sign-out/{$}",
 		appHandlers{s}.POSTSignOut)
 	s.Mux().HandleFunc(
+		"POST /sign-out-cached/{$}",
+		appHandlers{s}.POSTSignOutCached)
+	s.Mux().HandleFunc(
 		"POST /render/{$}",
 		pageIndexHandlers{s}.POSTRender)
 	s.Mux().HandleFunc(
@@ -267,6 +546,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /login/submit-inline/{$}",
 		pageLoginHandlers{s}.POSTSubmitInline)
+	s.Mux().HandleFunc(
+		"POST /login/submit-cached/{$}",
+		pageLoginHandlers{s}.POSTSubmitCached)
 	s.Mux().HandleFunc(
 		"POST /login/notify/{$}",
 		pageLoginHandlers{s}.POSTNotify)
@@ -281,11 +563,42 @@ func setupHandlers(s *Server) {
 		pageRoomHandlers{s}.POSTUpdate)
 }
 
+// httpErr404 reports an error of PageError404.GET.
+// It answers ErrNotFound on a page load with the plain status
+// so PageError404 can't render itself.
+func (s *Server) httpErr404(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	if httpserve.IsDatastarRequest(r.Header) ||
+		httpserve.ErrStatus(err) != http.StatusNotFound {
+		s.httpErrIntern(w, r, nil, msg, err)
+		return
+	}
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
+	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if !httpserve.IsDatastarRequest(r.Header) {
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
+		return
+	}
 	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -309,13 +622,12 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
 	genericHead := s.app.Head(sess, r)
-	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusNotFound, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -350,6 +662,31 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s appHandlers) POSTSignOutCached(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "App.SignOutCached")
+	pageCache := newPageCache(w, s.Server, r, nil)
+	closeSession, err := s.app.POSTSignOutCached(r, sess, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.SignOutCached", err)
+		return
+	}
+	if closeSession {
+		if _, err := s.CloseSession(w, r, sessToken); err != nil {
+			s.httpErrIntern(w, r, nil, "removing session", err)
+			return
+		}
+	}
+	_ = pageCache.flushToNewStream(w)
+}
+
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -364,13 +701,13 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
 	genericHead := s.app.Head(sess, r)
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -409,14 +746,14 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/_$/')"`)
+			_, _ = io.WriteString(w, `/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `/_$/anon/')"`)
+			_, _ = io.WriteString(w, `/_$/anon/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -514,6 +851,7 @@ func (s pageIndexHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageIndex anonymous stream")
 			var eventBroadcast dpapp.EventBroadcast
 			for msg := range ch {
 				switch msg.Subject {
@@ -555,7 +893,7 @@ func (s pageIndexHandlers) POSTRender(
 	}
 	genericHead := s.app.Head(sess, r)
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageIndex.POSTRender", err)
 		return
@@ -582,7 +920,7 @@ func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(sess, r)
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLog", err)
 		return
@@ -609,7 +947,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(sess, r)
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -692,11 +1030,48 @@ func (s pageLoginHandlers) POSTSubmitInline(
 	}
 	genericHead := s.app.Head(sess, r)
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageLogin.POSTSubmitInline", err)
 		return
 	}
+}
+
+func (s pageLoginHandlers) POSTSubmitCached(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	// CheckCSRFOnly validates against the cookie without reading the session store.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		User string `json:"user"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageLogin.SubmitCached")
+	pageCache := newPageCache(w, s.Server, r, nil)
+	p := dpapp.PageLogin{
+		App: s.app,
+	}
+	newSession, err := p.POSTSubmitCached(r, pageCache, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageLogin.SubmitCached", err)
+		return
+	}
+	if j := newSession; j.UserID != "" {
+		if _, err := s.CreateSession(w, r, newSession); err != nil {
+			s.httpErrIntern(w, r, nil, "creating session", err)
+			return
+		}
+	}
+	_ = pageCache.flushToNewStream(w)
 }
 
 func (s pageLoginHandlers) POSTNotify(
@@ -817,12 +1192,12 @@ func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/room/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/room/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageRoom", err)
 		return
@@ -839,7 +1214,7 @@ func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -942,7 +1317,7 @@ func (s pageSecretHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(sess, r)
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSecret", err)
 		return
@@ -977,7 +1352,7 @@ func (s pageSignOutLinkHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(sess, r)
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSignOutLink", err)
 		return
@@ -1004,7 +1379,7 @@ func (s pageTokenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(sess, r)
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageToken", err)
 		return

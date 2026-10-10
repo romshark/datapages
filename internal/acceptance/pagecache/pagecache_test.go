@@ -1,6 +1,7 @@
 package acceptance_test
 
 import (
+	"context"
 	"net/http"
 	"regexp"
 	"strings"
@@ -269,6 +270,40 @@ func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
 	}
 }
 
+// TestPageCacheActionsRefusePlainRequests tests that every action taking a
+// [datapages.PageCacheWriter], on a page or on App, answers 406 to a request
+// without Datastar-Request. A plain form posting to one that redirects would
+// get an HTTP redirect, which drops the queued writes.
+func TestPageCacheActionsRefusePlainRequests(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+	// The default client follows a redirect, which hides the status.
+	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	for name, path := range map[string]string{
+		"page stream":           "/stream-write/",
+		"page redirect":         "/redirect-write/",
+		"page stream redirect":  "/stream-redirect-write/",
+		"page body or redirect": "/branch/",
+		"app stream":            "/app-precache/",
+		"app body":              "/app-body/",
+		"app redirect":          "/app-redirect/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			req, err := http.NewRequestWithContext(context.Background(),
+				http.MethodPost, c.URL()+path, nil)
+			require.NoError(t, err, "building POST %s", path)
+			resp, err := hc.Do(req)
+			require.NoError(t, err, "POST %s", path)
+			_ = resp.Body.Close()
+			require.Equal(t, http.StatusNotAcceptable, resp.StatusCode)
+		})
+	}
+}
+
 // TestCSPNonceReachesEveryScript tests that both option orders add the request
 // nonce to the page cache and offline middleware scripts.
 func TestCSPNonceReachesEveryScript(t *testing.T) {
@@ -293,8 +328,8 @@ func TestCSPNonceReachesEveryScript(t *testing.T) {
 				"data-nonce enables Datastar CSP mode")
 
 			tags := regexp.MustCompile(`<script[^>]*>`).FindAllString(resp.Body, -1)
-			require.Len(t, tags, 4,
-				"expected one Datastar, two offline, and one cache-write script")
+			require.Len(t, tags, 5,
+				"expected one build, one Datastar, two offline, and one cache-write script")
 			for _, tag := range tags {
 				require.Contains(t, tag, `nonce="`+nonce+`"`,
 					"inline script requires the request nonce")

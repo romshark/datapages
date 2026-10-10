@@ -1,5 +1,7 @@
 package calc
 
+import "unicode/utf8"
+
 // CalcButton identifies a calculator button.
 type CalcButton int
 
@@ -31,13 +33,24 @@ func ValidButton(btn CalcButton) bool {
 	return btn >= 0 && btn < calcButtonCount
 }
 
-// Press applies a button press to the current calculator state
-// and returns the new input string and fresh flag.
-// ValidInput reports whether input holds only what [Press] produces:
-// digits, a decimal point, parentheses and the four operator runes.
+// MaxInputLen is the length in runes of the longest input [ValidInput] accepts.
+// [Evaluate] recurses once per parenthesis and unary minus, and its arithmetic
+// takes time quadratic in the input length: each division by 0.1 in a chain
+// adds a digit to the quotient.
+const MaxInputLen = 100
+
+// ValidInput reports whether input is "Error" or at most [MaxInputLen] runes
+// of digits, decimal points, parentheses and the four operator runes.
+// [Press] and [Paste] return an input that passes when given one that passes.
 //
 // The input signal round-trips through the client, which can send anything.
 func ValidInput(input string) bool {
+	if input == errorText {
+		return true
+	}
+	if utf8.RuneCountInString(input) > MaxInputLen {
+		return false
+	}
 	for _, r := range input {
 		switch r {
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
@@ -49,7 +62,42 @@ func ValidInput(input string) bool {
 	return true
 }
 
+// Press applies a button press to the current calculator state
+// and returns the new input string and fresh flag. An "Error" input counts as empty.
+// A press that would make the input longer than [MaxInputLen] leaves the state unchanged,
+// and = turns a longer result into "Error".
 func Press(input string, fresh bool, btn CalcButton) (string, bool) {
+	if input == errorText {
+		input = ""
+	}
+	next, nextFresh := press(input, fresh, btn)
+	if ValidInput(next) {
+		return next, nextFresh
+	}
+	// Only the length can fail: press appends calculator runes,
+	// and Evaluate returns a decimal number or "Error".
+	if btn == CalcButtonEq {
+		return errorText, true
+	}
+	return input, fresh
+}
+
+// Paste appends the pasted number num to input and returns the new input
+// and fresh flag. num replaces input when fresh is set or input is "Error".
+// A paste that would make the input fail [ValidInput] leaves the state unchanged.
+func Paste(input string, fresh bool, num string) (string, bool) {
+	next := num
+	if !fresh && input != errorText {
+		next = input + num
+	}
+	if !ValidInput(next) {
+		return input, fresh
+	}
+	return next, false
+}
+
+// press is [Press] for an input other than "Error", without the length limit.
+func press(input string, fresh bool, btn CalcButton) (string, bool) {
 	switch btn {
 	case CalcButtonClear:
 		return "", false

@@ -9,6 +9,13 @@ import (
 
 const ExternalConst = "https://data-star.dev"
 
+// shadowExternalConst declares a constant with the name of the package-level one
+// a template href uses. The href is checked against the package-level value.
+func shadowExternalConst() string {
+	const ExternalConst = "/relative"
+	return ExternalConst
+}
+
 type App struct{}
 
 // PageIndex is /

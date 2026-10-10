@@ -21,6 +21,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/file-upload/app"
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen"
+	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/file-upload/store"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -63,7 +64,7 @@ func newTabWith(t *testing.T, idle, readTimeout time.Duration) *tab {
 		datapagesgen.Server,
 	](a, inmem.New(messaging.DefaultBrokerChanBuffer),
 		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithMiddleware(app.Downloads(a), app.ChunkDeadline(idle)))
+		datapages.WithMiddleware(app.ChunkDeadline(idle)))
 	require.NoError(t, err, "building server")
 
 	// Unstarted, because the read timeout belongs to the server that listens
@@ -273,7 +274,7 @@ func TestUpload(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, store.StatusComplete, f.Status, "the file did not complete")
 
-	resp, err := tb.srv.Client().Get(tb.srv.URL + app.DownloadPrefix + id)
+	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
 	require.NoError(t, err, "downloading")
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "downloading")
@@ -288,7 +289,7 @@ func TestUpload(t *testing.T) {
 
 	status, _ = tb.action(t, http.MethodDelete, "/files/"+id+"/", "", "")
 	require.Equal(t, http.StatusOK, status, "deleting")
-	resp, err = tb.srv.Client().Get(tb.srv.URL + app.DownloadPrefix + id)
+	resp, err = tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
 	require.NoError(t, err, "downloading a deleted file")
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode,
@@ -302,17 +303,10 @@ func TestDownloadIncomplete(t *testing.T) {
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
-	resp, err := tb.srv.Client().Get(tb.srv.URL + app.DownloadPrefix + id)
+	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
 	require.NoError(t, err, "downloading an incomplete file")
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
-
-	// The static files the app embeds keep being served next to the blobs.
-	resp, err = tb.srv.Client().Get(tb.srv.URL + "/static/browser.js")
-	require.NoError(t, err, "GET /static/browser.js")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"the download middleware swallowed a static asset")
 }
 
 // TestChunkStatus covers what the uploader reacts to: a repeated chunk it may
@@ -480,7 +474,7 @@ func TestEmptyFile(t *testing.T) {
 	require.NoError(t, err, "reading the created file")
 	require.Equal(t, store.StatusComplete, f.Status)
 
-	resp, err := tb.srv.Client().Get(tb.srv.URL + app.DownloadPrefix + id)
+	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
 	require.NoError(t, err, "downloading")
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -682,6 +676,63 @@ func TestContinuingAFileThatWentAway(t *testing.T) {
 	require.Len(t, tb.files.List(), 1)
 }
 
+// TestContinuingUnderAnInvalidNameChangesNothing tests that another tab
+// confirming the dialog for an unfinished upload under a name the store
+// refuses is told why, and that the tab sending the file keeps it.
+func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
+	for name, fileName := range map[string]string{
+		"empty":    "",
+		"blank":    "   ",
+		"too long": strings.Repeat("a", store.MaxNameLen+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tb := newTab(t)
+			id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+			require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
+			before, err := tb.files.Get(id)
+			require.NoError(t, err)
+
+			other := tb.openTab(t)
+			require.Contains(t, other.stage(t, "notes.txt", "text/plain", len(contents)),
+				`name="dup-0"`, "the dialog does not offer to continue the upload")
+			status, body := other.action(t, http.MethodPost, "/start/",
+				"application/x-www-form-urlencoded",
+				"name-0="+url.QueryEscape(fileName)+"&dup-0=continue")
+			require.Equal(t, http.StatusOK, status)
+			require.Contains(t, body, "invalid file name",
+				"the visitor is not told what is wrong with the name")
+
+			after, err := tb.files.Get(id)
+			require.NoError(t, err)
+			require.Equal(t, before.Owner, after.Owner,
+				"a refused dialog took the transfer from the tab sending it")
+			require.Equal(t, "notes.txt", after.Name, "a refused dialog renamed the file")
+
+			status, body = tb.pause(t, id)
+			require.Equal(t, http.StatusOK, status)
+			require.NotContains(t, body, "this tab does not hold the bytes of that file",
+				"the tab sending the file can no longer pause it")
+		})
+	}
+}
+
+// TestStartRefusesTheWholeDialog tests that a dialog with one name the store
+// refuses starts none of its files, not even those listed before that name.
+func TestStartRefusesTheWholeDialog(t *testing.T) {
+	tb := newTab(t)
+	status, _ := tb.action(t, http.MethodPost, "/stage/", "application/json",
+		`{"files":[{"name":"a.txt","size":20,"type":"text/plain"},`+
+			`{"name":"b.txt","size":20,"type":"text/plain"}]}`)
+	require.Equal(t, http.StatusOK, status, "staging")
+
+	status, body := tb.action(t, http.MethodPost, "/start/",
+		"application/x-www-form-urlencoded", "name-0=a.txt&name-1=+")
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, "invalid file name",
+		"the visitor is not told what is wrong with the name")
+	require.Empty(t, tb.files.List(), "a refused dialog stored some of its files")
+}
+
 // TestSlowChunkOutlivesTheReadTimeout tests that a chunk slower than the read
 // timeout of the server still arrives whole. A server times a whole request,
 // which an upload held back by a limit outlives: the deadline has to follow
@@ -741,7 +792,7 @@ func TestLimits(t *testing.T) {
 		"the upload limit did not slow the chunk down")
 
 	start = time.Now()
-	resp, err := tb.srv.Client().Get(tb.srv.URL + app.DownloadPrefix + id)
+	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
 	require.NoError(t, err, "downloading")
 	defer func() { _ = resp.Body.Close() }()
 	got, err := io.ReadAll(resp.Body)
@@ -900,7 +951,7 @@ func TestCompleteFileOffersItsLink(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
 	require.Contains(t,
 		tb.waitForStreamFrom(t, from, "neo-clipcopy"),
-		`value="`+tb.srv.URL+app.DownloadPrefix+id+`"`,
+		`value="`+tb.srv.URL+href.App.File(id)+`"`,
 		"the copy control does not carry the absolute download URL")
 }
 
@@ -975,11 +1026,11 @@ func TestDownloadIsALink(t *testing.T) {
 	body := lastFileList(t, tb.waitForStreamFrom(t, from, "Copy link"))
 
 	require.Contains(t, body,
-		`<a data-neo-link href="`+app.DownloadPrefix+id+`" variant="button-primary">`,
+		`<a data-neo-link href="`+href.App.File(id)+`" variant="button-primary">`,
 		"the row's download is not a link")
 	require.NotContains(t, body, `<neo-button role="button" href=`,
 		"an href on a neo-button navigates nowhere")
-	require.Contains(t, body, `<neo-menuitem data-href="`+app.DownloadPrefix+id+`"`,
+	require.Contains(t, body, `<neo-menuitem data-href="`+href.App.File(id)+`"`,
 		"the menu's download row carries no address")
 }
 
@@ -992,8 +1043,9 @@ func TestProgressCarriesTheBytes(t *testing.T) {
 
 	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	body := lastFileList(t, tb.waitForStreamFrom(t, from, "neo-progress"))
-	require.Contains(t, body, `label="10 B of 20 B"`, "the bar carries no amount")
+	// The list the start renders can still arrive after from and has a bar too.
+	body := lastFileList(t, tb.waitForStreamFrom(t, from, "10 B of 20 B"))
+	require.Contains(t, body, ` label="10 B of 20 B"`, "the bar carries no amount")
 	require.Contains(t, body, `value="50"`, "the bar carries no percentage")
 	require.NotContains(t, body, "progress-text", "the amount is still a paragraph")
 }

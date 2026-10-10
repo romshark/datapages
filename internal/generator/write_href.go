@@ -3,6 +3,7 @@ package generator
 import (
 	"go/types"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -16,36 +17,39 @@ import (
 // WritePkgHref generates code for the datapagesgen/href package and appends it to buffer.
 func (w *Writer) WritePkgHref(m *model.App) {
 	needsStrconv, needsStrings, needsText := false, false, false
-	for _, p := range m.Pages {
-		if p.PageSpecialization == model.PageTypeError500 {
-			continue
-		}
-		if p.GET == nil {
-			continue
-		}
-		pathVars := slices.Collect(routepattern.Vars(p.Route))
-		if len(pathVars) > 0 {
+	need := func(route string, path, query *model.Input) {
+		if len(slices.Collect(routepattern.Vars(route))) > 0 {
 			needsStrings = true
 			// Check for non-string path fields.
-			if p.GET.Handler != nil && p.GET.InputPath != nil {
-				fields := w.structFields(p.GET.InputPath.Type.Resolved)
-				if hasNonStringFields(fields) {
-					needsStrconv = true
-				}
-				if hasTextMarshalerFields(fields) {
-					needsText = true
-				}
+			if path != nil {
+				fields := w.structFields(path.Type.Resolved)
+				needsStrconv = needsStrconv || hasNonStringFields(fields)
+				needsText = needsText || hasTextMarshalerFields(fields)
 			}
 		}
-		if p.GET.Handler != nil && p.GET.InputQuery != nil {
+		if query != nil {
 			needsStrings = true
-			fields := w.structFields(p.GET.InputQuery.Type.Resolved)
-			if hasNonStringFields(fields) {
-				needsStrconv = true
+			fields := w.structFields(query.Type.Resolved)
+			needsStrconv = needsStrconv || hasNonStringFields(fields)
+			needsText = needsText || hasTextMarshalerFields(fields)
+		}
+	}
+	needGET := func(actions []*model.Handler) {
+		for _, h := range actions {
+			if h.IsGETAction() {
+				need(h.Route, h.InputPath, h.InputQuery)
 			}
-			if hasTextMarshalerFields(fields) {
-				needsText = true
-			}
+		}
+	}
+	needGET(m.Actions)
+	for _, p := range m.Pages {
+		needGET(p.Actions)
+		switch {
+		case !hasPageHref(p):
+		case p.GET.Handler != nil:
+			need(p.Route, p.GET.InputPath, p.GET.InputQuery)
+		default:
+			need(p.Route, nil, nil)
 		}
 	}
 
@@ -56,14 +60,9 @@ func (w *Writer) WritePkgHref(m *model.App) {
 	w.writeHrefExternal()
 	w.writeHrefAsset()
 
+	w.writeHrefOwner("App", nil, m.Actions)
 	for _, p := range m.Pages {
-		if p.PageSpecialization == model.PageTypeError500 {
-			continue
-		}
-		if p.GET == nil {
-			continue
-		}
-		w.writeHrefFunc(p)
+		w.writeHrefOwner(p.TypeName, p, p.Actions)
 	}
 }
 
@@ -178,111 +177,218 @@ func (w *Writer) writeRouteComment(funcName, route string) {
 	w.Byte('\n')
 }
 
-func (w *Writer) writeHrefFunc(p *model.Page) {
-	funcName := p.TypeName
-	pathVars := slices.Collect(routepattern.Vars(p.Route))
-	hasPathVars := len(pathVars) > 0
+// hasPageHref reports whether the href package writes a builder for the URL of p.
+func hasPageHref(p *model.Page) bool {
+	return p.PageSpecialization != model.PageTypeError500 && p.GET != nil
+}
 
-	// Build typed path param info.
-	var pathInput *model.Input
-	if p.GET != nil && p.GET.Handler != nil {
-		pathInput = p.GET.InputPath
-	}
-	params := w.pathParamInfos(pathInput, pathVars)
-
-	var querySt *types.Struct
-	var queryFields []structFieldInfo
-	if p.GET != nil && p.GET.Handler != nil && p.GET.InputQuery != nil {
-		if st, ok := p.GET.InputQuery.Type.Resolved.Underlying().(*types.Struct); ok {
-			querySt = st
-			queryFields = w.structFields(querySt)
+// writeHrefOwner writes the URL builders of a page and of its GET actions,
+// or of the GET actions of App when p is nil.
+//
+// The builder of a GET action is a method of its owner: href.PageDoc.Export
+// for PageDoc.GETExport, the way action.PageDoc.Export.POST is the helper of
+// PageDoc.POSTExport. Two model names never concatenate, which
+// PageDoc.GETExportPDF and PageDocExport.GETPDF would spell as one.
+// A page with GET actions is a variable of a func type,
+// which keeps href.PageDoc(id) a call.
+func (w *Writer) writeHrefOwner(owner string, p *model.Page, actions []*model.Handler) {
+	var gets []*model.Handler
+	for _, h := range actions {
+		if h.IsGETAction() {
+			gets = append(gets, h)
 		}
 	}
-	hasQuery := len(queryFields) > 0
+	slices.SortFunc(gets, func(a, b *model.Handler) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
-	// Doc comment.
-	w.Line(0, "")
-	w.writeRouteComment(funcName, p.Route)
-
-	if !hasPathVars && !hasQuery {
-		// Simple one-liner.
-		w.Raw("func ")
-		w.Raw(funcName)
-		w.Raw("() string { return \"")
-		w.Raw(routepattern.WithTrailingSlash(p.Route))
-		w.Raw("\" }\n")
-		return
+	recv := actionRecvType(owner)
+	switch {
+	case p != nil && hasPageHref(p):
+		var pathInput, queryInput *model.Input
+		if p.GET.Handler != nil {
+			pathInput, queryInput = p.GET.InputPath, p.GET.InputQuery
+		}
+		b := w.newHrefBuilder(p.Route, true, pathInput, queryInput, "Query"+owner)
+		w.Line(0, "")
+		w.writeRouteComment(owner, p.Route)
+		if len(gets) == 0 {
+			w.writeHrefBuilder("func "+owner, b)
+		} else {
+			w.writeHrefBuilder("var "+owner+" "+recv+" = func", b)
+			w.Line(0, "")
+			w.Linef(0, "// %s builds the URL of %s. Its methods build the URLs of its GET actions.",
+				recv, owner)
+			w.Raw("type " + recv + " func")
+			w.writeParamList(b.paramList())
+			w.Raw(" string\n")
+		}
+		if len(b.fields) > 0 {
+			w.writeHrefQueryType(owner, b.fields)
+		}
+	case len(gets) > 0:
+		w.Line(0, "")
+		w.Linef(0, "// %s holds the URL builders of the GET actions of %s.", owner, owner)
+		w.Linef(0, "var %s %s", owner, recv)
+		w.Line(0, "")
+		w.Linef(0, "type %s struct{}", recv)
 	}
 
-	// Build function signature.
-	if hasPathVars && !hasQuery {
-		// Path-only function.
-		w.writeHrefFuncPathOnly(funcName, p.Route, params)
-	} else if !hasPathVars && hasQuery {
-		// Query-only function.
-		w.writeHrefFuncQueryOnly(funcName, p.Route, queryFields)
-		w.writeHrefQueryType(funcName, querySt)
-	} else {
-		// Both path and query params.
-		w.writeHrefFuncPathAndQuery(funcName, p.Route, params, queryFields)
-		w.writeHrefQueryType(funcName, querySt)
+	for _, h := range gets {
+		queryType := actionQueryType(recv, h.Name)
+		b := w.newHrefBuilder(h.Route, false, h.InputPath, h.InputQuery, queryType)
+		w.Line(0, "")
+		w.Linef(0, "// %s references %s", h.Name, h.Route)
+		w.writeHrefBuilder("func ("+recv+") "+h.Name, b)
+		if len(b.fields) > 0 {
+			// Unexported and built by a constructor, as an action's query is.
+			// See [Writer.writeActionQueryCtor].
+			w.writeActionQueryType(queryType, b.fields)
+			w.writeActionQueryCtor(recv, h.Name, queryType, b.fields)
+		}
 	}
 }
 
-func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathParamInfo) {
-	// Function signature with path params.
-	w.Raw("func ")
-	w.Raw(funcName)
-	w.writeParamList(typedParams(params))
+// hrefBuilder holds what a generated URL builder takes and writes.
+type hrefBuilder struct {
+	literals  []string // the URL around the path parameters, see [routepattern.Segments]
+	params    []pathParamInfo
+	fields    []structFieldInfo // of the query, empty without one
+	queryType string
+	lo        hrefLocals
+}
+
+// newHrefBuilder collects what the URL builder of route takes.
+//
+// A page URL ends in a slash. A GET action URL ends the way its route does:
+// the last segment of /images/{name} is the name of the file, which a browser
+// offers to save it as. [github.com/romshark/datapages/runtime/httpserve.Core]
+// appends the slash before it routes a request, which leads both to the handler.
+func (w *Writer) newHrefBuilder(
+	route string, isPage bool, pathInput, queryInput *model.Input, queryType string,
+) *hrefBuilder {
+	params := w.pathParamInfos(pathInput, slices.Collect(routepattern.Vars(route)))
+	var fields []structFieldInfo
+	if queryInput != nil {
+		// structFields reuses its slice on the next call.
+		fields = slices.Clone(w.structFields(queryInput.Type.Resolved))
+	}
+	literals, _ := routepattern.Segments(route)
+	if !isPage && !strings.HasSuffix(strings.TrimSuffix(route, "{$}"), "/") {
+		last := len(literals) - 1
+		literals[last] = strings.TrimSuffix(literals[last], "/")
+	}
+	return &hrefBuilder{
+		literals:  literals,
+		params:    params,
+		fields:    fields,
+		queryType: queryType,
+		lo:        newHrefLocals(params, fields),
+	}
+}
+
+// paramList returns the parameters of the builder: the path parameters in route
+// order, then the query.
+func (b *hrefBuilder) paramList() []string {
+	params := typedParams(b.params)
+	if len(b.fields) > 0 {
+		params = append(params, b.lo.query+" "+b.queryType)
+	}
+	return params
+}
+
+// writeHrefBuilder writes the URL builder b. head is what precedes its
+// parameter list: "func PageFoo", "var PageFoo pageFoo = func" or
+// "func (pageFoo) Bar".
+func (w *Writer) writeHrefBuilder(head string, b *hrefBuilder) {
+	switch {
+	case len(b.params) == 0 && len(b.fields) == 0:
+		w.Raw(head)
+		w.Raw("() string { return \"")
+		w.Raw(b.literals[0])
+		w.Raw("\" }\n")
+	case len(b.fields) == 0:
+		w.writeHrefFuncPathOnly(head, b)
+	case len(b.params) == 0:
+		w.writeHrefFuncQueryOnly(head, b)
+	default:
+		w.writeHrefFuncPathAndQuery(head, b)
+	}
+}
+
+// hrefLengthTerms returns the terms that add up to the length of the path:
+// one per literal and one per path parameter. A GET action route that ends
+// in a path parameter leaves an empty last literal, which has no term.
+func hrefLengthTerms(b *hrefBuilder) []string {
+	terms := make([]string, 0, len(b.literals)+len(b.params))
+	for i, lit := range b.literals {
+		if i > 0 {
+			terms = append(terms, "len("+pathVarStrExpr(b.params[i-1])+")")
+		}
+		if lit != "" {
+			terms = append(terms, "len("+strconv.Quote(lit)+")")
+		}
+	}
+	return terms
+}
+
+// writeHrefPath writes the path of b into lo.builder.
+func (w *Writer) writeHrefPath(b *hrefBuilder) {
+	for i, lit := range b.literals {
+		if lit != "" {
+			w.Linef(1, "%s.WriteString(%q)", b.lo.builder, lit)
+		}
+		if i < len(b.params) {
+			w.Linef(1, "%s.WriteString(%s)", b.lo.builder, pathVarStrExpr(b.params[i]))
+		}
+	}
+}
+
+func (w *Writer) writeHrefFuncPathOnly(head string, b *hrefBuilder) {
+	w.Raw(head)
+	w.writeParamList(b.paramList())
 	w.Raw(" string {\n")
 
 	// Pre-convert non-string params to strings.
-	w.writePathPreConvert(params)
+	w.writePathPreConvert(b.params)
 
-	literals, _ := routepattern.Segments(route)
 	// The model may be partial: cmd/gen hands the generator what parsed so an
 	// IDE can still resolve the import, and a route the parser rejected can
 	// still reach here. Indexing params[i-1] below would panic on it.
-	if len(literals) != len(params)+1 {
+	if len(b.literals) != len(b.params)+1 {
 		w.Line(1, `return ""`)
 		w.Line(0, "}")
 		return
 	}
-	lo := newHrefLocals(params, nil)
+	lo := b.lo
 
 	// Builder.
 	w.Linef(1, "var %s strings.Builder", lo.builder)
 	w.Linef(1, "%s.Grow(", lo.builder)
-	for i, lit := range literals {
-		if i == 0 {
-			w.Linef(2, "len(%q) +", lit)
-		} else if i < len(literals)-1 {
-			w.Linef(3, "len(%s) +", pathVarStrExpr(params[i-1]))
-			w.Linef(3, "len(%q) +", lit)
-		} else {
-			w.Linef(3, "len(%s) +", pathVarStrExpr(params[i-1]))
-			w.Linef(3, "len(%q),", lit)
+	terms := hrefLengthTerms(b)
+	for i, term := range terms {
+		switch {
+		case i == 0:
+			w.Linef(2, "%s +", term)
+		case i < len(terms)-1:
+			w.Linef(3, "%s +", term)
+		default:
+			w.Linef(3, "%s,", term)
 		}
 	}
 	w.Line(1, ")")
 
-	// Write segments.
-	for i, lit := range literals {
-		w.Linef(1, "%s.WriteString(%q)", lo.builder, lit)
-		if i < len(params) {
-			w.Linef(1, "%s.WriteString(%s)", lo.builder, pathVarStrExpr(params[i]))
-		}
-	}
+	w.writeHrefPath(b)
 
 	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeHrefFuncQueryOnly(
-	funcName, route string, fields []structFieldInfo,
-) {
-	lo := newHrefLocals(nil, fields)
-	w.Linef(0, "func %s(%s Query%s) string {", funcName, lo.query, funcName)
+func (w *Writer) writeHrefFuncQueryOnly(head string, b *hrefBuilder) {
+	lo, fields, path := b.lo, b.fields, b.literals[0]
+	w.Raw(head)
+	w.writeParamList(b.paramList())
+	w.Raw(" string {\n")
 
 	// Pre-convert non-string fields to strings.
 	w.writeQueryPreConvert(lo, fields)
@@ -294,7 +400,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	// Length calculation.
 	w.Line(1, "var b strings.Builder")
 	w.Raw("\tl := len(\"")
-	w.Raw(routepattern.WithTrailingSlash(route))
+	w.Raw(path)
 	w.Raw("\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `l += len("?")`)
@@ -324,7 +430,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	// Write URL base.
 	w.Raw("\tb.WriteString(\"")
-	w.Raw(routepattern.WithTrailingSlash(route))
+	w.Raw(path)
 	w.Raw("\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `b.WriteString("?")`)
@@ -355,21 +461,14 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeHrefFuncPathAndQuery(
-	funcName, route string,
-	params []pathParamInfo, fields []structFieldInfo,
-) {
-	lo := newHrefLocals(params, fields)
+func (w *Writer) writeHrefFuncPathAndQuery(head string, b *hrefBuilder) {
+	lo, params, fields := b.lo, b.params, b.fields
 
-	// Function signature with path params + query struct.
-	w.Raw("func ")
-	w.Raw(funcName)
-	w.writeParamList(append(typedParams(params),
-		lo.query+" Query"+funcName))
+	w.Raw(head)
+	w.writeParamList(b.paramList())
 	w.Raw(" string {\n")
 
-	literals, _ := routepattern.Segments(route)
-	if len(literals) != len(params)+1 {
+	if len(b.literals) != len(params)+1 {
 		// Same guard as writeHrefFuncPathOnly: a rejected route must fail with
 		// a diagnostic, not a stack trace.
 		w.Line(1, `return ""`)
@@ -391,23 +490,16 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Linef(1, "var %s strings.Builder", lo.builder)
 
 	// Path literal lengths.
-	if len(literals) > 0 {
-		w.Linef(1, "%s := len(%q) +", lo.length, literals[0])
-		for i := 1; i < len(literals); i++ {
-			if i-1 < len(params) {
-				w.Linef(2, "len(%s) +", pathVarStrExpr(params[i-1]))
-			}
-			if i < len(literals)-1 || len(params) >= len(literals) {
-				w.Linef(2, "len(%q) +", literals[i])
-			} else {
-				w.Linef(2, "len(%q)", literals[i])
-			}
+	terms := hrefLengthTerms(b)
+	for i, term := range terms {
+		switch {
+		case i == 0:
+			w.Linef(1, "%s := %s +", lo.length, term)
+		case i < len(terms)-1:
+			w.Linef(2, "%s +", term)
+		default:
+			w.Linef(2, "%s", term)
 		}
-		if len(params) >= len(literals) {
-			w.Linef(2, "len(%s)", pathVarStrExpr(params[len(literals)-1]))
-		}
-	} else {
-		w.Linef(1, "%s := 0", lo.length)
 	}
 
 	w.Linef(1, "if %s {", lo.anyQuery)
@@ -435,13 +527,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Linef(1, "%s.Grow(%s)", lo.builder, lo.length)
 	w.Line(0, "")
 
-	// Write path segments.
-	for i, lit := range literals {
-		w.Linef(1, "%s.WriteString(%q)", lo.builder, lit)
-		if i < len(params) {
-			w.Linef(1, "%s.WriteString(%s)", lo.builder, pathVarStrExpr(params[i]))
-		}
-	}
+	w.writeHrefPath(b)
 
 	w.Linef(1, "if %s {", lo.anyQuery)
 	w.Linef(2, "%s.WriteString(\"?\")", lo.builder)
@@ -470,12 +556,10 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeHrefQueryType(funcName string, st *types.Struct) {
+func (w *Writer) writeHrefQueryType(funcName string, fields []structFieldInfo) {
 	w.Line(0, "")
 	w.Linef(0, "// Query%s is the query parameters for %s", funcName, funcName)
 	w.Linef(0, "type Query%s struct {", funcName)
-
-	fields := w.structFields(st)
 
 	// Find longest field name for alignment.
 	maxNameLen := 0

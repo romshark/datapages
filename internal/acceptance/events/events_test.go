@@ -329,6 +329,33 @@ func TestSubjectScoping(t *testing.T) {
 	})
 }
 
+// TestNestedSignalScoping tests subject fields bound to the signals chat.room
+// and chat.thread. Datastar sends them nested, as
+// {"chat":{"room":"red","thread":"a"}}, and a stream subscribes by both values.
+func TestNestedSignalScoping(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		type chat struct {
+			Room   string `json:"room"`
+			Thread string `json:"thread"`
+		}
+		threadA := c.OpenStream(t, "/chat/_$/",
+			map[string]chat{"chat": {Room: "red", Thread: "a"}})
+		threadB := c.OpenStream(t, "/chat/_$/",
+			map[string]chat{"chat": {Room: "red", Thread: "b"}})
+
+		postOK(t, c, "/chat/say/",
+			`{"chat":{"room":"red","thread":"a"},"text":"hello a"}`)
+
+		require.True(t, threadA.Saw(`<div id="said">hello a</div>`),
+			"the addressed stream received nothing")
+		require.True(t, threadB.Never("hello a"),
+			"a stream received an event addressed at another thread")
+	})
+}
+
 // TestOneCopyPerStream tests how many messages a subscription receives.
 // A page subscribes to one subject per event it handles, and the room page handles two,
 // which a broker that delivers per matching subscription can turn into more copies

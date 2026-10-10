@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/romshark/datapages"
@@ -30,6 +32,24 @@ type SearchParams struct {
 // Head returns the shared head content.
 func (*App) Head(r *http.Request) datapages.Head {
 	return head()
+}
+
+// RecoverError reports a failed action in a toast. Without it,
+// a Datastar request reports the error in the browser console only.
+//
+// It also clears $_buying, which keeps the purchase button disabled from the
+// click until the navigation to the ticket. A failed purchase does not navigate.
+func (*App) RecoverError(err error, sse datapages.SSE) error {
+	msg := "Something went wrong. Please try again."
+	if errors.Is(err, domain.ErrShowSoldOut) {
+		msg = "Sold out. The last ticket sold before your purchase went through."
+	}
+	if err := sse.PatchElementAt(
+		toastError(msg), "#toaster", datapages.PatchModeAppend,
+	); err != nil {
+		return err
+	}
+	return sse.PatchSignals(json.RawMessage(`{"_buying":false}`))
 }
 
 // POSTSignOut is /sign-out/{$}

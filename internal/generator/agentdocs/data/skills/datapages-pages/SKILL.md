@@ -21,7 +21,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 }
 ```
 
-Routes use `net/http.ServeMux` patterns. `/item/{id}` captures one segment. `/{path...}` captures the remaining path. `/{$}` matches only that path. Datapages serves a page's SSE stream below `_$`. Do not define a route that claims that path.
+Routes use `net/http.ServeMux` patterns. `/item/{id}` captures one segment. `/{path...}` captures the remaining path. `/{$}` matches only that path. Datapages serves a page's SSE stream below `_$`. Do not define a route that claims that path. A page whose route ends in `{$}` or `{name...}` serves only `GET`: it cannot have actions or an SSE stream. Leave out `{$}` to give a page actions or a stream: the page keeps its URL.
 
 If a route comment has a description, separate it from the route with a blank `//` line:
 
@@ -49,6 +49,9 @@ If a route comment has a description, separate it from the route with a blank `/
 | `datapages.EnableBackgroundStreaming` | keep the stream open while the tab is hidden; only a page with a stream may return it |
 | `datapages.DisableRefreshAfterHidden` | no refresh when the tab is shown again; only a page with a stream may return it |
 | `error` | reports an error |
+
+A `GETXXX` method is a file action, not the page's `GET`. See
+`datapages-actions`. The page's `GET` cannot return `datapages.File`.
 
 ## Path variables
 
@@ -89,6 +92,8 @@ It also rejects a JSON type mismatch between a query field and its signal. The c
 
 `PageError404`, `PageError500` and `PageOffline` are reserved page names. All
 three are optional. Datapages serves defaults when they are absent.
+
+`PageError404` renders with status 404 for a URL that no route matches and for a page load whose handler returns `datapages.ErrNotFound`. `PageError500` renders with status 500 for a page load whose handler panics or returns an error without a sentinel.
 
 ```go
 // PageError404 is /not-found

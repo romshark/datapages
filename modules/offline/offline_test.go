@@ -1,11 +1,13 @@
 package offline_test
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -59,8 +61,10 @@ func TestMiddleware(t *testing.T) {
 				))
 			},
 			want: want{
-				status:  http.StatusOK,
-				bodyHas: []string{"serviceWorker.register('/service-worker.js')", "</head>"},
+				status: http.StatusOK,
+				bodyHas: []string{
+					`serviceWorker.register('/service-worker.js', { scope: '/' })`, "</head>",
+				},
 			},
 		},
 		"passes through SSE untouched": {
@@ -208,6 +212,133 @@ func injectedScript(mw func(http.Handler) http.Handler) string {
 	)
 }
 
+// TestMiddlewareWriteStringDoesNotAllocate tests io.WriteString through the middleware,
+// for a response it passes through and for a page it buffers.
+// Without WriteString on its writer, every call copies the string into a new byte slice.
+func TestMiddlewareWriteStringDoesNotAllocate(t *testing.T) {
+	for name, contentType := range map[string]string{
+		"passed through": "text/css",
+		"buffered":       "text/html; charset=utf-8",
+	} {
+		t.Run(name, func(t *testing.T) {
+			mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+			var allocs float64
+			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", contentType)
+				allocs = testing.AllocsPerRun(100, func() {
+					_, _ = io.WriteString(w, "<p>x</p>")
+				})
+			})).ServeHTTP(
+				discardRW{http.Header{}}, httptest.NewRequest(http.MethodGet, "/", nil),
+			)
+			require.Zero(t, allocs, "allocations per io.WriteString")
+		})
+	}
+}
+
+// TestMiddlewareServeContent tests http.ServeContent behind the middleware.
+// A file that passes through reaches the ReadFrom of the writer underneath,
+// where net/http uses sendfile. A page still gets the script.
+func TestMiddlewareServeContent(t *testing.T) {
+	t.Parallel()
+
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+	const page = "<!DOCTYPE html><html><head></head><body>x</body></html>"
+	for name, tc := range map[string]struct {
+		file, content, wantBody string
+		wantReadFrom            bool
+	}{
+		"stylesheet": {
+			file: "a.css", content: "body{color:red}", wantBody: "body{color:red}",
+			wantReadFrom: true,
+		},
+		"page": {
+			file: "a.html", content: page,
+			wantBody: "<!DOCTYPE html><html><head>" + injectedScript(mw) +
+				"</head><body>x</body></html>",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := &readFromRecorder{ResponseRecorder: httptest.NewRecorder()}
+			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.ServeContent(
+					w, r, tc.file, time.Time{}, strings.NewReader(tc.content),
+				)
+			})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+			require.Equal(t, tc.wantBody, rec.Body.String())
+			require.Equal(t, tc.wantReadFrom, rec.readFrom,
+				"whether io.Copy reached the ReadFrom of the writer underneath")
+		})
+	}
+}
+
+// discardRW drops the body. Like the writer net/http hands a handler,
+// it has a WriteString that copies nothing.
+type discardRW struct{ h http.Header }
+
+func (w discardRW) Header() http.Header             { return w.h }
+func (discardRW) Write(p []byte) (int, error)       { return len(p), nil }
+func (discardRW) WriteString(s string) (int, error) { return len(s), nil }
+func (discardRW) WriteHeader(int)                   {}
+
+// TestMiddlewareCopyBeforeAnyByte tests io.Copy into a response that has not
+// written a byte yet. As in net/http, nothing is committed until the source
+// produces a byte: a copy that fails at once still lets the handler send 500,
+// and an empty page stays empty.
+func TestMiddlewareCopyBeforeAnyByte(t *testing.T) {
+	t.Parallel()
+
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+	for name, tc := range map[string]struct {
+		contentType string
+		src         io.Reader
+		wantStatus  int
+		wantBody    string
+	}{
+		"failing source": {
+			contentType: "application/json", src: failingReader{},
+			wantStatus: http.StatusInternalServerError, wantBody: "copy failed\n",
+		},
+		"empty page": {
+			contentType: "text/html; charset=utf-8",
+			src:         io.LimitReader(failingReader{}, 0),
+			wantStatus:  http.StatusOK,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				if _, err := io.Copy(w, tc.src); err != nil {
+					http.Error(w, "copy failed", http.StatusInternalServerError)
+				}
+			})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+			require.Equal(t, tc.wantStatus, rec.Code)
+			require.Equal(t, tc.wantBody, rec.Body.String())
+		})
+	}
+}
+
+// failingReader fails its first read, as a file on a disk that went away does.
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+
+// readFromRecorder records whether io.Copy reached its ReadFrom.
+type readFromRecorder struct {
+	*httptest.ResponseRecorder
+	readFrom bool
+}
+
+func (r *readFromRecorder) ReadFrom(src io.Reader) (int64, error) {
+	r.readFrom = true
+	return io.Copy(r.ResponseRecorder, src)
+}
+
 func TestMiddlewareServiceWorkerHeaders(t *testing.T) {
 	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
 	rec := httptest.NewRecorder()
@@ -216,6 +347,101 @@ func TestMiddlewareServiceWorkerHeaders(t *testing.T) {
 
 	require.Equal(t, "/", rec.Header().Get("Service-Worker-Allowed"))
 	require.True(t, strings.Contains(rec.Header().Get("Cache-Control"), "no-cache"))
+}
+
+// TestMiddlewareRegistersTheWholeOrigin tests that a page registers a worker served
+// from a subdirectory for scope "/" and that the script response allows that scope.
+// Without the scope, the browser limits the worker to the directory of its script.
+// Without the header, it refuses the registration.
+func TestMiddlewareRegistersTheWholeOrigin(t *testing.T) {
+	t.Parallel()
+	mw := offline.Middleware("/offline/", offline.Config{
+		WorkerVersion: 1, ScriptURL: "/static/sw.js",
+	})
+
+	page := serve(mw, "<!DOCTYPE html><html><head></head><body>x</body></html>")
+	require.Contains(t, page,
+		`navigator.serviceWorker.register('/static/sw.js', { scope: '/' })`,
+		"the page must register the worker for scope /, not /static/")
+
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("next must not be called for the worker path")
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/sw.js", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "text/javascript; charset=utf-8", rec.Header().Get("Content-Type"))
+	require.Equal(t, "/", rec.Header().Get("Service-Worker-Allowed"),
+		"the browser refuses scope / for /static/sw.js without this header")
+}
+
+// TestScriptURLValidation tests that [offline.WithServiceWorker] refuses a
+// [offline.Config.ScriptURL] the browser does not request as written,
+// and that [offline.Middleware] panics with the same error.
+func TestScriptURLValidation(t *testing.T) {
+	t.Parallel()
+
+	const chars = "; use only ASCII letters, digits, '-', '.', '_', '~' and '/'"
+	for name, tc := range map[string]struct {
+		scriptURL string
+		wantErr   string
+	}{
+		"default":      {},
+		"subdirectory": {scriptURL: "/static/sw-v2.1_x~y.js"},
+		"relative": {
+			scriptURL: "sw.js",
+			wantErr:   `offline: ScriptURL "sw.js" must start with a slash`,
+		},
+		"absolute URL": {
+			scriptURL: "https://example.com/sw.js",
+			wantErr:   `offline: ScriptURL "https://example.com/sw.js" must start with a slash`,
+		},
+		"leading double slash": {
+			scriptURL: "//example.com/sw.js",
+			wantErr:   `offline: ScriptURL "//example.com/sw.js" has an empty path segment`,
+		},
+		"trailing slash": {
+			scriptURL: "/sw/",
+			wantErr:   `offline: ScriptURL "/sw/" has an empty path segment`,
+		},
+		"dot segment": {
+			scriptURL: "/static/../sw.js",
+			wantErr:   `offline: ScriptURL "/static/../sw.js" has a ".." path segment`,
+		},
+		"query": {
+			scriptURL: "/sw.js?v=2",
+			wantErr:   `offline: ScriptURL "/sw.js?v=2" contains '?'` + chars,
+		},
+		"percent-encoding": {
+			scriptURL: "/sw%20v2.js",
+			wantErr:   `offline: ScriptURL "/sw%20v2.js" contains '%'` + chars,
+		},
+		"quote": {
+			scriptURL: "/it's/sw.js",
+			wantErr:   `offline: ScriptURL "/it's/sw.js" contains '\''` + chars,
+		},
+		"end of script": {
+			scriptURL: "/</script>",
+			wantErr:   `offline: ScriptURL "/</script>" contains '<'` + chars,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			conf := offline.Config{WorkerVersion: 1, ScriptURL: tc.scriptURL}
+			var cfg datapages.ServerConfig
+			err := offline.WithServiceWorker("/offline/", conf)(&cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				require.Len(t, cfg.Middleware, 1)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+			require.Empty(t, cfg.Middleware,
+				"a refused config must install no middleware")
+			require.PanicsWithError(t, tc.wantErr, func() {
+				offline.Middleware("/offline/", conf)
+			})
+		})
+	}
 }
 
 func TestMiddlewareOfflineClass(t *testing.T) {
@@ -245,7 +471,9 @@ func TestMiddlewareOfflineClass(t *testing.T) {
 			mw := offline.Middleware("/offline/", tc.conf)
 			rec := httptest.NewRecorder()
 			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte("<!DOCTYPE html><html><head></head><body>x</body></html>"))
+				_, _ = w.Write([]byte(
+					"<!DOCTYPE html><html><head></head><body>x</body></html>",
+				))
 			})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 			body := rec.Body.String()
@@ -285,7 +513,9 @@ func TestServiceWorkerCrossOriginDestinations(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			require.Contains(t, string(offline.ServiceWorkerJS("/offline/", tc.conf)), tc.want)
+			require.Contains(t,
+				string(offline.ServiceWorkerJS("/offline/", tc.conf)),
+				tc.want)
 		})
 	}
 }

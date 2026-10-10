@@ -113,3 +113,18 @@ func (PageDuplicateTag) GET(
 	_ = path
 	return body, err
 }
+
+/* ErrPathMissingRouteVar x2, ErrPathFieldNotInRoute */
+
+// POSTMove is /move/{id}/{slug}
+//
+// An App action whose path struct names neither route variable.
+func (*App) POSTMove(
+	r *http.Request,
+	path datapages.Path[struct {
+		Name string `path:"name"`
+	}],
+) error {
+	_ = path
+	return nil
+}

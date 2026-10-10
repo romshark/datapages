@@ -3,6 +3,7 @@ package datapages_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,9 +12,8 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// TestWithDatastarJS tests the URL that goes into the src attribute of a script
-// tag in the head of every page. A quote in it closes the attribute and turns
-// the rest of the value into further attributes on that tag.
+// TestWithDatastarJS tests the URLs the page shell may load the Datastar
+// bundle from: http, https and relative URLs according to RFC 3986.
 func TestWithDatastarJS(t *testing.T) {
 	t.Parallel()
 
@@ -26,13 +26,18 @@ func TestWithDatastarJS(t *testing.T) {
 		"root relative":     {"/static/ds.js", true},
 		"relative":          {"static/ds.js", true},
 		"protocol relative": {"//cdn.example.com/ds.js", true},
+		"query":             {"https://cdn.example.com/ds.js?v=1&min=1", true},
+		"single quote":      {"https://cdn.example.com/o'neil/ds.js", true},
+		"percent-encoded":   {"https://cdn.example.com/d%20s.js", true},
 		"empty":             {"", false},
 		"other scheme":      {"javascript:alert(1)", false},
-		"double quote":      {`https://x/ds.js" onload="alert(1)`, false},
-		"single quote":      {"https://x/ds.js' onload='alert(1)", false},
-		"angle bracket":     {"https://x/ds.js></script><script>", false},
+		"double quote":      {`https://x/ds.js"`, false},
+		"angle bracket":     {"https://x/ds.js<", false},
 		"space":             {"https://x/d s.js", false},
 		"control character": {"https://x/ds.js\nfoo", false},
+		"brace":             {"https://x/{version}/ds.js", false},
+		"non-ASCII":         {"https://x/dätastar.js", false},
+		"bad escape":        {"https://x/ds%zz.js", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var cfg datapages.ServerConfig
@@ -124,6 +129,57 @@ func TestWithAssetsCache(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, &tc.conf, cfg.AssetsCache)
+		})
+	}
+}
+
+// TestWithBuildID tests that IDs fit unchanged in an HTTP header.
+// Fetch rejects other characters, and servers trim surrounding whitespace.
+func TestWithBuildID(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		id      string
+		wantErr string // empty: the ID is accepted
+	}{
+		"commit hash": {id: "4f221f8b14b235c4b2f4212c133adf9f"},
+		"release tag": {id: "v1.2.3-rc.1+build.7"},
+		"punctuation": {id: `a"b<c>&d'e`},
+		"longest":     {id: strings.Repeat("x", 128)},
+		"empty":       {id: "", wantErr: "WithBuildID: id is empty"},
+		"too long": {
+			id:      strings.Repeat("x", 129),
+			wantErr: "WithBuildID: id length (129) exceeds 128 bytes",
+		},
+		"space": {
+			id:      "v1 v2",
+			wantErr: "WithBuildID: id contains a space at byte 2",
+		},
+		"control character": {
+			id:      "v1\r\nX: 1",
+			wantErr: `WithBuildID: id contains control character '\r' at byte 2`,
+		},
+		"delete": {
+			id:      "v1\x7f",
+			wantErr: `WithBuildID: id contains control character '\x7f' at byte 2`,
+		},
+		"non-ASCII": {
+			id:      "v1-ü",
+			wantErr: "WithBuildID: id contains non-ASCII character 'ü' at byte 3",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var cfg datapages.ServerConfig
+			err := datapages.WithBuildID(tc.id)(&cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				require.Equal(t, tc.id, cfg.BuildID)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+			require.Empty(t, cfg.BuildID)
 		})
 	}
 }

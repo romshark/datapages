@@ -53,12 +53,14 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:      status,
 		HeadGeneric: headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
 			// The id authorizes access to one tab's state. The fetch wrapper keeps
@@ -151,6 +153,21 @@ func (s *Server) recoverPanic(
 		slog.Any("panic", v),
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicFile is recoverPanic for a handler that answers with a file.
+func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFile(w, r, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
@@ -418,6 +435,9 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
+		"GET /files/{id}/{$}",
+		appHandlers{s}.GETFile)
+	s.Mux().HandleFunc(
 		"DELETE /files/{id}/{$}",
 		pageIndexHandlers{s}.DELETEFile)
 	s.Mux().HandleFunc(
@@ -473,6 +493,35 @@ func (s *Server) httpErrIntern(
 		slog.Any("err", errRecover))
 }
 
+func (s *Server) httpErrFile(
+	w http.ResponseWriter, _ *http.Request, msg string, err error,
+) {
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+type appHandlers struct{ *Server }
+
+func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		ID string `path:"id"`
+	}]
+	path.Values.ID = r.PathValue("id")
+	defer s.recoverPanicFile(w, r, "App.File")
+	file, err := s.app.GETFile(r, path)
+	if err != nil {
+		s.httpErrFile(w, r, "handling action App.File", err)
+		return
+	}
+	if err := httpserve.ServeFile(w, r, file); err != nil {
+		s.httpErrFile(w, r, "serving the file of action App.File", err)
+	}
+}
+
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -511,14 +560,14 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('/_$/'`)
 		if enableBackgroundStreaming {
-			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'error'})"`)
+			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
 		} else {
-			_, _ = io.WriteString(w, `,{retry:'error'})"`)
+			_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
@@ -48,7 +50,9 @@ func implementsUnmarshaler(t *types.Named) bool {
 }
 
 func validateEvents(ctx *parseCtx, errs *Errors) {
-	for name := range ctx.eventTypeNames {
+	// A struct type that several events share reports its fields once per event,
+	// all at one position. Their order is the order the events are read in.
+	for _, name := range slices.Sorted(maps.Keys(ctx.eventTypeNames)) {
 		ts := ctx.typeSpecByName[name]
 		validateEventType(
 			ctx, errs, name,

@@ -7,8 +7,10 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,13 +41,19 @@ type Config struct {
 	// values and offlinePath in the script it serves. The worker fetches
 	// [Config.Assets] and PageOffline only during installation.
 	//
-	// A changed asset at an unchanged URL does not require a new worker version.
-	// The cache refreshes it from the network after serving the stored copy.
+	// A changed same-origin asset at an unchanged URL doesn't require a new
+	// worker version. The worker serves the stored copy and then refreshes it
+	// from the network. It never refreshes a cross-origin asset: give a changed
+	// one a new URL or increase WorkerVersion.
 	WorkerVersion uint64
 
-	// ScriptURL is the path the worker script is served from. Empty selects
-	// [DefaultScriptURL]. Its scope is widened to the whole origin via the
-	// Service-Worker-Allowed header regardless of this path.
+	// ScriptURL is the path the worker script is served from.
+	// Empty selects [DefaultScriptURL].
+	// It starts with a slash, and its segments consist of the unreserved
+	// characters of RFC 3986, other than "." and "..".
+	// The worker controls the whole origin regardless of this path:
+	// registration requests scope "/", and the script response
+	// permits it with the Service-Worker-Allowed header.
 	ScriptURL string
 
 	// Assets lists the CSS, JavaScript and images cached during installation.
@@ -58,7 +66,10 @@ type Config struct {
 
 	// CrossOriginDestinations lists Fetch request destinations cached when a
 	// request goes to another origin, for example assets loaded from a CDN.
-	// Same-origin requests are cached regardless of destination.
+	// Same-origin requests are cached regardless of destination. The response
+	// decides 3 exceptions: Cache-Control no-store keeps it out of the cache,
+	// no-cache makes the worker ask the network first and use the stored copy
+	// only offline, and a 401, 403, 404 or 410 removes the stored copy.
 	// Nil selects [DefaultCrossOriginDestinations]. An empty non-nil slice
 	// disables cross-origin caching. Exclude API and analytics destinations
 	// because their responses must not come from a stale cache.
@@ -164,6 +175,46 @@ func netStateJS(conf Config) string {
 	return strings.ReplaceAll(netStateTemplate, "__OFFLINE_CLASS__", string(class))
 }
 
+func (c Config) validate() error {
+	if err := validateScriptURL(c.scriptURL()); err != nil {
+		return fmt.Errorf("offline: ScriptURL %q %w", c.scriptURL(), err)
+	}
+	return nil
+}
+
+// validateScriptURL refuses a script URL the browser doesn't request as written.
+// [Middleware] compares it with the decoded request path, which a relative,
+// percent-encoded or query-carrying URL never matches.
+// The browser removes dot segments and reads a leading // as a host.
+// The characters allowed stand unescaped in the registration script's string literal.
+func validateScriptURL(s string) error {
+	rest, ok := strings.CutPrefix(s, "/")
+	if !ok {
+		return errors.New("must start with a slash")
+	}
+	for seg := range strings.SplitSeq(rest, "/") {
+		switch seg {
+		case "":
+			return errors.New("has an empty path segment")
+		case ".", "..":
+			return fmt.Errorf("has a %q path segment", seg)
+		}
+		for _, r := range seg {
+			if !isUnreserved(r) {
+				return fmt.Errorf("contains %q; use only ASCII letters, digits, "+
+					"'-', '.', '_', '~' and '/'", r)
+			}
+		}
+	}
+	return nil
+}
+
+// isUnreserved reports whether r is unreserved according to RFC 3986, section 2.3.
+func isUnreserved(r rune) bool {
+	return 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' ||
+		r == '-' || r == '.' || r == '_' || r == '~'
+}
+
 // WithServiceWorker returns the server option that installs [Middleware].
 //
 // When [Config.CSPNonce] is nil, the option reads the nonce configured by
@@ -176,6 +227,9 @@ func netStateJS(conf Config) string {
 // It supplies offlinePath from that page's route.
 func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 	return func(c *datapages.ServerConfig) error {
+		if err := conf.validate(); err != nil {
+			return err
+		}
 		// Copy the config for each server. A reused option must bind
 		// [Config.CSPNonce] to the current [datapages.ServerConfig].
 		conf := conf
@@ -201,7 +255,13 @@ func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 //
 // Applications declaring PageOffline should use the generated
 // datapagesgen.WithOffline option. It supplies offlinePath from that page's route.
+//
+// Middleware panics on an invalid [Config.ScriptURL].
+// [WithServiceWorker] returns the error instead.
 func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler {
+	if err := conf.validate(); err != nil {
+		panic(err)
+	}
 	js := ServiceWorkerJS(offlinePath, conf)
 	target := conf.scriptURL()
 	targetSlash := target + "/"
@@ -217,6 +277,8 @@ func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler
 			if r.Method == http.MethodGet &&
 				(r.URL.Path == target || r.URL.Path == targetSlash) {
 				w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+				// Registration requests scope "/". The browser refuses it for a
+				// script in a subdirectory unless this header allows it.
 				w.Header().Set("Service-Worker-Allowed", "/")
 				w.Header().Set("Cache-Control", "no-cache")
 				_, _ = w.Write(js)
@@ -288,29 +350,76 @@ func (iw *injectingWriter) WriteHeader(code int) {
 
 func (iw *injectingWriter) Write(p []byte) (int, error) {
 	if !iw.decided {
-		if ct := iw.Header().Get("Content-Type"); ct != "" {
-			iw.inject = strings.HasPrefix(ct, "text/html")
-		} else {
-			iw.inject = looksHTML(p)
-		}
-		if iw.inject && encoded(iw.Header()) {
-			// [Middleware] cannot splice a script into a compressed body. Register
-			// the compressing middleware before [Middleware] to keep script injection.
-			iw.inject = false
-		}
-		iw.decided = true
-		if !iw.inject {
-			if iw.status == 0 {
-				iw.status = http.StatusOK
-			}
-			iw.ResponseWriter.WriteHeader(iw.status)
-		}
+		iw.decide(p)
 	}
 	if iw.inject {
 		return iw.buf.Write(p)
 	}
 	return iw.ResponseWriter.Write(p)
 }
+
+// WriteString keeps io.WriteString from copying s into a new byte slice.
+// The first write of a response without a Content-Type goes through Write,
+// which sniffs its bytes.
+func (iw *injectingWriter) WriteString(s string) (int, error) {
+	if !iw.decided {
+		if iw.Header().Get("Content-Type") == "" {
+			return iw.Write([]byte(s))
+		}
+		iw.decide(nil)
+	}
+	if iw.inject {
+		return iw.buf.WriteString(s)
+	}
+	return io.WriteString(iw.ResponseWriter, s)
+}
+
+// ReadFrom forwards a response that passes through to the writer underneath,
+// which is what http.ServeContent reaches for. Without it io.Copy allocates
+// a copy buffer per response, and sendfile is out of reach.
+//
+// Every other response is copied through Write, which decides on the first bytes.
+// Deciding before the source produced any would commit the status early.
+// A handler whose copy fails at once could then not send 500, and an empty page
+// would get the script. bytes.Buffer.ReadFrom would buffer a page
+// in more allocations than the copy buffer does.
+func (iw *injectingWriter) ReadFrom(src io.Reader) (int64, error) {
+	if iw.decided && !iw.inject {
+		if rf, ok := iw.ResponseWriter.(io.ReaderFrom); ok {
+			return rf.ReadFrom(src)
+		}
+	}
+	return io.Copy(writeOnly{iw}, src)
+}
+
+// decide buffers the response for injection or passes it through,
+// by its Content-Type or, without one, by its first bytes p.
+func (iw *injectingWriter) decide(p []byte) {
+	if ct := iw.Header().Get("Content-Type"); ct != "" {
+		iw.inject = strings.HasPrefix(ct, "text/html")
+	} else {
+		iw.inject = looksHTML(p)
+	}
+	if iw.inject && encoded(iw.Header()) {
+		// [Middleware] cannot splice a script into a compressed body. Register
+		// the compressing middleware before [Middleware] to keep script injection.
+		iw.inject = false
+	}
+	iw.decided = true
+	if !iw.inject {
+		if iw.status == 0 {
+			iw.status = http.StatusOK
+		}
+		iw.ResponseWriter.WriteHeader(iw.status)
+	}
+}
+
+// writeOnly hides [injectingWriter.ReadFrom] from io.Copy, which would
+// otherwise call it again. It holds a single pointer, which converts to
+// an io.Writer without an allocation.
+type writeOnly struct{ iw *injectingWriter }
+
+func (w writeOnly) Write(p []byte) (int, error) { return w.iw.Write(p) }
 
 // Flush supports streaming responses such as Datastar SSE.
 // [Middleware] doesn't buffer them.

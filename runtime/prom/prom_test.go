@@ -1,7 +1,9 @@
 package prom_test
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,6 +82,41 @@ func TestMiddlewareLabelsTheSentStatus(t *testing.T) {
 	}), "a status net/http never sent was counted")
 }
 
+// TestMiddlewareWriteString tests io.WriteString on the middleware's writer.
+// It reaches the WriteString of the writer underneath without copying the
+// string into a new byte slice, and a status written after it is dropped,
+// as after Write.
+func TestMiddlewareWriteString(t *testing.T) {
+	var allocs float64
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /string/{$}", func(w http.ResponseWriter, r *http.Request) {
+		allocs = testing.AllocsPerRun(100, func() {
+			_, _ = io.WriteString(w, "half a page")
+		})
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	})
+	prom.Middleware(mux).ServeHTTP(discardRW{http.Header{}},
+		httptest.NewRequest(http.MethodGet, "/string/", nil))
+
+	require.Zero(t, allocs, "allocations per io.WriteString")
+	const metric = "datapages_http_requests_total"
+	require.Equal(t, 1, series(t, metric, map[string]string{
+		"path": "GET /string/{$}", "status": "200",
+	}), "the status the client received was not counted")
+	require.Zero(t, series(t, metric, map[string]string{
+		"path": "GET /string/{$}", "status": "500",
+	}), "a status net/http never sent was counted")
+}
+
+// discardRW drops the body. Like the writer net/http hands a handler,
+// it has a WriteString that copies nothing.
+type discardRW struct{ h http.Header }
+
+func (w discardRW) Header() http.Header             { return w.h }
+func (discardRW) Write(p []byte) (int, error)       { return len(p), nil }
+func (discardRW) WriteString(s string) (int, error) { return len(s), nil }
+func (discardRW) WriteHeader(int)                   {}
+
 // TestMarkStreamLeavesRequestLatency tests a request the stream handler marked:
 // it leaves the latency histogram and the in-flight gauge, and stays counted.
 func TestMarkStreamLeavesRequestLatency(t *testing.T) {
@@ -105,6 +142,70 @@ func TestMarkStreamLeavesRequestLatency(t *testing.T) {
 
 	total := gather(t, "datapages_http_requests_total")
 	require.Contains(t, total, "GET /stream/{$}", "the stream was not counted")
+	requireInFlight(t, "0")
+}
+
+// TestMiddlewareCountsAbortedStream tests a stream that shutdown ends with an
+// [http.ErrAbortHandler] panic. The stream stays counted, and the panic still
+// reaches net/http, which resets the connection.
+func TestMiddlewareCountsAbortedStream(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /aborted/{$}", func(w http.ResponseWriter, r *http.Request) {
+		prom.MarkStream(w)
+		panic(http.ErrAbortHandler)
+	})
+	h := prom.Middleware(mux)
+
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() {
+		h.ServeHTTP(httptest.NewRecorder(),
+			httptest.NewRequest(http.MethodGet, "/aborted/", nil))
+	})
+	require.Equal(t, 1, series(t, "datapages_http_requests_total", map[string]string{
+		"path": "GET /aborted/{$}", "status": "200",
+	}), "the aborted stream was not counted")
+	requireInFlight(t, "0")
+}
+
+type nonceKey struct{}
+
+// withNonce stores a value in the request context, as an application storing
+// a CSP nonce does. The next handler receives a copy of the request.
+func withNonce(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), nonceKey{}, "nonce")
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// TestRecordRoute tests a middleware between Middleware and the router that
+// derives the request. The router sets the route on the copy, and both the
+// request and a stream that shutdown aborts keep their route label.
+func TestRecordRoute(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /derived/{id}/", func(http.ResponseWriter, *http.Request) {})
+	mux.HandleFunc("GET /derived-stream/{$}", func(w http.ResponseWriter, r *http.Request) {
+		prom.MarkStream(w)
+		panic(http.ErrAbortHandler)
+	})
+	h := prom.Middleware(withNonce(prom.RecordRoute(mux)))
+
+	h.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/derived/1/", nil))
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() {
+		h.ServeHTTP(httptest.NewRecorder(),
+			httptest.NewRequest(http.MethodGet, "/derived-stream/", nil))
+	})
+
+	const total = "datapages_http_requests_total"
+	require.Equal(t, 1, series(t, total, map[string]string{
+		"path": "GET /derived/{id}/", "status": "200",
+	}), "the request was not counted under its route")
+	require.Equal(t, 1, series(t, "datapages_http_request_duration_seconds",
+		map[string]string{"path": "GET /derived/{id}/"},
+	), "the request latency was not observed under its route")
+	require.Equal(t, 1, series(t, total, map[string]string{
+		"path": "GET /derived-stream/{$}",
+	}), "the aborted stream was not counted under its route")
 	requireInFlight(t, "0")
 }
 
@@ -145,6 +246,20 @@ func TestMiddlewareLabelsAreBounded(t *testing.T) {
 	require.Zero(t, series(t, metric, map[string]string{
 		"path": "/user/1/",
 	}), "the raw path must not appear as a label")
+}
+
+// TestMiddlewareLabelsQuery tests a QUERY request, which an action can answer.
+// It keeps its method as the label instead of [prom.LabelOtherMethod].
+func TestMiddlewareLabelsQuery(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("QUERY /search/", func(http.ResponseWriter, *http.Request) {})
+	h := prom.Middleware(mux)
+
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("QUERY", "/search/", nil))
+
+	require.Equal(t, 1, series(t, "datapages_http_requests_total", map[string]string{
+		"method": "QUERY", "path": "QUERY /search/",
+	}))
 }
 
 // series counts the series of the metric family name carrying every label of want.

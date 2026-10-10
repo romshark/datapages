@@ -3,6 +3,8 @@ package app
 import (
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
@@ -86,7 +88,15 @@ func (p PageLogin) POSTSubmit(
 	return
 }
 
-// isSafeRelativePath reports whether p is rooted but not protocol-relative.
+// isSafeRelativePath reports whether p is a path on this site.
+//
+// The browser resolves the redirect target with the WHATWG URL parser,
+// not with [url.Parse]. It reads "\" as "/", drops tabs and newlines and skips
+// every slash before a host, which takes "/\host", "/\t/host" and "///host"
+// to another site. [url.Parse] rejects the tab and the newline as control characters.
 func isSafeRelativePath(p string) bool {
-	return len(p) > 1 && p[0] == '/' && p[1] != '/'
+	u, err := url.Parse(p)
+	return err == nil && u.Scheme == "" && u.Host == "" &&
+		strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//") &&
+		!strings.ContainsRune(p, '\\')
 }

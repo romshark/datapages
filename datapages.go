@@ -18,7 +18,7 @@ type Component interface {
 }
 
 // Signals carries the client-side Datastar signals.
-// GET, action (POST/PUT/PATCH/DELETE) and StreamOpen handlers may
+// GET, action (POST/PUT/PATCH/DELETE/QUERY) and StreamOpen handlers may
 // receive it as a parameter.
 //
 // Values is a struct whose exported fields each name a signal with a json:"<name>" tag:
@@ -34,7 +34,11 @@ type Component interface {
 type Signals[Values any] struct{ Values Values }
 
 // Path carries the URL path variables of the route.
-// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+// GET and action (POST/PUT/PATCH/DELETE/QUERY) handlers may receive it as a parameter.
+//
+// A value holds its segment unescaped: %2F arrives as "/" and %2E%2E as "..".
+// Never join it into a file path. Open a file through an [io/fs.FS] or an [os.Root],
+// which refuse a name that leaves their directory, or look the value up as a key.
 //
 // Values is a struct whose exported fields each name a route variable with a
 // path:"<name>" tag:
@@ -53,7 +57,7 @@ type Signals[Values any] struct{ Values Values }
 type Path[Values any] struct{ Values Values }
 
 // Query carries the URL query parameters.
-// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+// GET and action (POST/PUT/PATCH/DELETE/QUERY) handlers may receive it as a parameter.
 //
 // Values is a struct whose exported fields each name a parameter with a
 // query:"<name>" tag.
@@ -94,7 +98,7 @@ type Query[Values any] struct{ Values Values }
 //   - StreamOpen
 //   - StreamClose
 //   - event handlers (OnXXX)
-//   - action handlers (POST/PUT/PATCH/DELETE)
+//   - action handlers (POST/PUT/PATCH/DELETE/QUERY)
 //
 // GET handlers may not: the server allocates state only when the tab connects
 // its stream, before StreamOpen runs.
@@ -270,7 +274,7 @@ func MakeSession[Data any](
 	}
 }
 
-// NewSession is returned by handlers as the newSession return value to sign a client in.
+// NewSession signs in a client when returned by a handler.
 // Datapages generates the session token and stamps the issuance time,
 // then hands the result back to handlers as a [Session].
 //
@@ -286,7 +290,7 @@ func MakeSession[Data any](
 //	}
 //
 // A zero UserID is a no-op, no session is created. The session the request
-// arrived with is closed, which ends its streams.
+// arrived with is closed, which ends its streams and reloads their pages.
 type NewSession[Data any] struct {
 	// UserID identifies the authenticated user.
 	UserID string
@@ -304,8 +308,7 @@ type NewSession[Data any] struct {
 	Data Data
 }
 
-// Redirect is returned by handlers as the redirect return value to navigate the
-// client to another URL:
+// Redirect navigates the client to another URL when returned by a handler:
 //
 //	func (p PageLogin) POSTSubmit(...) (
 //		redirect datapages.Redirect, err error,
@@ -320,13 +323,198 @@ type Redirect struct {
 	URL string
 
 	// Status is the HTTP status code of the redirect response.
-	// Zero, or any code that isn't a redirect status, means [net/http.StatusFound].
+	// Zero, or any code that isn't a redirect status, means [http.StatusFound].
 	//
 	// Status is ignored for requests issued by a Datastar action
 	// (those carrying the header "Datastar-Request: true"),
 	// because they can't follow an HTTP redirect.
 	// Those navigate client-side by assigning window.location instead.
 	Status int
+}
+
+// File is a handler return value for raw bytes instead of a rendered HTML document:
+//
+//	// GETImage is /images/{name}
+//	func (a *App) GETImage(
+//		r *http.Request,
+//		path datapages.Path[struct {
+//			Name string `path:"name"`
+//		}],
+//	) (file datapages.File, err error) {
+//		// a.images opens through an os.Root: the name is unescaped
+//		// and can hold "/" and "..".
+//		f, contentType, err := a.images.Open(path.Values.Name)
+//		switch {
+//		case errors.Is(err, fs.ErrNotExist):
+//			return datapages.File{}, datapages.ErrNotFound
+//		case err != nil:
+//			return datapages.File{}, err
+//		}
+//		return datapages.File{Type: contentType, Body: f}, nil
+//	}
+//
+// Errors return their status code and text. [Document requests],
+// such as links opened in a tab, render PageError404 or PageError500 instead.
+//
+// [http.ServeContent] serves the body. It handles [HEAD] and [Range] requests,
+// and with ModTime or ETag the conditional requests
+// [If-Modified-Since], [If-None-Match], [If-Match] and [If-Range].
+//
+// Do not use File to render application HTML. Return a [Component] so Templ
+// can escape values for their HTML context and datapages lint can check the markup.
+//
+// Every response sets [X-Content-Type-Options] to nosniff, which disables
+// [MIME sniffing]: without it, a browser can run a text/plain response as
+// a script or render an invalid MIME type as HTML. It changes nothing for
+// a declared Type that runs script itself, such as text/html or image/svg+xml,
+// which an uploaded file carries whenever the uploading browser reports it.
+// Serve a file a visitor uploaded with Disposition.Download, or show inline
+// only types from an allowlist. A Content-Security-Policy of sandbox in Header
+// adds a second layer.
+//
+// [Document requests]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest
+// [HEAD]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/HEAD
+// [Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Range
+// [If-Modified-Since]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Modified-Since
+// [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
+// [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
+// [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+// [X-Content-Type-Options]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options
+// [MIME sniffing]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types#mime_sniffing
+type File struct {
+	// Type sets [Content-Type]. An empty Type returns HTTP 500 rather than
+	// letting the browser infer a type, which could be HTML.
+	//
+	// [Content-Type]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type
+	Type string
+
+	// Body is the response content, which Datapages closes after serving.
+	// Content held in memory needs a Close that does nothing: a [bytes.Reader]
+	// has none, and [io.NopCloser] drops Seek. A nil Body returns HTTP 500.
+	//
+	// Body must seek: [http.ServeContent] reads its size and serves ranges
+	// from it. A stream, such as the body of an [http.Response], has to be
+	// copied into memory or a temporary file first.
+	Body io.ReadSeekCloser
+
+	// ModTime sets [Last-Modified] and enables [If-Modified-Since] handling.
+	// The zero value omits Last-Modified.
+	//
+	// [Last-Modified]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Last-Modified
+	// [If-Modified-Since]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Modified-Since
+	ModTime time.Time
+
+	// ETag sets the [entity tag] of the body, which answers [If-None-Match],
+	// [If-Match] and [If-Range] requests. Datapages quotes it: set the tag alone,
+	// such as a hash of the content. It's a strong validator, which two bodies
+	// share only when their bytes are equal. A tag with a character outside
+	// etagc of [RFC 9110 section 8.8.3] returns HTTP 500. Empty omits the header.
+	//
+	// [entity tag]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/ETag
+	// [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
+	// [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
+	// [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+	// [RFC 9110 section 8.8.3]: https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3
+	ETag string
+
+	// Cache sets [Cache-Control]. The zero value sends no-cache,
+	// unless middleware set a Cache-Control header before.
+	//
+	// [Cache-Control]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
+	Cache FileCache
+
+	// Disposition sets [Content-Disposition]. The zero value omits the header,
+	// which lets the browser show the response.
+	//
+	// [Content-Disposition]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition
+	Disposition FileDisposition
+
+	// Header holds response headers the other fields don't set, such as
+	// Content-Language, or a Content-Security-Policy for an untrusted type.
+	// It replaces a header of the same name that middleware set before, except
+	// Set-Cookie, whose values add to the cookies set before. Keys that spell
+	// one name differently are joined in their sorted order.
+	// A header the fields or [http.ServeContent] write returns HTTP 500:
+	// Content-Type, X-Content-Type-Options, ETag, Last-Modified, Cache-Control,
+	// Content-Disposition, Content-Length, Content-Range and Accept-Ranges.
+	Header http.Header
+}
+
+// FileCache is the [Cache-Control] header of a [File]. A browser may reuse
+// a response without max-age, no-cache or no-store without asking, by
+// [heuristic freshness]. FileCache therefore adds no-cache to a value that sets
+// none of them, which makes a cache ask the server before every reuse, as the
+// zero [AssetsCacheConfig] does with max-age=0: the zero value sends no-cache,
+// and Private alone sends private, no-cache. Raw sends private alone.
+// Fields that contradict each other return HTTP 500:
+//
+//	datapages.FileCache{MaxAge: time.Hour, Immutable: true} // max-age=3600, immutable
+//	datapages.FileCache{NoStore: true, MaxAge: time.Hour}   // HTTP 500: NoStore excludes MaxAge
+//
+// [Cache-Control]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
+// [heuristic freshness]: https://www.rfc-editor.org/rfc/rfc9111#section-4.2.2
+type FileCache struct {
+	// MaxAge sets [max-age]: how long a cache may reuse the response without
+	// asking again, in whole seconds. Without Private, a shared cache may serve
+	// the response to other visitors for MaxAge without asking the server.
+	// Zero omits it. A negative MaxAge or one under a second returns HTTP 500,
+	// and so does a MaxAge next to NoCache or NoStore, which forbid such reuse.
+	//
+	// [max-age]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#max-age
+	MaxAge time.Duration
+
+	// Immutable sets [immutable], which keeps a reload from revalidating
+	// a fresh response. It requires a positive MaxAge.
+	//
+	// [immutable]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#immutable
+	Immutable bool
+
+	// Private sets [private], which keeps the response out of shared caches,
+	// such as a CDN. Without MaxAge or NoStore, it's sent with no-cache.
+	//
+	// [private]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#private
+	Private bool
+
+	// NoCache sets [no-cache], which makes a cache revalidate the response
+	// before every reuse. An ETag or a ModTime lets the server answer with 304.
+	// It excludes MaxAge.
+	//
+	// [no-cache]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-cache
+	NoCache bool
+
+	// NoStore sets [no-store], which keeps the response out of every cache.
+	// It excludes MaxAge.
+	//
+	// [no-store]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-store
+	NoStore bool
+
+	// Raw is the header as written, for directives the other fields don't cover,
+	// such as [s-maxage]. It's what [AssetsCacheConfig.CacheControl] is for
+	// static assets. It excludes the other fields.
+	//
+	// [s-maxage]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#s-maxage
+	Raw string
+}
+
+// FileDisposition is the [Content-Disposition] header of a [File]. Its zero value
+// sends no header, which the browser treats as inline: it shows the response.
+//
+// [Content-Disposition]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition
+type FileDisposition struct {
+	// Download sends [attachment], which makes the browser save the response
+	// instead of showing it. Without Download, a Filename is sent as [inline],
+	// which shows the response. A type the browser cannot show is saved either way.
+	//
+	// [attachment]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition#as_a_response_header_for_the_main_body
+	// [inline]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition#as_a_response_header_for_the_main_body
+	Download bool
+
+	// Filename is the name the browser saves the response under,
+	// sent as the [filename] parameter.
+	// Empty leaves the browser to take the name from the URL.
+	//
+	// [filename]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition#filename
+	Filename string
 }
 
 // PanicError is the error a recovered panic is reported as.
@@ -448,8 +636,16 @@ const (
 //	}
 //	return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidInput)
 //
-// The response body always uses the standard status text
+// The response body is the standard status text
 // (for example "Bad Request" for 400), no matter what the error message says.
+// A request that the Datastar client didn't send, such as a page load,
+// gets PageError404 for 404 and PageError500 for 500 instead
+// when the app defines them.
+//
+// A Datastar request to an app that defines RecoverError gets status 200 and
+// the events RecoverError writes. RecoverError receives the sentinel:
+// use [errors.Is] to identify it. A handler that takes an [SSE] sends status 200
+// before it runs, which leaves no status for its error.
 //
 // Don't wrap multiple sentinels in one error. If you do, the first of
 // ErrBadRequest, ErrForbidden, ErrNotFound, ErrConflict wins.
@@ -486,7 +682,8 @@ var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 //
 // All subject fields must be declared before any payload field.
 //
-// A field must name this type directly, not a type declared from it:
+// A subject field must have this exact type. A type declared from it and
+// a slice, array, map, pointer or channel of it are rejected:
 //
 //	type DeviceID datapages.Subject
 //
@@ -497,8 +694,9 @@ var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 //
 //	// EventAlert is "alert"
 //	type EventAlert struct {
-//		Device DeviceID   `json:"device"` // rejected
-//		Sensor devices.ID `json:"sensor"` // rejected
+//		Device  DeviceID            `json:"device"`  // rejected
+//		Sensor  devices.ID          `json:"sensor"`  // rejected
+//		Devices []datapages.Subject `json:"devices"` // rejected
 //	}
 type Subject string
 
@@ -517,11 +715,11 @@ type Subject string
 // since the stream subscribes with the ID of the authenticated user.
 // That same binding is why the field must not carry a signal:"<name>" tag.
 //
-// One dispatch publishes to one subject. To address several users,
-// dispatch once per user, which leaves the handler in control of
-// what happens when one of the publishes fails.
+// An event declares at most one field of this type, and one dispatch
+// publishes to one subject. To address several users, dispatch once per user,
+// which leaves the handler in control of what happens when one of the publishes fails.
 //
-// As with [Subject], a field must name this type itself.
+// As with [Subject], a field must have this exact type.
 type SubjectUser string
 
 // SubjectStateID is a subject segment carrying the state ID of the tab
@@ -596,22 +794,25 @@ func ValidateUserID(userID string) error {
 //		if err != nil {
 //			return err
 //		}
+//		// One dispatch addresses one user: each event goes out once per participant.
 //		var errs []error
-//		for _, name := range signals.Values.Attachments {
-//			errs = append(errs, attachmentAdded.Dispatch(EventAttachmentAdded{
-//				Recipients: room.ParticipantIDs,
-//				Name:       name,
-//			}))
+//		for _, id := range room.ParticipantIDs {
+//			to := datapages.SubjectUser(id)
+//			for _, name := range signals.Values.Attachments {
+//				errs = append(errs, attachmentAdded.Dispatch(EventAttachmentAdded{
+//					Recipient: to,
+//					Name:      name,
+//				}))
+//			}
+//			errs = append(errs,
+//				writingStopped.Dispatch(EventWritingStopped{Recipient: to}),
+//				messageSent.Dispatch(EventMessageSent{
+//					Recipient: to,
+//					Message:   signals.Values.Text,
+//				}),
+//			)
 //		}
-//		return errors.Join(append(errs,
-//			writingStopped.Dispatch(EventWritingStopped{
-//				Recipients: room.ParticipantIDs,
-//			}),
-//			messageSent.Dispatch(EventMessageSent{
-//				Recipients: room.ParticipantIDs,
-//				Message:    signals.Values.Text,
-//			}),
-//		)...)
+//		return errors.Join(errs...)
 //	}
 //
 // The events go out in the order the handler dispatches them,
@@ -660,10 +861,14 @@ const (
 	HeaderOfflineVersion = "X-Datapages-Offline-Version"
 
 	// HeaderWorkerVersion names the request header containing the installed
-	// service worker's own version.
-	// The server compares it against the worker version it ships to decide
-	// whether to install, update or leave the worker untouched.
+	// service worker's own version. The server compares it against the worker version
+	// it ships to decide whether to install, update or leave the worker untouched.
 	HeaderWorkerVersion = "X-Datapages-Worker-Version"
+
+	// HeaderBuild names the header in which a page sends its build ID with
+	// Datastar requests. A server with a different ID returns 205 Reset Content
+	// and its own ID without running the handler. The page then reloads.
+	HeaderBuild = "Datapages-Build"
 )
 
 // PageCacheWriter writes to the client's service worker cache. It is passed

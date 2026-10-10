@@ -82,7 +82,8 @@ Examples, one module each:
 - `example/sqlitesessions/` - a `sessions.Manager` on SQLite via sqinn-go.
 - `example/fast-shim/` - instant loads: cached shims morphed by Datastar.
 - `example/offline-cache/` - service-worker offline support, handler-written cache and a `PageOffline` fallback, on a ticketing app.
-- `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through middleware below the asset prefix, both directions paced by a server-side rate limit.
+- `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through a GET action, both directions paced by a server-side rate limit.
+- `example/docs/` - collaborative rich text editor that survives temporary disconnections using Quill in a Web Component, operational transformation of Quill deltas ported to Go, remote cursors, documents stored as snapshot and change log.
 - `example/realtime-charts/` - charts of a simulated market in six chart types, a market map and a portfolio, one page each: a goroutine outside any handler writes an in-memory time-series database and publishes one subject per index, streams subscribe to them by wildcard, the pages share their stream handlers by embedding, `*App` actions reach their tab through a `SubjectStateID` event and signal patches carry the bars to custom elements around three chart libraries.
 
 Where code goes:
@@ -163,6 +164,7 @@ Avoid:
 - A verbless lead-in before a colon: "One dispatch, three streams: ...", "Two values, one subject: ...". In running text, the words before a colon must stand alone as a sentence. Labels such as `TODO:` and `BREAKING:`, and a line that introduces a code block or a list, are exempt.
 - Figurative language where a plain word fits: "buys", "drives", "unlocks", "wins", "kills", "shines", "leaves the reader hunting". These are examples, not the whole set. The test is whether the sentence says what literally happens: nothing buys, drives or hunts (unless it literally does). Write "a value receiver prevents mutation", not "a value receiver buys us immutability". Write "the pointer saves no allocation here", not "the pointer buys nothing here". Write "the tests that send it requests over HTTP", not "the tests that drive it over HTTP". Write "the reader cannot tell what is meant", not "it leaves the reader hunting for what was meant".
 - Restating a general principle the facts already show. Start with the example.
+- Paraphrasing a standard or another document the reader can look up. Refer to it: "invalid according to RFC 3986", not "contains a character RFC 3986 does not allow, such as `{`, `|` or a non-ASCII letter".
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth noting that", "as we can see".
 - Praise of the user or of the question: "great question", "you're absolutely right".

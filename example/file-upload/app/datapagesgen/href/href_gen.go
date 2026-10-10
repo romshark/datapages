@@ -6,6 +6,7 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync/atomic"
 
@@ -45,6 +46,24 @@ func External(url string) string {
 // For example, Asset("style.css") returns "/static/style.css".
 func Asset(p string) string {
 	return hrefcheck.AssetPath("/static/", p)
+}
+
+// App holds the URL builders of the GET actions of App.
+var App app
+
+type app struct{}
+
+// File references /files/{id}
+func (app) File(id string) string {
+	s_id := url.PathEscape(id)
+	var b strings.Builder
+	b.Grow(
+		len("/files/") +
+			len(s_id),
+	)
+	b.WriteString("/files/")
+	b.WriteString(s_id)
+	return b.String()
 }
 
 // PageIndex references /{$}

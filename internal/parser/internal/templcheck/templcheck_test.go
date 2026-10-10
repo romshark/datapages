@@ -105,8 +105,9 @@ func check(t *testing.T, fixtureName string, app *model.App) []posErr {
 // TestCheck_ErrHref tests every href the linter refuses in the
 // err_templ_href fixture: a relative URL written by hand instead of through the
 // generated href package, an expression it cannot verify, and an external href
-// handed a relative URL. Positions are asserted, since the position is what
-// sends the developer to the line.
+// handed a relative URL. An href in either branch of a conditional attribute
+// counts as well. Positions are asserted, since the position is what sends the
+// developer to the line.
 func TestCheck_ErrHref(t *testing.T) {
 	errs := check(t, "err_templ_href", nil)
 
@@ -142,6 +143,9 @@ func TestCheck_ErrHref(t *testing.T) {
 		{77, 5, templcheck.HrefRelativeError{URL: "/should-error"}},
 		{79, 12, templcheck.HrefRelativeError{URL: "/login-imported"}},
 		{81, 12, templcheck.HrefExternalIsRelativeError{URL: "/internal-imported"}},
+		{83, 29, templcheck.HrefRelativeError{URL: "/conditional"}},
+		{85, 72, templcheck.HrefRelativeError{URL: "/fallback"}},
+		{87, 54, templcheck.HrefRelativeError{URL: "/nested-conditional"}},
 	}
 
 	require.Equal(t, expect, toPosErrors(errs))
@@ -189,6 +193,7 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	// action.POSTPageProfileSave() in profilePage is OK (own page).
 	// The nolinted PageProfile.Save.POST() at line 33 is still flagged:
 	// nolint suppresses element-level checks but NOT ownership checks.
+	// The one at line 39 is in a conditional attribute.
 
 	expect := []posError{
 		{11, 17, templcheck.FormActionError{}},
@@ -205,9 +210,55 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 			PageType:   "PageSettings",
 			OwnerPage:  "PageProfile",
 		}},
+		{39, 20, templcheck.ActionWrongPageError{
+			ActionFunc: "PageProfile.Save.POST",
+			PageType:   "PageSettings",
+			OwnerPage:  "PageProfile",
+		}},
 	}
 
 	require.ElementsMatch(t, expect, toPosErrors(errs))
+}
+
+// TestCheck_ErrSubpackage tests templates outside the app package, in a package
+// of its module that it imports. Their elements are checked, and a page owns the
+// templates it reaches in any package: SaveButton, which uses an action of
+// PageProfile, renders in PageSettings through its GET and in PageIndex through
+// a templ call in the app package.
+func TestCheck_ErrSubpackage(t *testing.T) {
+	get := func() *model.HandlerGET {
+		return &model.HandlerGET{Handler: &model.Handler{}}
+	}
+	app := &model.App{
+		Pages: []*model.Page{
+			{TypeName: "PageIndex", GET: get()},
+			{
+				TypeName: "PageProfile",
+				GET:      get(),
+				Actions:  []*model.Handler{{HTTPMethod: "post", Name: "Save"}},
+			},
+			{TypeName: "PageSettings", GET: get()},
+		},
+	}
+
+	errs := check(t, "err_templ_subpackage", app)
+
+	wrongPage := func(page string) templcheck.ActionWrongPageError {
+		return templcheck.ActionWrongPageError{
+			ActionFunc: "PageProfile.Save.POST",
+			PageType:   page,
+			OwnerPage:  "PageProfile",
+		}
+	}
+	expect := []posError{
+		{12, 5, templcheck.HrefRelativeError{URL: "/profile"}},
+		{17, 26, wrongPage("PageIndex")},
+		{17, 26, wrongPage("PageSettings")},
+	}
+	require.ElementsMatch(t, expect, toPosErrors(errs))
+	for _, pe := range errs {
+		require.Equal(t, "template.templ", pe.pos.Filename)
+	}
 }
 
 // TestCheck_ErrContext tests an action or href used in the wrong attribute: an
@@ -294,22 +345,23 @@ func TestCheck_ErrActionHardcoded(t *testing.T) {
 		{13, 10, templcheck.ActionHardcodedError{URL: "/resource"}},
 		{15, 10, templcheck.ActionHardcodedError{URL: "/resource"}},
 		{17, 10, templcheck.ActionHardcodedError{URL: "/resource"}},
-		{19, 7, templcheck.ActionHardcodedError{URL: "/lazy"}},
-		{21, 7, templcheck.ActionHardcodedError{URL: "/poll"}},
-		{23, 7, templcheck.ActionHardcodedError{URL: "/sync"}},
-		{25, 7, templcheck.ActionHardcodedError{URL: "/init"}},
-		{27, 10, templcheck.ActionHardcodedError{URL: "/custom"}},
-		{29, 10, templcheck.ActionHardcodedError{URL: "/mixed"}},
-		{31, 10, templcheck.ActionHardcodedError{URL: "/debounced"}},
-		{33, 7, templcheck.ActionHardcodedError{URL: "/intersect-once"}},
-		{35, 7, templcheck.ActionHardcodedError{URL: "/init-once"}},
-		{37, 26, templcheck.ActionHardcodedError{URL: "/expr-literal"}},
-		{39, 26, templcheck.ActionHardcodedError{URL: "/backtick"}},
-		{41, 26, templcheck.ActionHardcodedError{URL: "/const-action"}},
-		{43, 26, templcheck.ActionHardcodedError{URL: "/imported-action"}},
-		{45, 26, templcheck.ActionUnverifiableError{Expr: `"@post" + "('/concat')"`}},
-		{47, 26, templcheck.ActionUnverifiableError{Expr: `buildAction()`}},
-		{49, 26, templcheck.ActionUnverifiableError{Expr: `dynamicVar`}},
+		{19, 10, templcheck.ActionHardcodedError{URL: "/resource"}},
+		{21, 7, templcheck.ActionHardcodedError{URL: "/lazy"}},
+		{23, 7, templcheck.ActionHardcodedError{URL: "/poll"}},
+		{25, 7, templcheck.ActionHardcodedError{URL: "/sync"}},
+		{27, 7, templcheck.ActionHardcodedError{URL: "/init"}},
+		{29, 10, templcheck.ActionHardcodedError{URL: "/custom"}},
+		{31, 10, templcheck.ActionHardcodedError{URL: "/mixed"}},
+		{33, 10, templcheck.ActionHardcodedError{URL: "/debounced"}},
+		{35, 7, templcheck.ActionHardcodedError{URL: "/intersect-once"}},
+		{37, 7, templcheck.ActionHardcodedError{URL: "/init-once"}},
+		{39, 26, templcheck.ActionHardcodedError{URL: "/expr-literal"}},
+		{41, 26, templcheck.ActionHardcodedError{URL: "/backtick"}},
+		{43, 26, templcheck.ActionHardcodedError{URL: "/const-action"}},
+		{45, 26, templcheck.ActionHardcodedError{URL: "/imported-action"}},
+		{47, 26, templcheck.ActionUnverifiableError{Expr: `"@post" + "('/concat')"`}},
+		{49, 26, templcheck.ActionUnverifiableError{Expr: `buildAction()`}},
+		{51, 26, templcheck.ActionUnverifiableError{Expr: `dynamicVar`}},
 	}
 
 	require.Equal(t, expect, toPosErrors(errs))
@@ -322,6 +374,21 @@ func TestCheck_OKHref(t *testing.T) {
 	requireNoErrs(t, errs)
 }
 
+// TestCheck_OKHrefShadowedConst tests an href naming a package-level constant
+// that a function-local constant of the same name shadows in another function.
+// The package-level value decides in every check, each of which used to read
+// the constants from a map in a new order.
+func TestCheck_OKHrefShadowedConst(t *testing.T) {
+	pkg := loadPkg(t, "ok_templ_href")
+	for range 20 {
+		var errs []posErr
+		templcheck.Check(pkg, nil, func(pos token.Position, err error) {
+			errs = append(errs, posErr{pos: pos, err: err})
+		})
+		requireNoErrs(t, errs)
+	}
+}
+
 // TestCheck_OKHrefAlias tests the same through an import alias.
 func TestCheck_OKHrefAlias(t *testing.T) {
 	errs := check(t, "ok_templ_href_alias", nil)
@@ -329,10 +396,11 @@ func TestCheck_OKHrefAlias(t *testing.T) {
 }
 
 // TestCheck_OKHrefDot tests the same for a template package in a subdirectory of
-// the app package.
+// the app package, checked on its own and through the app package.
 func TestCheck_OKHrefDot(t *testing.T) {
-	errs := check(t, "ok_templ_href_dot/template", nil)
-	requireNoErrs(t, errs)
+	for _, fixture := range []string{"ok_templ_href_dot/template", "ok_templ_href_dot"} {
+		requireNoErrs(t, check(t, fixture, nil))
+	}
 }
 
 // BenchmarkCheck_ErrHref measures the linter on a package where every href is a finding,

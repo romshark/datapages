@@ -38,12 +38,14 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -196,8 +198,13 @@ func (s *Server) httpErrIntern(
 			// An error page after a half-written one sends two documents.
 			return
 		}
-		// The page serves 200 on its own route. Reached from here it carries 500.
-		pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		switch httpserve.ErrStatus(err) {
+		case http.StatusInternalServerError:
+			// The page serves 200 on its own route. Reached from here it carries 500.
+			pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
 		return
 	}
 	if sse == nil {
@@ -233,9 +240,8 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 		return
 	}
 
-	w.WriteHeader(status)
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, status, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
 		return
@@ -261,7 +267,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return

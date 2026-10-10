@@ -38,6 +38,10 @@ func FormatDisplay(input string) string {
 	})
 }
 
+// errorText is what [Evaluate] returns for an invalid expression.
+// The display shows it, and the input signal carries it back with the next press.
+const errorText = "Error"
+
 // Evaluate parses and evaluates a mathematical expression string.
 // It supports +, -, *, / (and Unicode × ÷), parentheses, and unary minus.
 // Returns the result as a string, or "Error" for invalid expressions.
@@ -51,7 +55,7 @@ func Evaluate(expr string) string {
 	p := &parser{input: expr}
 	result, err := p.parseExpr()
 	if err != nil || p.pos < len(p.input) {
-		return "Error"
+		return errorText
 	}
 	return result.String()
 }

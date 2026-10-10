@@ -52,12 +52,14 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:      status,
 		HeadGeneric: headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
 			// The id authorizes access to one tab's state. The fetch wrapper keeps
@@ -474,10 +476,23 @@ func setupHandlers(s *Server) {
 }
 
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
+	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if !httpserve.IsDatastarRequest(r.Header) {
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
+		return
+	}
 	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -499,9 +514,8 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	genericHead := s.app.Head(r)
-	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusNotFound, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -569,7 +583,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil, nil,
+		w, r, http.StatusOK, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -631,7 +645,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
 			if ($search) params.set('q', $search); else params.delete('q');
@@ -643,7 +657,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -849,11 +863,11 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `/item/`)
 		htmlattr.WritePathValue(w, path.Values.ID)
 		_, _ = io.WriteString(w, `/`)
-		_, _ = io.WriteString(w, `_$/',{retry:'error'})"`)
+		_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageItem", err)
 		return

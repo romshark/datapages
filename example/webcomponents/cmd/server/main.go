@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/webcomponents/app"
@@ -19,7 +20,8 @@ func main() {
 	host := envOr("HOST", "localhost")
 	port := envOr("PORT", "8080")
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	opts := []datapages.ServerOption{

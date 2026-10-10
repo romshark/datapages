@@ -44,6 +44,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
@@ -51,6 +52,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		CSRF:            s.Manager,
 		SessionToken:    sessionToken,
 		Head:            head,
@@ -241,6 +243,9 @@ func setupHandlers(s *Server) {
 		"POST /ping/{$}",
 		appHandlers{s}.POSTPing)
 	s.Mux().HandleFunc(
+		"QUERY /status/{$}",
+		appHandlers{s}.QUERYStatus)
+	s.Mux().HandleFunc(
 		"POST /about/preview/{$}",
 		pageAboutHandlers{s}.POSTPreview)
 	s.Mux().HandleFunc(
@@ -252,11 +257,32 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /delete/{$}",
 		pageIndexHandlers{s}.POSTDelete)
+	s.Mux().HandleFunc(
+		"QUERY /count/{$}",
+		pageIndexHandlers{s}.QUERYCount)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
 // The PageError500 handler uses it so it can't render itself.
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+// httpErr404 reports an error of PageError404.GET.
+// It answers ErrNotFound on a page load with the plain status
+// so PageError404 can't render itself.
+func (s *Server) httpErr404(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	if httpserve.IsDatastarRequest(r.Header) ||
+		httpserve.ErrStatus(err) != http.StatusNotFound {
+		s.httpErrIntern(w, r, nil, msg, err)
+		return
+	}
 	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
 		return
@@ -274,8 +300,15 @@ func (s *Server) httpErrIntern(
 			// An error page after a half-written one sends two documents.
 			return
 		}
-		// The page serves 200 on its own route. Reached from here it carries 500.
-		pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+		case http.StatusInternalServerError:
+			// The page serves 200 on its own route. Reached from here it carries 500.
+			pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+		default:
+			httpserve.WriteErrStatus(w, err)
+		}
 		return
 	}
 	if sse != nil {
@@ -301,12 +334,11 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
-	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, http.StatusNotFound, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -332,6 +364,19 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s appHandlers) QUERYStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.Status")
+	err := s.app.QUERYStatus(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Status", err)
+		return
+	}
+}
+
 type pageAboutHandlers struct{ *Server }
 
 func (s pageAboutHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -346,7 +391,7 @@ func (s pageAboutHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageAbout", err)
 		return
@@ -373,7 +418,7 @@ func (s pageAboutHandlers) POSTPreview(
 		return
 	}
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageAbout.POSTPreview", err)
 		return
@@ -394,7 +439,7 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, s.SessionCookie(r), nil, body, nil, nil,
+		w, r, http.StatusOK, s.SessionCookie(r), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageBoom", err)
 		return
@@ -415,12 +460,12 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -450,9 +495,8 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 		return
 	}
 
-	w.WriteHeader(status)
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, status, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
 		return
@@ -484,12 +528,12 @@ func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/inbox/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/inbox/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageInbox", err)
 		return
@@ -506,7 +550,7 @@ func (s pageInboxHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		s.streams.Reload(w, r)
 		return
 	}
 
@@ -586,7 +630,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, nil, nil,
+		w, r, http.StatusOK, sess.Token(), nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -653,6 +697,33 @@ func (s pageIndexHandlers) POSTDelete(
 	err := p.POSTDelete(r, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Delete", err)
+		return
+	}
+}
+
+func (s pageIndexHandlers) QUERYCount(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Count")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	body, err := p.QUERYCount(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Count", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, http.StatusOK, sess.Token(), nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of PageIndex.QUERYCount", err)
 		return
 	}
 }

@@ -7,14 +7,14 @@ Declaration rules, valid handler signatures, lifecycle details, and error behavi
 ## Requirements
 
 - The latest [Go toolchain](https://go.dev/dl/).
-- [templ](https://templ.guide) `v0.3.1020`, which matches the scaffold and its CI workflow.
+- [templ](https://templ.guide) `v0.3.1070`, which matches the scaffold and its CI workflow.
 - [Docker](https://www.docker.com/) for the scaffold's NATS service. A single-process application can use the in-memory modules instead.
 
 Install the CLI and templ:
 
 ```sh
 go install github.com/romshark/datapages/cmd/datapages@latest
-go install github.com/a-h/templ/cmd/templ@v0.3.1020
+go install github.com/a-h/templ/cmd/templ@v0.3.1070
 ```
 
 ## Create and run a project
@@ -216,6 +216,14 @@ The in-memory session manager is suitable for development. A restart removes its
 
 If the deployment uses per-tab state, follow the multi-server guidance in the [`State[T]` specification](SPECIFICATION.md#parameter-datapagesstatet) when running more than one application server.
 
+## Deploy a new version
+
+When you change your application and deploy a new version, open tabs still use the old page. If the build ID stays the same while element IDs, signals or routes change, the new server accepts requests from those tabs. Morphs may target missing elements, actions may send incompatible data, and an action may change server data while the page stops updating.
+
+Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Graceful shutdown resets open SSE streams. Idle tabs then reconnect. If the build ID is unchanged, a tab reconnects without reloading.
+
+The build ID defaults to a hash of the executable and changes with each rebuild. If you set `datapages.WithBuildID`, change its value whenever the browser-server API changes. Use the same value on every replica of one release. During a rolling deployment, route each client to one build. Alternating between builds causes repeated reloads with increasing delays. See [Deployments](SPECIFICATION.md#deployments).
+
 ## Serve static assets
 
 The scaffold contains a commented `embed.FS` example. Enable it in the application package, pass it with `datapages.WithAssets`, and use the generated `assets` or `href` helper when writing a URL.
@@ -294,7 +302,7 @@ Apply these rules when choosing what to cache:
 - Cache a separate body when offline interactions cannot work. A snapshot does not need to match the live page.
 - Treat the cache as origin-readable browser storage that outlives a session. Do not store secrets or data that must disappear at sign-out. Call `ClearAll` during sign-in and sign-out, then repopulate entries from later handlers.
 - Update or clear affected URLs when an action changes their data.
-- Increment `WorkerVersion` after a Datapages upgrade or a change to `Assets`, `ExcludePaths`, `CrossOriginDestinations`, `OfflineClass`, or `PageOffline`. A file update at an unchanged asset URL refreshes behind the cached copy and does not require a new worker version.
+- Increment `WorkerVersion` after a Datapages upgrade or a change to `Assets`, `ExcludePaths`, `CrossOriginDestinations`, `OfflineClass`, or `PageOffline`. A same-origin file updated at an unchanged URL refreshes behind the cached copy and does not require a new worker version. A cross-origin file never refreshes: give a changed one a new URL or increment `WorkerVersion`.
 
 Same-origin assets are cached on their first online load unless excluded. `Config.Assets` makes required files available immediately after worker installation. `Config.CrossOriginDestinations` controls which cross-origin asset types may be cached. Use the default `is-offline` class on `<html>` to disable controls that require the network.
 

@@ -2,6 +2,7 @@ package inmem_test
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -206,27 +207,76 @@ func TestLiteralSubscriptionIsUnaffected(t *testing.T) {
 	}
 }
 
-// TestOneMessagePerSubscription tests a subscription whose patterns overlap.
-// Two matches are still one message.
+// TestOneMessagePerSubscription tests subscriptions with several subjects that
+// match the published one. Each receives the message once, whichever other
+// subscriptions share its subjects.
 func TestOneMessagePerSubscription(t *testing.T) {
-	b := inmem.New(messaging.DefaultBrokerChanBuffer)
+	for name, subscriptions := range map[string][][]string{
+		"two patterns":        {{"note.*", "note.>"}},
+		"literal and pattern": {{"note.one", "note.*"}},
+		"shared subjects": {
+			{"note.*"},
+			{"note.*", "note.>"},
+			{"note.>"},
+			{"note.one", "note.>"},
+			{"note.one"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := inmem.New(messaging.DefaultBrokerChanBuffer)
+			t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+			ctx := context.Background()
+			subs := make([]messaging.Subscription, len(subscriptions))
+			for i, subjects := range subscriptions {
+				sub, err := b.Subscribe(ctx, noMetrics{}, subjects...)
+				require.NoError(t, err)
+				t.Cleanup(sub.Close)
+				subs[i] = sub
+			}
+
+			require.NoError(t,
+				b.Publish(ctx, noMetrics{}, "note.one", []byte("x")))
+
+			// Publish delivers into the subscription before it returns,
+			// hence whatever the channel holds now is everything it will ever hold.
+			// Waiting for a second message would only be waiting.
+			for i, sub := range subs {
+				require.Len(t, sub.C(), 1, "subscription to %q", subscriptions[i])
+			}
+		})
+	}
+}
+
+// TestOrderAcrossSubjects tests that messages published one after the other
+// arrive in that order, whatever their subjects, as [messaging.Subscriber] requires.
+func TestOrderAcrossSubjects(t *testing.T) {
+	const pairs = 500
+	b := inmem.New(2 * pairs)
 	t.Cleanup(func() { require.NoError(t, b.Close()) })
 
 	ctx := context.Background()
-	sub, err := b.Subscribe(ctx, noMetrics{}, "note.*", "note.>")
+	subjects := []string{"order.first", "order.second"}
+	sub, err := b.Subscribe(ctx, noMetrics{}, subjects...)
 	require.NoError(t, err)
 	t.Cleanup(sub.Close)
 
-	require.NoError(t,
-		b.Publish(ctx, noMetrics{}, "note.one", []byte("x")))
+	for i := range pairs {
+		for _, subject := range subjects {
+			require.NoError(t,
+				b.Publish(ctx, noMetrics{}, subject, []byte(strconv.Itoa(i))))
+		}
+	}
 
-	// Publish delivers into the subscription before it returns,
-	// hence whatever the channel holds now is everything it will ever hold.
-	// Waiting for a second message would only be waiting.
-	<-sub.C()
-	select {
-	case msg := <-sub.C():
-		t.Fatalf("the message arrived twice: %s", msg.Subject)
-	default:
+	for i := range pairs {
+		for _, subject := range subjects {
+			select {
+			case msg := <-sub.C():
+				require.Equal(t, subject, msg.Subject, "pair %d arrived out of order", i)
+				require.Equal(t, strconv.Itoa(i), string(msg.Data))
+			case <-time.After(time.Second):
+				t.Fatalf("pair %d: %s never arrived", i, subject)
+			}
+		}
 	}
 }

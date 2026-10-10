@@ -94,8 +94,8 @@ templ pageCalculator(input string, fresh bool) {
 			evt.preventDefault();
 			evt.clipboardData.setData('text/plain',$input||'0')
 		"
-		data-on:paste__window={ action.PageIndex.Input.POST(
-			action.PageIndex.Input.POSTQuery(0, true),
+		data-on:paste__window={ action.PageIndex.Input.QUERY(
+			action.PageIndex.Input.QUERYQuery(0, true),
 			action.WithBefore("var v=calcPaste(evt);if(v===null)return;$num=v")) }
 	>
 		<h1>Calculator</h1>
@@ -104,8 +104,8 @@ templ pageCalculator(input string, fresh bool) {
 			for _, b := range buttons {
 				<button
 					class={ b.Class }
-					data-on:click={ action.PageIndex.Input.POST(
-						action.PageIndex.Input.POSTQuery(int(b.Btn), false)) }
+					data-on:click={ action.PageIndex.Input.QUERY(
+						action.PageIndex.Input.QUERYQuery(int(b.Btn), false)) }
 				>{ b.Label }</button>
 			}
 		</div>

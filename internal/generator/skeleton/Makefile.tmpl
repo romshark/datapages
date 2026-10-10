@@ -1,6 +1,6 @@
-.PHONY: dev up down build gen lint
+.PHONY: dev up down build gen lint{{if .TypeScript}} npm-install bundle{{end}}
 
-dev: up
+dev: up{{if .TypeScript}} bundle{{end}}
 	datapages watch
 
 up:
@@ -9,7 +9,7 @@ up:
 down:
 	docker compose down
 
-build:
+build:{{if .TypeScript}} bundle{{end}}
 	go build -o ./cmd/server/server ./cmd/server/
 
 gen:
@@ -17,3 +17,12 @@ gen:
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
+{{- if .TypeScript}}
+
+npm-install:
+	cd web && npm install
+
+# Bundles the Web Components of web/src into app/static/components.js.
+bundle:
+	cd web && node build.mjs
+{{- end}}

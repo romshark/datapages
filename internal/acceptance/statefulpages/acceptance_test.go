@@ -329,19 +329,18 @@ func TestInstanceCap(t *testing.T) {
 		"the stream past the cap was served instead of refused")
 }
 
-// TestStreamInitRetriesOnRefusal tests the Datastar options the stream init of
-// a stateful page carries.
-//
-// A stream connect past MaxConcurrentInstances is answered 503.
-// Datastar's default policy retries network errors only, which leaves a tab refused at
-// the cap holding a page with no stream and no way back until the visitor reloads.
-// "error" is the policy that covers a status.
+// TestStreamInitRetriesOnRefusal tests that the stream init retries the 503 a
+// stream connect past MaxConcurrentInstances receives. Datastar's default
+// policy retries network errors only, which leaves a tab refused at the cap
+// without a stream until the visitor reloads. "always" retries a status,
+// and an unlimited count keeps the tab trying after the default 10 attempts.
 func TestStreamInitRetriesOnRefusal(t *testing.T) {
 	c := newClient(t)
 
 	page := c.Get(t, "/")
 	require.Equal(t, http.StatusOK, page.Status)
-	require.Contains(t, page.Body, `data-init="@get('/_$/',{retry:'error'})"`,
+	require.Contains(t, page.Body,
+		`data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`,
 		"the stream init carries no retry policy, which leaves a tab refused "+
 			"at the instance cap without a stream")
 }

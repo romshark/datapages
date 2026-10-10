@@ -308,6 +308,9 @@ type statusRW struct {
 	// isStream is set by [MarkStream] on the request goroutine,
 	// between the middleware's two halves.
 	isStream bool
+	// route is the pattern the router matched, set by [RecordRoute]
+	// on the request goroutine as well.
+	route string
 	// wroteHeader records that the status is out and every later one is dropped.
 	wroteHeader bool
 }
@@ -329,8 +332,15 @@ func (w *statusRW) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// ReadFrom forwards to the writer underneath, keeping http.ServeContent on
-// net/http's pooled copy buffer and the kernel sendfile path.
+// WriteString is Write for a string. Without it, io.WriteString copies every
+// string written through this wrapper into a new byte slice.
+func (w *statusRW) WriteString(s string) (int, error) {
+	w.wroteHeader = true
+	return io.WriteString(w.ResponseWriter, s)
+}
+
+// ReadFrom forwards to the writer underneath.
+// Without it, io.Copy allocates a copy buffer per response and cannot use sendfile.
 func (w *statusRW) ReadFrom(src io.Reader) (int64, error) {
 	w.wroteHeader = true
 	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
@@ -388,9 +398,15 @@ const LabelOtherMethod = "<other>"
 // routes and hence bounded. A route variable stays a variable: /user/{uid}
 // carries the requests of every user. A request that matched no route is
 // labelled [LabelUnmatched].
-func routeLabel(r *http.Request) string {
-	if p := r.Pattern; p != "" {
-		return p
+//
+// The pattern [RecordRoute] stored on rw comes first.
+// r carries one only when the router received r itself and not a copy.
+func routeLabel(rw *statusRW, r *http.Request) string {
+	if rw.route != "" {
+		return rw.route
+	}
+	if r.Pattern != "" {
+		return r.Pattern
 	}
 	return LabelUnmatched
 }
@@ -400,7 +416,7 @@ func methodLabel(method string) string {
 	switch method {
 	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
 		http.MethodPatch, http.MethodDelete, http.MethodConnect,
-		http.MethodOptions, http.MethodTrace:
+		http.MethodOptions, http.MethodTrace, "QUERY":
 		return method
 	}
 	return LabelOtherMethod
@@ -417,24 +433,54 @@ func methodLabel(method string) string {
 // cost every request an allocation. It is a no-op unless w unwraps to the
 // writer [Middleware] installed, the way [http.ResponseController] walks.
 func MarkStream(w http.ResponseWriter) {
+	if rw := statusWriter(w); rw != nil && !rw.isStream {
+		rw.isStream = true
+		mInFlightRequests.Dec()
+	}
+}
+
+// RecordRoute stores the pattern router matched where [Middleware] reads it.
+// Middleware cannot take it from its own request: the router sets it on the
+// request it receives, and a middleware in between that derives a request,
+// as one storing a CSP nonce with [http.Request.WithContext] does,
+// hands the router a copy.
+//
+// router must be the [http.ServeMux] itself. Like [MarkStream], it stores
+// nothing unless w unwraps to the writer Middleware installed.
+func RecordRoute(router http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rw := statusWriter(w)
+		if rw == nil {
+			router.ServeHTTP(w, r)
+			return
+		}
+		// Deferred for a stream that shutdown ends with an
+		// [http.ErrAbortHandler] panic, which Middleware still counts.
+		defer func() { rw.route = r.Pattern }()
+		router.ServeHTTP(w, r)
+	})
+}
+
+// statusWriter returns the writer [Middleware] installed beneath w,
+// found through Unwrap the way [http.ResponseController] walks,
+// or nil when w leads to none.
+func statusWriter(w http.ResponseWriter) *statusRW {
 	for {
-		if rw, ok := w.(*statusRW); ok {
-			if !rw.isStream {
-				rw.isStream = true
-				mInFlightRequests.Dec()
-			}
-			return
+		switch v := w.(type) {
+		case *statusRW:
+			return v
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = v.Unwrap()
+		default:
+			return nil
 		}
-		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
-		if !ok {
-			return
-		}
-		w = u.Unwrap()
 	}
 }
 
 // Middleware measures every request. It must be the outermost middleware
 // of the chain, otherwise it misses the work of the ones before it.
+// [RecordRoute] around the router keeps the route label of a request that
+// a middleware in between derives.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -443,19 +489,24 @@ func Middleware(next http.Handler) http.Handler {
 
 		mInFlightRequests.Inc()
 		defer func() {
-			if !rw.isStream {
-				mInFlightRequests.Dec()
+			// A stream is counted here because shutdown ends it with an
+			// [http.ErrAbortHandler] panic, which skips the code after next.ServeHTTP.
+			if rw.isStream {
+				mHTTPRequestsTotal.WithLabelValues(methodLabel(r.Method),
+					routeLabel(rw, r), strconv.Itoa(rw.status)).Inc()
+				return
 			}
+			mInFlightRequests.Dec()
 		}()
 
 		next.ServeHTTP(rw, r)
-
-		path, method := routeLabel(r), methodLabel(r.Method)
-		mHTTPRequestsTotal.
-			WithLabelValues(method, path, strconv.Itoa(rw.status)).Inc()
 		if rw.isStream {
 			return
 		}
+
+		path, method := routeLabel(rw, r), methodLabel(r.Method)
+		mHTTPRequestsTotal.
+			WithLabelValues(method, path, strconv.Itoa(rw.status)).Inc()
 		mHTTPRequestDuration.
 			WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 	})

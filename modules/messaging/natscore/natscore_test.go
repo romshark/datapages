@@ -2,8 +2,12 @@ package natscore_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,13 +25,11 @@ import (
 var testConn *nats.Conn
 
 // TestMain starts one NATS container for the whole package and tears it down after.
-// Every test in this file shares [testConn].
 func TestMain(m *testing.M) { os.Exit(runSuite(m)) }
 
 func runSuite(m *testing.M) int {
 	ctx := context.Background()
 
-	// The module defaults to "-DV -js", the later option wins.
 	ctr, err := natsctr.Run(ctx, "nats:latest")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "starting NATS container: %v\n", err)
@@ -41,9 +43,7 @@ func runSuite(m *testing.M) int {
 		return 1
 	}
 
-	// The testcontainers NATS module only waits for the port to be open,
-	// not for the server to be fully initialized. Use nats.RetryOnFailedConnect
-	// so the client keeps retrying until NATS is ready.
+	// The module waits for the port to open, not for the server to be ready.
 	conn, err := nats.Connect(
 		url,
 		nats.RetryOnFailedConnect(true),
@@ -69,7 +69,7 @@ func runSuite(m *testing.M) int {
 }
 
 // testMetrics counts the broker instrumentation callbacks.
-// NATS runs the delivery callback on its own goroutine, hence the atomics.
+// The broker calls them from goroutines of its own, hence the atomics.
 type testMetrics struct {
 	published atomic.Int64
 	dropped   atomic.Int64
@@ -113,8 +113,7 @@ func receive(
 	}
 }
 
-// TestPublishSubscribe tests the delivery path against a server that has no
-// JetStream enabled at all.
+// TestPublishSubscribe tests the delivery of one message and its metrics.
 func TestPublishSubscribe(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
 	m := new(testMetrics)
@@ -131,8 +130,6 @@ func TestPublishSubscribe(t *testing.T) {
 
 // TestCloseIsRepeatableAndConcurrent tests what [messaging.SubscriptionCloser] promises:
 // Close is idempotent and safe for concurrent use.
-// The stream closes its subscription from the goroutine watching the disconnect,
-// and a shutdown may reach it at the same moment.
 func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
 	sub := subscribe(t, b, new(testMetrics), "close.one")
@@ -194,7 +191,94 @@ func TestMultipleSubjects(t *testing.T) {
 	require.Equal(t, "multi.two", receive(t, sub).Subject)
 }
 
-// TestUnrelatedSubjectIsNotDelivered tests the negative case next to it.
+// TestOrderAcrossSubjects tests that messages published one after the other
+// arrive in that order, whatever their subjects. A handler that dispatches
+// "writing stopped" and then "sent" expects the pages to handle them in turn.
+func TestOrderAcrossSubjects(t *testing.T) {
+	const pairs = 500
+	b := natscore.New(testConn, natscore.Config{ChanBuffer: 2 * pairs})
+	m := new(testMetrics)
+	subjects := []string{"order.first", "order.second"}
+	sub := subscribe(t, b, m, subjects...)
+
+	for i := range pairs {
+		for _, subject := range subjects {
+			require.NoError(t, b.Publish(context.Background(), m, subject,
+				[]byte(strconv.Itoa(i))))
+		}
+	}
+	require.NoError(t, testConn.Flush())
+
+	for i := range pairs {
+		for _, subject := range subjects {
+			msg := receive(t, sub)
+			require.Equal(t, subject, msg.Subject, "pair %d arrived out of order", i)
+			require.Equal(t, strconv.Itoa(i), string(msg.Data))
+		}
+	}
+	require.Zero(t, m.dropped.Load())
+}
+
+// TestPayloadIsOwned tests that nats.go gives every message delivered to a channel
+// subscription a payload of its own, which the broker passes on without a copy.
+// 1000 unread messages exceed the 32 KiB read buffer: a reused buffer
+// would overwrite the payloads of the early ones.
+func TestPayloadIsOwned(t *testing.T) {
+	msgs := make(chan *nats.Msg, 1000)
+	sub, err := testConn.ChanSubscribe("owned.one", msgs)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	require.NoError(t, testConn.Flush())
+
+	for i := range 1000 {
+		require.NoError(t,
+			testConn.Publish("owned.one", fmt.Appendf(nil, "payload %04d", i)))
+	}
+	require.NoError(t, testConn.Flush())
+	require.Eventually(t, func() bool { return len(msgs) == 1000 },
+		3*time.Second, 10*time.Millisecond)
+
+	for i := range 1000 {
+		m := <-msgs
+		require.Equal(t, fmt.Sprintf("payload %04d", i), string(m.Data))
+		require.Equal(t, len(m.Data), cap(m.Data), "message %d", i)
+	}
+}
+
+// TestBurstIsDeliveredOrCounted tests a burst larger than the default buffer
+// while the page reads as fast as it can. Every message is either delivered or
+// counted as dropped: the drop counter tells an operator to raise ChanBuffer.
+func TestBurstIsDeliveredOrCounted(t *testing.T) {
+	for name, burst := range map[string]int{"small": 40, "large": 2000} {
+		t.Run(name, func(t *testing.T) {
+			b := natscore.New(testConn, natscore.Config{})
+			m := new(testMetrics)
+			subjects := []string{"burst." + name + ".a", "burst." + name + ".b"}
+			sub := subscribe(t, b, m, subjects...)
+
+			var delivered atomic.Int64
+			go func() {
+				for range sub.C() {
+					delivered.Add(1)
+				}
+			}()
+
+			for i := range burst {
+				require.NoError(t, b.Publish(context.Background(), m,
+					subjects[i%len(subjects)], []byte("payload")))
+			}
+			require.NoError(t, testConn.Flush())
+
+			require.Eventually(t, func() bool {
+				return delivered.Load()+m.dropped.Load() == int64(burst)
+			}, 3*time.Second, 10*time.Millisecond,
+				"messages were neither delivered nor counted as dropped")
+		})
+	}
+}
+
+// TestUnrelatedSubjectIsNotDelivered tests that a subscription
+// receives nothing published to another subject.
 func TestUnrelatedSubjectIsNotDelivered(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
 	m := new(testMetrics)
@@ -229,6 +313,65 @@ func TestDefaultBrokerChanBuffer(t *testing.T) {
 	for i := range messages {
 		require.Equal(t, fmt.Sprintf("payload %d", i), string(receive(t, sub).Data))
 	}
+}
+
+// TestFullChannelQueuesChanBufferMore tests that a subscription keeps
+// ChanBuffer more messages while its channel is full. Nothing reads while
+// 2*ChanBuffer messages are published, and all of them arrive in order.
+func TestFullChannelQueuesChanBufferMore(t *testing.T) {
+	b := natscore.New(testConn, natscore.Config{})
+	m := new(testMetrics)
+	sub := subscribe(t, b, m, "queued.one")
+
+	messages := 2 * messaging.DefaultBrokerChanBuffer
+	for i := range messages {
+		publish(t, b, m, "queued.one", fmt.Sprintf("payload %d", i))
+	}
+
+	for i := range messages {
+		require.Equal(t, fmt.Sprintf("payload %d", i), string(receive(t, sub).Data))
+	}
+	require.Zero(t, m.dropped.Load())
+}
+
+// TestFullQueueDropsOnlyWhenChannelIsFull tests that a subscription whose queue
+// is full moves the oldest message into a channel with room instead of dropping
+// the next one. With ChanBuffer 1, the channel and the queue hold each burst of 2.
+// A subscription that drops there loses a message in about half of the bursts,
+// which 20 bursts miss with a probability of about 1 in a million.
+func TestFullQueueDropsOnlyWhenChannelIsFull(t *testing.T) {
+	b := natscore.New(testConn, natscore.Config{ChanBuffer: 1})
+	m := new(testMetrics)
+	sub := subscribe(t, b, m, "room.one")
+
+	for i := range 20 {
+		for j := range 2 {
+			require.NoError(t, b.Publish(context.Background(), m, "room.one",
+				fmt.Appendf(nil, "payload %d.%d", i, j)))
+		}
+		require.NoError(t, testConn.Flush())
+		for j := range 2 {
+			require.Equal(t, fmt.Sprintf("payload %d.%d", i, j),
+				string(receive(t, sub).Data))
+		}
+	}
+	require.Zero(t, m.dropped.Load())
+}
+
+// TestUnbufferedDefault tests a broker created while [messaging.DefaultBrokerChanBuffer]
+// is 0, which makes the subscription channel unbuffered.
+// A reader that waits on it receives what was published before.
+func TestUnbufferedDefault(t *testing.T) {
+	defaultBuffer := messaging.DefaultBrokerChanBuffer
+	t.Cleanup(func() { messaging.DefaultBrokerChanBuffer = defaultBuffer })
+	messaging.DefaultBrokerChanBuffer = 0
+
+	b := natscore.New(testConn, natscore.Config{})
+	m := new(testMetrics)
+	sub := subscribe(t, b, m, "unbuffered.one")
+
+	publish(t, b, m, "unbuffered.one", "payload")
+	require.Equal(t, "payload", string(receive(t, sub).Data))
 }
 
 // TestSlowSubscriberDrops tests the bound on the buffer.
@@ -282,4 +425,98 @@ func TestCloseIsIdempotent(t *testing.T) {
 
 	_, ok := <-sub.C()
 	require.False(t, ok, "the subscription channel stayed open after Close")
+}
+
+// TestConnectionEndClosesChannel tests that the subscription channel closes when
+// the NATS connection ends, after the messages that arrived before.
+func TestConnectionEndClosesChannel(t *testing.T) {
+	for name, end := range map[string]func(*nats.Conn, *dialer) error{
+		"reconnects run out": func(_ *nats.Conn, d *dialer) error {
+			d.cutOff()
+			return nil
+		},
+		"closed": func(nc *nats.Conn, _ *dialer) error {
+			nc.Close()
+			return nil
+		},
+		"drained": func(nc *nats.Conn, _ *dialer) error {
+			return nc.Drain()
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := new(dialer)
+			nc, err := nats.Connect(testConn.ConnectedUrl(),
+				nats.SetCustomDialer(d),
+				nats.MaxReconnects(1),
+				nats.ReconnectWait(10*time.Millisecond),
+				nats.ReconnectJitter(0, 0))
+			require.NoError(t, err)
+			t.Cleanup(nc.Close)
+
+			// With ChanBuffer 1, the channel holds the first message
+			// and the subscription queues the second.
+			b := natscore.New(nc, natscore.Config{ChanBuffer: 1})
+			m := new(testMetrics)
+			subject := "end." + strings.ReplaceAll(name, " ", "_")
+			sub, err := b.Subscribe(context.Background(), m, subject, subject+".other")
+			require.NoError(t, err)
+			t.Cleanup(sub.Close)
+			require.NoError(t, nc.Flush())
+
+			for i := range 2 {
+				require.NoError(t,
+					testConn.Publish(subject, fmt.Appendf(nil, "payload %d", i)))
+			}
+			require.NoError(t, testConn.Flush())
+			// The server sends the messages to nc before it answers the flush.
+			require.NoError(t, nc.Flush())
+
+			require.NoError(t, end(nc, d))
+			// Read only once the connection is closed, with the second message queued.
+			require.Eventually(t, nc.IsClosed, 3*time.Second, 10*time.Millisecond)
+
+			for i := range 2 {
+				require.Equal(t,
+					fmt.Sprintf("payload %d", i),
+					string(receive(t, sub).Data))
+			}
+			select {
+			case msg, open := <-sub.C():
+				require.False(t, open,
+					"received %q after the connection ended", msg.Data)
+			case <-time.After(3 * time.Second):
+				t.Fatal("the channel stayed open after the connection ended")
+			}
+			require.Zero(t, m.dropped.Load())
+		})
+	}
+}
+
+// dialer connects to the NATS server until cutOff.
+type dialer struct {
+	mu   sync.Mutex
+	cut  bool
+	conn net.Conn
+}
+
+func (d *dialer) Dial(network, address string) (net.Conn, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.cut {
+		return nil, errors.New("the server is unreachable")
+	}
+	c, err := net.Dial(network, address)
+	d.conn = c
+	return c, err
+}
+
+// cutOff closes the connection to the server and refuses every later dial,
+// as when the server stays unreachable.
+func (d *dialer) cutOff() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.cut = true
+	if d.conn != nil {
+		_ = d.conn.Close()
+	}
 }

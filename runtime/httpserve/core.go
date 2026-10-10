@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -32,8 +33,8 @@ const (
 	DefaultHTTPIdleTimeout       = 60 * time.Second
 	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
 
-	// DefaultBodySizeLimit is how much of an action's request body is read
-	// before the request is refused. Signals travel in that body.
+	// DefaultBodySizeLimit is how much of the request body of an action that
+	// declares Signals is read before the request is refused.
 	DefaultBodySizeLimit int64 = 1 << 20 // 1 MiB
 
 	// DefaultShutdownTimeout is how long [Core.ListenAndServe] waits for
@@ -82,6 +83,10 @@ type Core struct {
 	cspNonce         func(*http.Request) string
 	bodySizeLimit    int64
 	shutdownTimeout  time.Duration
+
+	// An empty buildID disables build checks.
+	buildID       string
+	htmlBuildMeta string
 
 	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
 	lockListen sync.Mutex
@@ -141,6 +146,10 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		}
 		c.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
 	}
+	c.buildID = cfg.BuildID
+	if c.buildID == "" {
+		c.buildID = defaultBuildID(c.logger)
+	}
 	c.sampledLogger = c.logger
 	if cfg.LogSampling == nil || !cfg.LogSampling.Disabled {
 		var limit int
@@ -181,6 +190,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 			Addr:              p.Host,
 			Handler:           mux,
 			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
+			ErrorLog:          slog.NewLogLogger(c.logger.Handler(), slog.LevelError),
 		}
 	}
 	return c, nil
@@ -198,16 +208,17 @@ func (c *Core) Build() {
 	// The two halves are kept apart as well: a page that must install a script
 	// of its own before Datastar loads writes them around it.
 	c.datastarJSSrcEsc = html.EscapeString(c.datastarJSSrc)
-	c.htmlHead = htmlDoctype + "<html>" + htmlHeadStart
+	if c.buildID != "" {
+		c.htmlBuildMeta = `<meta name="` + buildMetaName + `" content="` +
+			html.EscapeString(c.buildID) + `"/>`
+	}
+	c.htmlHead = htmlDoctype + "<html>" + htmlHeadStart + c.buildHead("<script>")
 	c.htmlDatastar = "\n\t\t" + `<script type="module" src="` +
 		c.datastarJSSrcEsc + `"></script>`
 	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
 	if c.httpServer.ErrorLog == nil {
-		c.httpServer.ErrorLog = slog.NewLogLogger(
-			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),
-			slog.LevelInfo,
-		)
+		c.httpServer.ErrorLog = slog.NewLogLogger(c.logger.Handler(), slog.LevelError)
 	}
 
 	if c.assetsFS != nil && c.assetsURLPrefix != "" {
@@ -218,9 +229,9 @@ func (c *Core) Build() {
 		h := http.FileServer(fsys)
 		switch {
 		case datapages.IsDevMode():
-			// Dev files may change while the server runs. Cache-Control:
-			// no-store prevents the browser from reusing a stale response.
-			h = DevNoCache(h)
+			// Dev files may change while the server runs. The browser asks
+			// before every reuse, and without Last-Modified it gets the file.
+			h = DevNoCache(http.FileServer(noModTimeFS{fsys}))
 		case c.assetsCache != nil && !c.assetsCache.Disabled:
 			h = newAssetsCache(fsys, *c.assetsCache, h)
 		}
@@ -228,6 +239,16 @@ func (c *Core) Build() {
 	}
 
 	c.handler = http.Handler(c.mux)
+	if c.metricsServer != nil {
+		// The application middleware between the mux and the outermost
+		// [prom.Middleware] may hand the mux a copy of the request.
+		c.handler = prom.RecordRoute(c.handler)
+	}
+	if c.buildID != "" {
+		// Application middleware wraps [Core.rejectStaleBuild]
+		// and sees the requests it rejects.
+		c.handler = c.rejectStaleBuild(c.handler)
+	}
 	for _, h := range c.middleware {
 		c.handler = h(c.handler)
 	}
@@ -258,7 +279,7 @@ func (c *Core) LogErr(msg string, err error) {
 	c.logger.Error(msg, slog.Any("err", err))
 }
 
-// HTTPErrBad answers r with 400 and logs msg as the cause.
+// HTTPErrBad answers 400 with msg as the body and logs msg as the cause.
 func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
 	c.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
 	http.Error(w, msg, http.StatusBadRequest)
@@ -337,15 +358,16 @@ func (c *Core) ScriptTagOpen(r *http.Request) string {
 	return `<script nonce="` + nonce + `">`
 }
 
-// htmlOpening returns the prologue up to the head and the Datastar script tag.
-// Both include the CSP nonce of r when one is configured.
+// htmlOpening returns the document prefix through the build and Datastar scripts.
+// It adds r's CSP nonce when configured.
 // Datastar reads the nonce from the html element and compiles its expressions with it.
 func (c *Core) htmlOpening(r *http.Request) (head, datastarScript string) {
 	nonce := c.CSPNonce(r)
 	if nonce == "" {
 		return c.htmlHead, c.htmlDatastar
 	}
-	return htmlDoctype + `<html data-nonce="` + nonce + `">` + htmlHeadStart,
+	return htmlDoctype + `<html data-nonce="` + nonce + `">` + htmlHeadStart +
+			c.buildHead(`<script nonce="`+nonce+`">`),
 		"\n\t\t" + `<script type="module" nonce="` + nonce + `" src="` +
 			c.datastarJSSrcEsc + `"></script>`
 }
@@ -405,7 +427,8 @@ func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }
 // MetricsEnabled reports whether a metrics server is configured.
 func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 
-// BodySizeLimit is how much of an action's request body a handler reads.
+// BodySizeLimit is how much of the request body of
+// an action that declares Signals is read.
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 
 // ShutdownTimeout returns the grace period used by [Core.ListenAndServe].
@@ -442,19 +465,59 @@ func (t *tracked) Write(b []byte) (int, error) {
 	return t.ResponseWriter.Write(b)
 }
 
-// ReadFrom forwards to the writer underneath, which is what
-// http.ServeContent reaches for. Without it io.Copy allocates a copy buffer
-// per response instead of net/http's pooled one, and sendfile is out of reach.
+// WriteString forwards to the writer underneath. Without it, io.WriteString
+// copies every string written through this wrapper into a new byte slice.
+func (t *tracked) WriteString(s string) (int, error) {
+	t.wroteBody = true
+	return io.WriteString(t.ResponseWriter, s)
+}
+
+// ReadFrom is how http.ServeContent copies a file into the response. Without
+// it, io.Copy allocates a copy buffer per response.
+//
+// A source the kernel can send goes to the ReadFrom of the writer underneath,
+// where net/http sends a file with sendfile and a socket with splice.
+// Any other source is copied through Write with a pooled buffer. Over plain TCP,
+// net/http copies such a source with a new buffer per response
+// and more allocations than Write takes.
 //
 // wroteBody is set before the copy: zero bytes for an empty file is
 // the same case as Write(nil), which sets it too.
 func (t *tracked) ReadFrom(src io.Reader) (int64, error) {
 	t.wroteBody = true
-	if rf, ok := t.ResponseWriter.(io.ReaderFrom); ok {
+	if rf, ok := t.ResponseWriter.(io.ReaderFrom); ok && zeroCopySource(src) {
 		return rf.ReadFrom(src)
 	}
-	return io.Copy(t.ResponseWriter, src)
+	buf := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(buf)
+	return io.CopyBuffer(writeOnly{t}, src, *buf)
 }
+
+// zeroCopySource reports whether src is a [syscall.Conn], the only kind of
+// source net sends without copying it through user space: an [os.File] with sendfile,
+// a TCP or Unix socket with splice. An [io.LimitedReader],
+// which http.ServeContent passes, counts by the source it reads from.
+func zeroCopySource(src io.Reader) bool {
+	if lr, ok := src.(*io.LimitedReader); ok {
+		src = lr.R
+	}
+	_, ok := src.(syscall.Conn)
+	return ok
+}
+
+// copyBufPool holds the buffers [tracked.ReadFrom] copies through.
+// 32 KB is the size io.Copy allocates.
+var copyBufPool = sync.Pool{New: func() any {
+	b := make([]byte, 32<<10)
+	return &b
+}}
+
+// writeOnly is the writer underneath t without its ReadFrom,
+// which io.CopyBuffer would otherwise call. It holds a single pointer,
+// which converts to an io.Writer without an allocation.
+type writeOnly struct{ t *tracked }
+
+func (w writeOnly) Write(p []byte) (int, error) { return w.t.ResponseWriter.Write(p) }
 
 func (t *tracked) Flush() {
 	if f, ok := t.ResponseWriter.(http.Flusher); ok {
@@ -571,7 +634,9 @@ func WildcardPathValue(r *http.Request, name string) string {
 // The provided context controls graceful shutdown.
 func (c *Core) ListenAndServe(ctx context.Context, addr string) error {
 	return c.listenAndServe(ctx, addr, false, func(ln net.Listener) error {
-		c.logger.Info("listening HTTP", slog.String("addr", c.Addr()))
+		c.logger.Info("listening HTTP",
+			slog.String("addr", c.Addr()),
+			slog.String("build", c.buildID))
 		return c.httpServer.Serve(ln)
 	})
 }
@@ -584,6 +649,7 @@ func (c *Core) ListenAndServeTLS(
 	return c.listenAndServe(ctx, addr, true, func(ln net.Listener) error {
 		c.logger.Info("listening HTTP",
 			slog.String("addr", c.Addr()),
+			slog.String("build", c.buildID),
 			slog.String("tls.cert", certFile),
 			slog.String("tls.key", keyFile))
 		return c.httpServer.ServeTLS(ln, certFile, keyFile)

@@ -1,10 +1,6 @@
 cmd: cmd/server
 watch:
   app-host: "http://localhost:8080"
-  compiler:
-    env:
-      HOST: "localhost"
-      PORT: "8080"
   exclude:
     - ".git/**"
     - ".*"

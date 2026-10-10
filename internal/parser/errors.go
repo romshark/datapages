@@ -38,6 +38,9 @@ var (
 	ErrSignatureEvHandMultipleEvents = errors.New(
 		"event handler must have exactly one parameter of an event type",
 	)
+	ErrSignatureEvHandEventPointer = errors.New(
+		"event handler must take its event by value",
+	)
 	ErrSignatureGETMissingBody = errors.New(
 		"GET handler must return body datapages.Component",
 	)
@@ -68,6 +71,7 @@ var (
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)
 	ErrPageConflictingGETEmbed = errors.New("conflicting GET handlers in embedded")
+	ErrPageAmbiguousEmbed      = errors.New("ambiguous handler in embedded")
 	ErrPageNameInvalid         = errors.New("page has invalid name")
 	ErrPageMissingPathComm     = errors.New("page is missing path comment")
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
@@ -80,13 +84,13 @@ var (
 
 	ErrAppUnsupportedMethod = errors.New(
 		"unsupported method on App; App takes Head, RecoverError and " +
-			"POST*/PUT*/PATCH*/DELETE* (actions). " +
+			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions). " +
 			"GET, On* and StreamOpen/StreamClose belong on a page",
 	)
 
 	ErrUnsupportedMethod = errors.New(
 		"unsupported public method on page type; " +
-			"use GET, POST*/PUT*/PATCH*/DELETE* (actions), " +
+			"use GET, GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions), " +
 			"On* (event handlers), or StreamOpen/StreamClose (stream hooks)",
 	)
 
@@ -131,7 +135,8 @@ var (
 	ErrQueryReflectSignalTypeMismatch = paramvalidation.ErrQueryReflectSignalTypeMismatch
 	ErrQueryReflectSignalNotText      = paramvalidation.ErrQueryReflectSignalNotText
 
-	ErrFieldTypeUnexported = paramvalidation.ErrFieldTypeUnexported
+	ErrFieldTypeUnexported  = paramvalidation.ErrFieldTypeUnexported
+	ErrValuesTypeUnexported = paramvalidation.ErrValuesTypeUnexported
 
 	ErrSignalsParamNotStruct    = paramvalidation.ErrSignalsParamNotStruct
 	ErrSignalsFieldUnexported   = paramvalidation.ErrSignalsFieldUnexported
@@ -152,16 +157,19 @@ var (
 	ErrCloseSessionWithSSE = errors.New(
 		"closeSession cannot be used together with sse parameter",
 	)
+	ErrBodyWithSSE = errors.New(
+		"body cannot be used together with sse parameter",
+	)
 	ErrSSEOnAppMethod = errors.New(
 		"the sse parameter is only allowed on page methods",
 	)
 	ErrSSEOnGET = errors.New("sse parameter is not allowed on GET handlers")
 
 	ErrEnableBgStreamNotGET = errors.New(
-		"enableBackgroundStreaming can only be used in GET handlers",
+		"enableBackgroundStreaming can only be used in page GET handlers",
 	)
 	ErrDisableRefreshNotGET = errors.New(
-		"disableRefreshAfterHidden can only be used in GET handlers",
+		"disableRefreshAfterHidden can only be used in page GET handlers",
 	)
 	ErrEnableBgStreamNoStream = errors.New(
 		"enableBackgroundStreaming requires a page with a stream: " +
@@ -174,6 +182,25 @@ var (
 	ErrSessionOutputErrorPage = errors.New(
 		"session output cannot be used in the GET of PageError404 or PageError500:" +
 			" one method answers both the page's own route and a failed request",
+	)
+
+	ErrGETActionInput = errors.New(
+		"GET action takes only *http.Request, datapages.Session, " +
+			"datapages.Path and datapages.Query parameters",
+	)
+	ErrGETActionMissingFile  = errors.New("GET action must return datapages.File")
+	ErrGETActionNameConflict = errors.New(
+		"GET action has the name of the query constructor of another GET action",
+	)
+	ErrFileOnPageGET  = errors.New("page GET handler cannot return datapages.File")
+	ErrFileWithOutput = errors.New(
+		"datapages.File can only be returned together with error",
+	)
+	ErrFileWithSSE = errors.New(
+		"datapages.File cannot be used together with sse parameter",
+	)
+	ErrFileWithPageCache = errors.New(
+		"datapages.File cannot be used together with datapages.PageCacheWriter parameter",
 	)
 
 	ErrSignatureUnsupportedOutput = errors.New(
@@ -200,7 +227,23 @@ var (
 		"page route ending in a wildcard cannot have a stream",
 	)
 
+	ErrRouteWildcardAction = errors.New(
+		"page route ending in a wildcard cannot have actions",
+	)
+
+	ErrRouteExactMatchStream = errors.New(
+		"page route ending in {$} cannot have a stream",
+	)
+
+	ErrRouteExactMatchAction = errors.New(
+		"page route ending in {$} cannot have actions",
+	)
+
+	ErrActionRouteWildcard = errors.New("action route cannot end in a wildcard")
+
 	ErrRouteVarNameInvalid = validate.ErrRouteVarNameInvalid
+
+	ErrRouteCharInvalid = errors.New("route contains an unsupported character")
 
 	ErrEventSubjectDuplicate = errors.New("duplicate event subject")
 
@@ -212,6 +255,10 @@ var (
 
 	ErrEventSubjectUserSignal = errors.New(
 		"user-addressed subject field must not have a signal tag",
+	)
+
+	ErrEventSubjectUserDuplicate = errors.New(
+		"event must not have more than one datapages.SubjectUser field",
 	)
 
 	ErrEventSubjectJSONExcluded = errors.New(`subject field must not be tagged json:"-"`)
@@ -232,6 +279,10 @@ var (
 
 	ErrEventSubjectDerivedType = errors.New(
 		"event subject field must name datapages.Subject or datapages.SubjectUser",
+	)
+
+	ErrEventSubjectContained = errors.New(
+		"event field holds a subject type but is not one",
 	)
 
 	ErrStateTypeArgNotNamed = errors.New(
@@ -274,6 +325,9 @@ var (
 	ErrSubjectStateIDPageMixed = errors.New(
 		"page handles a SubjectStateID event next to a private " +
 			"or signal-scoped one",
+	)
+	ErrSubjectSignalPathConflict = errors.New(
+		"signal used both as a value and as an object",
 	)
 
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
@@ -323,34 +377,38 @@ func earliestPkgPos(pkg *packages.Package) token.Position {
 	return best
 }
 
-// posFromPackagesError reads the "file:line:col" of a [packages.Error].
+// posFromPackagesError reads the "file:line:col" or "file:line" of a [packages.Error].
 // A field it cannot read stays zero.
 //
-// The parse cuts from the right, hence a Windows drive letter in
+// The parse cuts numbers from the right, hence a Windows drive letter in
 // "C:\x\y\z.go:12:3" is not mistaken for the line.
 func posFromPackagesError(pe packages.Error) token.Position {
-	s := pe.Pos
-	if s == "" {
+	if pe.Pos == "" {
 		return token.Position{}
 	}
+	file, last, ok := cutNumber(pe.Pos)
+	if !ok {
+		return normPos(token.Position{Filename: file})
+	}
+	file, line, ok := cutNumber(file)
+	if !ok {
+		// A single number is the line: the column is what go/packages leaves out.
+		return normPos(token.Position{Filename: file, Line: last})
+	}
+	return normPos(token.Position{Filename: file, Line: line, Column: last})
+}
 
+// cutNumber cuts a ":n" suffix off s. ok is false when s ends in anything else.
+func cutNumber(s string) (rest string, n int, ok bool) {
 	i := strings.LastIndexByte(s, ':')
 	if i < 0 {
-		return normPos(token.Position{Filename: s})
+		return s, 0, false
 	}
-	colStr := s[i+1:]
-	s = s[:i]
-
-	j := strings.LastIndexByte(s, ':')
-	if j < 0 {
-		return normPos(token.Position{Filename: s})
+	n, err := strconv.Atoi(s[i+1:])
+	if err != nil {
+		return s, 0, false
 	}
-	lineStr := s[j+1:]
-	file := s[:j]
-
-	line, _ := strconv.Atoi(lineStr)
-	col, _ := strconv.Atoi(colStr)
-	return normPos(token.Position{Filename: file, Line: line, Column: col})
+	return s[:i], n, true
 }
 
 type errorEntry struct {
@@ -645,7 +703,7 @@ func (e *EventSubjectAfterPayloadError) Unwrap() error {
 // Other and OtherOwner are empty when no claimed pattern reproduces the conflict.
 type RouteConflictError struct {
 	Pattern    string // e.g. "GET /files/_$/{$}"
-	Owner      string // e.g. "PageFiles" or "the stream of PageFiles"
+	Owner      string // e.g. "PageFiles", "App.POSTUpload" or "the stream of PageFiles"
 	Other      string // the pattern already registered
 	OtherOwner string // what claims Other
 	Reason     string
@@ -680,6 +738,66 @@ func (e *RouteWildcardStreamError) Error() string {
 
 func (e *RouteWildcardStreamError) Unwrap() error { return ErrRouteWildcardStream }
 
+// RouteWildcardActionError is [ErrRouteWildcardAction] with the page and the action.
+// An action is served at the page route or below it, with {$} after its own route.
+// A {name...} wildcard must end a pattern, which leaves no action route net/http accepts.
+type RouteWildcardActionError struct {
+	TypeName   string // e.g. "PageFiles"
+	Route      string // e.g. "/files/{rest...}"
+	MethodName string // e.g. "POSTDelete"
+}
+
+func (e *RouteWildcardActionError) Error() string {
+	return fmt.Sprintf("%v: %s is %q and has %s",
+		ErrRouteWildcardAction, e.TypeName, e.Route, e.MethodName)
+}
+
+func (e *RouteWildcardActionError) Unwrap() error { return ErrRouteWildcardAction }
+
+// RouteExactMatchStreamError is [ErrRouteExactMatchStream] with the page.
+// A {$} at the end of a page route declares a page that serves only GET.
+type RouteExactMatchStreamError struct {
+	TypeName string // e.g. "PageUser"
+	Route    string // e.g. "/user/{name}/{$}"
+}
+
+func (e *RouteExactMatchStreamError) Error() string {
+	return fmt.Sprintf("%v: %s is %q", ErrRouteExactMatchStream, e.TypeName, e.Route)
+}
+
+func (e *RouteExactMatchStreamError) Unwrap() error { return ErrRouteExactMatchStream }
+
+// RouteExactMatchActionError is [ErrRouteExactMatchAction] with the page and the action.
+// A {$} at the end of a page route declares a page that serves only GET.
+type RouteExactMatchActionError struct {
+	TypeName   string // e.g. "PageSettings"
+	Route      string // e.g. "/settings/{$}"
+	MethodName string // e.g. "POSTSave"
+}
+
+func (e *RouteExactMatchActionError) Error() string {
+	return fmt.Sprintf("%v: %s is %q and has %s",
+		ErrRouteExactMatchAction, e.TypeName, e.Route, e.MethodName)
+}
+
+func (e *RouteExactMatchActionError) Unwrap() error { return ErrRouteExactMatchAction }
+
+// ActionRouteWildcardError is [ErrActionRouteWildcard] with the action.
+// An action is served at its route alone, registered with {$} after it,
+// and a {name...} wildcard must end a pattern.
+type ActionRouteWildcardError struct {
+	Recv       string // e.g. "App"
+	MethodName string // e.g. "POSTUpload"
+	Route      string // e.g. "/upload/{path...}"
+}
+
+func (e *ActionRouteWildcardError) Error() string {
+	return fmt.Sprintf("%v: %s.%s is %q",
+		ErrActionRouteWildcard, e.Recv, e.MethodName, e.Route)
+}
+
+func (e *ActionRouteWildcardError) Unwrap() error { return ErrActionRouteWildcard }
+
 // RouteVarNameInvalidError is [ErrRouteVarNameInvalid] with the wildcard,
 // the route it sits in and what claims that route.
 // See [validate.RouteVarName] for the rule.
@@ -695,6 +813,26 @@ func (e *RouteVarNameInvalidError) Error() string {
 }
 
 func (e *RouteVarNameInvalidError) Unwrap() error { return ErrRouteVarNameInvalid }
+
+// RouteCharInvalidError is [ErrRouteCharInvalid] with the character,
+// the route it sits in and what claims that route.
+type RouteCharInvalidError struct {
+	Owner string // "PageFoo", "PageFoo.POSTBar" or "App.POSTBar"
+	Route string
+	Char  rune
+}
+
+func (e *RouteCharInvalidError) Error() string {
+	char := strconv.QuoteRune(e.Char)
+	if e.Char == '%' {
+		// The same route may hold a percent-encoding, which is accepted.
+		char += " without two hex digits after it"
+	}
+	return fmt.Sprintf("%v: %s in %s route %q",
+		ErrRouteCharInvalid, char, e.Owner, e.Route)
+}
+
+func (e *RouteCharInvalidError) Unwrap() error { return ErrRouteCharInvalid }
 
 // EventSubjectDuplicateError is [ErrEventSubjectDuplicate] with the two types
 // that share the subject. A subject is the case an inbound event is matched by,
@@ -828,6 +966,25 @@ func (e *EventSubjectDerivedTypeError) Unwrap() error {
 	return ErrEventSubjectDerivedType
 }
 
+// EventSubjectContainedError is [ErrEventSubjectContained] with the field
+// and its type. Only a field of the subject type itself routes an event:
+// this one is a payload field, which leaves the event without the segment.
+type EventSubjectContainedError struct {
+	FieldName       string // e.g. "Recipients"
+	TypeName        string // e.g. "EventDirectMessage"
+	FieldType       string // e.g. "[]datapages.SubjectUser"
+	SubjectTypeName string // e.g. "datapages.SubjectUser"
+}
+
+func (e *EventSubjectContainedError) Error() string {
+	return fmt.Sprintf("%v: %s.%s is %s",
+		ErrEventSubjectContained, e.TypeName, e.FieldName, e.FieldType)
+}
+
+func (e *EventSubjectContainedError) Unwrap() error {
+	return ErrEventSubjectContained
+}
+
 // EventSubjectSignalInvalidError is [ErrEventSubjectSignalInvalid]
 // with suggestion context.
 type EventSubjectSignalInvalidError struct {
@@ -877,6 +1034,23 @@ func (e *SignatureUnsupportedInputError) Error() string {
 
 func (e *SignatureUnsupportedInputError) Unwrap() error {
 	return ErrSignatureUnsupportedInput
+}
+
+// SignatureEvHandEventPointerError is [ErrSignatureEvHandEventPointer] with
+// the handler and the event type it takes by pointer.
+type SignatureEvHandEventPointerError struct {
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "OnPing"
+	EventType  string // as written without the "*", e.g. "EventPing"
+}
+
+func (e *SignatureEvHandEventPointerError) Error() string {
+	return fmt.Sprintf("%v: %s.%s takes *%s",
+		ErrSignatureEvHandEventPointer, e.Recv, e.MethodName, e.EventType)
+}
+
+func (e *SignatureEvHandEventPointerError) Unwrap() error {
+	return ErrSignatureEvHandEventPointer
 }
 
 // EventTypeNameConflictError is [ErrEventTypeNameConflict] with context.

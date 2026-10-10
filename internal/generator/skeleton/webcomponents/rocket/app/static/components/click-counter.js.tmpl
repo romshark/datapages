@@ -1,0 +1,25 @@
+// The URL must be the one WithDatastarJS loads in cmd/server/main.go.
+// Another URL would load a second copy of Datastar into the page.
+import { rocket } from "[[.RocketJS]]";
+
+// <click-counter step="1">Label</click-counter> counts clicks and emits
+// count-change with the count in detail.
+//
+// It shows how a component and the page divide the work: attributes come down
+// from the template, events go up to a data-on attribute of the page.
+// A counter alone needs no component, a local signal does the same.
+//
+// Rocket decodes step from its attribute whenever it changes and renders into
+// a shadow root, which a morph does not enter.
+// Reference: https://data-star.dev/reference/rocket
+rocket("click-counter", {
+  props: ({ number }) => ({ step: number.default(1) }),
+  setup({ $$, action, emit }) {
+    $$.count = 0;
+    action("add", ({ props }) => {
+      $$.count += props.step;
+      emit("count-change", { count: $$.count });
+    });
+  },
+  render: ({ html }) => html`<button type="button" data-on:click="@add()"><slot></slot></button>`,
+});

@@ -34,10 +34,20 @@ jobs:
             name: "example/calculator"
           - path: "example/todolist"
             name: "example/todolist"
+          - path: "example/offline-cache"
+            name: "example/offline-cache"
+          - path: "example/fast-shim"
+            name: "example/fast-shim"
+          - path: "example/file-upload"
+            name: "example/file-upload"
+          - path: "example/docs"
+            name: "example/docs"
+          - path: "example/realtime-charts"
+            name: "example/realtime-charts"
     steps:
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
           check-latest: true
           cache: false
       - uses: actions/checkout@v7

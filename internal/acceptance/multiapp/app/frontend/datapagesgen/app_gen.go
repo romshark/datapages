@@ -25,7 +25,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend/datapagesgen/href"
 
-	"github.com/romshark/datapages/internal/acceptance/multiapp/events"
+	dpEvents "github.com/romshark/datapages/internal/acceptance/multiapp/events"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -46,6 +46,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	status int,
 	sessionToken string,
 	head datapages.Head,
 	body datapages.Component,
@@ -53,6 +54,7 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Status:          status,
 		CSRF:            s.Manager,
 		SessionToken:    sessionToken,
 		Head:            head,
@@ -260,11 +262,11 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, sess.Token(), nil, body, bodyAttrs, bodySuffix,
+		w, r, http.StatusOK, sess.Token(), nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -288,7 +290,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventNotice dpapp.EventNotice
-			var eventAnnouncement events.EventAnnouncement
+			var eventAnnouncement dpEvents.EventAnnouncement
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjNotice:
@@ -304,7 +306,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("handling PageIndex.OnNotice", err)
 					}
 				case EvSubjAnnouncement:
-					eventAnnouncement = events.EventAnnouncement{}
+					eventAnnouncement = dpEvents.EventAnnouncement{}
 					if err := json.Unmarshal(msg.Data, &eventAnnouncement); err != nil {
 						s.LogErr("unmarshaling EventAnnouncement JSON", err)
 						continue
@@ -426,12 +428,12 @@ type dispatcherEventAnnouncement struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventAnnouncement) Dispatch(e events.EventAnnouncement) error {
+func (d dispatcherEventAnnouncement) Dispatch(e dpEvents.EventAnnouncement) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventAnnouncement) DispatchCtx(
-	ctx context.Context, e events.EventAnnouncement,
+	ctx context.Context, e dpEvents.EventAnnouncement,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

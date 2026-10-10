@@ -98,6 +98,17 @@ func (*App) POSTAppBody(
 	return echo("out", "done"), nil
 }
 
+// POSTAppRedirect is /app-redirect
+//
+// An app-level action that returns a redirect, the shape of a sign-out.
+// Its writes reach the worker only through the redirect script.
+func (*App) POSTAppRedirect(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) (redirect datapages.Redirect, err error) {
+	pageCache.ClearAll()
+	return datapages.Redirect{URL: "/"}, nil
+}
+
 // POSTStreamRedirect is /stream-redirect-write
 //
 // An action that holds a stream and redirects through it. The navigation is an

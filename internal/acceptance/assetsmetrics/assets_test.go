@@ -30,17 +30,19 @@ import (
 // process and a second registry would come up empty.
 var registry = prometheus.NewRegistry()
 
-func newServer(t *testing.T) *httptest.Server {
+func newServer(t *testing.T, opts ...datapages.ServerOption) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithPrometheus(datapages.PrometheusConfig{
-			Host:       "127.0.0.1:0",
-			Registerer: registry,
-			Gatherer:   registry,
-		}),
+		append([]datapages.ServerOption{
+			datapages.WithAssets(app.StaticFS, false),
+			datapages.WithPrometheus(datapages.PrometheusConfig{
+				Host:       "127.0.0.1:0",
+				Registerer: registry,
+				Gatherer:   registry,
+			}),
+		}, opts...)...,
 	))
 	t.Cleanup(srv.Close)
 	return srv
@@ -241,8 +243,8 @@ func TestDatapagesDevModeServesFromDisk(t *testing.T) {
 // In dev mode the files come from the directory on disk rather than from the binary.
 // An edit to a stylesheet then shows up without a rebuild.
 // This works only if the path the generator wrote into the assets package matches where
-// the files are, and only if the responses are not cached.
-// A cached stylesheet is a change the developer cannot see.
+// the files are, and only if the browser asks for every response again.
+// A stylesheet reused from the cache is a change the developer cannot see.
 //
 // TestDevModeServesFromDisk must not use t.Parallel() because
 // [testing.T.Setenv] forbids it.
@@ -273,8 +275,10 @@ func TestDevModeServesFromDisk(t *testing.T) {
 		assets.DevDir)
 	require.Contains(t, string(b), "rebeccapurple",
 		"the file on disk was not served")
-	require.Contains(t, resp.Header.Get("Cache-Control"), "no-store",
-		"caching is not forbidden in dev mode")
+	require.Equal(t, "no-cache", resp.Header.Get("Cache-Control"),
+		"the browser may reuse an asset without asking in dev mode")
+	require.Empty(t, resp.Header.Get("Last-Modified"),
+		"a file saved twice within one second could get a 304 for its first version")
 }
 
 // TestHalfWrittenBodyGetsNoErrorStatus tests an action that fails after
@@ -339,6 +343,30 @@ func TestMetrics(t *testing.T) {
 
 	require.Contains(t, byName, "datapages_http_request_duration_seconds",
 		"the request duration histogram was not registered")
+}
+
+// TestMetricsLabelThroughDerivedRequest tests application middleware that
+// stores a CSP nonce in the request context, as the WithCSPNonce docs advise.
+// The router receives a copy of the request and sets the matched route on the copy.
+func TestMetricsLabelThroughDerivedRequest(t *testing.T) {
+	t.Parallel()
+	type nonceKey struct{}
+	srv := newServer(t, datapages.WithMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), nonceKey{}, "nonce")
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}))
+
+	// PageQuiet's page route, which no other test requests.
+	resp := get(t, srv, "/quiet/")
+	_, err := io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err, "reading /quiet/")
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /quiet/")
+
+	require.Equal(t, uint64(1), histogramCount(t, "GET /quiet/{$}"),
+		"the request was not observed under its route")
 }
 
 // TestStreamStaysOutOfRequestLatency tests the request metrics a stream leaves behind.
