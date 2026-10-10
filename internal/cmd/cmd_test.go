@@ -20,6 +20,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	"github.com/romshark/datapages/internal/cmd"
+	"github.com/romshark/datapages/internal/generator/skeleton"
 )
 
 // TestRun tests the CLI's top-level dispatch: which exit code and which stream
@@ -1182,8 +1183,9 @@ func TestInit(t *testing.T) {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:       []string{"datapages", "init"},
-			stdin:      "y\nmyapp\ny\nmymod\nn\n",
+			args: []string{"datapages", "init"},
+			// The empty line takes the default of the Web Components prompt.
+			stdin:      "y\nmyapp\ny\nmymod\n\nn\n",
 			projectDir: "myapp",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1240,7 +1242,7 @@ func TestInit(t *testing.T) {
 				"--name", "custom-app",
 				"--module", "example.com/custom",
 			},
-			stdin:    "n\n",
+			stdin:    "\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "custom-app")
@@ -1260,7 +1262,7 @@ func TestInit(t *testing.T) {
 			},
 			projectDir: "myproject",
 			args:       []string{"datapages", "init", "--name", "myproject"},
-			stdin:      "y\nmymod\nn\n",
+			stdin:      "y\nmymod\n\nn\n",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
@@ -1279,7 +1281,7 @@ func TestInit(t *testing.T) {
 				return dir
 			},
 			args:     []string{"datapages", "init", "--module", "example.com/flagmod"},
-			stdin:    "n\n",
+			stdin:    "\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
@@ -1287,6 +1289,113 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err)
 				require.Contains(t, string(data), "example.com/flagmod")
 			},
+		},
+		"web components rocket": {
+			setup:      func(t *testing.T) string { return t.TempDir() },
+			projectDir: "myapp",
+			args: []string{
+				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"--web-components", "rocket",
+			},
+			check: func(t *testing.T, startDir string, stdout string) {
+				dir := filepath.Join(startDir, "myapp")
+				requireFileContains(t, filepath.Join(dir, "cmd", "server", "main.go"),
+					"datapages.WithAssets(app.StaticFS, false)",
+					`datapages.WithDatastarJS("`+skeleton.RocketJS+`")`)
+				requireFileContains(t,
+					filepath.Join(dir, "app", "static", "components", "click-counter.js"),
+					`from "`+skeleton.RocketJS+`"`)
+				requireFileContains(t, filepath.Join(dir, "app", "app.templ"),
+					`import "example.com/myapp/app/datapagesgen/assets"`,
+					`assets.Path("components/index.js")`, "<click-counter")
+				requireFileContains(t, filepath.Join(dir, "AGENTS.md"),
+					"| `app/static/components/` | Web Components made with Datastar Rocket")
+			},
+		},
+		"web components javascript": {
+			setup:      func(t *testing.T) string { return t.TempDir() },
+			projectDir: "myapp",
+			args: []string{
+				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"--web-components", "javascript",
+			},
+			check: func(t *testing.T, startDir string, stdout string) {
+				dir := filepath.Join(startDir, "myapp")
+				main, err := os.ReadFile(filepath.Join(dir, "cmd", "server", "main.go"))
+				require.NoError(t, err)
+				require.Contains(t, string(main), "datapages.WithAssets(app.StaticFS, false)")
+				require.NotContains(t, string(main), "WithDatastarJS")
+				require.FileExists(t, filepath.Join(dir, "app", "static", "components", "index.js"))
+				requireFileContains(t, filepath.Join(dir, "AGENTS.md"),
+					"| `app/static/components/` | Web Components as JavaScript modules")
+			},
+		},
+		"web components typescript": {
+			setup: func(t *testing.T) string {
+				if runtime.GOOS == "windows" {
+					t.Skip("the fake npm and node are shell scripts")
+				}
+				// npm install would need the network. The fake node writes
+				// the bundle where build.mjs writes it.
+				bin := t.TempDir()
+				for name, script := range map[string]string{
+					"npm": "#!/bin/sh\nexit 0\n",
+					"node": "#!/bin/sh\nmkdir -p ../app/static\n" +
+						"echo 'console.log(1)' > ../app/static/components.js\n",
+				} {
+					require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755))
+				}
+				t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+				return t.TempDir()
+			},
+			projectDir: "myapp",
+			args: []string{
+				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"--web-components", "typescript",
+			},
+			check: func(t *testing.T, startDir string, stdout string) {
+				dir := filepath.Join(startDir, "myapp")
+				require.FileExists(t,
+					filepath.Join(dir, "web", "src", "click-counter.ts"))
+				require.FileExists(t,
+					filepath.Join(dir, "app", "static", "components.js"))
+				requireFileContains(t, filepath.Join(dir, "datapages.yaml"),
+					`cmd: "cd web && node build.mjs"`, `"web/node_modules/**"`)
+				requireFileContains(t, filepath.Join(dir, "Makefile"),
+					"dev: up bundle", "cd web && npm install")
+				requireFileContains(t,
+					filepath.Join(dir, ".gitignore"), "web/node_modules/")
+				requireFileContains(t, filepath.Join(dir, "app", "app.templ"),
+					`assets.Path("components.js")`)
+				requireFileContains(t, filepath.Join(dir, "AGENTS.md"),
+					"| `web/src/` | Web Components in TypeScript")
+				require.Contains(t, stdout, "Bundled the Web Components")
+			},
+		},
+		"web components typescript without node": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
+					[]byte("module example.com/nonode\n"), 0o644))
+				// Neither npm nor node, nor anything else, is found.
+				t.Setenv("PATH", t.TempDir())
+				return dir
+			},
+			args:     []string{"datapages", "init", "-n", "--web-components", "typescript"},
+			wantCode: 1,
+			wantErr:  "TypeScript Web Components need npm",
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.NoFileExists(t, filepath.Join(startDir, "datapages.yaml"))
+				require.NoFileExists(t, filepath.Join(startDir, "app", "app.go"))
+			},
+		},
+		"web components unknown": {
+			setup:    func(t *testing.T) string { return t.TempDir() },
+			args:     []string{"datapages", "init", "-n", "--name", "x", "--web-components", "vue"},
+			wantCode: 1,
+			wantErr:  `unknown Web Components setup "vue"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1318,6 +1427,16 @@ func TestInit(t *testing.T) {
 				tc.check(t, dir, stdout.String())
 			}
 		})
+	}
+}
+
+// requireFileContains requires the file at path to contain every want.
+func requireFileContains(t *testing.T, path string, want ...string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, w := range want {
+		require.Contains(t, string(b), w, "in %s", path)
 	}
 }
 

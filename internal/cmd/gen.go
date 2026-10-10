@@ -65,7 +65,7 @@ Errors go to stderr. The exit code is non-zero whenever parsing fails.`,
 			if err != nil {
 				return err
 			}
-			return runGen(moduleDir, conf, scaffoldPrometheus, stderr, version)
+			return runGen(moduleDir, conf, scaffold{prometheus: scaffoldPrometheus}, stderr, version)
 		},
 	}
 }
@@ -76,11 +76,19 @@ Errors go to stderr. The exit code is non-zero whenever parsing fails.`,
 // and every later run reads the argument back out of the call.
 const scaffoldPrometheus = true
 
-// runGen generates every app of the module. scaffoldProm asks for Prometheus
-// in the main.go written for a module that holds no NewServer call yet,
-// which is the only run with no call to read the option from.
+// scaffold is what the main.go written for a module that holds no NewServer
+// call yet is set up with. That run is the only one with no call to read the
+// options from.
+type scaffold struct {
+	prometheus bool
+
+	// datastarJS is the URL of the Datastar bundle, empty for the default.
+	datastarJS string
+}
+
+// runGen generates every app of the module.
 func runGen(
-	moduleDir string, cfg config.Config, scaffoldProm bool,
+	moduleDir string, cfg config.Config, sc scaffold,
 	stderr io.Writer, version string,
 ) error {
 	modulePath, err := readModulePath(moduleDir)
@@ -102,8 +110,8 @@ func runGen(
 	var errs []error
 	var events []subject.AppEvent
 	for _, app := range scan.Apps {
-		app.Prometheus = app.Prometheus || (scan.Fallback && scaffoldProm)
-		m, err := genApp(moduleDir, cfg, scan, app, stderr)
+		app.Prometheus = app.Prometheus || (scan.Fallback && sc.prometheus)
+		m, err := genApp(moduleDir, cfg, scan, app, sc.datastarJS, stderr)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -151,10 +159,11 @@ func appEvents(appDir string, m *model.App) []subject.AppEvent {
 
 // genApp parses one app package and generates the code for it.
 // It returns the parsed model, which is nil when the app package has no model
-// to generate from, and partial when it has errors.
+// to generate from, and partial when it has errors. datastarJS goes into the
+// main.go written for a module that has none.
 func genApp(
 	moduleDir string, cfg config.Config,
-	scan serverscan.Result, app serverscan.App, stderr io.Writer,
+	scan serverscan.Result, app serverscan.App, datastarJS string, stderr io.Writer,
 ) (*model.App, error) {
 	m, parseErr := parseApp(filepath.Join(moduleDir, app.Dir), stderr)
 
@@ -201,7 +210,7 @@ func genApp(
 		if !cmdExists {
 			if err := generator.GenerateCmd(
 				cmdDir, app.Import, app.GenImport, serverscan.GenSubdir,
-				app.Prometheus, m, 0o644,
+				app.Prometheus, datastarJS, m, 0o644,
 			); err != nil {
 				return m, fmt.Errorf("generating cmd: %w", err)
 			}

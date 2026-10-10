@@ -47,6 +47,20 @@ again: datapages.yaml, app/app.go, app/app.templ, cmd/server/main.go, .env,
 compose.yaml, Makefile, .vscode/extensions.json and
 .github/workflows/ci.yml. It also adds .env to .gitignore.
 
+When init writes app/app.go, it asks how to set up Web Components, for
+JavaScript that would be impractical in Datastar attributes. Pass
+--web-components to answer without the prompt:
+
+  rocket      Datastar Rocket components in app/static/components, loaded
+              with the Rocket bundle of the Datastar release Datapages uses.
+  typescript  TypeScript in web/src, bundled by esbuild into
+              app/static/components.js. Needs Node.js: init runs npm install
+              and the first build, and datapages watch rebuilds on changes.
+  javascript  JavaScript modules in app/static/components, served as they are.
+  none        No Web Components, the default with -n.
+
+Each setup comes with an example component on the welcome page.
+
 Init rewrites these on every run: AGENTS.md, CLAUDE.md, GEMINI.md,
 .github/copilot-instructions.md, .cursor/rules/datapages.mdc and the
 skills under .agents/skills and .claude/skills. If you edit these files
@@ -65,6 +79,8 @@ Pass --no-ai-skills to skip all of these files.`,
 		"Enable Prometheus metrics in the generated entry point")
 	noAISkills := cmd.Flags().Bool("no-ai-skills", false,
 		"Skip agent instructions and skills")
+	webComponents := cmd.Flags().String("web-components", "",
+		"Web Component setup: rocket, typescript, javascript or none")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		// Non-file input uses huh's line-based accessible mode.
 		// Leave in nil for Cobra's *os.File stdin so huh selects the TUI.
@@ -73,7 +89,7 @@ Pass --no-ai-skills to skip all of these files.`,
 			in = c.InOrStdin()
 		}
 		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
-			*name, *module, *prometheus, !*noAISkills, version, modVersion)
+			*name, *module, *webComponents, *prometheus, !*noAISkills, version, modVersion)
 	}
 	return cmd
 }
@@ -100,8 +116,14 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 
 func runInit(
 	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool,
-	dir, module string, prometheus, aiSkills bool, version, modVersion string,
+	dir, module, webComponents string, prometheus, aiSkills bool, version, modVersion string,
 ) error {
+	if webComponents != "" {
+		if _, err := skeleton.ParseWebComponents(webComponents); err != nil {
+			return err
+		}
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
@@ -144,12 +166,6 @@ func runInit(
 		created = true
 	}
 
-	if wrote, err := writeDefaultConfigIfMissing(projectDir, out); err != nil {
-		return err
-	} else if wrote {
-		created = true
-	}
-
 	// [github.com/romshark/datapages.NewServer] calls identify
 	// app packages before those packages exist on disk.
 	modulePath, err := readModulePath(projectDir)
@@ -160,8 +176,36 @@ func runInit(
 	if err != nil {
 		return err
 	}
+
+	// Web Components come with the app package init writes. An app of the
+	// project's own has none of the files the scaffold builds on, and init
+	// rewrites app.templ once the assets package exists.
+	components := skeleton.WebComponentsNone
+	if scan.Fallback &&
+		!fileExists(filepath.Join(projectDir, "app", "app.go")) &&
+		!fileExists(filepath.Join(projectDir, "app", "app.templ")) {
+		components, err = resolveWebComponents(in, out, nonInteractive, webComponents)
+		if err != nil {
+			return err
+		}
+		// Fail before init writes anything that a second run would not repeat.
+		if components == skeleton.WebComponentsTypeScript {
+			if err := requireNode(); err != nil {
+				return err
+			}
+		}
+	} else if webComponents != "" {
+		_, _ = fmt.Fprintln(out, "Ignored --web-components: init writes no app package here.")
+	}
+
+	if wrote, err := writeDefaultConfigIfMissing(projectDir, out, components); err != nil {
+		return err
+	} else if wrote {
+		created = true
+	}
+
 	if scan.Fallback {
-		if wrote, err := writeAppGoIfMissing(projectDir, out); err != nil {
+		if wrote, err := writeAppGoIfMissing(projectDir, out, components); err != nil {
 			return err
 		} else if wrote {
 			created = true
@@ -175,7 +219,11 @@ func runInit(
 		}
 	}
 
-	if err := gitignoreEnv(projectDir); err != nil {
+	ignore := []string{".env"}
+	if components == skeleton.WebComponentsTypeScript {
+		ignore = append(ignore, "web/node_modules/")
+	}
+	if err := gitignore(projectDir, ignore...); err != nil {
 		return err
 	}
 
@@ -194,13 +242,17 @@ func runInit(
 	if err != nil {
 		return err
 	}
+	makefile, err := skeleton.Makefile(components)
+	if err != nil {
+		return err
+	}
 
 	for _, f := range []struct {
 		rel     string
 		content string
 	}{
 		{"compose.yaml", skeleton.ComposeYAML},
-		{"Makefile", skeleton.Makefile},
+		{"Makefile", makefile},
 		{".vscode/extensions.json", skeleton.VSCodeExtensions},
 		{".github/workflows/ci.yml", ciWorkflow},
 	} {
@@ -214,6 +266,13 @@ func runInit(
 	// Pin Datapages before go mod tidy can select another version.
 	if err := pinDatapages(ctx, projectDir, modVersion, out, stderr); err != nil {
 		return err
+	}
+
+	// The app package embeds the bundle, which must exist before it compiles.
+	if components == skeleton.WebComponentsTypeScript {
+		if err := bundleTypeScript(projectDir, out); err != nil {
+			return err
+		}
 	}
 
 	// Generate Templ before go mod tidy records dependencies.
@@ -234,8 +293,28 @@ func runInit(
 	if err != nil {
 		return err
 	}
-	if err := runGen(projectDir, conf, prometheus, stderr, ""); err != nil {
+	sc := scaffold{prometheus: prometheus}
+	if components == skeleton.WebComponentsRocket {
+		sc.datastarJS = skeleton.RocketJS
+	}
+	if err := runGen(projectDir, conf, sc, stderr, ""); err != nil {
 		return err
+	}
+
+	// The head refers to the components through the assets package,
+	// which exists now.
+	if components != skeleton.WebComponentsNone {
+		templ, err := skeleton.AppTempl(components, scan.Apps[0].GenImport+"/assets")
+		if err != nil {
+			return err
+		}
+		err = os.WriteFile(filepath.Join(projectDir, "app", "app.templ"), templ, 0o644)
+		if err != nil {
+			return fmt.Errorf("writing app/app.templ: %w", err)
+		}
+		if err := templGenerate(projectDir); err != nil {
+			return err
+		}
 	}
 
 	// Record dependencies imported only by generated code.
@@ -442,17 +521,91 @@ func goModTidy(dir string) error {
 	return runIn(dir, "go mod tidy", "go", "mod", "tidy")
 }
 
-func writeDefaultConfigIfMissing(projectDir string, w io.Writer) (bool, error) {
+// writeDefaultConfigIfMissing writes the default datapages.yaml. For TypeScript
+// components it adds the watcher that bundles them.
+func writeDefaultConfigIfMissing(
+	projectDir string, w io.Writer, components skeleton.WebComponents,
+) (bool, error) {
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
 		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
 			return false, nil
 		}
 	}
-	if err := config.WriteDefault(projectDir); err != nil {
+	content := config.DefaultYAML
+	if components == skeleton.WebComponentsTypeScript {
+		content += skeleton.TypeScriptWatchYAML
+	}
+	err := os.WriteFile(filepath.Join(projectDir, "datapages.yaml"), []byte(content), 0o644)
+	if err != nil {
 		return false, err
 	}
 	_, _ = fmt.Fprintln(w, "Created datapages.yaml")
 	return true, nil
+}
+
+// resolveWebComponents returns the setup the flag names. Without the flag it
+// asks, or picks none in non-interactive mode.
+func resolveWebComponents(
+	in io.Reader, out io.Writer, nonInteractive bool, flag string,
+) (skeleton.WebComponents, error) {
+	if flag != "" {
+		return skeleton.ParseWebComponents(flag)
+	}
+	if nonInteractive {
+		return skeleton.WebComponentsNone, nil
+	}
+	labels := map[skeleton.WebComponents]string{
+		skeleton.WebComponentsRocket:     "Datastar Rocket",
+		skeleton.WebComponentsTypeScript: "TypeScript, bundled by esbuild (needs Node.js)",
+		skeleton.WebComponentsJavaScript: "JavaScript modules",
+		skeleton.WebComponentsNone:       "None",
+	}
+	options := make([]huh.Option[skeleton.WebComponents], len(skeleton.WebComponentsChoices))
+	for i, c := range skeleton.WebComponentsChoices {
+		options[i] = huh.NewOption(labels[c], c)
+	}
+	choice := skeleton.WebComponentsNone
+	err := runField(
+		huh.NewSelect[skeleton.WebComponents]().
+			Title("Set up Web Components?").
+			Description("For JavaScript that would be impractical in Datastar attributes, "+
+				"such as a map or a rich text editor.").
+			Options(options...).
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
+}
+
+// requireNode reports a missing npm or node, which TypeScript components
+// need to install esbuild and to bundle.
+func requireNode() error {
+	for _, name := range []string{"npm", "node"} {
+		if _, err := exec.LookPath(name); err != nil {
+			return fmt.Errorf("TypeScript Web Components need %s: install Node.js, "+
+				"or pass --web-components javascript", name)
+		}
+	}
+	return nil
+}
+
+// bundleTypeScript installs the npm packages of web/ and writes the first bundle.
+func bundleTypeScript(projectDir string, w io.Writer) error {
+	web := filepath.Join(projectDir, "web")
+	if err := runIn(web, "npm install", "npm", "install"); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(w, "Installed the npm packages in web")
+	if err := runIn(web, "node build.mjs", "node", "build.mjs"); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(w, "Bundled the Web Components into app/static/components.js")
+	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // writeAgentDocs writes AI instructions from the module layout and server scan.
@@ -480,11 +633,18 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 			}
 		}
 	}
+	var components *agentdocs.Components
+	if c := detectWebComponents(projectDir); c != skeleton.WebComponentsNone {
+		components = &agentdocs.Components{
+			Dir: skeleton.ComponentsDir(c), About: skeleton.ComponentsAbout(c),
+		}
+	}
 	res, err := agentdocs.Write(projectDir, agentdocs.Project{
-		Cmd:     cfg.Cmd,
-		Cmds:    cmds,
-		Apps:    apps,
-		Version: version,
+		Cmd:        cfg.Cmd,
+		Cmds:       cmds,
+		Apps:       apps,
+		Components: components,
+		Version:    version,
 	}, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing agent instructions: %w", err)
@@ -520,6 +680,32 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 	return nil
 }
 
+// detectWebComponents returns the setup of the Web Components found where
+// init scaffolds them, or none. A module records no choice: AGENTS.md is
+// rewritten on every run, from what the module holds then.
+func detectWebComponents(projectDir string) skeleton.WebComponents {
+	if fileExists(filepath.Join(projectDir, "web", "src", "index.ts")) {
+		return skeleton.WebComponentsTypeScript
+	}
+	dir := filepath.Join(projectDir, "app", "static", "components")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return skeleton.WebComponentsNone
+	}
+	found := skeleton.WebComponentsNone
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".js" {
+			continue
+		}
+		found = skeleton.WebComponentsJavaScript
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err == nil && strings.Contains(string(b), "datastar-rocket") {
+			return skeleton.WebComponentsRocket
+		}
+	}
+	return found
+}
+
 func writeIfMissing(
 	projectDir, rel string, content []byte, w io.Writer,
 ) (bool, error) {
@@ -539,8 +725,13 @@ func writeIfMissing(
 	return true, nil
 }
 
-func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
-	src, err := skeleton.AppGo()
+// writeAppGoIfMissing writes the app package and the files of the Web
+// Component setup. Its head leaves out the components until the generated
+// assets package exists: see [skeleton.AppTempl].
+func writeAppGoIfMissing(
+	projectDir string, w io.Writer, components skeleton.WebComponents,
+) (bool, error) {
+	src, err := skeleton.AppGo(components)
 	if err != nil {
 		return false, err
 	}
@@ -550,10 +741,23 @@ func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if err != nil || !wrote {
 		return false, err
 	}
-	_, err = writeIfMissing(
-		projectDir, "app/app.templ", []byte(skeleton.AppTempl), w,
-	)
-	return true, err
+	templ, err := skeleton.AppTempl(components, "")
+	if err != nil {
+		return true, err
+	}
+	if _, err := writeIfMissing(projectDir, "app/app.templ", templ, w); err != nil {
+		return true, err
+	}
+	files, err := skeleton.WebComponentFiles(components)
+	if err != nil {
+		return true, err
+	}
+	for _, f := range files {
+		if _, err := writeIfMissing(projectDir, f.Path, f.Content, w); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
 }
 
 func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
@@ -579,23 +783,31 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// gitignoreEnv appends .env without changing existing .gitignore entries.
-func gitignoreEnv(projectDir string) error {
+// gitignore appends the entries .gitignore lacks without changing the others.
+func gitignore(projectDir string, entries ...string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 	content, err := os.ReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("reading .gitignore: %w", err)
 	}
-	for line := range strings.SplitSeq(string(content), "\n") {
-		if strings.TrimSpace(line) == ".env" {
-			return nil
+	lines := strings.Split(string(content), "\n")
+	var missing strings.Builder
+	for _, e := range entries {
+		if !slices.ContainsFunc(lines, func(line string) bool {
+			return strings.TrimSpace(line) == e
+		}) {
+			missing.WriteString(e)
+			missing.WriteByte('\n')
 		}
+	}
+	if missing.Len() == 0 {
+		return nil
 	}
 	f, err := os.OpenFile(gitignorePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("opening .gitignore: %w", err)
 	}
-	entry := ".env\n"
+	entry := missing.String()
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		entry = "\n" + entry
 	}

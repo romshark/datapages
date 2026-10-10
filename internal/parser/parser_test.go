@@ -3401,13 +3401,13 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 }
 
 // TestParse_Assets tests the assets declaration:
-// the URL prefix and the directory it serves from.
+// the variable, the URL prefix and the directory it serves from.
 func TestParse_Assets(t *testing.T) {
 	app, errs := parse(t, "assets")
 	requireParseErrors(t, errs /*none*/)
 	require.NotNil(t, app)
 	require.Equal(t,
-		model.Assets{URLPrefix: "/static/", Dir: "static"}, app.Assets)
+		model.Assets{Var: "AssetsFS", URLPrefix: "/static/", Dir: "static"}, app.Assets)
 }
 
 // TestParse_AssetsMissing tests an application declaring no assets,

@@ -18,13 +18,13 @@ var mainGoTmpl string
 var appGoTmpl string
 
 //go:embed app.templ.tmpl
-var AppTempl string
+var appTemplTmpl string
 
 //go:embed compose.yaml.tmpl
 var ComposeYAML string
 
 //go:embed Makefile.tmpl
-var Makefile string
+var makefileTmpl string
 
 //go:embed vscode-extensions.json.tmpl
 var VSCodeExtensions string
@@ -69,12 +69,21 @@ func CIWorkflow(modVersion string) (string, error) {
 var (
 	tmpl       = template.Must(template.New("main.go").Parse(mainGoTmpl))
 	appGoTempl = template.Must(template.New("app.go").Parse(appGoTmpl))
+	// Templ writes Go expressions in single braces, [[ ]] keeps them apart.
+	appTempl = template.Must(
+		template.New("app.templ").Delims("[[", "]]").Parse(appTemplTmpl),
+	)
+	makefile = template.Must(
+		template.New("Makefile").Parse(makefileTmpl),
+	)
 )
 
 // AppGo renders the app/app.go skeleton and returns formatted Go source.
-func AppGo() ([]byte, error) {
+// With Web Components it declares the static files and a head that loads them.
+func AppGo(w WebComponents) ([]byte, error) {
 	var buf bytes.Buffer
-	if err := appGoTempl.Execute(&buf, nil); err != nil {
+	data := struct{ Components bool }{w != WebComponentsNone}
+	if err := appGoTempl.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("executing app.go template: %w", err)
 	}
 	src, err := format.Source(buf.Bytes())
@@ -82,6 +91,45 @@ func AppGo() ([]byte, error) {
 		return nil, fmt.Errorf("formatting app.go: %w", err)
 	}
 	return src, nil
+}
+
+// AppTempl renders the app/app.templ skeleton. With Web Components it defines
+// the head [AppGo] returns and shows the example component on the welcome page.
+//
+// assetsImport is the import path of the generated assets package, which the
+// head refers to the entry of the components through. Before the first
+// generation the package does not exist, and the app package would not
+// type-check. An empty assetsImport writes the head without the entry.
+func AppTempl(w WebComponents, assetsImport string) ([]byte, error) {
+	var buf bytes.Buffer
+	data := struct {
+		Components   bool
+		AssetsImport string
+		Script, Dir  string
+	}{
+		Components:   w != WebComponentsNone,
+		AssetsImport: assetsImport,
+		Script:       componentsScript(w),
+		Dir:          ComponentsDir(w),
+	}
+	if w == WebComponentsNone {
+		data.AssetsImport = ""
+	}
+	if err := appTempl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("executing app.templ template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// Makefile renders the Makefile skeleton. For [WebComponentsTypeScript] it
+// installs the npm packages and bundles the components before dev and build.
+func Makefile(w WebComponents) (string, error) {
+	var buf bytes.Buffer
+	data := struct{ TypeScript bool }{w == WebComponentsTypeScript}
+	if err := makefile.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("executing Makefile template: %w", err)
+	}
+	return buf.String(), nil
 }
 
 // mainGoImports maps every import main.go.tmpl writes to the identifier it
@@ -184,32 +232,51 @@ type mainGoData struct {
 	SessionData string
 	// ExtraImports are the packages SessionData names beyond the app package.
 	ExtraImports []Import
+
+	AssetsVar  string
+	DatastarJS string
 }
 
-// MainGo renders the cmd/server/main.go template with the given import paths
-// and returns formatted Go source. appPkgName is the name the app package declares,
-// which need not match the last element of its import path.
-//
-// sessionData is the rendered session Data type,
-// empty for an application without sessions. extraImports are the packages it
-// names beyond the app package, which the caller renders it against:
-// [MainGoTaken] is the set they have to keep out of the way of.
-func MainGo(
-	appImportPath, appPkgName, genImportPath, genPkgName string,
-	prometheus bool, sessionData string, extraImports []Import,
-) ([]byte, error) {
+// MainGoConfig is what [MainGo] renders cmd/server/main.go from.
+type MainGoConfig struct {
+	// AppImport and GenImport are the import paths of the app package and the
+	// package generated for it. AppPkgName is the name the app package
+	// declares, which need not match the last element of its import path.
+	AppImport, AppPkgName, GenImport, GenPkgName string
+
+	Prometheus bool
+
+	// SessionData is the rendered session Data type, empty for an application
+	// without sessions. ExtraImports are the packages it names beyond the app
+	// package, which the caller renders it against: [MainGoTaken] is the set
+	// they have to keep out of the way of.
+	SessionData  string
+	ExtraImports []Import
+
+	// AssetsVar is the embed.FS variable of the app package that holds its
+	// static files, empty for an application without them.
+	AssetsVar string
+
+	// DatastarJS is the URL of the Datastar bundle, empty for the default.
+	DatastarJS string
+}
+
+// MainGo renders the cmd/server/main.go template and returns formatted Go source.
+func MainGo(c MainGoConfig) ([]byte, error) {
 	var buf bytes.Buffer
-	appPkg, aliased := mainGoAppPkg(appPkgName, genPkgName)
+	appPkg, aliased := mainGoAppPkg(c.AppPkgName, c.GenPkgName)
 	if err := tmpl.Execute(&buf, mainGoData{
-		AppImport:    appImportPath,
+		AppImport:    c.AppImport,
 		AppPkg:       appPkg,
 		AppAliased:   aliased,
-		GenImport:    genImportPath,
-		Gen:          genPkgName,
-		Prometheus:   prometheus,
-		HasSession:   sessionData != "",
-		SessionData:  sessionData,
-		ExtraImports: extraImports,
+		GenImport:    c.GenImport,
+		Gen:          c.GenPkgName,
+		Prometheus:   c.Prometheus,
+		HasSession:   c.SessionData != "",
+		SessionData:  c.SessionData,
+		ExtraImports: c.ExtraImports,
+		AssetsVar:    c.AssetsVar,
+		DatastarJS:   c.DatastarJS,
 	}); err != nil {
 		return nil, fmt.Errorf("executing main.go template: %w", err)
 	}

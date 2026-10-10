@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/internal/generator/skeleton"
+	"github.com/romshark/datapages/runtime/httpserve"
 )
 
 // TestCIWorkflowInstallsPinnedTools tests that the scaffolded workflow installs
@@ -82,11 +83,11 @@ func TestMainGoAppImportAlias(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			src, err := skeleton.MainGo(
-				"example.com/m/app", tt.appPkg,
-				"example.com/m/app/datapagesgen", "datapagesgen",
-				false, "struct{}", nil,
-			)
+			src, err := skeleton.MainGo(skeleton.MainGoConfig{
+				AppImport: "example.com/m/app", AppPkgName: tt.appPkg,
+				GenImport: "example.com/m/app/datapagesgen", GenPkgName: "datapagesgen",
+				SessionData: "struct{}",
+			})
 			require.NoError(t, err)
 			require.Contains(t, string(src), tt.wantLine)
 			require.Contains(t, string(src), tt.wantRef)
@@ -112,11 +113,12 @@ func TestMainGoImportsAreKnown(t *testing.T) {
 			if tt.hasSession {
 				sessionData = "struct{}"
 			}
-			src, err := skeleton.MainGo(
-				"example.com/m/app", "app",
-				"example.com/m/app/datapagesgen", "datapagesgen",
-				true, sessionData, nil,
-			)
+			src, err := skeleton.MainGo(skeleton.MainGoConfig{
+				AppImport: "example.com/m/app", AppPkgName: "app",
+				GenImport: "example.com/m/app/datapagesgen", GenPkgName: "datapagesgen",
+				Prometheus: true, SessionData: sessionData,
+				AssetsVar: "StaticFS", DatastarJS: skeleton.RocketJS,
+			})
 			require.NoError(t, err)
 
 			f, err := parser.ParseFile(
@@ -152,11 +154,11 @@ func TestMainGoShutsDownOnSIGTERM(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			src, err := skeleton.MainGo(
-				"example.com/m/app", "app",
-				"example.com/m/app/datapagesgen", "datapagesgen",
-				true, sessionData, nil,
-			)
+			src, err := skeleton.MainGo(skeleton.MainGoConfig{
+				AppImport: "example.com/m/app", AppPkgName: "app",
+				GenImport: "example.com/m/app/datapagesgen", GenPkgName: "datapagesgen",
+				Prometheus: true, SessionData: sessionData,
+			})
 			require.NoError(t, err)
 
 			f, err := parser.ParseFile(token.NewFileSet(), "main.go", src, 0)
@@ -175,6 +177,145 @@ func TestMainGoShutsDownOnSIGTERM(t *testing.T) {
 			})
 			require.Subset(t, signals, []string{"os.Interrupt", "syscall.SIGTERM"},
 				"main.go does not cancel the server context on both signals:\n%s", src)
+		})
+	}
+}
+
+// TestMainGoServesAssetsAndDatastar tests that the scaffolded main.go passes
+// the static files of the app package to WithAssets and a Datastar bundle other
+// than the default to WithDatastarJS, and neither when there is none.
+func TestMainGoServesAssetsAndDatastar(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		assetsVar, datastarJS string
+		want, wantNot         []string
+	}{
+		"neither": {
+			wantNot: []string{"WithAssets", "WithDatastarJS"},
+		},
+		"assets": {
+			assetsVar: "StaticFS",
+			want:      []string{"datapages.WithAssets(app.StaticFS, false)"},
+			wantNot:   []string{"WithDatastarJS"},
+		},
+		"rocket": {
+			assetsVar:  "StaticFS",
+			datastarJS: skeleton.RocketJS,
+			want: []string{
+				"datapages.WithAssets(app.StaticFS, false)",
+				`datapages.WithDatastarJS("` + skeleton.RocketJS + `")`,
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			src, err := skeleton.MainGo(skeleton.MainGoConfig{
+				AppImport: "example.com/m/app", AppPkgName: "app",
+				GenImport: "example.com/m/app/datapagesgen", GenPkgName: "datapagesgen",
+				AssetsVar: tc.assetsVar, DatastarJS: tc.datastarJS,
+			})
+			require.NoError(t, err)
+			for _, w := range tc.want {
+				require.Contains(t, string(src), w)
+			}
+			for _, w := range tc.wantNot {
+				require.NotContains(t, string(src), w)
+			}
+		})
+	}
+}
+
+// TestRocketJSMatchesDefaultDatastar tests that the Rocket bundle comes from
+// the Datastar release Datapages loads by default.
+func TestRocketJSMatchesDefaultDatastar(t *testing.T) {
+	t.Parallel()
+	dir, ok := strings.CutSuffix(httpserve.DefaultDatastarJSSrc, "/datastar.js")
+	require.True(t, ok, "not a datastar.js URL: %s", httpserve.DefaultDatastarJSSrc)
+	require.Equal(t, dir+"/datastar-rocket.js", skeleton.RocketJS)
+}
+
+// TestWebComponentFiles tests the files each setup writes besides app.go and
+// app.templ, and that the Rocket component imports the bundle main.go loads.
+func TestWebComponentFiles(t *testing.T) {
+	t.Parallel()
+
+	for setup, want := range map[skeleton.WebComponents][]string{
+		skeleton.WebComponentsNone: nil,
+		skeleton.WebComponentsRocket: {
+			"app/static/components/click-counter.js", "app/static/components/index.js",
+		},
+		skeleton.WebComponentsJavaScript: {
+			"app/static/components/click-counter.js", "app/static/components/index.js",
+		},
+		skeleton.WebComponentsTypeScript: {
+			"web/build.mjs", "web/package.json", "web/src/click-counter.ts",
+			"web/src/index.ts", "web/tsconfig.json",
+		},
+	} {
+		t.Run(string(setup), func(t *testing.T) {
+			t.Parallel()
+			files, err := skeleton.WebComponentFiles(setup)
+			require.NoError(t, err)
+			var paths []string
+			for _, f := range files {
+				paths = append(paths, f.Path)
+				if setup == skeleton.WebComponentsRocket &&
+					strings.HasSuffix(f.Path, "click-counter.js") {
+					require.Contains(t, string(f.Content), `from "`+skeleton.RocketJS+`"`)
+				}
+			}
+			require.ElementsMatch(t, want, paths)
+		})
+	}
+}
+
+// TestAppTemplHead tests that the head loads the components only once the
+// generated assets package it refers to them through is given, and that the
+// welcome page shows the example component of a setup.
+func TestAppTemplHead(t *testing.T) {
+	t.Parallel()
+
+	const assets = "example.com/m/app/datapagesgen/assets"
+	for name, tc := range map[string]struct {
+		setup         skeleton.WebComponents
+		assetsImport  string
+		want, wantNot []string
+	}{
+		"none": {
+			setup: skeleton.WebComponentsNone, assetsImport: assets,
+			wantNot: []string{"import", "templ head()", "click-counter"},
+		},
+		"before generation": {
+			setup:   skeleton.WebComponentsJavaScript,
+			want:    []string{"templ head()", "<click-counter"},
+			wantNot: []string{"import", "assets.Path"},
+		},
+		"javascript": {
+			setup: skeleton.WebComponentsJavaScript, assetsImport: assets,
+			want: []string{
+				`import "` + assets + `"`,
+				`<script type="module" src={ assets.Path("components/index.js") }></script>`,
+			},
+		},
+		"typescript": {
+			setup: skeleton.WebComponentsTypeScript, assetsImport: assets,
+			want: []string{
+				`<script src={ assets.Path("components.js") } defer></script>`,
+				"<code>web/src/</code>",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			src, err := skeleton.AppTempl(tc.setup, tc.assetsImport)
+			require.NoError(t, err)
+			for _, w := range tc.want {
+				require.Contains(t, string(src), w)
+			}
+			for _, w := range tc.wantNot {
+				require.NotContains(t, string(src), w)
+			}
 		})
 	}
 }

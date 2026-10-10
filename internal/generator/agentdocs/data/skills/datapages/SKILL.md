@@ -51,7 +51,7 @@ To restore rendering, save a `.templ` file or restart the watcher.
 
 - Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
 - Never hardcode an app-internal URL. `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
-- Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. JS only for browser APIs Datastar cannot reach, such as the clipboard.
+- Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. Keep interaction state, such as an open menu or a selected tab, in local Datastar signals, whose `_` prefix keeps them out of requests. Write JavaScript only where Datastar attributes are impractical: a browser API such as the clipboard, a library such as a map or a rich text editor, or client state that runs ahead of the server, such as typed text the server has not confirmed. Put such JavaScript in a Web Component when it needs more than a one-statement expression; see `datapages-templates`.
 - Return application HTML as a Templ `datapages.Component`. Do not render it into a `datapages.File`: its bytes bypass Templ's contextual escaping and the Datapages template linter.
 - Never open an SSE stream, set a CSRF header, add the Datastar script or register a service worker by hand. Datapages does all four.
 - Submit `<form>` elements through Datastar actions. Browser form submissions do not carry the CSRF token; see `datapages-templates`.

@@ -64,7 +64,7 @@ func TestCompileFixtures(t *testing.T) {
 			require.NoError(t, generator.GenerateCmd(
 				filepath.Join(mod, "cmd", "server"),
 				modPath+"/pages", modPath+"/datapagesgen", "datapagesgen",
-				false, app, 0o644,
+				false, "", app, 0o644,
 			))
 
 			cmd := exec.Command("go", "build", "./...")

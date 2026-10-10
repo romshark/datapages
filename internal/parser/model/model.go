@@ -41,6 +41,9 @@ type App struct {
 // Assets is the static file serving an embed.FS variable of the app package
 // declares by naming a URL path in its doc comment.
 type Assets struct {
+	// Var is the name of the embed.FS variable.
+	Var string
+
 	// URLPrefix is the URL path the files are served under.
 	URLPrefix string
 

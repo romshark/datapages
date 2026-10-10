@@ -36,6 +36,12 @@ jobs:
             name: "calculator"
           - path: "example/todolist"
             name: "todolist"
+          - path: "example/offline-cache"
+            name: "offline-cache"
+          - path: "example/fast-shim"
+            name: "fast-shim"
+          - path: "example/file-upload"
+            name: "file-upload"
     steps:
       - uses: actions/checkout@v7
         with:

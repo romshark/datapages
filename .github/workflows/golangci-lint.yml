@@ -34,6 +34,12 @@ jobs:
             name: "example/calculator"
           - path: "example/todolist"
             name: "example/todolist"
+          - path: "example/offline-cache"
+            name: "example/offline-cache"
+          - path: "example/fast-shim"
+            name: "example/fast-shim"
+          - path: "example/file-upload"
+            name: "example/file-upload"
     steps:
       - uses: actions/setup-go@v7
         with:

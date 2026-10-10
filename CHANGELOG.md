@@ -19,6 +19,10 @@ Releases up to v0.10.0 have their notes on
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of one release. A `Content-Security-Policy` must allow the inline build script.
 
+#### `datapages init`
+
+- Scaffold Web Components instead of requiring manual frontend setup. Choose Datastar Rocket, esbuild-bundled TypeScript, JavaScript modules or none interactively or with `--web-components rocket|typescript|javascript|none`; `-n` defaults to none. Each setup adds an attribute-and-event example. Rocket loads the matching CDN bundle. TypeScript requires Node.js; init installs and builds it, and `datapages watch` rebuilds changes.
+
 ### Changed
 
 #### `datapages lint` and `datapages gen`
@@ -48,6 +52,7 @@ Run `datapages gen` to apply these.
 
 #### `datapages init`
 
+- Teach generated AI instructions to use isolated Web Components for browser libraries or client logic too complex for Datastar expressions. The earlier instructions did not say where such JavaScript belongs. Run `datapages init` in an existing project to update them.
 - Generate a new project's templates with templ v0.3.1070 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
 
 ### Fixed
@@ -128,6 +133,7 @@ Run `datapages gen` to apply these.
 
 #### `datapages init`
 
+- Pass the app's `embed.FS` assets variable to `datapages.WithAssets` when creating a missing `cmd/server/main.go`. Generated asset URLs previously returned 404. An existing `main.go` is not rewritten; add `datapages.WithAssets(app.StaticFS, false)` manually.
 - Shut down gracefully on SIGTERM in the `cmd/server/main.go` it writes. Docker, Kubernetes and systemd stop a process with SIGTERM, which previously ended the server without waiting for requests, SSE streams and `StreamClose` hooks. It does not rewrite an existing `main.go`: add `syscall.SIGTERM` to its `signal.NotifyContext` call.
 
 ### Security

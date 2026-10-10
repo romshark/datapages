@@ -52,6 +52,14 @@ func main() {
 {{- if .Prometheus}}
 	initMetrics(&opts)
 {{- end}}
+{{- if .AssetsVar}}
+	opts = append(opts, datapages.WithAssets({{.AppPkg}}.{{.AssetsVar}}, false))
+{{- end}}
+{{- if .DatastarJS}}
+	// The components import rocket from the same URL,
+	// which keeps one copy of Datastar in the page.
+	opts = append(opts, datapages.WithDatastarJS({{printf "%q" .DatastarJS}}))
+{{- end}}
 
 {{- if .HasSession}}
 

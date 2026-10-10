@@ -63,9 +63,22 @@ type Project struct {
 	// Apps holds one entry per app package, ordered by directory.
 	Apps []App
 
+	// Components is where the module keeps its Web Components, nil for a
+	// module without them.
+	Components *Components
+
 	// Version is the release of the CLI, without the leading "v". A build from
 	// source carries none and links the specification on the main branch.
 	Version string
+}
+
+// Components is a directory of Web Components.
+type Components struct {
+	// Dir is relative to the module root and ends in a slash.
+	Dir string
+
+	// About is a Markdown sentence on what the directory holds.
+	About string
 }
 
 // Backup is a file [Write] moved out of the way.
@@ -314,7 +327,8 @@ func renderAGENTS(p Project) (string, error) {
 		SkillsDir, SpecURL string
 		Apps               []App
 		Cmds               []string
-	}{AgentsSkillsDir, specURL, apps, cmds})
+		Components         *Components
+	}{AgentsSkillsDir, specURL, apps, cmds, p.Components})
 	if err != nil {
 		return "", fmt.Errorf("executing AGENTS.md template: %w", err)
 	}

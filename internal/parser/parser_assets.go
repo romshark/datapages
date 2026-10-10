@@ -125,7 +125,7 @@ func readAssets(
 		errs.ErrAt(pos, err)
 		return model.Assets{}
 	}
-	return model.Assets{URLPrefix: prefix, Dir: dir}
+	return model.Assets{Var: name.Name, URLPrefix: prefix, Dir: dir}
 }
 
 // urlPrefixOf reads the URL path out of the doc comment of an assets variable.

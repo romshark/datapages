@@ -1,18 +1,26 @@
 package app
 
 import (
+{{- if .Components}}
+	"embed"
+{{- end}}
 	"net/http"
 
 	"github.com/romshark/datapages"
 )
-
+{{if .Components}}
+// StaticFS is /static/
+//
+//go:embed static/*
+var StaticFS embed.FS
+{{else}}
 // Static file serving is turned on by an embed.FS whose doc comment names the
 // URL path it is served at, the way a page names its route:
 //
 //	// StaticFS is /static/
 //	//go:embed static/*
 //	var StaticFS embed.FS
-
+{{end}}
 type App struct{}
 
 // Session carries no application data yet. Replace struct{} with your own type
@@ -20,7 +28,11 @@ type App struct{}
 type Session = datapages.Session[struct{}]
 
 func (*App) Head(r *http.Request) datapages.Head {
+{{- if .Components}}
+	return head()
+{{- else}}
 	return nil
+{{- end}}
 }
 
 func (*App) RecoverError(

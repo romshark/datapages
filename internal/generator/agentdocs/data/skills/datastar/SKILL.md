@@ -28,7 +28,7 @@ Datastar applies attributes depth first in DOM order. It applies them again when
 | `data-computed:foo="$a + $b"` | read-only derived signal |
 | `data-effect="$a = $b"` | runs on load and whenever a signal it reads changes |
 | `data-ignore` | skip the element and its subtree; `__self` for the element alone |
-| `data-ignore-morph` | skip it while morphing |
+| `data-ignore-morph` | a morph skips the element, its attributes and its children when the old and the new element both carry it |
 | `data-indicator:fetching` | true while a fetch is in flight; put it on the element that triggers one |
 | `data-init="@get('/x')"` | runs when the attribute initializes; `__delay.500ms` |
 | `data-json-signals` | dumps signals as JSON for debugging; `__terse` |
@@ -83,7 +83,7 @@ Each request fires `datastar-fetch` events. `evt.detail.type` is `started`, `fin
 
 ## Practice
 
-- Keep authoritative state on the server and transient UI state in signals. Use signals only when needed. Keep expressions to one statement and put application logic in Go.
+- Keep authoritative state on the server and interaction state in local signals, whose `_` prefix keeps them out of requests. Leave the prefix off only when an action must send the signal. Use signals only when needed. Keep expressions to one statement and put application logic in Go.
 - Patch elements instead of signals. Prefer one complete fragment over several small targeted updates.
 - Encode a value with `json.Marshal` before putting it in an attribute, or wrap the element in `data-ignore`. The browser decodes Templ's escaping before the expression is parsed, hence an apostrophe in the value ends the string and what follows runs as script.
 - Never put a secret in a signal. The browser can read signals, and requests send them to the server.
