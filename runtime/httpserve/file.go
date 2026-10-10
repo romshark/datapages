@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -24,13 +25,32 @@ var (
 	ErrFileInvalidETag = errors.New("datapages.File has an invalid ETag")
 
 	// ErrFileInvalidCache reports a [datapages.FileCache]
-	// whose fields exclude each other.
+	// whose fields contradict each other.
 	ErrFileInvalidCache = errors.New("datapages.File has an invalid Cache")
+
+	// ErrFileReservedHeader reports a [datapages.File] whose Header sets
+	// a header that one of its fields or [http.ServeContent] writes.
+	ErrFileReservedHeader = errors.New("datapages.File sets a reserved header in Header")
 )
 
+// reservedHeaders are the headers [ServeFile] and [http.ServeContent] write,
+// by canonical name. A field of [datapages.File] is the one way to set each.
+var reservedHeaders = map[string]bool{
+	"Accept-Ranges":          true,
+	"Cache-Control":          true,
+	"Content-Disposition":    true,
+	"Content-Length":         true,
+	"Content-Range":          true,
+	"Content-Type":           true,
+	"Etag":                   true,
+	"Last-Modified":          true,
+	"X-Content-Type-Options": true,
+}
+
 // ServeFile writes f as the response to r and closes its Body. It writes
-// nothing and returns [ErrFileNoBody], [ErrFileNoType], [ErrFileInvalidETag]
-// or [ErrFileInvalidCache] for an incomplete or invalid f.
+// nothing and returns [ErrFileNoBody], [ErrFileNoType], [ErrFileInvalidETag],
+// [ErrFileInvalidCache] or [ErrFileReservedHeader] for an incomplete or
+// invalid f.
 func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	if f.Body == nil {
 		return ErrFileNoBody
@@ -45,6 +65,11 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	case err != nil:
 		return err
 	}
+	for name := range f.Header {
+		if reservedHeaders[textproto.CanonicalMIMEHeaderKey(name)] {
+			return fmt.Errorf("%w: %s", ErrFileReservedHeader, name)
+		}
+	}
 	h := w.Header()
 	h.Set("Content-Type", f.Type)
 	h.Set("X-Content-Type-Options", "nosniff")
@@ -52,24 +77,36 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		// [http.ServeContent] reads it back for the conditional requests.
 		h.Set("ETag", `"`+f.ETag+`"`)
 	}
-	if cacheControl != "" {
+	switch {
+	case cacheControl != "":
 		h.Set("Cache-Control", cacheControl)
+	case h.Get("Cache-Control") == "":
+		// Without Cache-Control, a browser reuses a response with Last-Modified
+		// for a tenth of its age without asking: RFC 9111 section 4.2.2.
+		h.Set("Cache-Control", "no-cache")
 	}
 	if v := contentDisposition(f.Disposition); v != "" {
 		h.Set("Content-Disposition", v)
+	}
+	for name, values := range f.Header {
+		h.Del(name)
+		for _, v := range values {
+			h.Add(name, v)
+		}
 	}
 	http.ServeContent(w, r, "", f.ModTime, f.Body)
 	return nil
 }
 
 // cacheControl returns the Cache-Control value of c, "" for the zero value.
+// It refuses fields that contradict each other and accepts ones that repeat
+// each other, such as Private next to NoStore.
 func cacheControl(c datapages.FileCache) (string, error) {
 	invalid := func(reason string) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrFileInvalidCache, reason)
 	}
-	typed := c.MaxAge != 0 || c.Immutable || c.Private || c.NoCache
 	switch {
-	case c.Raw != "" && (typed || c.NoStore):
+	case c.Raw != "" && c != (datapages.FileCache{Raw: c.Raw}):
 		return invalid("Raw excludes the other fields")
 	case c.Raw != "":
 		if strings.ContainsFunc(c.Raw, func(r rune) bool {
@@ -78,16 +115,14 @@ func cacheControl(c datapages.FileCache) (string, error) {
 			return invalid("Raw contains a control character")
 		}
 		return c.Raw, nil
-	case c.NoStore && typed:
-		return invalid("NoStore excludes the other fields")
-	case c.NoStore:
-		return "no-store", nil
 	case c.MaxAge < 0 || c.MaxAge > 0 && c.MaxAge < time.Second:
 		return invalid("MaxAge " + c.MaxAge.String() + " is negative or under a second")
 	case c.Immutable && c.MaxAge == 0:
 		return invalid("Immutable requires a positive MaxAge")
-	case c.Immutable && c.NoCache:
-		return invalid("Immutable excludes NoCache")
+	case c.MaxAge > 0 && c.NoCache:
+		return invalid("NoCache excludes MaxAge")
+	case c.MaxAge > 0 && c.NoStore:
+		return invalid("NoStore excludes MaxAge")
 	}
 	directives := make([]string, 0, 4)
 	if c.Private {
@@ -95,6 +130,9 @@ func cacheControl(c datapages.FileCache) (string, error) {
 	}
 	if c.NoCache {
 		directives = append(directives, "no-cache")
+	}
+	if c.NoStore {
+		directives = append(directives, "no-store")
 	}
 	if c.MaxAge > 0 {
 		directives = append(directives,
@@ -119,13 +157,7 @@ func contentDisposition(d datapages.FileDisposition) string {
 	if d.Filename == "" {
 		return kind
 	}
-	// FormatMediaType returns "" for a name it cannot encode.
-	if v := mime.FormatMediaType(kind, map[string]string{
-		"filename": d.Filename,
-	}); v != "" {
-		return v
-	}
-	return kind
+	return mime.FormatMediaType(kind, map[string]string{"filename": d.Filename})
 }
 
 // validETag reports whether tag holds only etagc characters of RFC 9110

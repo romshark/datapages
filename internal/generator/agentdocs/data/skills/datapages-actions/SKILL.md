@@ -96,6 +96,10 @@ Do not use `datapages.File` to render application HTML. Return HTML as a Templ
 `datapages.Component`. File bytes bypass Templ's contextual escaping and the
 Datapages template linter.
 
+Serve a file a visitor uploaded with `Disposition: datapages.FileDisposition{Download: true}`, or show inline only types from an allowlist. The type of an upload is what the uploading browser reported, and `text/html` or `image/svg+xml` runs script on the application's origin when shown. `X-Content-Type-Options: nosniff`, which Datapages always sends, does not prevent that.
+
+The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. `NoStore` also keeps the file out of the offline worker's cache.
+
 ## SSE
 
 | method | effect |

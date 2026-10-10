@@ -319,7 +319,7 @@ type Redirect struct {
 	URL string
 
 	// Status is the HTTP status code of the redirect response.
-	// Zero, or any code that isn't a redirect status, means [net/http.StatusFound].
+	// Zero, or any code that isn't a redirect status, means [http.StatusFound].
 	//
 	// Status is ignored for requests issued by a Datastar action
 	// (those carrying the header "Datastar-Request: true"),
@@ -350,7 +350,7 @@ type Redirect struct {
 // Errors return their status code and text. [Document requests],
 // such as links opened in a tab, render PageError404 or PageError500 instead.
 //
-// [net/http.ServeContent] serves the body. It handles [HEAD] and [Range] requests,
+// [http.ServeContent] serves the body. It handles [HEAD] and [Range] requests,
 // and with ModTime or ETag the conditional requests
 // [If-Modified-Since], [If-None-Match], [If-Match] and [If-Range].
 //
@@ -358,9 +358,13 @@ type Redirect struct {
 // can escape values for their HTML context and datapages lint can check the markup.
 //
 // Every response sets [X-Content-Type-Options] to nosniff, which disables
-// [MIME sniffing]. Without it, a browser can run a text/plain response as
-// a script or render an invalid MIME type as HTML.
-// Either case lets an uploaded file run script on the application's origin.
+// [MIME sniffing]: without it, a browser can run a text/plain response as
+// a script or render an invalid MIME type as HTML. It changes nothing for
+// a declared Type that runs script itself, such as text/html or image/svg+xml,
+// which an uploaded file carries whenever the uploading browser reports it.
+// Serve a file a visitor uploaded with Disposition.Download, or show inline
+// only types from an allowlist. A Content-Security-Policy of sandbox in Header
+// adds a second layer.
 //
 // [Document requests]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest
 // [HEAD]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/HEAD
@@ -381,6 +385,10 @@ type File struct {
 	// Body is the response content, which Datapages closes after serving.
 	// Content held in memory needs a Close that does nothing: a [bytes.Reader]
 	// has none, and [io.NopCloser] drops Seek. A nil Body returns HTTP 500.
+	//
+	// Body must seek: [http.ServeContent] reads its size and serves ranges
+	// from it. A stream, such as the body of an [http.Response], has to be
+	// copied into memory or a temporary file first.
 	Body io.ReadSeekCloser
 
 	// ModTime sets [Last-Modified] and enables [If-Modified-Since] handling.
@@ -393,16 +401,18 @@ type File struct {
 	// ETag sets the [entity tag] of the body, which answers [If-None-Match],
 	// [If-Match] and [If-Range] requests. Datapages quotes it: set the tag alone,
 	// such as a hash of the content. It's a strong validator, which two bodies
-	// share only when their bytes are equal. A tag with a quote, a space or
-	// a control character returns HTTP 500. Empty omits the header.
+	// share only when their bytes are equal. A tag with a character outside
+	// etagc of [RFC 9110 section 8.8.3] returns HTTP 500. Empty omits the header.
 	//
 	// [entity tag]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/ETag
 	// [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
 	// [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
 	// [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+	// [RFC 9110 section 8.8.3]: https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3
 	ETag string
 
-	// Cache sets [Cache-Control]. The zero value omits the header.
+	// Cache sets [Cache-Control]. The zero value sends no-cache,
+	// unless middleware set a Cache-Control header before.
 	//
 	// [Cache-Control]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
 	Cache FileCache
@@ -412,25 +422,39 @@ type File struct {
 	//
 	// [Content-Disposition]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition
 	Disposition FileDisposition
+
+	// Header holds response headers the other fields don't set, such as
+	// Content-Language, or a Content-Security-Policy for an untrusted type.
+	// It replaces a header of the same name that middleware set before.
+	// A header the fields or [http.ServeContent] write returns HTTP 500:
+	// Content-Type, X-Content-Type-Options, ETag, Last-Modified, Cache-Control,
+	// Content-Disposition, Content-Length, Content-Range and Accept-Ranges.
+	Header http.Header
 }
 
-// FileCache is the [Cache-Control] header of a [File]. Its zero value sends no header.
-// Fields that exclude each other return HTTP 500:
+// FileCache is the [Cache-Control] header of a [File]. Its zero value sends
+// no-cache, which makes a cache ask the server before every reuse, as the
+// zero [AssetsCacheConfig] does with max-age=0. Without a Cache-Control header,
+// a browser may reuse a response with a ModTime without asking, by
+// [heuristic freshness]. Fields that contradict each other return HTTP 500:
 //
 //	datapages.FileCache{MaxAge: time.Hour, Immutable: true} // max-age=3600, immutable
 //	datapages.FileCache{NoStore: true, MaxAge: time.Hour}   // HTTP 500: NoStore excludes MaxAge
 //
 // [Cache-Control]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
+// [heuristic freshness]: https://www.rfc-editor.org/rfc/rfc9111#section-4.2.2
 type FileCache struct {
 	// MaxAge sets [max-age]: how long a cache may reuse the response without
-	// asking again, in whole seconds. Zero omits it, and NoCache makes every
-	// reuse ask again. A negative MaxAge or one under a second returns HTTP 500.
+	// asking again, in whole seconds. Without Private, a shared cache may serve
+	// the response to other visitors for MaxAge without asking the server.
+	// Zero omits it. A negative MaxAge or one under a second returns HTTP 500,
+	// and so does a MaxAge next to NoCache or NoStore, which forbid such reuse.
 	//
 	// [max-age]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#max-age
 	MaxAge time.Duration
 
 	// Immutable sets [immutable], which keeps a reload from revalidating
-	// a fresh response. It requires a positive MaxAge and excludes NoCache.
+	// a fresh response. It requires a positive MaxAge.
 	//
 	// [immutable]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#immutable
 	Immutable bool
@@ -443,18 +467,20 @@ type FileCache struct {
 
 	// NoCache sets [no-cache], which makes a cache revalidate the response
 	// before every reuse. An ETag or a ModTime lets the server answer with 304.
+	// It excludes MaxAge.
 	//
 	// [no-cache]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-cache
 	NoCache bool
 
 	// NoStore sets [no-store], which keeps the response out of every cache.
-	// It excludes the other fields.
+	// It excludes MaxAge.
 	//
 	// [no-store]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-store
 	NoStore bool
 
 	// Raw is the header as written, for directives the other fields don't cover,
-	// such as [s-maxage]. It excludes the other fields.
+	// such as [s-maxage]. It's what [AssetsCacheConfig.CacheControl] is for
+	// static assets. It excludes the other fields.
 	//
 	// [s-maxage]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#s-maxage
 	Raw string

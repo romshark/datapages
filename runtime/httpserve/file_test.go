@@ -155,10 +155,38 @@ func TestServeFileCache(t *testing.T) {
 	year := 365 * 24 * time.Hour
 	for name, tc := range map[string]struct {
 		datapages.FileCache
-		want    string
-		wantErr bool
+		// middleware is the Cache-Control a middleware set before.
+		middleware string
+		want       string
+		wantErr    bool
 	}{
-		"zero": {},
+		"zero": {
+			want: "no-cache",
+		},
+		"zero after middleware": {
+			middleware: "public, max-age=60",
+			want:       "public, max-age=60",
+		},
+		"set after middleware": {
+			MaxAge:     time.Hour,
+			middleware: "public, max-age=60",
+			want:       "max-age=3600",
+		},
+		"private with no-store": {
+			Private: true,
+			NoStore: true,
+			want:    "private, no-store",
+		},
+		"no-cache with no-store": {
+			NoCache: true,
+			NoStore: true,
+			want:    "no-cache, no-store",
+		},
+		"no-cache with max age": {
+			NoCache: true,
+			MaxAge:  time.Hour,
+			wantErr: true,
+		},
 		"max age": {
 			MaxAge: time.Hour,
 			want:   "max-age=3600",
@@ -228,6 +256,9 @@ func TestServeFileCache(t *testing.T) {
 			t.Parallel()
 			body := &closingReader{Reader: strings.NewReader("x")}
 			w := httptest.NewRecorder()
+			if tc.middleware != "" {
+				w.Header().Set("Cache-Control", tc.middleware)
+			}
 			err := httpserve.ServeFile(w, httptest.NewRequest(http.MethodGet, "/", nil),
 				datapages.File{Type: "text/plain", Body: body, Cache: tc.FileCache})
 			require.True(t, body.closed)
@@ -308,6 +339,18 @@ func TestServeFileRefused(t *testing.T) {
 			Body: &closingReader{Reader: strings.NewReader("x")},
 			want: httpserve.ErrFileInvalidETag,
 		},
+		"reserved header": {
+			Type:   "text/plain",
+			Header: http.Header{"Cache-Control": {"no-store"}},
+			Body:   &closingReader{Reader: strings.NewReader("x")},
+			want:   httpserve.ErrFileReservedHeader,
+		},
+		"reserved header, not canonical": {
+			Type:   "text/plain",
+			Header: http.Header{"etag": {`"v1"`}},
+			Body:   &closingReader{Reader: strings.NewReader("x")},
+			want:   httpserve.ErrFileReservedHeader,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -317,11 +360,33 @@ func TestServeFileRefused(t *testing.T) {
 			require.ErrorIs(t, err, tc.want)
 			require.Empty(t, w.Header())
 			require.Zero(t, w.Body.Len())
-			if c, ok := tc.File.Body.(*closingReader); ok {
+			if c, ok := tc.Body.(*closingReader); ok {
 				require.True(t, c.closed)
 			}
 		})
 	}
+}
+
+// TestServeFileHeader tests the headers File.Header adds, and that one of them
+// replaces the value a middleware set before.
+func TestServeFileHeader(t *testing.T) {
+	t.Parallel()
+
+	w := httptest.NewRecorder()
+	w.Header().Set("Content-Language", "en")
+	w.Header().Set("Vary", "Cookie")
+	require.NoError(t, httpserve.ServeFile(w,
+		httptest.NewRequest(http.MethodGet, "/", nil), datapages.File{
+			Type: "image/svg+xml",
+			Body: &closingReader{Reader: strings.NewReader("<svg/>")},
+			Header: http.Header{
+				"Content-Language":        {"de"},
+				"Content-Security-Policy": {"sandbox"},
+			},
+		}))
+	require.Equal(t, []string{"de"}, w.Header().Values("Content-Language"))
+	require.Equal(t, "sandbox", w.Header().Get("Content-Security-Policy"))
+	require.Equal(t, "Cookie", w.Header().Get("Vary"))
 }
 
 // TestIsDocumentRequest tests that only Sec-Fetch-Dest: document counts.

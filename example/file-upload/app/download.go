@@ -56,6 +56,8 @@ func (a *App) GETFile(
 		Cache: datapages.FileCache{
 			Private: true, MaxAge: 365 * 24 * time.Hour, Immutable: true,
 		},
+		// Download keeps an uploaded HTML or SVG file, whose type the
+		// uploading browser chose, from running script on this origin.
 		Disposition: datapages.FileDisposition{Download: true, Filename: f.Name},
 	}, nil
 }

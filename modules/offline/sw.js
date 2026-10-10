@@ -153,6 +153,32 @@ function isEventStream(res) {
   return ct !== null && ct.indexOf('text/event-stream') !== -1;
 }
 
+// hasDirective reports whether the Cache-Control header of res carries the
+// directive name. An opaque response hides its headers and carries none.
+function hasDirective(res, name) {
+  const cc = res.headers.get('Cache-Control');
+  if (cc === null) return false;
+  return cc.toLowerCase().split(',').some(function (d) {
+    return d.split('=')[0].trim() === name;
+  });
+}
+
+// GONE holds the statuses that withdraw a stored copy: the visitor may no
+// longer read the resource, or it no longer exists.
+const GONE = [401, 403, 404, 410];
+
+// update stores res as the copy of req, or removes the stored copy when the
+// server refuses the request or forbids storing the response.
+function update(cache, req, res) {
+  if (GONE.indexOf(res.status) !== -1 || hasDirective(res, 'no-store')) {
+    return cache.delete(req);
+  }
+  if (!(res.ok || res.type === 'opaque') || isEventStream(res)) {
+    return Promise.resolve();
+  }
+  return cache.put(req, res.clone());
+}
+
 self.addEventListener('fetch', function (e) {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -257,7 +283,9 @@ self.addEventListener('fetch', function (e) {
         hit.headers.get(OFFLINE_VERSION_HEADER))) {
         return fetch(req);
       }
-      if (hit) {
+      // A copy marked no-cache must be revalidated before every use.
+      // It answers only while the network is down.
+      if (hit && !hasDirective(hit, 'no-cache')) {
         // Refresh same-origin assets after responding because their URLs have
         // no content hash. Opaque cross-origin responses cannot be compared.
         if (sameOrigin) e.waitUntil(revalidate(cache, req));
@@ -265,9 +293,7 @@ self.addEventListener('fetch', function (e) {
       }
       try {
         const res = await fetch(req);
-        if (res && (res.ok || res.type === 'opaque') && !isEventStream(res)) {
-          cache.put(req, res.clone()).catch(function () {});
-        }
+        e.waitUntil(update(cache, req, res).catch(function () {}));
         return res;
       } catch (_) {
         return hit || Response.error();
@@ -279,7 +305,6 @@ self.addEventListener('fetch', function (e) {
 // Refresh a cached asset without delaying the current response.
 async function revalidate(cache, req) {
   try {
-    const res = await fetch(req, { cache: 'no-cache' });
-    if (res && res.ok && !isEventStream(res)) await cache.put(req, res);
+    await update(cache, req, await fetch(req, { cache: 'no-cache' }));
   } catch (_) {}
 }

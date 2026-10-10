@@ -66,7 +66,10 @@ type Config struct {
 
 	// CrossOriginDestinations lists Fetch request destinations cached when a
 	// request goes to another origin, for example assets loaded from a CDN.
-	// Same-origin requests are cached regardless of destination.
+	// Same-origin requests are cached regardless of destination. The response
+	// decides 3 exceptions: Cache-Control no-store keeps it out of the cache,
+	// no-cache makes the worker ask the network first and use the stored copy
+	// only offline, and a 401, 403, 404 or 410 removes the stored copy.
 	// Nil selects [DefaultCrossOriginDestinations]. An empty non-nil slice
 	// disables cross-origin caching. Exclude API and analytics destinations
 	// because their responses must not come from a stale cache.
