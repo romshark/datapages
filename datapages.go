@@ -270,7 +270,7 @@ func MakeSession[Data any](
 	}
 }
 
-// NewSession is returned by handlers as the newSession return value to sign a client in.
+// NewSession signs in a client when returned by a handler.
 // Datapages generates the session token and stamps the issuance time,
 // then hands the result back to handlers as a [Session].
 //
@@ -304,8 +304,7 @@ type NewSession[Data any] struct {
 	Data Data
 }
 
-// Redirect is returned by handlers as the redirect return value to navigate the
-// client to another URL:
+// Redirect navigates the client to another URL when returned by a handler:
 //
 //	func (p PageLogin) POSTSubmit(...) (
 //		redirect datapages.Redirect, err error,
@@ -327,6 +326,60 @@ type Redirect struct {
 	// because they can't follow an HTTP redirect.
 	// Those navigate client-side by assigning window.location instead.
 	Status int
+}
+
+// File is a handler return value for raw bytes instead of a rendered HTML document:
+//
+//	// GETImage is /images/{name}
+//	func (a *App) GETImage(
+//		r *http.Request,
+//		path datapages.Path[struct {
+//			Name string `path:"name"`
+//		}],
+//	) (file datapages.File, err error) {
+//		f, contentType, err := a.images.Open(path.Values.Name)
+//		switch {
+//		case errors.Is(err, fs.ErrNotExist):
+//			return datapages.File{}, datapages.ErrNotFound
+//		case err != nil:
+//			return datapages.File{}, err
+//		}
+//		return datapages.File{Type: contentType, Body: f}, nil
+//	}
+//
+// Errors return their status code and text. Document requests, such as links
+// opened in a tab, render PageError404 or PageError500 instead.
+//
+// [net/http.ServeContent] serves the body and handles HEAD, Range and
+// If-Modified-Since requests.
+//
+// Do not use File to render application HTML. Return a [Component] so Templ
+// can escape values for their HTML context and datapages lint can check the
+// markup.
+//
+// Every response includes "X-Content-Type-Options: nosniff" to disable MIME sniffing.
+// Without it, a browser can run a text/plain response as a script or render
+// an invalid MIME type as HTML. Either case lets an uploaded file run
+// script on the application's origin.
+type File struct {
+	// Type sets Content-Type. An empty Type returns HTTP 500 rather than
+	// letting the browser infer a type, which could be HTML.
+	Type string
+
+	// Body is the response content. Datapages closes it after serving when it
+	// implements [io.Closer]. A nil Body returns HTTP 500.
+	Body io.ReadSeeker
+
+	// ModTime sets Last-Modified and enables If-Modified-Since handling.
+	// The zero value omits Last-Modified.
+	ModTime time.Time
+
+	// CacheControl sets Cache-Control. Empty omits the header.
+	CacheControl string
+
+	// Filename makes the browser download the response under this name by
+	// setting Content-Disposition to attachment. Empty omits the header.
+	Filename string
 }
 
 // PanicError is the error a recovered panic is reported as.

@@ -17,13 +17,10 @@ var actionStaticContent string
 // WritePkgAction generates code for the datapagesgen/action package
 // and appends it to buffer.
 func (w *Writer) WritePkgAction(m *model.App) {
-	// Count total page actions.
-	nPageActions := 0
+	hasActions := slices.ContainsFunc(m.Actions, hasActionHelper)
 	for _, p := range m.Pages {
-		nPageActions += len(p.Actions)
+		hasActions = hasActions || slices.ContainsFunc(p.Actions, hasActionHelper)
 	}
-
-	hasActions := len(m.Actions) > 0 || nPageActions > 0
 	w.writeActionHeader(hasActions)
 	if hasActions && w.actionsNeedText(m) {
 		w.writeTextOf()
@@ -48,6 +45,9 @@ func (w *Writer) WritePkgAction(m *model.App) {
 	}
 	byOwner := map[string]map[string][]verbEntry{}
 	add := func(owner string, a *model.Handler) {
+		if !hasActionHelper(a) {
+			return
+		}
 		if byOwner[owner] == nil {
 			byOwner[owner] = map[string][]verbEntry{}
 		}
@@ -113,6 +113,11 @@ func (w *Writer) WritePkgAction(m *model.App) {
 	}
 }
 
+// hasActionHelper reports whether the action package writes a helper for a.
+// A GET action has none: a browser loads it by URL, which the href package builds,
+// and a Datastar action could do nothing with the file it answers with.
+func hasActionHelper(a *model.Handler) bool { return !a.IsGETAction() }
+
 // actionRecvType is the unexported receiver type of an owner's namespace:
 // "PageFoo" -> "pageFoo", "App" -> "app".
 func actionRecvType(owner string) string {
@@ -150,13 +155,13 @@ func (w *Writer) actionsNeedText(m *model.App) bool {
 		return hasTextMarshalerFields(w.structFields(in.Type.Resolved))
 	}
 	for _, a := range m.Actions {
-		if marshals(a.InputPath) || marshals(a.InputQuery) {
+		if hasActionHelper(a) && (marshals(a.InputPath) || marshals(a.InputQuery)) {
 			return true
 		}
 	}
 	for _, p := range m.Pages {
 		for _, a := range p.Actions {
-			if marshals(a.InputPath) || marshals(a.InputQuery) {
+			if hasActionHelper(a) && (marshals(a.InputPath) || marshals(a.InputQuery)) {
 				return true
 			}
 		}

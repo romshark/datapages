@@ -91,6 +91,11 @@ func toSnakeCase(s string) string {
 //   - ErrSSEOnGET: message states where sse is not allowed
 //   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
 //   - ErrDisableRefreshNotGET: message states it must be in a GET handler
+//   - ErrGETActionInput: message names the parameters a GET action takes
+//   - ErrGETActionNameConflict: message names both GET actions
+//   - ErrFileWithOutput: message states what may be returned with the file
+//   - ErrFileWithSSE: message states the mutual exclusion
+//   - ErrFileWithPageCache: message states the mutual exclusion
 //   - ErrEventSubjectUserNoSession: has a dedicated suggestion
 //   - ErrEventSubjectAfterPayload: has a dedicated suggestion
 func Suggest(err error) string {
@@ -120,6 +125,13 @@ func Suggest(err error) string {
 
 	case errors.Is(err, parser.ErrBodyWithSSE):
 		return "fix: Send the body with sse.PatchElement and drop the body return value"
+
+	case errors.Is(err, parser.ErrGETActionMissingFile):
+		return "fix: Add `file datapages.File` to return values"
+
+	case errors.Is(err, parser.ErrFileOnPageGET):
+		return "fix: Return the file from a GET action, " +
+			"a method named GET followed by a name, such as GETDownload"
 
 	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
 		return "fix: Add `sse datapages.SSE` parameter"

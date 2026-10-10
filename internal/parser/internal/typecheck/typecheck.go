@@ -198,6 +198,11 @@ func IsRedirectType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "Redirect")
 }
 
+// IsFileType reports whether expr resolves to datapages.File.
+func IsFileType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "File")
+}
+
 // IsSessionType reports whether expr resolves to datapages.Session[Data].
 func IsSessionType(expr ast.Expr, info *types.Info) bool {
 	_, ok := SessionDataType(expr, info)

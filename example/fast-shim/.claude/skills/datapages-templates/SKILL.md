@@ -11,6 +11,10 @@ Read `datapages` first for the build loop, hard rules and naming conventions.
 
 A Templ component implements `datapages.Component`, so handlers can return it. Run `templ generate` to compile `.templ` files to `_templ.go`. Datapages does not run this command. Templ docs: https://templ.guide/llms.md
 
+Return application HTML as a Templ `datapages.Component`. Do not render it into
+a `datapages.File`: its bytes bypass Templ's contextual escaping and the
+Datapages template linter.
+
 ## href: links
 
 The generated `href` package has one function for each page, named after its page type. Query structs are named `href.Query<PageType>`. Zero-value fields are omitted from the URL.
@@ -25,6 +29,8 @@ The generated `href` package has one function for each page, named after its pag
 The linter rejects a hardcoded root-relative, relative, query-only or empty `href`. It also rejects `javascript:`. Literal `https://`, `mailto:`, `tel:`, `#frag` and `//cdn.example.com` values are valid. Use `href.External(url)` for an external URL computed by the app.
 
 Inside `href={ ... }`, use an `href` package call, string literal or constant. The linter rejects variables and other calls, including `fmt.Sprintf` and `templ.SafeURL`, because it cannot resolve them.
+
+A `GETXXX` action, which answers with a `datapages.File`, has a URL builder that is a method of its owner: `(*App).GETImage` becomes `href.App.Image(name)`, `PageDoc.GETExport` becomes `href.PageDoc.Export(id)`. `href.PageDoc(id)` still builds the URL of the page. Pass a query value from the constructor next to the builder, as `href.App.Image(name, href.App.ImageQuery(width))`. Use these builders in `src` and `href`, such as `href.App.Image(img.Name)` for an image or `href.PageDoc.Export(doc.ID)` for a download link. The `action` package has no helper for a GET action: a browser loads it by URL.
 
 ## action: Datastar actions
 
@@ -97,4 +103,4 @@ An action sends signals by default. To send form controls or file data, use `act
 - An apostrophe in an attribute becomes `&#39;`. The browser decodes it before the JavaScript parser reads the expression, which can make the expression invalid. Reword it, use `&quot;` for inner strings or escape it with a backslash.
 - Encode a value interpolated into `data-signals` with `json.Marshal` instead of quoting it yourself. An apostrophe in the value ends the string, and what follows it runs as script.
 
-<!-- written by datapages sha256:9e6d5fd0b43d5325 -->
+<!-- written by datapages sha256:44ca74be2c9c37dc -->

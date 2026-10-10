@@ -80,6 +80,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	checkPageSignalPaths(&ctx, &errs)
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
+	validateGETActionNames(&ctx, &errs)
 	validateRouteVarNames(&ctx, &errs)
 	validateRouteChars(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
@@ -1524,7 +1525,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		}
 
 		for _, m := range ap.Methods {
-			if m.HTTPMethod == "GET" {
+			if m.HTTPMethod == "GET" && !m.IsGETAction() {
 				// Page's own GET always wins; no conflict in that case.
 				if getOwner == "page" {
 					continue
@@ -2242,6 +2243,34 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		}
 		claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr,
 			"App."+h.HTTPMethod+h.Name)
+	}
+}
+
+// validateGETActionNames reports a GET action that has the name of the query
+// constructor of another GET action of the same owner. The href package writes
+// both as methods of the owner: href.PageDoc.Export builds the URL of
+// PageDoc.GETExport and href.PageDoc.ExportQuery the query value it takes.
+func validateGETActionNames(ctx *parseCtx, errs *Errors) {
+	check := func(owner string, actions []*model.Handler) {
+		withQuery := map[string]bool{}
+		for _, h := range actions {
+			if h.IsGETAction() && h.InputQuery != nil {
+				withQuery[h.Name] = true
+			}
+		}
+		for _, h := range actions {
+			base, ok := strings.CutSuffix(h.Name, "Query")
+			if !ok || !h.IsGETAction() || !withQuery[base] {
+				continue
+			}
+			errs.ErrAt(ctx.pkg.Fset.Position(h.Expr.Pos()), fmt.Errorf(
+				"%w: href.%s.%s builds the query of %s.GET%s",
+				ErrGETActionNameConflict, owner, h.Name, owner, base))
+		}
+	}
+	check("App", ctx.app.Actions)
+	for _, p := range ctx.app.Pages {
+		check(p.TypeName, p.Actions)
 	}
 }
 
@@ -3118,6 +3147,13 @@ func parseHandler(
 			return &positionedError{pos: fset.Position(p), err: err}
 		}
 
+		if kind == methodkind.ActionGETHandler && refusedByGETAction(f, info) {
+			unsupErrs = append(unsupErrs,
+				fieldErr(fmt.Errorf("%w in %s.%s",
+					ErrGETActionInput, recv, fd.Name.Name)))
+			continue
+		}
+
 		switch {
 		case typecheck.IsPtrToNetHTTPReq(f.Type, info):
 			if h.InputRequest != nil {
@@ -3304,6 +3340,10 @@ func parseHandler(
 	}
 
 	if fd.Type.Results == nil {
+		if kind == methodkind.ActionGETHandler {
+			return h, nil, fmt.Errorf("%w in %s.%s",
+				ErrGETActionMissingFile, recv, fd.Name.Name)
+		}
 		return h, nil, nil
 	}
 
@@ -3358,6 +3398,17 @@ func parseHandler(
 				}
 				out.Kind = model.OutputKindRedirect
 				h.OutputRedirect = out
+
+			case typecheck.IsFileType(r.Type, info):
+				if kind == methodkind.GETHandler {
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrFileOnPageGET, recv, fd.Name.Name))
+				}
+				if h.OutputFile != nil {
+					return h, nil, dup()
+				}
+				out.Kind = model.OutputKindFile
+				h.OutputFile = out
 
 			case typecheck.IsNewSessionType(r.Type, info):
 				if h.OutputNewSession != nil {
@@ -3437,6 +3488,9 @@ func parseHandler(
 		return h, outputs, fmt.Errorf("%w in %s.%s",
 			ErrCloseSessionWithSSE, recv, fd.Name.Name)
 	}
+	if err := checkFileOutput(h, outputs, kind); err != nil {
+		return h, outputs, fmt.Errorf("%w in %s.%s", err, recv, fd.Name.Name)
+	}
 
 	// For action handlers, pick up the body and head the same way a GET does.
 	if kind.IsAction() {
@@ -3468,6 +3522,44 @@ func parseHandler(
 	}
 
 	return h, outputs, nil
+}
+
+// refusedByGETAction reports whether a GET action cannot take f.
+// A browser loads a GET action by its URL alone, from an img element, a link
+// or a download, and sends it neither signals nor the state of a tab.
+// The response is a file, with no stream to patch or page cache to deliver.
+// A dispatcher would change state on a GET, which needs no CSRF token.
+func refusedByGETAction(f *ast.Field, info *types.Info) bool {
+	return typecheck.IsSSEParam(f.Type, info) ||
+		typecheck.IsDatapagesPageCache(f.Type, info) ||
+		paramvalidation.IsSignalsParam(f, info) ||
+		paramvalidation.IsDispatchParam(f, info) ||
+		paramvalidation.IsStateParam(f, info) ||
+		paramvalidation.IsStateIDParam(f)
+}
+
+// checkFileOutput reports a handler that returns a [datapages.File] next to
+// something it cannot deliver, and a GET action that returns none.
+// The file is the whole response: the headers and the body are its own.
+func checkFileOutput(h *model.Handler, outputs []*model.Output, kind methodkind.Kind) error {
+	if h.OutputFile == nil {
+		if kind == methodkind.ActionGETHandler {
+			return ErrGETActionMissingFile
+		}
+		return nil
+	}
+	if len(outputs) > 1 {
+		return ErrFileWithOutput
+	}
+	// The stream has sent its headers by the time the handler returns.
+	if h.InputSSE != nil {
+		return ErrFileWithSSE
+	}
+	// A page cache write travels in a stream, a document or a redirect script.
+	if h.InputPageCache != nil {
+		return ErrFileWithPageCache
+	}
+	return nil
 }
 
 func typeStruct(ctx *parseCtx, typeName string) *ast.StructType {

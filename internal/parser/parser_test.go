@@ -2228,6 +2228,95 @@ func TestParse_ErrBodyWithSSE(t *testing.T) {
 	)
 }
 
+// TestParse_GETAction tests GET actions on App, on a page and on an abstract page,
+// and a POST action that returns a datapages.File.
+func TestParse_GETAction(t *testing.T) {
+	app, err := parse(t, "get_action")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	actions := map[string]*model.Handler{}
+	for _, a := range app.Actions {
+		actions[a.HTTPMethod+a.Name] = a
+	}
+	require.Len(actions, 3)
+
+	img := actions["GETImage"]
+	require.NotNil(img)
+	require.True(img.IsGETAction())
+	require.Equal("/images/{name}", img.Route)
+	require.NotNil(img.InputPath)
+	require.NotNil(img.InputQuery)
+	require.NotNil(img.OutputFile)
+	require.Equal(model.OutputKindFile, img.OutputFile.Kind)
+	require.NotNil(img.OutputErr)
+
+	feed := actions["GETFeed"]
+	require.NotNil(feed)
+	require.NotNil(feed.OutputFile)
+	require.Nil(feed.OutputErr)
+
+	export := actions["POSTExport"]
+	require.NotNil(export)
+	require.False(export.IsGETAction())
+	require.NotNil(export.InputSession)
+	require.NotNil(export.InputSignals)
+	require.NotNil(export.OutputFile)
+
+	// The page keeps its own GET. The GET action of the abstract page it embeds
+	// is one of its actions, not a second GET.
+	p := findPage(app, "PageDoc")
+	require.NotNil(p)
+	require.NotNil(p.GET)
+	require.Empty(p.GET.Name)
+	require.NotNil(p.GET.OutputBody)
+	pageActions := map[string]*model.Handler{}
+	for _, a := range p.Actions {
+		pageActions[a.HTTPMethod+a.Name] = a
+	}
+	require.Len(pageActions, 2)
+	require.NotNil(pageActions["GETExport"])
+	require.NotNil(pageActions["GETExport"].InputSession)
+	require.NotNil(pageActions["GETManual"])
+	require.True(pageActions["GETManual"].IsGETAction())
+}
+
+// TestParse_ErrGETAction tests the parameters and the return values
+// a GET action refuses, and a GET action that has the name of the query
+// constructor of another.
+func TestParse_ErrGETAction(t *testing.T) {
+	_, err := parse(t, "err_get_action")
+	requireParseErrors(
+		t, err,
+		parser.ErrGETActionInput,        // GETStream
+		parser.ErrGETActionInput,        // GETSignals
+		parser.ErrGETActionInput,        // GETCache
+		parser.ErrGETActionInput,        // GETDispatch
+		parser.ErrGETActionMissingFile,  // GETNothing
+		parser.ErrGETActionMissingFile,  // GETDocument
+		parser.ErrFileWithOutput,        // GETRedirect
+		parser.ErrGETActionNameConflict, // GETImageQuery
+	)
+}
+
+// TestParse_ErrFile tests a datapages.File returned where it cannot be served:
+// from the GET of a page, next to another return value, with an sse or a page
+// cache parameter. A GET action is not the GET of its page and takes no
+// option of it.
+func TestParse_ErrFile(t *testing.T) {
+	_, err := parse(t, "err_file")
+	requireParseErrors(
+		t, err,
+		parser.ErrFileOnPageGET,            // GET
+		parser.ErrFileWithOutput,           // POSTBody
+		parser.ErrFileWithSSE,              // POSTStream
+		parser.ErrFileWithPageCache,        // POSTCache
+		parser.ErrSignatureDuplicateOutput, // POSTTwo
+		parser.ErrEnableBgStreamNotGET,     // GETStreaming
+	)
+}
+
 // TestParse_GETOptions tests the per-page GET options and where each is allowed.
 func TestParse_GETOptions(t *testing.T) {
 	app, err := parse(t, "get_options")
@@ -2556,6 +2645,24 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_unsupported_output": {
 			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 30},
 			{parser.ErrSignatureUnsupportedOutput, "app.go", 36, 4},
+		},
+		"err_get_action": {
+			{parser.ErrGETActionInput, "app.go", 29, 19},
+			{parser.ErrGETActionInput, "app.go", 39, 2},
+			{parser.ErrGETActionInput, "app.go", 50, 19},
+			{parser.ErrGETActionInput, "app.go", 59, 19},
+			{parser.ErrGETActionMissingFile, "app.go", 67, 13},
+			{parser.ErrGETActionMissingFile, "app.go", 72, 13},
+			{parser.ErrFileWithOutput, "app.go", 79, 13},
+			{parser.ErrGETActionNameConflict, "app.go", 101, 13},
+		},
+		"err_file": {
+			{parser.ErrFileOnPageGET, "app.go", 19, 28},
+			{parser.ErrFileWithOutput, "app.go", 27, 18},
+			{parser.ErrFileWithSSE, "app.go", 36, 18},
+			{parser.ErrFileWithPageCache, "app.go", 45, 18},
+			{parser.ErrSignatureDuplicateOutput, "app.go", 54, 47},
+			{parser.ErrEnableBgStreamNotGET, "app.go", 63, 2},
 		},
 		"err_event_handler": {
 			{parser.ErrSignatureEvHandMissingSSE, "app.go", 58, 18},

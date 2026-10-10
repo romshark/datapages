@@ -13,6 +13,8 @@ Releases up to v0.10.0 have their notes on
 #### `datapages lint` and `datapages gen`
 
 - Accept `QUERYXXX` actions for the `QUERY` method of RFC 10008, which Datastar 1.0.4 sends with `@query`. Declare one on a page or on `App`, as in `// QUERYSearch is /search`, and build its expression with the `action` package, as in `action.PageIndex.Search.QUERY()`. Datastar sends the signals in the request body.
+- Accept `GETXXX` actions, which answer `GET` with a file such as an image or a download. Declare one on a page or on `App`, as in `// GETImage is /images/{name}`, and return a `datapages.File`. A GET action takes `*http.Request`, the session, `datapages.Path` and `datapages.Query`. It runs no cross-origin or CSRF check and must not change server state. Build its URL with the `href` package: `href.App.Image(name)` for `(*App).GETImage`, `href.PageDoc.Export(id)` for `PageDoc.GETExport`.
+- Accept `datapages.File` as the return value of any action, to answer with bytes instead of a document. Return it alone or with `error`. `net/http.ServeContent` serves it, which answers `HEAD`, `Range` and `If-Modified-Since`, and the response carries `X-Content-Type-Options: nosniff`. An error answers with its status and the status text. Only a request with `Sec-Fetch-Dest: document`, such as a link opened in a tab, gets `PageError404` or `PageError500`.
 
 #### Runtime and modules
 
@@ -24,6 +26,7 @@ Releases up to v0.10.0 have their notes on
 
 - Reject actions, `OnXXX` handlers, `StreamOpen`, `StreamClose` and `State[T]` on a page whose route ends in `{$}`, as `// PageUser is /user/{name}/{$}`. A `{$}` at the end of a page route declares a page that serves only `GET`. An action below such a route got an error saying that it was not under its page, with a suggested route that net/http rejects. Remove `{$}` from the route of such a page: it keeps its URL.
 - Read an exported method on `App` named `QUERY` followed by an uppercase letter, such as `QUERYStats`, as an action. Such a method is rejected when it's a helper rather than an action: rename it.
+- Read an exported method on `App` named `GET` followed by an uppercase letter, such as `GETStats`, as a GET action. Such a method is rejected when it's a helper rather than an action: rename it.
 
 #### Generated code
 

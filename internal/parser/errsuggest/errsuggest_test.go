@@ -66,6 +66,17 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Send the body with sse.PatchElement and drop the body return value",
 		},
 
+		"ErrGETActionMissingFile": {
+			err:  parser.ErrGETActionMissingFile,
+			want: "fix: Add `file datapages.File` to return values",
+		},
+
+		"ErrFileOnPageGET": {
+			err: parser.ErrFileOnPageGET,
+			want: "fix: Return the file from a GET action, " +
+				"a method named GET followed by a name, such as GETDownload",
+		},
+
 		"ErrSignatureEvHandMissingSSE": {
 			err:  parser.ErrSignatureEvHandMissingSSE,
 			want: "fix: Add `sse datapages.SSE` parameter",

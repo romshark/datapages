@@ -52,6 +52,7 @@ To restore rendering, save a `.templ` file or restart the watcher.
 - Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
 - Never hardcode an app-internal URL. `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
 - Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. JS only for browser APIs Datastar cannot reach, such as the clipboard.
+- Return application HTML as a Templ `datapages.Component`. Do not render it into a `datapages.File`: its bytes bypass Templ's contextual escaping and the Datapages template linter.
 - Never open an SSE stream, set a CSRF header, add the Datastar script or register a service worker by hand. Datapages does all four.
 - Submit `<form>` elements through Datastar actions. Browser form submissions do not carry the CSRF token; see `datapages-templates`.
 - Do not put build-constrained files in the app package. The generator reads its pages, actions and events for the host platform, so a platform-specific declaration can disappear from generated code elsewhere.
@@ -78,7 +79,7 @@ The parser reads names and doc comments. Both decide behaviour.
 | kind | name | doc comment |
 | ---- | ---- | ----------- |
 | page | `Page` + uppercase + alnum | `// PageX is /route` |
-| action | `POST`/`PUT`/`PATCH`/`DELETE`/`QUERY` + uppercase + alnum | `// POSTX is /route` |
+| action | `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`QUERY` + uppercase + alnum | `// GETX is /route` |
 | event | `Event` + uppercase + alnum | `// EventX is "subject.name"` |
 | event handler | `On` + the event name after `Event`: `OnFoo` for `EventFoo` | none |
 | stream hook | `StreamOpen`, `StreamClose` | none |
@@ -100,7 +101,7 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | ----- | ------------ |
 | `datapages-architecture` | a new app, or a feature whose constructs are not decided |
 | `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
-| `datapages-actions` | POST/PUT/PATCH/DELETE/QUERY handlers, signals, SSE, errors |
+| `datapages-actions` | GET file actions, POST/PUT/PATCH/DELETE/QUERY handlers, signals, SSE, errors |
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
 | `datapages-state` | per-tab state, state IDs and state-scoped events |
 | `datapages-sessions` | authentication, session data, CSRF |

@@ -47,6 +47,7 @@ Parameters are identified by type; names and order are unrestricted.
 Pages use `type PageXXX struct { App *App }` and these methods:
 
 - `GET`: handles `GET` requests.
+- `GETXXX`: answers `GET` requests with a file; see [GET Actions](#get-actions).
 - `POSTXXX`: handles `POST` action requests.
 - `PUTXXX`: handles `PUT` action requests.
 - `PATCHXXX`: handles `PATCH` action requests.
@@ -222,6 +223,33 @@ func (PageIndex) StreamClose(
 	// ...
 }
 ```
+
+#### GET Actions
+
+A `GETXXX` action serves a [`datapages.File`](#return-value-datapagesfile) for `GET` and `HEAD`, such as an image, download or feed. Requests from an `img` element, link or script carry neither signals nor `Datastar-Request`. GET actions skip cross-origin and CSRF checks and must not change server state.
+
+A GET action may belong to `*App`, a page or an abstract page. It does not replace a page's `GET` and accepts only these parameters:
+
+```go
+// GETImage is /images/{name}
+func (a *App) GETImage(
+	r *http.Request,
+	session datapages.Session[Data], // Optional
+	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
+	query datapages.Query[struct{...}], // Optional
+) (
+	file datapages.File,
+	err error, // Optional
+) {
+	// ...
+}
+```
+
+The generated `href` builder is a method of the owner. `(*App).GETImage` maps to `href.App.Image(name)`, and `PageDoc.GETExport` maps to `href.PageDoc.Export(id)`. `href.PageDoc(id)` remains the page builder.
+
+A GET action URL preserves the route ending instead of adding a page URL's trailing slash. The generated `/images/{name}` therefore ends with the file name. The server also accepts the URL with a trailing slash.
+
+Query parameters use the adjacent constructor: `href.App.Image(name, href.App.ImageQuery(width))`. A GET action name must not match another GET action's query constructor on the same owner. The `action` package provides no GET action helper.
 
 #### Abstract Page Types
 
@@ -740,6 +768,24 @@ return datapages.Redirect{URL: href.PageIndex()}, nil
 
 See [datapages.go](datapages.go) for field definitions.
 
+#### Return Value: `datapages.File`
+
+```go
+file datapages.File
+```
+
+`datapages.File` is the sole non-error return value of a file response. A `GETXXX` action must return it. Other actions may return it. A page `GET` must not return it. A handler returning it must not take `sse` or `pageCache`.
+
+Application HTML must be returned as a Templ `datapages.Component`. HTML in a `datapages.File` bypasses Templ's contextual escaping and the Datapages template lint checks.
+
+`Type` sets `Content-Type`. `Body` provides the content. Both are required; omitting either produces 500. `CacheControl` sets `Cache-Control`. `Filename` sets `Content-Disposition: attachment` with the given name. Datapages closes `Body` after serving when it implements `io.Closer`.
+
+[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. Every response includes `X-Content-Type-Options: nosniff`.
+
+An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with `Sec-Fetch-Dest: document`, status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. Requests from an `img` element or `fetch` therefore receive the error response, not an event stream.
+
+See [datapages.go](datapages.go) for field definitions.
+
 #### Return Value: `newSession datapages.NewSession[Data]`
 
 ```go
@@ -961,6 +1007,8 @@ Expression hrefs (`href={ expr }`) are parsed as Go AST:
 ```
 
 The directive applies to the next non-whitespace sibling element. It suppresses attribute-level lint errors, but not cross-page action ownership errors.
+
+The linter checks `.templ` files, not bytes served through `datapages.File`. Return application HTML as a Templ `datapages.Component` so Templ applies contextual escaping and the linter can check the markup.
 
 ## Technical Limitations
 

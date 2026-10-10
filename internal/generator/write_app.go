@@ -64,6 +64,9 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	w.writeStateRuntime(m, appPkg)
 	w.writeSetupHandlers(m)
 	w.writeAppErrHelpers(m)
+	if w.usage.files {
+		w.writeHTTPErrFile(m)
+	}
 
 	if hasRender404(m) {
 		w.writeRender404(m, appPkg)
@@ -1448,6 +1451,8 @@ func (w *Writer) writeCSRFOnlyCheck() {
 // app defines one: PageError404 for 404, PageError500 for 500.
 // Datastar requests use RecoverError when defined. RecoverError writes SSE frames,
 // which a browser navigation would render as the document.
+//
+// A handler that answers with a file reports through httpErrFile instead.
 func (w *Writer) writeAppErrHelpers(m *model.App) {
 	has404 := hasRender404(m)
 	has500 := m.PageError500 != nil
@@ -1584,6 +1589,54 @@ func (s *Server) httpErrIntern(
 `)
 }
 
+// writeHTTPErrFile emits httpErrFile, which reports an error of a handler that
+// answers with a file. An error page goes only to a document request:
+// an img element or a fetch shows nothing of what it receives in place of a file.
+// RecoverError never runs. It answers with an event stream, which only
+// a Datastar action reads, and a Datastar action reads no file.
+func (w *Writer) writeHTTPErrFile(m *model.App) {
+	has404 := hasRender404(m)
+	has500 := m.PageError500 != nil
+	reqParam := "_ *http.Request"
+	if has404 || has500 {
+		reqParam = "r *http.Request"
+	}
+	w.Rawf(`
+func (s *Server) httpErrFile(
+	w http.ResponseWriter, %s, msg string, err error,
+) {
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+`, reqParam)
+	if has404 || has500 {
+		w.Raw(`	if httpserve.IsDocumentRequest(r) {
+		switch httpserve.ErrStatus(err) {
+`)
+		if has404 {
+			w.Raw(`		case http.StatusNotFound:
+			s.render404(w, r)
+			return
+`)
+		}
+		if has500 {
+			w.Raw(`		case http.StatusInternalServerError:
+`)
+			w.Rawf("\t\t\t%s{s}.render(w, r, http.StatusInternalServerError)\n",
+				handlerRecvType(m.PageError500.TypeName))
+			w.Raw(`			return
+`)
+		}
+		w.Raw(`		}
+	}
+`)
+	}
+	w.Raw(`	httpserve.WriteErrStatus(w, err)
+}
+`)
+}
+
 // writeRedirect emits an HTTP or SSE redirect. viaPageCache selects the HTTP
 // response that sends cache writes before navigation.
 func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
@@ -1643,6 +1696,24 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 `)
+	if w.usage.files {
+		w.Raw(`
+// recoverPanicFile is recoverPanic for a handler that answers with a file.
+func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFile(w, r, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+`)
+	}
 	if m.PageError500 == nil {
 		return
 	}
@@ -1762,14 +1833,15 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	w.Rawf("func (s %s) %s%s(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType("App"), strings.ToUpper(h.HTTPMethod), h.Name)
 
-	if needsDatastarRequest(h) {
+	// [Writer.writePageActionHandler] states why each branch is enough.
+	switch {
+	case h.IsGETAction():
+	case needsDatastarRequest(h):
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
 		w.Line(0, "")
-	} else {
-		// [Writer.writePageActionHandler] states why the other branch is not
-		// enough on its own.
+	default:
 		w.Line(1, "if !s.CheckSameOrigin(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1848,7 +1920,10 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// The stream opens after the call, see flushToNewStream.
 	viaStream := isAppLevel && pageCacheViaStream(h)
 
-	if isAppLevel {
+	switch {
+	case isAppLevel && h.OutputFile != nil:
+		w.writeDeferRecoverFile("App." + h.Name)
+	case isAppLevel:
 		w.writeDeferRecover(false, "App."+h.Name)
 	}
 
@@ -1883,6 +1958,10 @@ func (w *Writer) writeMethodCall(
 	receiver := "p"
 	if isAppLevel {
 		receiver = "s.app"
+	}
+	if h.OutputFile != nil {
+		w.writeFileCall(receiver, actionOwnerName(p, isAppLevel), h, args)
+		return
 	}
 	methodName := h.HTTPMethod + h.Name
 

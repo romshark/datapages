@@ -84,13 +84,13 @@ var (
 
 	ErrAppUnsupportedMethod = errors.New(
 		"unsupported method on App; App takes Head, RecoverError and " +
-			"POST*/PUT*/PATCH*/DELETE*/QUERY* (actions). " +
+			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions). " +
 			"GET, On* and StreamOpen/StreamClose belong on a page",
 	)
 
 	ErrUnsupportedMethod = errors.New(
 		"unsupported public method on page type; " +
-			"use GET, POST*/PUT*/PATCH*/DELETE*/QUERY* (actions), " +
+			"use GET, GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions), " +
 			"On* (event handlers), or StreamOpen/StreamClose (stream hooks)",
 	)
 
@@ -166,10 +166,10 @@ var (
 	ErrSSEOnGET = errors.New("sse parameter is not allowed on GET handlers")
 
 	ErrEnableBgStreamNotGET = errors.New(
-		"enableBackgroundStreaming can only be used in GET handlers",
+		"enableBackgroundStreaming can only be used in page GET handlers",
 	)
 	ErrDisableRefreshNotGET = errors.New(
-		"disableRefreshAfterHidden can only be used in GET handlers",
+		"disableRefreshAfterHidden can only be used in page GET handlers",
 	)
 	ErrEnableBgStreamNoStream = errors.New(
 		"enableBackgroundStreaming requires a page with a stream: " +
@@ -182,6 +182,25 @@ var (
 	ErrSessionOutputErrorPage = errors.New(
 		"session output cannot be used in the GET of PageError404 or PageError500:" +
 			" one method answers both the page's own route and a failed request",
+	)
+
+	ErrGETActionInput = errors.New(
+		"GET action takes only *http.Request, datapages.Session, " +
+			"datapages.Path and datapages.Query parameters",
+	)
+	ErrGETActionMissingFile  = errors.New("GET action must return datapages.File")
+	ErrGETActionNameConflict = errors.New(
+		"GET action has the name of the query constructor of another GET action",
+	)
+	ErrFileOnPageGET  = errors.New("page GET handler cannot return datapages.File")
+	ErrFileWithOutput = errors.New(
+		"datapages.File can only be returned together with error",
+	)
+	ErrFileWithSSE = errors.New(
+		"datapages.File cannot be used together with sse parameter",
+	)
+	ErrFileWithPageCache = errors.New(
+		"datapages.File cannot be used together with datapages.PageCacheWriter parameter",
 	)
 
 	ErrSignatureUnsupportedOutput = errors.New(

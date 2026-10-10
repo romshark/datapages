@@ -50,6 +50,9 @@ If a route comment has a description, separate it from the route with a blank `/
 | `datapages.DisableRefreshAfterHidden` | no refresh when the tab is shown again; only a page with a stream may return it |
 | `error` | reports an error |
 
+A `GETXXX` method is a file action, not the page's `GET`. See
+`datapages-actions`. The page's `GET` cannot return `datapages.File`.
+
 ## Path variables
 
 ```go

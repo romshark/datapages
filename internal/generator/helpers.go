@@ -365,9 +365,13 @@ type appUsage struct {
 	// stateRuntime: whether any page (including via embedded abstract pages)
 	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
-	// actions: whether the application defines any action, which is what makes
-	// the generated action package carry helpers and its own reporter.
+	// actions: whether the application defines any action the action package
+	// writes a helper for, which is what makes it carry its own reporter.
+	// A GET action has none: it is reached through the href package.
 	actions bool
+	// files: whether any handler returns a datapages.File,
+	// which needs httpErrFile and recoverPanicFile.
+	files bool
 }
 
 // computeAppUsage scans the model to determine which optional helpers are needed.
@@ -384,6 +388,15 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.InputPageCache != nil {
 			u.pageCache = true
 		}
+		if h.OutputFile != nil {
+			u.files = true
+		}
+	}
+	checkAction := func(h *model.Handler) {
+		checkHandler(h)
+		if !h.IsGETAction() {
+			u.actions = true
+		}
 	}
 
 	// Build event map for subject field lookup.
@@ -392,14 +405,10 @@ func computeAppUsage(m *model.App) appUsage {
 		eventByName[e.TypeName] = e
 	}
 
-	u.actions = len(m.Actions) > 0
 	for _, h := range m.Actions {
-		checkHandler(h)
+		checkAction(h)
 	}
 	for _, p := range m.Pages {
-		if len(p.Actions) > 0 {
-			u.actions = true
-		}
 		if p.GET != nil {
 			checkHandler(p.GET.Handler)
 		}
@@ -410,7 +419,7 @@ func computeAppUsage(m *model.App) appUsage {
 			}
 		}
 		for _, h := range p.Actions {
-			checkHandler(h)
+			checkAction(h)
 		}
 		if p.State != nil {
 			u.stateRuntime = true

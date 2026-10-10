@@ -1,9 +1,9 @@
 ---
 name: datapages-actions
 description: >-
-  Write Datapages action handlers (POST, PUT, PATCH, DELETE, QUERY): parameters,
-  return values, Datastar signals, SSE patching, HTTP error status codes and
-  the RecoverError hook.
+  Write Datapages action handlers (GET, POST, PUT, PATCH, DELETE, QUERY): file
+  responses, parameters, return values, Datastar signals, SSE patching, HTTP
+  error status codes and the RecoverError hook.
 ---
 
 # Actions
@@ -19,6 +19,11 @@ func (PageLogin) POSTSubmit(r *http.Request) error { return nil }
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request) error { return nil }
 ```
+
+`GETXXX` is a file action, not the page's `GET` handler. A browser loads it by
+URL from a link, image or download. It must return `datapages.File` and may take
+only `*http.Request`, `Session`, `Path` and `Query`. The generated `href` package
+builds its URL. A GET action skips CSRF checks and must not change server state.
 
 Use a `QUERYXXX` action for a read that sends data in the body, such as a search with a large filter. It skips the CSRF check because `QUERY` is a safe method. Never change state in it.
 
@@ -43,7 +48,7 @@ The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` a
 
 ## Return values
 
-Returning only `error` is valid. Other supported return types are `datapages.Component`, `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]` and `datapages.CloseSession`. Return values may appear in any order.
+A non-GET action may return only `error`. Other supported return types are `datapages.Component`, `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]`, `datapages.CloseSession` and `datapages.File`. Return values may appear in any order.
 
 ```go
 ) (redirect datapages.Redirect, err error) {
@@ -54,6 +59,34 @@ Returning only `error` is valid. Other supported return types are `datapages.Com
 `Redirect.Status` defaults to 302. Datastar requests ignore it because they cannot follow an HTTP redirect. They navigate by assigning `window.location`.
 
 Do not combine `datapages.SSE` with session changes. An `sse` parameter causes the response headers to be sent before the handler runs, so the handler cannot set or delete the session cookie. The generator rejects `newSession` or `closeSession` with `sse`. A `redirect` still works because it uses the stream. A returned `datapages.Component` is rejected with `sse` too: send it with `sse.PatchElement` instead.
+
+## Files
+
+A named GET action serves a file at its route:
+
+```go
+// GETImage is /images/{name}
+func (a *App) GETImage(
+	r *http.Request,
+	path datapages.Path[struct {
+		Name string `path:"name"`
+	}],
+) (datapages.File, error) {
+	f, contentType, err := a.images.Open(path.Values.Name)
+	if err != nil {
+		return datapages.File{}, err
+	}
+	return datapages.File{Type: contentType, Body: f}, nil
+}
+```
+
+Any action may return `datapages.File`. The file is the complete response, so it
+may be accompanied only by `error`, which is optional. A file action cannot take
+`datapages.SSE` or `datapages.PageCacheWriter`.
+
+Do not use `datapages.File` to render application HTML. Return HTML as a Templ
+`datapages.Component`. File bytes bypass Templ's contextual escaping and the
+Datapages template linter.
 
 ## SSE
 
@@ -99,4 +132,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:6be7b934942547e9 -->
+<!-- written by datapages sha256:ba783ddd93ec5497 -->

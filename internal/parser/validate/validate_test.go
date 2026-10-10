@@ -72,6 +72,10 @@ func TestActionMethodName(t *testing.T) {
 	f(nil, "DELETEThing99")
 	f(nil, "QUERYA")
 	f(nil, "QUERYSearch2")
+	f(nil, "GETA")
+	f(nil, "GETImage2")
+	// missing suffix: GET alone is the page's GET handler
+	f(validate.ErrActionMethodNameInvalid, "GET")
 	// missing suffix
 	f(validate.ErrActionMethodNameInvalid, "POST")
 	// missing suffix
@@ -86,12 +90,14 @@ func TestActionMethodName(t *testing.T) {
 	f(validate.ErrActionMethodNameInvalid, "POSTdoThing")
 	// suffix must start with A-Z
 	f(validate.ErrActionMethodNameInvalid, "QUERYsearch")
+	// suffix must start with A-Z
+	f(validate.ErrActionMethodNameInvalid, "GETimage")
 	// invalid char
 	f(validate.ErrActionMethodNameInvalid, "PUT_do")
 	// whitespace
 	f(validate.ErrActionMethodNameInvalid, "DELETE do")
 	// wrong verb
-	f(validate.ErrActionMethodNameInvalid, "GETThing")
+	f(validate.ErrActionMethodNameInvalid, "HEADThing")
 	// wrong case
 	f(validate.ErrActionMethodNameInvalid, "postThing")
 	// invalid char after valid start

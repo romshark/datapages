@@ -26,6 +26,7 @@ var examples = []string{
 	"calculator",
 	"classifieds",
 	"counter",
+	"docs",
 	"fast-shim",
 	"offline-cache",
 	"sqlitesessions",
@@ -116,7 +117,8 @@ func compareTrees(t *testing.T, gotDir, wantDir string) {
 	}
 	for rel := range committed {
 		if _, ok := generated[rel]; !ok {
-			t.Errorf("%s is committed but no longer generated; run: mage genDatapages", rel)
+			t.Errorf("%s is committed but no longer generated; run: mage genDatapages",
+				rel)
 			continue
 		}
 		if normalize(generated[rel]) != normalize(committed[rel]) {

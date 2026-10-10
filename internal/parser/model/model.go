@@ -165,6 +165,7 @@ type Handler struct {
 
 	OutputBody           *TemplComponent // datapages.Component body (actions only)
 	OutputHead           *TemplComponent // datapages.Component head (actions only)
+	OutputFile           *Output         // datapages.File (actions only)
 	OutputRedirect       *Output
 	OutputNewSession     *Output
 	OutputCloseSession   *Output
@@ -173,6 +174,10 @@ type Handler struct {
 	OutputErr            *Output
 	OrderedOutputs       []*Output // Outputs in user-defined order.
 }
+
+// IsGETAction reports whether h is an action that answers GET:
+// a method named GET followed by a name, which returns a datapages.File.
+func (h *Handler) IsGETAction() bool { return h.HTTPMethod == "GET" && h.Name != "" }
 
 type InputDispatch struct {
 	*Input
@@ -228,6 +233,7 @@ const (
 	OutputKindCloseSession   = "closeSession"
 	OutputKindEnableBgStream = "enableBackgroundStreaming"
 	OutputKindDisableRefresh = "disableRefreshAfterHidden"
+	OutputKindFile           = "file"
 	OutputKindErr            = "err"
 )
 

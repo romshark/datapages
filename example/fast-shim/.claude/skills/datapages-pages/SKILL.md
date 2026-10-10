@@ -50,6 +50,9 @@ If a route comment has a description, separate it from the route with a blank `/
 | `datapages.DisableRefreshAfterHidden` | no refresh when the tab is shown again; only a page with a stream may return it |
 | `error` | reports an error |
 
+A `GETXXX` method is a file action, not the page's `GET`. See
+`datapages-actions`. The page's `GET` cannot return `datapages.File`.
+
 ## Path variables
 
 ```go
@@ -139,4 +142,4 @@ type PageChat struct {
 
 A method declared on a page replaces the embedded method only for that page. The replacement can call `p.Base.OnMessageSent(event, sse)` to wrap the embedded method.
 
-<!-- written by datapages sha256:68dcf33d3f1cab21 -->
+<!-- written by datapages sha256:a483635dba76ad47 -->

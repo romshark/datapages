@@ -82,6 +82,8 @@ func outputVar(out *model.Output) string {
 		return "enableBackgroundStreaming"
 	case model.OutputKindDisableRefresh:
 		return "disableRefreshAfterHidden"
+	case model.OutputKindFile:
+		return "file"
 	}
 	return out.Name
 }
@@ -1025,6 +1027,12 @@ func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 	w.Linef(1, "defer s.recoverPanic(w, r, %s, %q)", sse, handler)
 }
 
+// writeDeferRecoverFile registers the deferred recover of a handler that
+// answers with a file.
+func (w *Writer) writeDeferRecoverFile(handler string) {
+	w.Linef(1, "defer s.recoverPanicFile(w, r, %q)", handler)
+}
+
 // signalIsJSLiteral reports whether t renders as a JavaScript number or boolean.
 // [gotypes.TextJSONKind] classifies text marshalers as strings and is shared
 // with parser validation of reflected signal fields.
@@ -1676,11 +1684,15 @@ func (w *Writer) writePageActionHandler(
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
-	if needsDatastarRequest(h) {
+	switch {
+	case h.IsGETAction():
+		// A GET changes nothing. A page on another site may load it,
+		// as it may load an image.
+	case needsDatastarRequest(h):
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
-	} else {
+	default:
 		// The Datastar header is what keeps the actions [needsDatastarRequest]
 		// reports unreachable from another origin: a fetch that sets it is
 		// preflighted and a form cannot set it at all. Any other action is a
@@ -1756,7 +1768,11 @@ func (w *Writer) writePageActionHandler(
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
 
-	w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
+	if h.OutputFile != nil {
+		w.writeDeferRecoverFile(p.TypeName + "." + h.Name)
+	} else {
+		w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
+	}
 
 	w.writeDatapagesHandles(h)
 
@@ -1846,6 +1862,11 @@ func (w *Writer) writeActionMethodCall(
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
+	if h.OutputFile != nil {
+		w.writeFileCall("p", p.TypeName, h, args)
+		return
+	}
+
 	methodName := h.HTTPMethod + h.Name
 
 	if len(outs) == 0 {
@@ -1926,6 +1947,28 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+}
+
+// writeFileCall emits the call of a handler that returns a datapages.File and
+// the response it serves. The parser refuses any other output next to the file,
+// which leaves no session, redirect or body to write.
+// owner is the page type or "App".
+func (w *Writer) writeFileCall(recv, owner string, h *model.Handler, args []string) {
+	label := owner + "." + h.Name
+	w.Byte('\t')
+	w.writeCommaSep(handlerOutputVars(h))
+	w.Raw(" := ")
+	w.writeCallExpr(recv, h.HTTPMethod+h.Name, args)
+	w.Byte('\n')
+	if h.OutputErr != nil {
+		w.Line(1, "if err != nil {")
+		w.Linef(2, "s.httpErrFile(w, r, %q, err)", "handling action "+label)
+		w.Line(2, "return")
+		w.Line(1, "}")
+	}
+	w.Line(1, "if err := httpserve.ServeFile(w, r, file); err != nil {")
+	w.Linef(2, "s.httpErrFile(w, r, %q, err)", "serving the file of action "+label)
+	w.Line(1, "}")
 }
 
 func (w *Writer) writeActionErrCheck(
