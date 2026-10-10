@@ -2139,12 +2139,32 @@ func eachRoute(ctx *parseCtx, fn func(route string, expr ast.Expr, owner string)
 // The generated server registers them on a net/http ServeMux,
 // which rejects a pattern matching the same requests as one already registered.
 // Asking the same mux keeps the answer identical to the one the server gets on startup.
+//
+// It also reports every route below the assets URL prefix, which the mux
+// accepts as more specific. The core adds no trailing slash to a path there,
+// and the mux redirects one to the route that has it: a route one segment
+// below the prefix takes the static files it shares a path with.
 func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 	mux := http.NewServeMux()
 	var claimed []routeClaim
+	assets := ctx.app.Assets.URLPrefix
+	// belowAssets reports route when it is below the assets URL prefix.
+	belowAssets := func(method, route string, expr ast.Expr, owner string) bool {
+		if assets == "" || !strings.HasPrefix(route, assets) {
+			return false
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &RouteConflictError{
+			Pattern:    method + " " + route,
+			Owner:      owner,
+			Other:      http.MethodGet + " " + assets,
+			OtherOwner: "the assets URL prefix",
+			Reason:     "every path below it belongs to the static files",
+		})
+		return true
+	}
 	claim := func(method, route string, expr ast.Expr, owner string) {
 		// A route that is not a path is already reported where it is read.
-		if !strings.HasPrefix(route, "/") {
+		if !strings.HasPrefix(route, "/") || belowAssets(method, route, expr, owner) {
 			return
 		}
 		pattern := method + " " + route
@@ -2188,6 +2208,10 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 	}
 
 	for _, p := range ctx.app.Pages {
+		// The stream and the actions of such a page are below the prefix too.
+		if belowAssets(http.MethodGet, pageRoutePattern(p), p.Expr, p.TypeName) {
+			continue
+		}
 		if p.GET != nil && p.GET.Handler != nil {
 			claim(http.MethodGet, pageRoutePattern(p), p.Expr, p.TypeName)
 		}

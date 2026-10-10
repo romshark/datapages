@@ -69,6 +69,8 @@ URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/
 
 `PageIndex` is required for `/`, and no other page may use `/` or `/{$}`. `PageIndex` also answers every path that no other route matches.
 
+No page or action route may start with the URL prefix of the static files, as `/static/thumbs/{name}` with `// StaticFS is /static/`. Every path below the prefix belongs to the static files: net/http would redirect the request for a file there to a route below the prefix.
+
 `PageError500`, `PageError404` and `PageOffline` are optional reserved page names. `PageError500` and `PageError404` may override the default pages for status codes 500 and 404. `PageOffline` is the fallback that the [service worker](#service-worker) serves for an uncached URL while offline. Datapages supplies defaults when these pages are absent.
 
 Each declares its route by comment like any other page. `PageOffline` always renders with a zero `Session`: the worker precaches one copy and serves it to every visitor, which means it cannot depend on who is signed in.

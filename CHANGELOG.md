@@ -30,6 +30,7 @@ Releases up to v0.10.0 have their notes on
 - Reject actions, `OnXXX` handlers, `StreamOpen`, `StreamClose` and `State[T]` on a page whose route ends in `{$}`, as `// PageUser is /user/{name}/{$}`. A `{$}` at the end of a page route declares a page that serves only `GET`. An action below such a route got an error saying that it was not under its page, with a suggested route that net/http rejects. Remove `{$}` from the route of such a page: it keeps its URL.
 - Read an exported method on `App` named `QUERY` followed by an uppercase letter, such as `QUERYStats`, as an action. Such a method is rejected when it's a helper rather than an action: rename it.
 - Read an exported method on `App` named `GET` followed by an uppercase letter, such as `GETStats`, as a GET action. Such a method is rejected when it's a helper rather than an action: rename it.
+- Reject page and action routes below the static-files URL prefix. `net/http` treats them as more specific, so matching asset requests reach the handler instead of the file server. Move the route outside the prefix.
 
 #### Generated code
 
