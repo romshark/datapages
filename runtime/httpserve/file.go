@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"mime"
 	"net/http"
@@ -37,6 +38,14 @@ var (
 	// ErrFileReservedHeader reports a [datapages.File] whose Header sets
 	// a header that one of its fields or [http.ServeContent] writes.
 	ErrFileReservedHeader = errors.New("datapages.File sets a reserved header in Header")
+
+	// ErrFileDirectory reports a [datapages.File] whose Body is a directory,
+	// as [os.Root.Open] opens for the path of one. [ServeFile] wraps it with
+	// [datapages.ErrNotFound].
+	ErrFileDirectory = errors.New("datapages.File has a directory as Body")
+
+	// ErrFileSeek reports a [datapages.File] whose Body fails to seek.
+	ErrFileSeek = errors.New("datapages.File has a Body that fails to seek")
 )
 
 // fileHeaders are the headers [ServeFile] and [http.ServeContent] write,
@@ -64,8 +73,9 @@ var reservedHeaders = func() map[string]bool {
 
 // ServeFile writes f as the response to r and closes its Body. It writes
 // nothing and returns [ErrFileNoBody], [ErrFileNoType], [ErrFileInvalidETag],
-// [ErrFileInvalidCache] or [ErrFileReservedHeader] for an incomplete or
-// invalid f.
+// [ErrFileInvalidCache], [ErrFileReservedHeader], [ErrFileDirectory] or
+// [ErrFileSeek] for an incomplete or invalid f. A Read error after the status
+// ends the response early, and nothing reports it.
 //
 // A write that blocks for the send timeout of the server ends the response,
 // see [datapages.WithFileSendTimeout]. A middleware that wraps w without
@@ -123,6 +133,9 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		}
 		panic(v)
 	}()
+	if err := checkBody(f.Body); err != nil {
+		return err
+	}
 	h.Set("Content-Type", f.Type)
 	h.Set("X-Content-Type-Options", "nosniff")
 	if f.ETag != "" {
@@ -148,6 +161,25 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		if p := guard.recovered(); p != nil {
 			panic(*p)
 		}
+	}
+	return nil
+}
+
+// checkBody reports a Body that [http.ServeContent] would answer with a broken
+// response and report nothing of: a directory, whose first Read fails after
+// the status went out, and a Body that fails to seek, which gets a plain 500.
+// It seeks to the end and back to the start, as ServeContent does next.
+func checkBody(body io.ReadSeeker) error {
+	if s, ok := body.(interface{ Stat() (fs.FileInfo, error) }); ok {
+		if info, err := s.Stat(); err == nil && info.IsDir() {
+			return fmt.Errorf("%w: %w", datapages.ErrNotFound, ErrFileDirectory)
+		}
+	}
+	if _, err := body.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("%w: %w", ErrFileSeek, err)
+	}
+	if _, err := body.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("%w: %w", ErrFileSeek, err)
 	}
 	return nil
 }

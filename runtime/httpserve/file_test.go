@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -323,42 +324,77 @@ func TestServeFileETag(t *testing.T) {
 	}
 }
 
-// TestServeFileRefused tests that a File without a Body or a Type, or with an
-// ETag that cannot stand between quotes, is refused before anything is
-// written, and that its Body is closed anyway.
+// failingSeeker fails every Seek, as a pipe does.
+type failingSeeker struct{ closingReader }
+
+func (*failingSeeker) Seek(int64, int) (int64, error) {
+	return 0, errors.New("seek failed")
+}
+
+// TestServeFileRefused tests that a File without a Body or a Type, with an
+// ETag that cannot stand between quotes, with a reserved header, with
+// a directory as Body or with a Body that fails to seek is refused before
+// anything is written, that its Body is closed anyway, and the status each
+// refusal answers.
 func TestServeFileRefused(t *testing.T) {
 	t.Parallel()
 
+	dir, err := os.Open(t.TempDir())
+	require.NoError(t, err)
 	for name, tc := range map[string]struct {
 		datapages.File
-		want error
+		want       error
+		wantStatus int
 	}{
-		"no body": {datapages.File{Type: "text/plain"}, httpserve.ErrFileNoBody},
+		"no body": {
+			Type:       "text/plain",
+			want:       httpserve.ErrFileNoBody,
+			wantStatus: http.StatusInternalServerError,
+		},
 		"no type": {
-			Body: &closingReader{Reader: strings.NewReader("x")},
-			want: httpserve.ErrFileNoType,
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileNoType,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"quoted etag": {
-			Type: "text/plain", ETag: `"v1"`,
-			Body: &closingReader{Reader: strings.NewReader("x")},
-			want: httpserve.ErrFileInvalidETag,
+			Type:       "text/plain",
+			ETag:       `"v1"`,
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileInvalidETag,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"etag with space": {
-			Type: "text/plain", ETag: "v 1",
-			Body: &closingReader{Reader: strings.NewReader("x")},
-			want: httpserve.ErrFileInvalidETag,
+			Type:       "text/plain",
+			ETag:       "v 1",
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileInvalidETag,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"reserved header": {
-			Type:   "text/plain",
-			Header: http.Header{"Cache-Control": {"no-store"}},
-			Body:   &closingReader{Reader: strings.NewReader("x")},
-			want:   httpserve.ErrFileReservedHeader,
+			Type:       "text/plain",
+			Header:     http.Header{"Cache-Control": {"no-store"}},
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileReservedHeader,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"reserved header, not canonical": {
-			Type:   "text/plain",
-			Header: http.Header{"etag": {`"v1"`}},
-			Body:   &closingReader{Reader: strings.NewReader("x")},
-			want:   httpserve.ErrFileReservedHeader,
+			Type:       "text/plain",
+			Header:     http.Header{"etag": {`"v1"`}},
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileReservedHeader,
+			wantStatus: http.StatusInternalServerError,
+		},
+		"directory": {
+			Type:       "image/png",
+			Body:       dir,
+			want:       httpserve.ErrFileDirectory,
+			wantStatus: http.StatusNotFound,
+		},
+		"seek fails": {
+			Type:       "text/plain",
+			Body:       &failingSeeker{closingReader{Reader: strings.NewReader("x")}},
+			want:       httpserve.ErrFileSeek,
+			wantStatus: http.StatusInternalServerError,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -367,6 +403,7 @@ func TestServeFileRefused(t *testing.T) {
 			err := httpserve.ServeFile(w,
 				httptest.NewRequest(http.MethodGet, "/", nil), tc.File)
 			require.ErrorIs(t, err, tc.want)
+			require.Equal(t, tc.wantStatus, httpserve.ErrStatus(err))
 			require.Empty(t, w.Header())
 			require.Zero(t, w.Body.Len())
 			if c, ok := tc.Body.(*closingReader); ok {
