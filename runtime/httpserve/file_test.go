@@ -2,6 +2,7 @@ package httpserve_test
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -58,7 +59,7 @@ func TestServeFile(t *testing.T) {
 	require.True(t, body.closed)
 }
 
-// TestServeFileRequests tests the requests net/http.ServeContent answers on
+// TestServeFileRequests tests the requests [http.ServeContent] answers on
 // its own: HEAD, Range and If-Modified-Since.
 func TestServeFileRequests(t *testing.T) {
 	t.Parallel()
@@ -282,7 +283,7 @@ func TestServeFileCache(t *testing.T) {
 }
 
 // TestServeFileETag tests the ETag a File sets, quoted, and the conditional
-// requests net/http.ServeContent answers with it.
+// requests [http.ServeContent] answers with it.
 func TestServeFileETag(t *testing.T) {
 	t.Parallel()
 
@@ -505,7 +506,7 @@ func TestServeFileMultiRangeClientGone(t *testing.T) {
 }
 
 // panickingBody panics in Read, or with seek in a Seek to a nonzero offset,
-// which http.ServeContent makes only to serve a range.
+// which [http.ServeContent] makes only to serve a range.
 type panickingBody struct {
 	*strings.Reader
 	seek   bool
@@ -555,6 +556,75 @@ func TestServeFileMultiRangePanic(t *testing.T) {
 			require.Equal(t, "body panicked", p.Value)
 			require.Contains(t, string(p.Stack), "(*panickingBody).")
 			require.True(t, body.closed, "Body was not closed before the panic")
+		})
+	}
+}
+
+// seekPanickingBody panics in every Seek. The first one is for the size,
+// which [http.ServeContent] reads before it writes the status.
+type seekPanickingBody struct {
+	*strings.Reader
+	closed bool
+}
+
+func (*seekPanickingBody) Seek(int64, int) (int64, error) { panic("body panicked") }
+
+func (b *seekPanickingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+// TestServeFilePanicBeforeBody tests a Body that panics before the status went out:
+// for the size, and for the start of a range. ServeFile leaves the headers
+// as a middleware set them, a value File.Header replaced and a cookie included,
+// and panics with the value and the stack of the panic.
+func TestServeFilePanicBeforeBody(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		body io.ReadSeekCloser
+		rng  string
+	}{
+		"size":  {body: &seekPanickingBody{Reader: strings.NewReader("abcdefgh")}},
+		"range": {body: &panickingBody{Reader: strings.NewReader("abcdefgh"), seek: true}, rng: "bytes=1-2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			middleware := http.Header{
+				"Cache-Control":           {"public, max-age=60"},
+				"Content-Security-Policy": {"default-src 'self'"},
+				"Set-Cookie":              {"session=; Max-Age=0"},
+			}
+			w := httptest.NewRecorder()
+			for k, v := range middleware {
+				w.Header()[k] = slices.Clone(v)
+			}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.rng != "" {
+				r.Header.Set("Range", tc.rng)
+			}
+			var v any
+			func() {
+				defer func() { v = recover() }()
+				_ = httpserve.ServeFile(w, r, datapages.File{
+					Type:        "application/pdf",
+					Body:        tc.body,
+					ModTime:     time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+					ETag:        "v1",
+					Cache:       datapages.FileCache{MaxAge: time.Hour},
+					Disposition: datapages.FileDisposition{Download: true, Filename: "report.pdf"},
+					Header: http.Header{
+						"Content-Security-Policy": {"sandbox"},
+						"Content-Language":        {"de"},
+						"Set-Cookie":              {"theme=dark"},
+					},
+				})
+			}()
+			p, ok := v.(datapages.PanicError)
+			require.True(t, ok, "ServeFile panicked with %#v", v)
+			require.Equal(t, "body panicked", p.Value)
+			require.Contains(t, string(p.Stack), "anickingBody).Seek")
+			require.Equal(t, middleware, w.Header())
 		})
 	}
 }

@@ -39,19 +39,28 @@ var (
 	ErrFileReservedHeader = errors.New("datapages.File sets a reserved header in Header")
 )
 
-// reservedHeaders are the headers [ServeFile] and [http.ServeContent] write,
+// fileHeaders are the headers [ServeFile] and [http.ServeContent] write,
 // by canonical name. A field of [datapages.File] is the one way to set each.
-var reservedHeaders = map[string]bool{
-	"Accept-Ranges":          true,
-	"Cache-Control":          true,
-	"Content-Disposition":    true,
-	"Content-Length":         true,
-	"Content-Range":          true,
-	"Content-Type":           true,
-	"Etag":                   true,
-	"Last-Modified":          true,
-	"X-Content-Type-Options": true,
+var fileHeaders = [...]string{
+	"Accept-Ranges",
+	"Cache-Control",
+	"Content-Disposition",
+	"Content-Length",
+	"Content-Range",
+	"Content-Type",
+	"Etag",
+	"Last-Modified",
+	"X-Content-Type-Options",
 }
+
+// reservedHeaders holds [fileHeaders] for lookup.
+var reservedHeaders = func() map[string]bool {
+	m := make(map[string]bool, len(fileHeaders))
+	for _, name := range fileHeaders {
+		m[name] = true
+	}
+	return m
+}()
 
 // ServeFile writes f as the response to r and closes its Body. It writes
 // nothing and returns [ErrFileNoBody], [ErrFileNoType], [ErrFileInvalidETag],
@@ -66,10 +75,11 @@ var reservedHeaders = map[string]bool{
 // through unchanged if it has a PassThrough method, as the one
 // offline.Middleware installs does.
 //
-// A panic in Body panics ServeFile. For a multi-range request, [http.ServeContent]
-// reads Body on a goroutine of its own. ServeFile recovers a panic there and
-// panics with a [datapages.PanicError] that carries the stack of that goroutine,
-// once Body is closed.
+// A panic in Body panics ServeFile with a [datapages.PanicError] that carries
+// the stack of the panic, once Body is closed. A panic before the body leaves
+// the headers of w as they were, which keeps those of the file off the error
+// response. For a multi-range request, [http.ServeContent] reads Body on
+// a goroutine of its own, where ServeFile recovers the panic.
 func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	if f.Body == nil {
 		return ErrFileNoBody
@@ -98,6 +108,21 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		}
 	}
 	h := w.Header()
+	var saved savedHeaders
+	saved.save(h, f.Header)
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		if !ResponseBodyWritten(w) {
+			saved.restore(h)
+		}
+		if _, ok := v.(datapages.PanicError); !ok {
+			v = datapages.PanicError{Value: v, Stack: debug.Stack()}
+		}
+		panic(v)
+	}()
 	h.Set("Content-Type", f.Type)
 	h.Set("X-Content-Type-Options", "nosniff")
 	if f.ETag != "" {
@@ -125,6 +150,50 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 		}
 	}
 	return nil
+}
+
+// savedHeaders holds the values the headers [ServeFile] and
+// [http.ServeContent] write had before.
+type savedHeaders struct {
+	fixed [len(fileHeaders)]savedHeader
+	extra []savedHeader // the names of File.Header
+}
+
+type savedHeader struct {
+	name   string
+	values []string
+	had    bool
+}
+
+func (s *savedHeaders) save(h, extra http.Header) {
+	for i, name := range fileHeaders {
+		values, had := h[name]
+		s.fixed[i] = savedHeader{name, values, had}
+	}
+	for key := range extra {
+		name := textproto.CanonicalMIMEHeaderKey(key)
+		values, had := h[name]
+		s.extra = append(s.extra, savedHeader{name, values, had})
+	}
+}
+
+// restore writes the saved values back. A slice that addHeader appended to
+// in place gets its old length back, which hides what it appended.
+func (s *savedHeaders) restore(h http.Header) {
+	for _, v := range s.fixed {
+		v.restore(h)
+	}
+	for _, v := range s.extra {
+		v.restore(h)
+	}
+}
+
+func (v savedHeader) restore(h http.Header) {
+	if v.had {
+		h[v.name] = v.values
+	} else {
+		delete(h, v.name)
+	}
 }
 
 // passFileThrough makes every writer between w and the server that edits

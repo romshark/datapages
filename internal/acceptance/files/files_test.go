@@ -293,6 +293,56 @@ func TestFileBodyPanic(t *testing.T) {
 	}
 }
 
+// TestFileSeekPanic tests a Body whose Seek panics before the status went out.
+// The error response carries none of the headers of the file: a document
+// request gets the error page rather than a download of it, and no response
+// keeps the caching of the file. The panic is logged with the stack the Body
+// panicked on.
+func TestFileSeekPanic(t *testing.T) {
+	t.Parallel()
+
+	for dest, tc := range map[string]struct {
+		wantType string
+		wantBody string
+	}{
+		"document": {"text/html; charset=utf-8", `<p id="page">internal error</p>`},
+		"image":    {"text/plain; charset=utf-8", "Internal Server Error\n"},
+	} {
+		t.Run(dest, func(t *testing.T) {
+			t.Parallel()
+			var log syncBuffer
+			c := client.New(t, mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(slog.New(slog.NewJSONHandler(&log, nil)))))
+
+			resp := get(t, c,
+				href.App.File("a.txt", href.App.FileQuery("seek-panic", false)),
+				"Sec-Fetch-Dest", dest)
+			require.Equal(t, http.StatusInternalServerError, resp.Status)
+			require.Equal(t, tc.wantType, resp.Header.Get("Content-Type"))
+			require.Contains(t, resp.Body, tc.wantBody)
+			for _, name := range []string{
+				"Cache-Control", "Content-Disposition", "Content-Language",
+				"Etag", "Last-Modified",
+			} {
+				require.Empty(t, resp.Header.Values(name), name)
+			}
+
+			var record struct {
+				Panic any    `json:"panic"`
+				Stack string `json:"stack"`
+			}
+			for line := range strings.Lines(log.String()) {
+				if strings.Contains(line, `"msg":"recovered panic"`) {
+					require.NoError(t, json.Unmarshal([]byte(line), &record))
+				}
+			}
+			require.Equal(t, "seek panicked", record.Panic)
+			require.Contains(t, record.Stack, "seekPanicBody.Seek")
+		})
+	}
+}
+
 // TestPageGETAction tests a GET action of a page and the page builder next to it.
 func TestPageGETAction(t *testing.T) {
 	t.Parallel()
