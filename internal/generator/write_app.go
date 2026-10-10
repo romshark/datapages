@@ -1908,7 +1908,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Before the SSE generator, which commits the response headers and would
 	// leave the rejection below nowhere to go.
 	if h.InputState != nil {
-		w.writeLockSlotOrReject()
+		w.writeLockSlotOrReject(h)
 	}
 
 	// Dispatch closures.

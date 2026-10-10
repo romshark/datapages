@@ -269,7 +269,7 @@ state datapages.State[T]
 
 An instance belongs to a tab, is not session-bound, and survives sign-out.
 
-**`State.Values` must not outlive its handler.** The mutex does not protect goroutines started by a handler. Retaining the pointer in application state or a component rendered later can retain it past the tab's lifetime. Copy needed fields instead.
+**`State.Values` must not outlive its handler.** The mutex doesn't protect goroutines started by a handler. It is released before a returned [`datapages.File`](#return-value-datapagesfile) is served, which keeps a client that reads the file slowly from stalling the tab: the file's `Body` must not read `Values`. Retaining the pointer in application state or a component rendered later can retain it past the tab's lifetime. Copy needed fields instead.
 
 A page enables state by declaring an exported struct and using it as `T` in an action, `OnXXX`, `StreamOpen`, or `StreamClose`:
 

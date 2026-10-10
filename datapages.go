@@ -130,7 +130,9 @@ type Query[Values any] struct{ Values Values }
 //
 // WARNING: Values must not outlive the handler that received it. The serialization
 // described above covers handlers, not, for example, a goroutine one of them started.
-// A goroutine that keeps the pointer to the state value races with the tab's handlers.
+// A goroutine that keeps the pointer to the state value races with the tab's handlers,
+// and so does the Body of a returned [File] that reads it: Datapages serves the file
+// after the handler returns, while the tab's other handlers run.
 // An alias stored in the application or held by a [Component] that renders
 // later also keeps the state alive long after the tab is gone.
 // Copy the fields out instead:

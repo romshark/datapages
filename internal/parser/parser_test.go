@@ -2885,6 +2885,25 @@ func TestParse_ErrStateIDWithoutState(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateIDWithoutState)
 }
 
+// TestParse_StateFile tests actions that take the state and return a file,
+// on App and on a page.
+//
+// That the code generated for them compiles is TestCompileFixtures' job,
+// which builds every fixture in this directory.
+func TestParse_StateFile(t *testing.T) {
+	app, err := parse(t, "state_file")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
+
+	require.Len(t, app.Actions, 1)
+	require.NotNil(t, app.Actions[0].InputState)
+	require.NotNil(t, app.Actions[0].OutputFile)
+	require.Len(t, app.Pages, 1)
+	require.Len(t, app.Pages[0].Actions, 1)
+	require.NotNil(t, app.Pages[0].Actions[0].InputState)
+	require.NotNil(t, app.Pages[0].Actions[0].OutputFile)
+}
+
 // TestParse_StateActionOnly covers a stateful page whose only handler is
 // an action.
 // State alone anchors the lifecycle: the page needs no StreamOpen,

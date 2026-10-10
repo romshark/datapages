@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 const (
 	pathStream           = "/_$/"
 	pathAction           = "/update/"
+	pathExport           = "/export/"
 	pathFailOpen         = "/failopen/"
 	pathFailOpenStream   = "/failopen/_$/"
 	pathPanicClose       = "/panicclose/"
@@ -215,6 +217,44 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 		t.Fatal("the slow action never finished")
 	}
 	require.True(t, tab.Saw("filter:slow"), "the slow action left no patch behind")
+}
+
+// TestSlowFileDoesNotStallTab tests an action that answers with a file the
+// client doesn't read: a second action on the same tab is served while the
+// server still writes the file, and the tab keeps receiving patches.
+func TestSlowFileDoesNotStallTab(t *testing.T) {
+	c := newClient(t)
+	tab := c.OpenTab(t, "/", pathStream)
+
+	req := c.Request(t, http.MethodPost, pathExport, "")
+	req.Header.Set("Datapages-Instance", tab.InstanceID())
+	export, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "export")
+	// Closing the unread body ends the export.
+	t.Cleanup(func() { _ = export.Body.Close() })
+	require.Equal(t, http.StatusOK, export.StatusCode, "export")
+	require.Equal(t, strconv.Itoa(app.ExportSize), export.Header.Get("Content-Length"))
+
+	req = c.Request(t, http.MethodPost, pathAction, `{"filter":"fast"}`)
+	req.Header.Set("Datapages-Instance", tab.InstanceID())
+	answered := make(chan int, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			answered <- 0
+			return
+		}
+		_ = resp.Body.Close()
+		answered <- resp.StatusCode
+	}()
+	select {
+	case status := <-answered:
+		require.Equal(t, http.StatusOK, status, "action during an unread export")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the action waited for the client to read the export")
+	}
+	require.True(t, tab.Saw("filter:fast"),
+		"the tab received no patch while the export was unread")
 }
 
 // TestMalformedInstanceID tests that a wrong length or a character outside

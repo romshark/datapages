@@ -1754,7 +1754,7 @@ func (w *Writer) writePageActionHandler(
 	// Before the SSE generator, which commits the response headers and would
 	// leave the rejection below nowhere to go.
 	if h.InputState != nil {
-		w.writeLockSlotOrReject()
+		w.writeLockSlotOrReject(h)
 	}
 
 	// Dispatch closures.
@@ -1952,7 +1952,8 @@ func (w *Writer) writeActionMethodCall(
 // writeFileCall emits the call of a handler that returns a datapages.File and
 // the response it serves. The parser refuses any other output next to the file,
 // which leaves no session, redirect or body to write. A handler that takes the
-// session answers with Vary: Cookie.
+// session answers with Vary: Cookie. A handler that takes State releases the
+// tab's lock before the file is served, see [Writer.writeLockSlotOrReject].
 // owner is the page type or "App".
 func (w *Writer) writeFileCall(recv, owner string, h *model.Handler, args []string) {
 	label := owner + "." + h.Name
@@ -1961,6 +1962,10 @@ func (w *Writer) writeFileCall(recv, owner string, h *model.Handler, args []stri
 	w.Raw(" := ")
 	w.writeCallExpr(recv, h.HTTPMethod+h.Name, args)
 	w.Byte('\n')
+	if h.InputState != nil {
+		w.Line(1, "// The tab's other handlers don't wait for the client to read the file.")
+		w.Line(1, "unlock()")
+	}
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
 		w.Linef(2, "s.httpErrFile(w, r, %q, err)", "handling action "+label)
