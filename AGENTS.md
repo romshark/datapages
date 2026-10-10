@@ -81,7 +81,7 @@ Examples, one module each:
 - `example/sqlitesessions/` - a `sessions.Manager` on SQLite via sqinn-go.
 - `example/fast-shim/` - instant loads: cached shims morphed by Datastar.
 - `example/offline-cache/` - service-worker offline support, handler-written cache and a `PageOffline` fallback, on a ticketing app.
-- `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through middleware below the asset prefix, both directions paced by a server-side rate limit.
+- `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through a GET action, both directions paced by a server-side rate limit.
 
 Where code goes:
 

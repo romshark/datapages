@@ -243,8 +243,8 @@ func TestDatapagesDevModeServesFromDisk(t *testing.T) {
 // In dev mode the files come from the directory on disk rather than from the binary.
 // An edit to a stylesheet then shows up without a rebuild.
 // This works only if the path the generator wrote into the assets package matches where
-// the files are, and only if the responses are not cached.
-// A cached stylesheet is a change the developer cannot see.
+// the files are, and only if the browser asks for every response again.
+// A stylesheet reused from the cache is a change the developer cannot see.
 //
 // TestDevModeServesFromDisk must not use t.Parallel() because
 // [testing.T.Setenv] forbids it.
@@ -275,8 +275,10 @@ func TestDevModeServesFromDisk(t *testing.T) {
 		assets.DevDir)
 	require.Contains(t, string(b), "rebeccapurple",
 		"the file on disk was not served")
-	require.Contains(t, resp.Header.Get("Cache-Control"), "no-store",
-		"caching is not forbidden in dev mode")
+	require.Equal(t, "no-cache", resp.Header.Get("Cache-Control"),
+		"the browser may reuse an asset without asking in dev mode")
+	require.Empty(t, resp.Header.Get("Last-Modified"),
+		"a file saved twice within one second could get a 304 for its first version")
 }
 
 // TestHalfWrittenBodyGetsNoErrorStatus tests an action that fails after

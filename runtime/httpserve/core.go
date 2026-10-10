@@ -229,9 +229,9 @@ func (c *Core) Build() {
 		h := http.FileServer(fsys)
 		switch {
 		case datapages.IsDevMode():
-			// Dev files may change while the server runs. Cache-Control:
-			// no-store prevents the browser from reusing a stale response.
-			h = DevNoCache(h)
+			// Dev files may change while the server runs. The browser asks
+			// before every reuse, and without Last-Modified it gets the file.
+			h = DevNoCache(http.FileServer(noModTimeFS{fsys}))
 		case c.assetsCache != nil && !c.assetsCache.Disabled:
 			h = newAssetsCache(fsys, *c.assetsCache, h)
 		}

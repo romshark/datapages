@@ -358,7 +358,8 @@ type AssetsCacheConfig struct {
 // Set [AssetsCacheConfig.DisableETag] for a [WithAssetsFS] file system whose
 // files can change while the server runs.
 //
-// Dev mode ignores this option and sends Cache-Control: no-store.
+// Dev mode ignores this option and sends Cache-Control:
+// no-cache without Last-Modified.
 func WithAssetsCache(conf AssetsCacheConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		switch {

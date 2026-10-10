@@ -36,6 +36,10 @@ type Signals[Values any] struct{ Values Values }
 // Path carries the URL path variables of the route.
 // GET and action (POST/PUT/PATCH/DELETE/QUERY) handlers may receive it as a parameter.
 //
+// A value holds its segment unescaped: %2F arrives as "/" and %2E%2E as "..".
+// Never join it into a file path. Open a file through an [io/fs.FS] or an [os.Root],
+// which refuse a name that leaves their directory, or look the value up as a key.
+//
 // Values is a struct whose exported fields each name a route variable with a
 // path:"<name>" tag:
 //
@@ -337,6 +341,8 @@ type Redirect struct {
 //			Name string `path:"name"`
 //		}],
 //	) (file datapages.File, err error) {
+//		// a.images opens through an os.Root: the name is unescaped
+//		// and can hold "/" and "..".
 //		f, contentType, err := a.images.Open(path.Values.Name)
 //		switch {
 //		case errors.Is(err, fs.ErrNotExist):
@@ -425,18 +431,22 @@ type File struct {
 
 	// Header holds response headers the other fields don't set, such as
 	// Content-Language, or a Content-Security-Policy for an untrusted type.
-	// It replaces a header of the same name that middleware set before.
+	// It replaces a header of the same name that middleware set before, except
+	// Set-Cookie, whose values add to the cookies set before. Keys that spell
+	// one name differently are joined in their sorted order.
 	// A header the fields or [http.ServeContent] write returns HTTP 500:
 	// Content-Type, X-Content-Type-Options, ETag, Last-Modified, Cache-Control,
 	// Content-Disposition, Content-Length, Content-Range and Accept-Ranges.
 	Header http.Header
 }
 
-// FileCache is the [Cache-Control] header of a [File]. Its zero value sends
-// no-cache, which makes a cache ask the server before every reuse, as the
-// zero [AssetsCacheConfig] does with max-age=0. Without a Cache-Control header,
-// a browser may reuse a response with a ModTime without asking, by
-// [heuristic freshness]. Fields that contradict each other return HTTP 500:
+// FileCache is the [Cache-Control] header of a [File]. A browser may reuse
+// a response without max-age, no-cache or no-store without asking, by
+// [heuristic freshness]. FileCache therefore adds no-cache to a value that sets
+// none of them, which makes a cache ask the server before every reuse, as the
+// zero [AssetsCacheConfig] does with max-age=0: the zero value sends no-cache,
+// and Private alone sends private, no-cache. Raw sends private alone.
+// Fields that contradict each other return HTTP 500:
 //
 //	datapages.FileCache{MaxAge: time.Hour, Immutable: true} // max-age=3600, immutable
 //	datapages.FileCache{NoStore: true, MaxAge: time.Hour}   // HTTP 500: NoStore excludes MaxAge
@@ -460,7 +470,7 @@ type FileCache struct {
 	Immutable bool
 
 	// Private sets [private], which keeps the response out of shared caches,
-	// such as a CDN.
+	// such as a CDN. Without MaxAge or NoStore, it's sent with no-cache.
 	//
 	// [private]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#private
 	Private bool

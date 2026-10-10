@@ -93,7 +93,7 @@ Without `WithAssetsCache`, Datapages sends neither `Cache-Control` nor `ETag` fo
 
 Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` omits both headers.
 
-The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-store`.
+The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
 
 Use `assets.Path("style.css")` from the generated `assets` package to reference a file. Use `href.Asset("style.css")` inside an `<a href>`. The linter checks app-internal URLs in `<a href>` and Datastar action attributes. It does not check asset URLs in `<link>` or `<script>` elements.
 

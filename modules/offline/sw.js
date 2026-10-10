@@ -173,7 +173,9 @@ function update(cache, req, res) {
   if (GONE.indexOf(res.status) !== -1 || hasDirective(res, 'no-store')) {
     return cache.delete(req);
   }
-  if (!(res.ok || res.type === 'opaque') || isEventStream(res)) {
+  // Cache.put refuses a partial response, and a clone of one would buffer
+  // every byte the page reads from it.
+  if (res.status === 206 || !(res.ok || res.type === 'opaque') || isEventStream(res)) {
     return Promise.resolve();
   }
   return cache.put(req, res.clone());

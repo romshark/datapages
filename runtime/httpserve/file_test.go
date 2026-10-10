@@ -1,10 +1,14 @@
 package httpserve_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -171,6 +175,10 @@ func TestServeFileCache(t *testing.T) {
 			MaxAge:     time.Hour,
 			middleware: "public, max-age=60",
 			want:       "max-age=3600",
+		},
+		"private": {
+			Private: true,
+			want:    "private, no-cache",
 		},
 		"private with no-store": {
 			Private: true,
@@ -367,26 +375,128 @@ func TestServeFileRefused(t *testing.T) {
 	}
 }
 
-// TestServeFileHeader tests the headers File.Header adds, and that one of them
-// replaces the value a middleware set before.
+// TestServeFileHeader tests the headers File.Header adds: one replaces the
+// value a middleware set before, except Set-Cookie, whose values add to the
+// cookies set before. 2 spellings of one name write their values in sorted
+// order of the spellings, the same on every request.
 func TestServeFileHeader(t *testing.T) {
 	t.Parallel()
 
-	w := httptest.NewRecorder()
-	w.Header().Set("Content-Language", "en")
-	w.Header().Set("Vary", "Cookie")
-	require.NoError(t, httpserve.ServeFile(w,
-		httptest.NewRequest(http.MethodGet, "/", nil), datapages.File{
-			Type: "image/svg+xml",
-			Body: &closingReader{Reader: strings.NewReader("<svg/>")},
-			Header: http.Header{
+	for name, tc := range map[string]struct {
+		middleware http.Header
+		header     http.Header
+		want       http.Header
+	}{
+		"replaces middleware": {
+			middleware: http.Header{"Content-Language": {"en"}, "Vary": {"Cookie"}},
+			header: http.Header{
 				"Content-Language":        {"de"},
 				"Content-Security-Policy": {"sandbox"},
 			},
-		}))
-	require.Equal(t, []string{"de"}, w.Header().Values("Content-Language"))
-	require.Equal(t, "sandbox", w.Header().Get("Content-Security-Policy"))
-	require.Equal(t, "Cookie", w.Header().Get("Vary"))
+			want: http.Header{
+				"Content-Language":        {"de"},
+				"Content-Security-Policy": {"sandbox"},
+				"Vary":                    {"Cookie"},
+			},
+		},
+		"2 spellings": {
+			header: http.Header{
+				"content-security-policy": {"sandbox"},
+				"Content-Security-Policy": {"default-src 'none'"},
+			},
+			want: http.Header{
+				"Content-Security-Policy": {"default-src 'none'", "sandbox"},
+			},
+		},
+		"cookie set before": {
+			middleware: http.Header{"Set-Cookie": {"session=; Max-Age=0"}},
+			header:     http.Header{"Set-Cookie": {"theme=dark"}},
+			want: http.Header{
+				"Set-Cookie": {"session=; Max-Age=0", "theme=dark"},
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for range 20 {
+				w := httptest.NewRecorder()
+				for k, v := range tc.middleware {
+					w.Header()[k] = slices.Clone(v)
+				}
+				require.NoError(t, httpserve.ServeFile(w,
+					httptest.NewRequest(http.MethodGet, "/", nil), datapages.File{
+						Type:   "image/svg+xml",
+						Body:   &closingReader{Reader: strings.NewReader("<svg/>")},
+						Header: tc.header,
+					}))
+				for k, v := range tc.want {
+					require.Equal(t, v, w.Header().Values(k), k)
+				}
+			}
+		})
+	}
+}
+
+// recordingBody counts the calls to Read or Seek that come after Close
+// or overlap it.
+type recordingBody struct {
+	*strings.Reader
+	reading    atomic.Int32
+	closed     atomic.Bool
+	afterClose atomic.Int32
+	duringRead atomic.Int32
+}
+
+func (b *recordingBody) Read(p []byte) (int, error) {
+	b.reading.Add(1)
+	defer b.reading.Add(-1)
+	if b.closed.Load() {
+		b.afterClose.Add(1)
+	}
+	return b.Reader.Read(p)
+}
+
+func (b *recordingBody) Seek(offset int64, whence int) (int64, error) {
+	if b.closed.Load() {
+		b.afterClose.Add(1)
+	}
+	return b.Reader.Seek(offset, whence)
+}
+
+func (b *recordingBody) Close() error {
+	if b.reading.Load() > 0 {
+		b.duringRead.Add(1)
+	}
+	b.closed.Store(true)
+	return nil
+}
+
+// goneWriter is the response of a client that hung up: every Write fails.
+type goneWriter struct{ header http.Header }
+
+func (w *goneWriter) Header() http.Header       { return w.header }
+func (w *goneWriter) WriteHeader(int)           {}
+func (w *goneWriter) Write([]byte) (int, error) { return 0, errors.New("client gone") }
+
+// TestServeFileMultiRangeClientGone tests that a client hanging up on
+// a multi-range response leaves no read of Body during or after its Close.
+// [http.ServeContent] reads the parts from a goroutine it doesn't wait for
+// once the copy to the client fails. synctest.Wait waits for that goroutine.
+func TestServeFileMultiRangeClientGone(t *testing.T) {
+	t.Parallel()
+
+	for range 50 {
+		synctest.Test(t, func(t *testing.T) {
+			body := &recordingBody{Reader: strings.NewReader(strings.Repeat("x", 1<<16))}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.Header.Set("Range", "bytes=0-32767,32768-65535")
+			require.NoError(t, httpserve.ServeFile(&goneWriter{header: http.Header{}}, r,
+				datapages.File{Type: "text/plain", Body: body}))
+			synctest.Wait()
+			require.Zero(t, body.afterClose.Load(), "Body was read after Close")
+			require.Zero(t, body.duringRead.Load(), "Body was closed during a Read")
+		})
+	}
 }
 
 // TestIsDocumentRequest tests that only Sec-Fetch-Dest: document counts.

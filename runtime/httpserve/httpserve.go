@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"time"
 
 	"github.com/romshark/datapages"
 )
@@ -48,10 +49,12 @@ func Redirect(
 	return true
 }
 
-// DevNoCache stops the browser from caching what next serves.
+// DevNoCache makes the browser ask the server before every reuse of what
+// next serves. no-store would also keep it out of the offline worker's cache,
+// which then has no copy to answer with offline.
 func DevNoCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 		next.ServeHTTP(w, r)
@@ -103,6 +106,33 @@ func AssetsFileSystem(
 	}
 	return http.FS(sub), nil
 }
+
+// noModTimeFS reports a zero modification time for every file, which keeps
+// [http.FileServer] from sending Last-Modified and from answering If-Modified-Since.
+// Its whole-second precision answers 304 for a file saved twice within one second.
+type noModTimeFS struct{ fsys http.FileSystem }
+
+func (f noModTimeFS) Open(name string) (http.File, error) {
+	file, err := f.fsys.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return noModTimeFile{file}, nil
+}
+
+type noModTimeFile struct{ http.File }
+
+func (f noModTimeFile) Stat() (fs.FileInfo, error) {
+	info, err := f.File.Stat()
+	if err != nil {
+		return nil, err
+	}
+	return noModTimeInfo{info}, nil
+}
+
+type noModTimeInfo struct{ fs.FileInfo }
+
+func (noModTimeInfo) ModTime() time.Time { return time.Time{} }
 
 // notBrowsableFS returns fs.ErrNotExist for a directory that holds no index.html,
 // which [http.FileServer] turns into 404.

@@ -72,6 +72,8 @@ func (a *App) GETImage(
 		Name string `path:"name"`
 	}],
 ) (datapages.File, error) {
+	// a.images opens through an os.Root: the name is unescaped
+	// and can hold "/" and "..".
 	f, contentType, err := a.images.Open(path.Values.Name)
 	if err != nil {
 		return datapages.File{}, err
@@ -79,6 +81,8 @@ func (a *App) GETImage(
 	return datapages.File{Type: contentType, Body: f}, nil
 }
 ```
+
+A path value holds its segment unescaped: `%2F` arrives as `/` and `%2E%2E` as `..`. Open a file through an `fs.FS` or an `os.Root`, or look the value up as a key. Never join it into a file path.
 
 Any action may return `datapages.File`. The file is the complete response, so it
 may be accompanied only by `error`, which is optional. A file action cannot take
@@ -98,7 +102,7 @@ Datapages template linter.
 
 Serve a file a visitor uploaded with `Disposition: datapages.FileDisposition{Download: true}`, or show inline only types from an allowlist. The type of an upload is what the uploading browser reported, and `text/html` or `image/svg+xml` runs script on the application's origin when shown. `X-Content-Type-Options: nosniff`, which Datapages always sends, does not prevent that.
 
-The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. `NoStore` also keeps the file out of the offline worker's cache.
+The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. Without `MaxAge` or `NoStore`, Datapages adds `no-cache`, also next to `Private`. `NoStore` also keeps the file out of the offline worker's cache.
 
 ## SSE
 
@@ -144,4 +148,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:b7fb45fc92d7d717 -->
+<!-- written by datapages sha256:76f922ad5208add1 -->

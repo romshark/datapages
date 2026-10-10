@@ -124,6 +124,7 @@ Run `datapages gen` to apply these.
 - Stop logging a panic, `response writer failed to flush`, with a stack trace when a visitor leaves a page while its SSE stream opens. A stream on the `natscore` broker waits for a round trip to NATS before it opens, which makes this more likely.
 - Keep a response marked `Cache-Control: no-store` out of the offline worker's cache, and fetch a stored response marked `no-cache` from the network first, using the stored copy only offline. The worker stored every same-origin response that an element or `fetch` loaded, such as an image, whatever its `Cache-Control`, and served the stored copy first. Increase `offline.Config.WorkerVersion`, which deletes what the previous worker stored.
 - Remove a response from the offline worker's cache when the network answers 401, 403, 404 or 410. The worker kept serving the stored copy of a file after the server stopped authorizing it or deleted it, until `offline.Config.WorkerVersion` changed. Increase `offline.Config.WorkerVersion`, which deletes what the previous worker stored.
+- Stop the offline worker from copying a range response with status 206, such as a video that a `video` element streams, for its cache, which refuses it. Nothing read the copy, which can keep every byte the page has read in memory.
 
 #### `datapages init`
 

@@ -3,11 +3,16 @@ package httpserve
 import (
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"mime"
 	"net/http"
 	"net/textproto"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/romshark/datapages"
@@ -55,7 +60,13 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	if f.Body == nil {
 		return ErrFileNoBody
 	}
-	defer func() { _ = f.Body.Close() }()
+	body := f.Body
+	if strings.Contains(r.Header.Get("Range"), ",") {
+		// [http.ServeContent] reads the parts of a multi-range response from
+		// a goroutine it doesn't wait for once the copy to the client fails.
+		body = &guardedBody{body: body}
+	}
+	defer func() { _ = body.Close() }()
 	cacheControl, err := cacheControl(f.Cache)
 	switch {
 	case f.Type == "":
@@ -81,26 +92,75 @@ func ServeFile(w http.ResponseWriter, r *http.Request, f datapages.File) error {
 	case cacheControl != "":
 		h.Set("Cache-Control", cacheControl)
 	case h.Get("Cache-Control") == "":
-		// Without Cache-Control, a browser reuses a response with Last-Modified
-		// for a tenth of its age without asking: RFC 9111 section 4.2.2.
 		h.Set("Cache-Control", "no-cache")
 	}
 	if v := contentDisposition(f.Disposition); v != "" {
 		h.Set("Content-Disposition", v)
 	}
-	for name, values := range f.Header {
-		h.Del(name)
-		for _, v := range values {
-			h.Add(name, v)
-		}
-	}
-	http.ServeContent(w, r, "", f.ModTime, f.Body)
+	addHeader(h, f.Header)
+	http.ServeContent(w, r, "", f.ModTime, body)
 	return nil
+}
+
+// addHeader writes extra into h. A name in extra replaces the values h holds
+// for it, except Set-Cookie, whose values add to the cookies set before.
+// Keys that spell one name differently are joined in sorted order,
+// which writes the same values on every request.
+func addHeader(h, extra http.Header) {
+	replaced := make(map[string]bool, len(extra))
+	for _, key := range slices.Sorted(maps.Keys(extra)) {
+		name := textproto.CanonicalMIMEHeaderKey(key)
+		if name != "Set-Cookie" && !replaced[name] {
+			replaced[name] = true
+			delete(h, name)
+		}
+		h[name] = append(h[name], extra[key]...)
+	}
+}
+
+// guardedBody is a Body whose Close waits for a Read or Seek under way.
+// Read and Seek after Close return [os.ErrClosed] without reaching the Body.
+type guardedBody struct {
+	lock   sync.Mutex
+	body   io.ReadSeekCloser
+	closed bool
+}
+
+func (g *guardedBody) Read(p []byte) (int, error) {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	if g.closed {
+		return 0, os.ErrClosed
+	}
+	return g.body.Read(p)
+}
+
+func (g *guardedBody) Seek(offset int64, whence int) (int64, error) {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	if g.closed {
+		return 0, os.ErrClosed
+	}
+	return g.body.Seek(offset, whence)
+}
+
+func (g *guardedBody) Close() error {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	if g.closed {
+		return nil
+	}
+	g.closed = true
+	return g.body.Close()
 }
 
 // cacheControl returns the Cache-Control value of c, "" for the zero value.
 // It refuses fields that contradict each other and accepts ones that repeat
 // each other, such as Private next to NoStore.
+//
+// A value without max-age, no-cache or no-store gets no-cache. A browser reuses
+// a response without an explicit freshness lifetime for a tenth of the time since
+// its Last-Modified without asking, as RFC 9111 section 4.2.2 permits.
 func cacheControl(c datapages.FileCache) (string, error) {
 	invalid := func(reason string) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrFileInvalidCache, reason)
@@ -123,12 +183,14 @@ func cacheControl(c datapages.FileCache) (string, error) {
 		return invalid("NoCache excludes MaxAge")
 	case c.MaxAge > 0 && c.NoStore:
 		return invalid("NoStore excludes MaxAge")
+	case c == datapages.FileCache{}:
+		return "", nil
 	}
 	directives := make([]string, 0, 4)
 	if c.Private {
 		directives = append(directives, "private")
 	}
-	if c.NoCache {
+	if c.NoCache || c.MaxAge == 0 && !c.NoStore {
 		directives = append(directives, "no-cache")
 	}
 	if c.NoStore {

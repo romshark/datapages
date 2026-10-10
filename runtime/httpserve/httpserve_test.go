@@ -111,7 +111,7 @@ func TestDevNoCache(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 
-	require.Equal(t, "no-store, max-age=0", w.Header().Get("Cache-Control"))
+	require.Equal(t, "no-cache", w.Header().Get("Cache-Control"))
 	require.Equal(t, "no-cache", w.Header().Get("Pragma"))
 	require.Equal(t, "0", w.Header().Get("Expires"))
 	require.Equal(t, "body", w.Body.String())
