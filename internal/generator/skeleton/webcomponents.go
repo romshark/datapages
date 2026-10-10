@@ -146,7 +146,7 @@ func ComponentsAbout(w WebComponents) string {
 	switch w {
 	case WebComponentsTypeScript:
 		return "Web Components in TypeScript. `make bundle` and `datapages watch` " +
-			"bundle them into `app/static/components.js`."
+			"bundle them into `app/static/`."
 	case WebComponentsJavaScript:
 		return "Web Components as JavaScript modules, served as they are. " +
 			"`index.js` imports each."

@@ -1,0 +1,22 @@
+cmd: cmd/server
+watch:
+  app-host: "http://localhost:8080"
+  exclude:
+    - ".git/**"
+    - ".*"
+    - "*~"
+    # Every edit appends to documents/. Watching it restarts the server on
+    # every keystroke.
+    - "documents/**"
+  watcher-ignore:
+    - "documents/**"
+    # This large tree would use up watch descriptors.
+    - "web/node_modules/**"
+  custom-watchers:
+    - name: "Bundle the editor (esbuild)"
+      include:
+        - "web/src/**/*.ts"
+        - "web/src/**/*.css"
+      cmd: "cd web && node build.mjs"
+      fail-on-error: true
+      requires: reload

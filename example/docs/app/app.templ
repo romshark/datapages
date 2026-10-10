@@ -1,0 +1,493 @@
+package app
+
+import (
+	"strconv"
+
+	"github.com/romshark/datapages/example/docs/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/docs/app/datapagesgen/assets"
+	"github.com/romshark/datapages/example/docs/app/datapagesgen/href"
+	"github.com/romshark/datapages/example/docs/images"
+	"github.com/romshark/datapages/example/docs/richtext"
+	"github.com/romshark/datapages/example/docs/store"
+	"github.com/romshark/datapages/example/docs/templates"
+)
+
+templ head() {
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
+}
+
+templ headIndex() {
+	<title>Datapages Docs</title>
+	// Document thumbnails use the editor styles.
+	<link rel="stylesheet" href={ assets.Path("editor.css") }/>
+}
+
+templ headDoc(title string) {
+	@headTitle(title)
+	<link rel="stylesheet" href={ assets.Path("editor.css") }/>
+	<script src={ assets.Path("editor.js") } defer></script>
+}
+
+templ headTitle(title string) {
+	<title id="head-title">{ title } - Docs</title>
+}
+
+templ headNotFound() {
+	<title>Page not found - Docs</title>
+}
+
+templ headOffline() {
+	<title>Offline - Docs</title>
+	<link rel="stylesheet" href={ assets.Path("editor.css") }/>
+	<script src={ assets.Path("editor.js") } defer></script>
+}
+
+templ pageIndex(docs []store.Summary) {
+	<div data-signals:confirm="''">
+		<header class="topbar">
+			<a class="brand" href={ href.PageIndex() }>
+				@logo()
+				<span>Datapages Docs</span>
+			</a>
+		</header>
+		<section class="start">
+			<h2>Start a new document</h2>
+			<div class="templates">
+				for _, t := range templates.All {
+					<div class="template">
+						if t.ID == templates.Blank.ID {
+							<div class="template-page blank-page">
+								@plusIcon()
+							</div>
+						} else {
+							<div class="template-page ql-snow" aria-hidden="true">
+								<div class="ql-editor">
+									@templ.Raw(richtext.Preview(t.Content))
+								</div>
+							</div>
+						}
+						<button
+							type="button"
+							data-indicator:creating
+							data-attr:disabled="$creating"
+							data-on:click={ action.PageIndex.Create.POST(t.ID) }
+						>{ t.Name }</button>
+					</div>
+				}
+			</div>
+		</section>
+		<main class="recent">
+			<h2>Recent documents</h2>
+			@docList(docs)
+		</main>
+		@errorPlaceholder()
+	</div>
+}
+
+templ docList(docs []store.Summary) {
+	<div id="doc-list" class="doc-list">
+		if len(docs) == 0 {
+			<p class="empty">No documents yet.</p>
+		}
+		for _, d := range docs {
+			<article class="card" data-doc={ d.ID }>
+				<a class="card-link" href={ href.PageDoc(d.ID) }>
+					<div class="card-preview ql-snow" aria-hidden="true">
+						<div class="ql-editor">
+							@templ.Raw(d.Preview)
+						</div>
+					</div>
+					<div class="card-title">{ d.Title }</div>
+				</a>
+				<div class="card-meta">
+					<span>Edited { d.Updated.Format("Jan 2, 15:04") }</span>
+					<button
+						type="button"
+						class="icon"
+						title="Delete"
+						aria-label="Delete"
+						data-show="$confirm !== el.closest('.card').dataset.doc"
+						data-on:click="$confirm = el.closest('.card').dataset.doc"
+					>
+						@trashIcon()
+					</button>
+				</div>
+				<div
+					class="confirm"
+					style="display: none"
+					data-show="$confirm === el.closest('.card').dataset.doc"
+				>
+					<span>Delete this document?</span>
+					<button
+						type="button"
+						class="danger"
+						data-on:click={ action.PageIndex.Doc.DELETE(d.ID) }
+					>Delete</button>
+					<button type="button" data-on:click="$confirm = ''">Cancel</button>
+				</div>
+			</article>
+		}
+	</div>
+}
+
+templ pageDoc(doc store.Snapshot, client string, collaborators []store.Collaborator) {
+	<div
+		class="doc"
+		data-signals:doc-id={ jsStr(doc.ID) }
+		data-signals:client={ jsStr(client) }
+		data-signals:rev={ strconv.Itoa(doc.Rev) }
+		data-signals:_title={ jsStr(doc.Title) }
+		data-signals:_saving="false"
+		data-signals:_stopped="''"
+		data-signals:_copied="false"
+		data-signals:_notice="''"
+	>
+		<header class="doc-header">
+			<a class="doc-logo" href={ href.PageIndex() } title="All documents">
+				@logo()
+			</a>
+			<div class="doc-meta">
+				@titleInput(doc.ID, doc.Title)
+				<div
+					class="doc-status"
+					data-text="$_saving ? 'Saving...' : 'All changes saved'"
+				>All changes saved</div>
+			</div>
+			@collaboratorList(collaborators)
+			<button
+				type="button"
+				class="share"
+				data-on:click="copyLink().then(() => { $_copied = true; setTimeout(() => $_copied = false, 2000) })"
+				data-text="$_copied ? 'Link copied' : 'Share'"
+			>Share</button>
+			<button
+				type="button"
+				class="export"
+				title="Opens the print dialog, which saves the document as a PDF"
+				data-on:click="window.print()"
+			>Save as PDF</button>
+		</header>
+		<div class="notice" role="alert" style="display: none" data-show="$_stopped">
+			<span data-text="$_stopped"></span>
+			<a href={ href.PageDoc(doc.ID) }>Reload</a>
+		</div>
+		@toolbar()
+		<main class="canvas">
+			<docs-editor
+				id="editor"
+				client={ client }
+				rev={ strconv.Itoa(doc.Rev) }
+				url={ href.PageDoc(doc.ID) }
+				doc-title={ doc.Title }
+				data-attr:doc-title="$_title"
+				data-on:docs-submit={ action.PageDoc.Submit.POST(
+					doc.ID,
+					action.WithPayload("evt.detail"),
+					action.WithRequestCancellation(action.RequestCancellationDisabled),
+				) }
+				data-on:docs-cursor={ action.PageDoc.Cursor.POST(
+					doc.ID, action.WithPayload("evt.detail"),
+				) }
+				data-on:docs-state="$rev = evt.detail.rev; $_saving = evt.detail.saving; $_stopped = evt.detail.stopped"
+				max-image-size={ strconv.Itoa(images.MaxSize) }
+				image-prefix={ images.Prefix }
+				data-on:docs-image={ action.PageDoc.Image.POST(
+					doc.ID,
+					action.WithPayload("evt.detail"),
+					action.WithRequestCancellation(action.RequestCancellationDisabled),
+				) }
+				data-on:docs-restore={ action.PageDoc.Restore.POST(
+					doc.ID,
+					action.WithPayload("evt.detail"),
+					action.WithRequestCancellation(action.RequestCancellationDisabled),
+				) }
+				data-on:docs-notice="$_notice = evt.detail"
+			>
+				<div class="ql-container ql-snow">
+					<div class="ql-editor">
+						@richtextHTML(doc.Content)
+					</div>
+				</div>
+				@templ.JSONScript("editor-content", doc.Content)
+				@imageToolbar()
+			</docs-editor>
+		</main>
+		@errorPlaceholder()
+		<div class="toast" role="alert" style="display: none" data-show="$_notice">
+			<span data-text="$_notice"></span>
+			<button type="button" data-on:click="$_notice = ''">Dismiss</button>
+		</div>
+	</div>
+}
+
+templ titleInput(id, title string) {
+	<input
+		id="doc-title"
+		class="doc-title"
+		type="text"
+		value={ title }
+		maxlength="120"
+		aria-label="Document title"
+		data-on:keydown="evt.key === 'Enter' && el.blur()"
+		data-on:change={ action.PageDoc.Rename.POST(id, action.WithPayload("{title: el.value}")) }
+	/>
+}
+
+templ collaboratorList(list []store.Collaborator) {
+	<div id="collaborators" class="collaborators">
+		for _, c := range list {
+			<span
+				class="avatar"
+				style={ map[string]string{"background-color": c.Color} }
+				title={ collaboratorTitle(c) }
+			>{ initial(c.Name) }</span>
+		}
+	</div>
+}
+
+// imageToolbar holds the controls the editor shows below the selected image.
+// The width field sets the width of the image in the chosen unit, an empty field
+// its own width. data-align sets the alignment of its line.
+templ imageToolbar() {
+	<div class="image-toolbar" role="toolbar" aria-label="Image" hidden>
+		<label class="image-width">
+			Width
+			<input type="number" min="1" max="100" step="1" placeholder="Auto"/>
+		</label>
+		<select class="image-unit" aria-label="Width unit">
+			<option value="%">%</option>
+			<option value="px">px</option>
+		</select>
+		<span class="separator"></span>
+		<button type="button" data-align="">Left</button>
+		<button type="button" data-align="center">Center</button>
+		<button type="button" data-align="right">Right</button>
+	</div>
+}
+
+// toolbar is the container Quill fills with icons and pickers.
+// Quill reads the formats of its controls from their classes.
+templ toolbar() {
+	<div id="toolbar">
+		<span class="ql-formats">
+			<select class="ql-header" aria-label="Text style">
+				<option value="1"></option>
+				<option value="2"></option>
+				<option value="3"></option>
+				<option selected></option>
+			</select>
+		</span>
+		<span class="ql-formats">
+			<button type="button" class="ql-bold" aria-label="Bold"></button>
+			<button type="button" class="ql-italic" aria-label="Italic"></button>
+			<button type="button" class="ql-underline" aria-label="Underline"></button>
+			<button type="button" class="ql-strike" aria-label="Strikethrough"></button>
+		</span>
+		<span class="ql-formats">
+			<select class="ql-color" aria-label="Text color"></select>
+			<select class="ql-background" aria-label="Highlight color"></select>
+		</span>
+		<span class="ql-formats">
+			<button type="button" class="ql-link" aria-label="Link"></button>
+			<button type="button" class="ql-image" aria-label="Image"></button>
+			<button type="button" class="ql-code" aria-label="Code"></button>
+			<button type="button" class="ql-blockquote" aria-label="Quote"></button>
+			<button type="button" class="ql-code-block" aria-label="Code block"></button>
+		</span>
+		<span class="ql-formats">
+			<button
+				type="button"
+				class="ql-list"
+				value="ordered"
+				aria-label="Numbered list"
+			></button>
+			<button
+				type="button"
+				class="ql-list"
+				value="bullet"
+				aria-label="Bulleted list"
+			></button>
+			<button
+				type="button"
+				class="ql-list"
+				value="check"
+				aria-label="Checklist"
+			></button>
+			<button
+				type="button"
+				class="ql-indent"
+				value="-1"
+				aria-label="Decrease indent"
+			></button>
+			<button
+				type="button"
+				class="ql-indent"
+				value="+1"
+				aria-label="Increase indent"
+			></button>
+		</span>
+		<span class="ql-formats">
+			<select class="ql-align" aria-label="Alignment"></select>
+			<button type="button" class="ql-clean" aria-label="Clear formatting"></button>
+		</span>
+	</div>
+}
+
+templ errorPlaceholder() {
+	<div id="error" class="toast" role="alert" hidden></div>
+}
+
+templ errorToast(message string) {
+	<div id="error" class="toast" role="alert">
+		<span>{ message }</span>
+		<button type="button" data-on:click="el.parentElement.hidden = true">
+			Dismiss
+		</button>
+	</div>
+}
+
+// copyToast links the document [PageDoc.saveCopy] created.
+templ copyToast(id string) {
+	<div id="error" class="toast" role="alert">
+		<span>
+			Changes kept in this browser could not be merged.
+			<a href={ href.PageDoc(id) }>Open the copy</a>
+		</span>
+		<button type="button" data-on:click="el.parentElement.hidden = true">
+			Dismiss
+		</button>
+	</div>
+}
+
+// pageOffline shows the document at the address from the browser storage,
+// or lists the documents stored there. The editor tells which.
+templ pageOffline() {
+	<div
+		class="doc offline"
+		data-signals:_shown="''"
+		data-signals:_title="''"
+		data-signals:_stopped="''"
+		data-signals:_notice="''"
+	>
+		<header class="doc-header">
+			<a class="doc-logo" href={ href.PageIndex() } title="All documents">
+				@logo()
+			</a>
+			<div class="doc-meta">
+				<div class="doc-title" data-text="$_title"></div>
+				<div class="doc-status">Offline. Changes are saved in this browser.</div>
+			</div>
+			<button
+				type="button"
+				class="export"
+				title="Opens the print dialog, which saves the document as a PDF"
+				style="display: none"
+				data-show="$_shown === 'doc'"
+				data-on:click="window.print()"
+			>Save as PDF</button>
+		</header>
+		<div class="notice" role="alert" style="display: none" data-show="$_stopped">
+			<span data-text="$_stopped"></span>
+		</div>
+		<div class="offline-doc" style="display: none" data-show="$_shown === 'doc'">
+			@toolbar()
+			<main class="canvas">
+				<docs-editor
+					id="editor"
+					offline
+					image-prefix={ images.Prefix }
+					data-attr:url="window.location.pathname"
+					data-on:docs-offline="$_shown = evt.detail.shown; $_title = evt.detail.title"
+					data-on:docs-reconnect="window.location.reload()"
+					data-on:docs-state="$_stopped = evt.detail.stopped"
+					data-on:docs-notice="$_notice = evt.detail"
+				>
+					<div class="ql-container ql-snow">
+						<div class="ql-editor"></div>
+					</div>
+					@imageToolbar()
+				</docs-editor>
+			</main>
+		</div>
+		<main class="stored" style="display: none" data-show="$_shown === 'list'">
+			<h2>Documents saved in this browser</h2>
+			<docs-stored></docs-stored>
+		</main>
+		<div class="toast" role="alert" style="display: none" data-show="$_notice">
+			<span data-text="$_notice"></span>
+			<button type="button" data-on:click="$_notice = ''">Dismiss</button>
+		</div>
+	</div>
+}
+
+templ pageNotFound() {
+	<div>
+		<header class="topbar">
+			<a class="brand" href={ href.PageIndex() }>
+				@logo()
+				<span>Datapages Docs</span>
+			</a>
+		</header>
+		<main class="not-found">
+			<div class="not-found-code" aria-hidden="true">
+				<span>4</span>
+				@missingPageIcon()
+				<span>4</span>
+			</div>
+			<h1>Page not found</h1>
+			<p>The document may have been deleted, or the link is wrong.</p>
+			<a class="not-found-home" href={ href.PageIndex() }>Go to all documents</a>
+		</main>
+	</div>
+}
+
+// logo is the Datapages logo without the name.
+templ logo() {
+	<svg
+		class="logo"
+		viewBox="24 32 275 289"
+		width="38"
+		height="40"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M204.769 52.57l-7.136 2.57v166.98L64.905 270.073l-.571 8.278 139.864-50.808.571-174.972zm-14.842 5.139L64.334 103.093V261.51l7.137-2.57V108.8l117.884-42.528.572-8.563zm0 46.239l-66.222 23.692v112.463l5.709-2 1.427-106.466 58.801-19.696.285-7.993zm74.214-26.83l-52.236 18.839-.571 136.154-87.629 32.253v37.107l140.436-50.522V77.118z"
+		></path>
+	</svg>
+}
+
+templ plusIcon() {
+	<svg viewBox="0 0 48 48" width="64" height="64" aria-hidden="true">
+		<path fill="#4285f4" d="M22 10h4v12h12v4H26v12h-4V26H10v-4h12z"></path>
+	</svg>
+}
+
+templ trashIcon() {
+	<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+		<path
+			fill="currentColor"
+			d="M9 3h6l1 1h4v2H4V4h4zm-3 5h12l-1 13H7zm4 2v9h1.5v-9zm2.5 0v9H14v-9z"
+		></path>
+	</svg>
+}
+
+// missingPageIcon is a page with a folded corner under a magnifying glass.
+// The stylesheet colors its parts.
+templ missingPageIcon() {
+	<svg class="missing-page" viewBox="0 0 88 104" aria-hidden="true">
+		<path
+			class="sheet"
+			d="M10 4H52L70 22V96A4 4 0 0 1 66 100H10A4 4 0 0 1 6 96V8A4 4 0 0 1 10 4Z"
+		></path>
+		<path class="fold" d="M52 4V18A4 4 0 0 0 56 22H70Z"></path>
+		<rect class="line" x="16" y="34" width="44" height="5" rx="2.5"></rect>
+		<rect class="line" x="16" y="46" width="38" height="5" rx="2.5"></rect>
+		<rect class="line" x="16" y="58" width="44" height="5" rx="2.5"></rect>
+		<rect class="line" x="16" y="70" width="24" height="5" rx="2.5"></rect>
+		<circle class="lens" cx="58" cy="70" r="15"></circle>
+		<path class="handle" d="M69 81L80 92"></path>
+	</svg>
+}

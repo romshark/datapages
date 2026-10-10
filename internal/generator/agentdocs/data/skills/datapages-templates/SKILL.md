@@ -163,7 +163,7 @@ customElements.define("place-map", PlaceMap);
 - Give each attribute one source: the template or `data-attr`. A morph removes an attribute the server's HTML lacks, including one that `data-attr` set, unless `data-preserve-attr` lists it.
 - Add `data-ignore-morph` only when the script must build light DOM, for example for a library that does not work in a shadow root. A morph then skips the element and its attributes, when the old and the new element both carry `data-ignore-morph`. `data-attr` and `ExecuteScript` remain the ways down.
 - By default, an event that starts a request cancels the active request of the same element. Keep the default when only the latest event matters, such as a viewport. Add `action.WithRequestCancellation(action.RequestCancellationDisabled)` when every event must reach the server, such as an edit.
-- Bundle the scripts with esbuild into the assets directory and load them with `assets.Path`. A `custom-watchers` entry in `datapages.yaml` rebuilds them under `datapages watch`; see `datapages-server`. `datapages init --web-components typescript` scaffolds this setup. `example/webcomponents` and `example/docs` in the Datapages repository show it in full.
+- Bundle the scripts with esbuild into the assets directory and load them with `assets.Path`. A `custom-watchers` entry in `datapages.yaml` rebuilds them under `datapages watch`; see `datapages-server`. `datapages init --web-components typescript` scaffolds this setup. `example/webcomponents` and `example/docs` in the Datapages repository bundle their scripts this way.
 
 ## Syntax
 

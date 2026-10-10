@@ -1,0 +1,32 @@
+{
+  "title": "Letter",
+  "content": {
+    "ops": [
+      { "insert": "Your Name", "attributes": { "bold": true } },
+      { "insert": "\n" },
+      { "insert": "123 Your Street\n" },
+      { "insert": "Your City, ST 12345\n" },
+      { "insert": "(123) 456-7890\n" },
+      { "insert": "you@example.com\n" },
+      { "insert": "\n" },
+      { "insert": "Month Day, Year\n" },
+      { "insert": "\n" },
+      { "insert": "Recipient Name\n" },
+      { "insert": "Title, Company Name\n" },
+      { "insert": "123 Their Street\n" },
+      { "insert": "Their City, ST 12345\n" },
+      { "insert": "\n" },
+      { "insert": "Dear Recipient Name,\n" },
+      { "insert": "\n" },
+      { "insert": "Open with why you are writing, in one or two sentences.\n" },
+      { "insert": "\n" },
+      { "insert": "Give the details in the middle paragraphs: what happened, what you need and by when.\n" },
+      { "insert": "\n" },
+      { "insert": "Close with the next step you expect and how the reader can reach you.\n" },
+      { "insert": "\n" },
+      { "insert": "Sincerely,\n" },
+      { "insert": "\n" },
+      { "insert": "Your Name\n" }
+    ]
+  }
+}

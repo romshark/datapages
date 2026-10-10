@@ -42,6 +42,8 @@ jobs:
             name: "fast-shim"
           - path: "example/file-upload"
             name: "file-upload"
+          - path: "example/docs"
+            name: "docs"
     steps:
       - uses: actions/checkout@v7
         with:

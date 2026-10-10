@@ -1,0 +1,37 @@
+{
+  "title": "Travel journal",
+  "content": {
+    "ops": [
+      { "insert": "Travel journal" },
+      { "insert": "\n", "attributes": { "header": 1 } },
+      { "insert": "Destination, Month 20XX", "attributes": { "italic": true } },
+      { "insert": "\n" },
+      { "insert": "\n" },
+      { "insert": { "image": "travel.jpg" }, "attributes": { "width": "75%" } },
+      { "insert": "\n", "attributes": { "align": "center" } },
+      { "insert": "Click the picture to resize it, or replace it with your own.", "attributes": { "italic": true } },
+      { "insert": "\n", "attributes": { "align": "center" } },
+      { "insert": "\n" },
+      { "insert": "Day 1" },
+      { "insert": "\n", "attributes": { "header": 2 } },
+      { "insert": "Where you went, what you saw and who you met.\n" },
+      { "insert": "\n" },
+      { "insert": "Day 2" },
+      { "insert": "\n", "attributes": { "header": 2 } },
+      { "insert": "Write while the day is still fresh: the smells, the sounds, the small surprises.\n" },
+      { "insert": "\n" },
+      { "insert": "Highlights" },
+      { "insert": "\n", "attributes": { "header": 2 } },
+      { "insert": "The best meal" },
+      { "insert": "\n", "attributes": { "list": "bullet" } },
+      { "insert": "The best view" },
+      { "insert": "\n", "attributes": { "list": "bullet" } },
+      { "insert": "The best conversation" },
+      { "insert": "\n", "attributes": { "list": "bullet" } },
+      { "insert": "\n" },
+      { "insert": "Next time" },
+      { "insert": "\n", "attributes": { "header": 2 } },
+      { "insert": "What you would do differently, and where you want to go next.\n" }
+    ]
+  }
+}

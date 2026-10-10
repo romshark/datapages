@@ -40,6 +40,8 @@ jobs:
             name: "example/fast-shim"
           - path: "example/file-upload"
             name: "example/file-upload"
+          - path: "example/docs"
+            name: "example/docs"
     steps:
       - uses: actions/setup-go@v7
         with:
