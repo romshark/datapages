@@ -405,7 +405,10 @@ type File struct {
 	//
 	// Body must seek: [http.ServeContent] reads its size and serves ranges
 	// from it. A stream, such as the body of an [http.Response], has to be
-	// copied into memory or a temporary file first.
+	// copied into memory or a temporary file first. A Body that fails to seek
+	// returns HTTP 500, and a directory, as an [os.Root] opens for the path of
+	// one, returns HTTP 404. A Read error after the status ends the response
+	// early, and nothing reports it.
 	Body io.ReadSeekCloser
 
 	// ModTime sets [Last-Modified] and enables [If-Modified-Since] handling.
