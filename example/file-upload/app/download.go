@@ -2,96 +2,69 @@ package app
 
 import (
 	"errors"
-	"mime"
+	"fmt"
+	"io"
 	"net/http"
-	"strings"
+	"time"
 
-	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/assets"
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/file-upload/store"
 	"github.com/romshark/datapages/example/file-upload/throttle"
 )
 
-// DownloadPrefix is where a completed upload is served. It sits below the
-// asset prefix because the generated href package has builders for pages and
-// assets only. The templates build the link with href.Asset, and the link and
-// this constant both begin with the asset prefix the app declares, which keeps
-// them in agreement when the prefix changes. datapages lint does not check the link:
-// it checks the href of an <a> element only, and the templates pass the link
-// as a component property and in data-href.
-const DownloadPrefix = assets.URLPrefix + "files/"
-
-// Downloads serves the blob of a completed file. It's middleware because a
-// page renders a component and cannot write bytes, and not an asset file
-// system because a handler is where the response headers, the download limit and,
-// in an application that has visitors, the authorization check belong.
+// GETFile is /files/{id}
+//
+// Serves the blob of a completed file, paced by the download limit.
 //
 // This example authenticates nobody: every uploaded file is readable by
 // whoever knows its 128 bit identifier.
-func Downloads(a *App) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			id, ok := strings.CutPrefix(r.URL.Path, DownloadPrefix)
-			if !ok {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if r.Method != http.MethodGet && r.Method != http.MethodHead {
-				w.Header().Set("Allow", "GET, HEAD")
-				http.Error(w, http.StatusText(http.StatusMethodNotAllowed),
-					http.StatusMethodNotAllowed)
-				return
-			}
-			serveBlob(w, r, a, id)
-		})
-	}
-}
-
-func serveBlob(w http.ResponseWriter, r *http.Request, a *App, id string) {
+func (a *App) GETFile(
+	r *http.Request,
+	path datapages.Path[struct {
+		ID string `path:"id"`
+	}],
+) (datapages.File, error) {
 	// The identifier never reaches a path: the store looks it up and answers
 	// with the blob it minted the name of.
-	f, err := a.files.Get(id)
+	f, err := a.files.Get(path.Values.ID)
 	if err != nil {
-		httpErr(w, err)
-		return
+		return datapages.File{}, downloadErr(err)
 	}
-	blob, err := a.files.Open(id)
+	blob, err := a.files.Open(path.Values.ID)
 	if err != nil {
-		httpErr(w, err)
-		return
+		return datapages.File{}, downloadErr(err)
 	}
-	defer func() { _ = blob.Close() }()
 	info, err := blob.Stat()
 	if err != nil {
-		http.Error(w, http.StatusText(http.StatusInternalServerError),
-			http.StatusInternalServerError)
-		return
+		return datapages.File{}, errors.Join(err, blob.Close())
 	}
-
-	// The type is what the browser reported on upload: the blob is named after
-	// the identifier and carries no extension to sniff.
-	w.Header().Set("Content-Type", f.ContentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType(
-		"attachment", map[string]string{"filename": f.Name},
-	))
-	// The bytes under one identifier never change,
-	// and a deleted file takes its identifier with it.
-	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-	// ServeContent writes what it reads,
-	// which is why pacing the reader paces the response.
-	// It also rules out sendfile, which would hand the file to the
-	// kernel and leave nothing to pace.
-	http.ServeContent(w, r, "", info.ModTime(),
-		throttle.ReadSeeker(r.Context(), blob, a.download))
+	return datapages.File{
+		// The type is what the browser reported on upload: the blob is named
+		// after the identifier and carries no extension to sniff.
+		Type: f.ContentType,
+		// ServeContent writes what it reads, which is why pacing the reader
+		// paces the response. It also rules out sendfile, which would hand the
+		// file to the kernel and leave nothing to pace.
+		// The paced reader has no Close. The blob's is what closes it.
+		Body: struct {
+			io.ReadSeeker
+			io.Closer
+		}{throttle.ReadSeeker(r.Context(), blob, a.download), blob},
+		ModTime: info.ModTime(),
+		// The bytes under one identifier never change,
+		// and a deleted file takes its identifier with it.
+		Cache: datapages.FileCache{
+			Private: true, MaxAge: 365 * 24 * time.Hour, Immutable: true,
+		},
+		Disposition: datapages.FileDisposition{Download: true, Filename: f.Name},
+	}, nil
 }
 
-// httpErr answers a download that has nothing to serve. An incomplete file is
-// a 404 rather than a 409: the URL starts working once the bytes are there.
-func httpErr(w http.ResponseWriter, err error) {
+// downloadErr reports a file that has nothing to serve as a 404. An incomplete
+// file is a 404 rather than a 409: the URL starts working once the bytes are there.
+func downloadErr(err error) error {
 	if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrIncomplete) {
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-		return
+		return fmt.Errorf("%w: %w", datapages.ErrNotFound, err)
 	}
-	http.Error(w, http.StatusText(http.StatusInternalServerError),
-		http.StatusInternalServerError)
+	return err
 }

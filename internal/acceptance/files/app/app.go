@@ -24,7 +24,8 @@ var ModTime = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 // a file must never reach it, a Datastar request included.
 func (*App) RecoverError(err error, sse datapages.SSE) error {
 	return sse.PatchElement(templ.Raw(
-		`<p id="recovered">` + html.EscapeString(err.Error()) + `</p>`))
+		`<p id="recovered">` + html.EscapeString(err.Error()) + `</p>`,
+	))
 }
 
 // PageIndex is /
@@ -48,6 +49,11 @@ func (PageError500) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<p id="page">internal error</p>`), nil
 }
 
+// memBody is a File body held in memory, which has nothing to close.
+type memBody struct{ *strings.Reader }
+
+func (memBody) Close() error { return nil }
+
 // GETFile is /files/{name}
 //
 // Serves the name back as text. The query selects a failure.
@@ -69,16 +75,19 @@ func (*App) GETFile(
 	case "panic":
 		panic("the handler panicked")
 	case "type":
-		return datapages.File{Body: strings.NewReader("no type")}, nil
+		return datapages.File{Body: memBody{strings.NewReader("no type")}}, nil
 	}
 	f := datapages.File{
-		Type:         "text/plain; charset=utf-8",
-		Body:         strings.NewReader("content of " + path.Values.Name),
-		ModTime:      ModTime,
-		CacheControl: "public, max-age=60",
+		Type:    "text/plain; charset=utf-8",
+		Body:    memBody{strings.NewReader("content of " + path.Values.Name)},
+		ModTime: ModTime,
+		Cache:   datapages.FileCache{MaxAge: time.Minute},
 	}
 	if query.Values.Download {
-		f.Filename = path.Values.Name
+		f.Disposition = datapages.FileDisposition{
+			Download: true,
+			Filename: path.Values.Name,
+		}
 	}
 	return f, nil
 }
@@ -96,7 +105,7 @@ func (*App) POSTUpper(r *http.Request) (datapages.File, error) {
 	}
 	return datapages.File{
 		Type: "text/plain; charset=utf-8",
-		Body: strings.NewReader(strings.ToUpper(string(b))),
+		Body: memBody{strings.NewReader(strings.ToUpper(string(b)))},
 	}, nil
 }
 
@@ -121,6 +130,6 @@ func (PageDoc) GETExport(
 ) (datapages.File, error) {
 	return datapages.File{
 		Type: "text/plain; charset=utf-8",
-		Body: strings.NewReader("export of " + path.Values.ID),
+		Body: memBody{strings.NewReader("export of " + path.Values.ID)},
 	}, nil
 }

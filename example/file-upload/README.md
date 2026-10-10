@@ -118,13 +118,11 @@ Which tab is sending a file is not per-tab state: two tabs must not send the sam
 
 ### Downloads
 
-A page renders a component and cannot write bytes, hence the blob of a completed file is served by middleware: `app/download.go` answers `/static/files/<id>` from the store and passes everything else to the router.
+`App.GETFile` in `app/download.go` serves the blob of a completed file at `/files/<id>`, the route `PageIndex.DELETEFile` deletes it at. It returns a `datapages.File` with the type the browser reported on upload and the name of the file, which makes the browser save it rather than show it. The template builds the link with `href.App.File(id)`. A file still receiving bytes answers 404: the URL starts working once the bytes are there.
 
-The route sits below the URL prefix the app declared for its assets, which lets the template build the link with `href.Asset("files/"+id)` from the generated `href` package. The link and `DownloadPrefix` are both derived from that prefix. Nothing checks that the link was not written by hand: `datapages lint` checks the `href` of an `<a>` element only, and the template passes the link as a property of `neo.Link` and in the `data-href` of a menu item. `href.External` logs no warning for it either, since it accepts every URL under the asset prefix.
+Serving the blobs through `datapages.WithAssetsFS` would work too, but the asset route is file serving and nothing else: it has no handler to check a session in, sets no `Content-Disposition`, and replaces the embedded serving of `WithAssets` including its dev-mode reads from disk.
 
-Serving the blobs through `datapages.WithAssetsFS` instead would work and needs no middleware, but the asset route is file serving and nothing else: it has no handler to check a session in, sets no `Content-Disposition`, and replaces the embedded serving of `WithAssets` including its dev-mode reads from disk. The handler here sets the type the browser reported on upload, names the file in the response and is where an authorization check would go.
-
-Every uploaded file is readable by whoever knows its 128 bit identifier. This example authenticates nobody. An application with visitors would read the session in that handler and would limit what one visitor may store.
+Every uploaded file is readable by whoever knows its 128 bit identifier. This example authenticates nobody. An application with visitors would take the session in `GETFile` and would limit what one visitor may store.
 
 ### Interaction flow
 
@@ -159,6 +157,6 @@ sequenceDiagram
 
     Note over U,S: Pause refuses further chunks and only the owning tab may ask,<br/>Resume answers with the offset to continue at
 
-    B->>S: GET /static/files/{id}
+    B->>S: GET /files/{id}
     S->>B: The completed blob
 ```

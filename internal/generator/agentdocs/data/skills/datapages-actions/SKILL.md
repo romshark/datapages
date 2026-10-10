@@ -84,6 +84,14 @@ Any action may return `datapages.File`. The file is the complete response, so it
 may be accompanied only by `error`, which is optional. A file action cannot take
 `datapages.SSE` or `datapages.PageCacheWriter`.
 
+`Body` is an `io.ReadSeekCloser`, which Datapages closes after serving. Content held in memory needs a `Close` that does nothing: a `bytes.Reader` has none, and `io.NopCloser` drops `Seek`.
+
+```go
+type memBody struct{ *bytes.Reader }
+
+func (memBody) Close() error { return nil }
+```
+
 Do not use `datapages.File` to render application HTML. Return HTML as a Templ
 `datapages.Component`. File bytes bypass Templ's contextual escaping and the
 Datapages template linter.

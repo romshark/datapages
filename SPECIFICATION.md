@@ -778,9 +778,15 @@ file datapages.File
 
 Application HTML must be returned as a Templ `datapages.Component`. HTML in a `datapages.File` bypasses Templ's contextual escaping and the Datapages template lint checks.
 
-`Type` sets `Content-Type`. `Body` provides the content. Both are required; omitting either produces 500. `CacheControl` sets `Cache-Control`. `Filename` sets `Content-Disposition: attachment` with the given name. Datapages closes `Body` after serving when it implements `io.Closer`.
+`Type` sets `Content-Type`. `Body` provides the content. Both are required; omitting either produces 500. `Cache` sets `Cache-Control` from `MaxAge`, `Immutable`, `Private`, `NoCache` and `NoStore`, or from `Raw` as written; fields that exclude each other produce 500. `Disposition` sets `Content-Disposition`: `Download` makes the browser save the response instead of showing it, and `Filename` is the name it saves it under. Datapages closes `Body` after serving. Content held in memory needs a `Close` that does nothing: a `bytes.Reader` has none, and `io.NopCloser` drops `Seek`.
 
-[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. Every response includes `X-Content-Type-Options: nosniff`.
+```go
+type memBody struct{ *bytes.Reader }
+
+func (memBody) Close() error { return nil }
+```
+
+[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong entity tag, which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. An `ETag` containing a quote, a space or a control character produces 500. Every response includes `X-Content-Type-Options: nosniff`.
 
 An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with `Sec-Fetch-Dest: document`, status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. Requests from an `img` element or `fetch` therefore receive the error response, not an event stream.
 

@@ -347,38 +347,137 @@ type Redirect struct {
 //		return datapages.File{Type: contentType, Body: f}, nil
 //	}
 //
-// Errors return their status code and text. Document requests, such as links
-// opened in a tab, render PageError404 or PageError500 instead.
+// Errors return their status code and text. [Document requests],
+// such as links opened in a tab, render PageError404 or PageError500 instead.
 //
-// [net/http.ServeContent] serves the body and handles HEAD, Range and
-// If-Modified-Since requests.
+// [net/http.ServeContent] serves the body. It handles [HEAD] and [Range] requests,
+// and with ModTime or ETag the conditional requests
+// [If-Modified-Since], [If-None-Match], [If-Match] and [If-Range].
 //
 // Do not use File to render application HTML. Return a [Component] so Templ
-// can escape values for their HTML context and datapages lint can check the
-// markup.
+// can escape values for their HTML context and datapages lint can check the markup.
 //
-// Every response includes "X-Content-Type-Options: nosniff" to disable MIME sniffing.
-// Without it, a browser can run a text/plain response as a script or render
-// an invalid MIME type as HTML. Either case lets an uploaded file run
-// script on the application's origin.
+// Every response sets [X-Content-Type-Options] to nosniff, which disables
+// [MIME sniffing]. Without it, a browser can run a text/plain response as
+// a script or render an invalid MIME type as HTML.
+// Either case lets an uploaded file run script on the application's origin.
+//
+// [Document requests]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest
+// [HEAD]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/HEAD
+// [Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Range
+// [If-Modified-Since]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Modified-Since
+// [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
+// [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
+// [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+// [X-Content-Type-Options]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options
+// [MIME sniffing]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types#mime_sniffing
 type File struct {
-	// Type sets Content-Type. An empty Type returns HTTP 500 rather than
+	// Type sets [Content-Type]. An empty Type returns HTTP 500 rather than
 	// letting the browser infer a type, which could be HTML.
+	//
+	// [Content-Type]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type
 	Type string
 
-	// Body is the response content. Datapages closes it after serving when it
-	// implements [io.Closer]. A nil Body returns HTTP 500.
-	Body io.ReadSeeker
+	// Body is the response content, which Datapages closes after serving.
+	// Content held in memory needs a Close that does nothing: a [bytes.Reader]
+	// has none, and [io.NopCloser] drops Seek. A nil Body returns HTTP 500.
+	Body io.ReadSeekCloser
 
-	// ModTime sets Last-Modified and enables If-Modified-Since handling.
+	// ModTime sets [Last-Modified] and enables [If-Modified-Since] handling.
 	// The zero value omits Last-Modified.
+	//
+	// [Last-Modified]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Last-Modified
+	// [If-Modified-Since]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Modified-Since
 	ModTime time.Time
 
-	// CacheControl sets Cache-Control. Empty omits the header.
-	CacheControl string
+	// ETag sets the [entity tag] of the body, which answers [If-None-Match],
+	// [If-Match] and [If-Range] requests. Datapages quotes it: set the tag alone,
+	// such as a hash of the content. It's a strong validator, which two bodies
+	// share only when their bytes are equal. A tag with a quote, a space or
+	// a control character returns HTTP 500. Empty omits the header.
+	//
+	// [entity tag]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/ETag
+	// [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
+	// [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
+	// [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+	ETag string
 
-	// Filename makes the browser download the response under this name by
-	// setting Content-Disposition to attachment. Empty omits the header.
+	// Cache sets [Cache-Control]. The zero value omits the header.
+	//
+	// [Cache-Control]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
+	Cache FileCache
+
+	// Disposition sets [Content-Disposition]. The zero value omits the header,
+	// which lets the browser show the response.
+	//
+	// [Content-Disposition]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition
+	Disposition FileDisposition
+}
+
+// FileCache is the [Cache-Control] header of a [File]. Its zero value sends no header.
+// Fields that exclude each other return HTTP 500:
+//
+//	datapages.FileCache{MaxAge: time.Hour, Immutable: true} // max-age=3600, immutable
+//	datapages.FileCache{NoStore: true, MaxAge: time.Hour}   // HTTP 500: NoStore excludes MaxAge
+//
+// [Cache-Control]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
+type FileCache struct {
+	// MaxAge sets [max-age]: how long a cache may reuse the response without
+	// asking again, in whole seconds. Zero omits it, and NoCache makes every
+	// reuse ask again. A negative MaxAge or one under a second returns HTTP 500.
+	//
+	// [max-age]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#max-age
+	MaxAge time.Duration
+
+	// Immutable sets [immutable], which keeps a reload from revalidating
+	// a fresh response. It requires a positive MaxAge and excludes NoCache.
+	//
+	// [immutable]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#immutable
+	Immutable bool
+
+	// Private sets [private], which keeps the response out of shared caches,
+	// such as a CDN.
+	//
+	// [private]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#private
+	Private bool
+
+	// NoCache sets [no-cache], which makes a cache revalidate the response
+	// before every reuse. An ETag or a ModTime lets the server answer with 304.
+	//
+	// [no-cache]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-cache
+	NoCache bool
+
+	// NoStore sets [no-store], which keeps the response out of every cache.
+	// It excludes the other fields.
+	//
+	// [no-store]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#no-store
+	NoStore bool
+
+	// Raw is the header as written, for directives the other fields don't cover,
+	// such as [s-maxage]. It excludes the other fields.
+	//
+	// [s-maxage]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#s-maxage
+	Raw string
+}
+
+// FileDisposition is the [Content-Disposition] header of a [File]. Its zero value
+// sends no header, which the browser treats as inline: it shows the response.
+//
+// [Content-Disposition]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition
+type FileDisposition struct {
+	// Download sends [attachment], which makes the browser save the response
+	// instead of showing it. Without Download, a Filename is sent as [inline],
+	// which shows the response. A type the browser cannot show is saved either way.
+	//
+	// [attachment]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition#as_a_response_header_for_the_main_body
+	// [inline]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition#as_a_response_header_for_the_main_body
+	Download bool
+
+	// Filename is the name the browser saves the response under,
+	// sent as the [filename] parameter.
+	// Empty leaves the browser to take the name from the URL.
+	//
+	// [filename]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition#filename
 	Filename string
 }
 

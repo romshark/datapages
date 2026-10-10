@@ -156,6 +156,21 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+// recoverPanicFile is recoverPanic for a handler that answers with a file.
+func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFile(w, r, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -420,6 +435,9 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
+		"GET /files/{id}/{$}",
+		appHandlers{s}.GETFile)
+	s.Mux().HandleFunc(
 		"DELETE /files/{id}/{$}",
 		pageIndexHandlers{s}.DELETEFile)
 	s.Mux().HandleFunc(
@@ -473,6 +491,35 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+}
+
+func (s *Server) httpErrFile(
+	w http.ResponseWriter, _ *http.Request, msg string, err error,
+) {
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+type appHandlers struct{ *Server }
+
+func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		ID string `path:"id"`
+	}]
+	path.Values.ID = r.PathValue("id")
+	defer s.recoverPanicFile(w, r, "App.File")
+	file, err := s.app.GETFile(r, path)
+	if err != nil {
+		s.httpErrFile(w, r, "handling action App.File", err)
+		return
+	}
+	if err := httpserve.ServeFile(w, r, file); err != nil {
+		s.httpErrFile(w, r, "serving the file of action App.File", err)
+	}
 }
 
 type pageIndexHandlers struct{ *Server }

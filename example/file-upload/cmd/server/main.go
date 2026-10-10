@@ -41,10 +41,7 @@ func main() {
 		datapagesgen.Server,
 	](a, msgBroker,
 		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithMiddleware(
-			app.Downloads(a),
-			app.ChunkDeadline(app.ChunkIdleTimeout),
-		),
+		datapages.WithMiddleware(app.ChunkDeadline(app.ChunkIdleTimeout)),
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

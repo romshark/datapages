@@ -48,7 +48,7 @@ func TestFile(t *testing.T) {
 	require.Equal(t, "content of a.txt", resp.Body)
 	require.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
 	require.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"))
-	require.Equal(t, "public, max-age=60", resp.Header.Get("Cache-Control"))
+	require.Equal(t, "max-age=60", resp.Header.Get("Cache-Control"))
 	require.Equal(t,
 		app.ModTime.Format(http.TimeFormat),
 		resp.Header.Get("Last-Modified"))
@@ -123,8 +123,8 @@ func TestFileConditional(t *testing.T) {
 	}
 }
 
-// TestFileDownload tests a File with a Filename,
-// which the browser saves instead of showing.
+// TestFileDownload tests a File whose Disposition makes the browser save it
+// under its name instead of showing it.
 func TestFileDownload(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)

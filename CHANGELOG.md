@@ -13,8 +13,7 @@ Releases up to v0.10.0 have their notes on
 #### `datapages lint` and `datapages gen`
 
 - Accept `QUERYXXX` actions for the `QUERY` method of RFC 10008, which Datastar 1.0.4 sends with `@query`. Declare one on a page or on `App`, as in `// QUERYSearch is /search`, and build its expression with the `action` package, as in `action.PageIndex.Search.QUERY()`. Datastar sends the signals in the request body.
-- Accept `GETXXX` actions, which answer `GET` with a file such as an image or a download. Declare one on a page or on `App`, as in `// GETImage is /images/{name}`, and return a `datapages.File`. A GET action takes `*http.Request`, the session, `datapages.Path` and `datapages.Query`. It runs no cross-origin or CSRF check and must not change server state. Build its URL with the `href` package: `href.App.Image(name)` for `(*App).GETImage`, `href.PageDoc.Export(id)` for `PageDoc.GETExport`.
-- Accept `datapages.File` as the return value of any action, to answer with bytes instead of a document. Return it alone or with `error`. `net/http.ServeContent` serves it, which answers `HEAD`, `Range` and `If-Modified-Since`, and the response carries `X-Content-Type-Options: nosniff`. An error answers with its status and the status text. Only a request with `Sec-Fetch-Dest: document`, such as a link opened in a tab, gets `PageError404` or `PageError500`.
+- Serve files from generated handlers with `datapages.File`. Any action may return one; a read-only `GETXXX` action also gets a generated `href` builder. Applications previously needed custom middleware or a separate `net/http` handler and had to maintain its route and URL by hand.
 
 #### Runtime and modules
 

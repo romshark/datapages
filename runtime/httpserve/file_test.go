@@ -39,16 +39,16 @@ func TestServeFile(t *testing.T) {
 
 	body := &closingReader{Reader: strings.NewReader("png bytes")}
 	w := serveFile(t, httptest.NewRequest(http.MethodGet, "/", nil), datapages.File{
-		Type:         "image/png",
-		Body:         body,
-		ModTime:      time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
-		CacheControl: "public, max-age=60",
+		Type:    "image/png",
+		Body:    body,
+		ModTime: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		Cache:   datapages.FileCache{MaxAge: time.Minute},
 	})
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, "png bytes", w.Body.String())
 	require.Equal(t, "image/png", w.Header().Get("Content-Type"))
 	require.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
-	require.Equal(t, "public, max-age=60", w.Header().Get("Cache-Control"))
+	require.Equal(t, "max-age=60", w.Header().Get("Cache-Control"))
 	require.Equal(t, "Fri, 02 Jan 2026 03:04:05 GMT", w.Header().Get("Last-Modified"))
 	require.Empty(t, w.Header().Get("Content-Disposition"))
 	require.True(t, body.closed)
@@ -89,7 +89,9 @@ func TestServeFileRequests(t *testing.T) {
 				r.Header.Set(tc.header, tc.value)
 			}
 			w := serveFile(t, r, datapages.File{
-				Type: "text/plain", Body: strings.NewReader("abcdef"), ModTime: modTime,
+				Type:    "text/plain",
+				Body:    &closingReader{Reader: strings.NewReader("abcdef")},
+				ModTime: modTime,
 			})
 			require.Equal(t, tc.wantCode, w.Code)
 			require.Equal(t, tc.wantBody, w.Body.String())
@@ -97,53 +99,225 @@ func TestServeFileRequests(t *testing.T) {
 	}
 }
 
-// TestServeFileFilename tests that a Filename turns the response into a
-// download, a name with characters outside ASCII included.
-func TestServeFileFilename(t *testing.T) {
+// TestServeFileDisposition tests the Content-Disposition a FileDisposition sets:
+// a download or a response the browser shows, with a name or without,
+// a name with characters outside ASCII included.
+func TestServeFileDisposition(t *testing.T) {
 	t.Parallel()
 
-	for filename, want := range map[string]string{
-		"report.pdf":  "attachment; filename=report.pdf",
-		"my file.pdf": `attachment; filename="my file.pdf"`,
-		"résumé.pdf":  "attachment; filename*=utf-8''r%C3%A9sum%C3%A9.pdf",
+	for name, tc := range map[string]struct {
+		datapages.FileDisposition
+		want string
+	}{
+		"zero": {},
+		"download": {
+			Download: true,
+			want:     "attachment",
+		},
+		"download with name": {
+			Download: true,
+			Filename: "report.pdf",
+			want:     "attachment; filename=report.pdf",
+		},
+		"shown with name": {
+			Filename: "report.pdf",
+			want:     "inline; filename=report.pdf",
+		},
+		"space": {
+			Download: true,
+			Filename: "my file.pdf",
+			want:     `attachment; filename="my file.pdf"`,
+		},
+		"non-ascii": {
+			Download: true,
+			Filename: "résumé.pdf",
+			want:     "attachment; filename*=utf-8''r%C3%A9sum%C3%A9.pdf",
+		},
 	} {
-		t.Run(filename, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			w := serveFile(t,
 				httptest.NewRequest(http.MethodGet, "/", nil), datapages.File{
-					Type:     "application/pdf",
-					Body:     strings.NewReader("%PDF"),
-					Filename: filename,
+					Type:        "application/pdf",
+					Body:        &closingReader{Reader: strings.NewReader("%PDF")},
+					Disposition: tc.FileDisposition,
 				})
-			require.Equal(t, want, w.Header().Get("Content-Disposition"))
+			require.Equal(t, tc.want, w.Header().Get("Content-Disposition"))
 		})
 	}
 }
 
-// TestServeFileIncomplete tests that a File without a Body or a Type is
-// refused before anything is written, and that its Body is closed anyway.
-func TestServeFileIncomplete(t *testing.T) {
+// TestServeFileCache tests the Cache-Control a FileCache sets, and that
+// fields which exclude each other are refused before anything is written.
+func TestServeFileCache(t *testing.T) {
+	t.Parallel()
+
+	year := 365 * 24 * time.Hour
+	for name, tc := range map[string]struct {
+		datapages.FileCache
+		want    string
+		wantErr bool
+	}{
+		"zero": {},
+		"max age": {
+			MaxAge: time.Hour,
+			want:   "max-age=3600",
+		},
+		"truncated": {
+			MaxAge: 1500 * time.Millisecond,
+			want:   "max-age=1",
+		},
+		"immutable": {
+			Private:   true,
+			MaxAge:    year,
+			Immutable: true,
+			want:      "private, max-age=31536000, immutable",
+		},
+		"no-cache": {
+			Private: true,
+			NoCache: true,
+			want:    "private, no-cache",
+		},
+		"no-store": {
+			NoStore: true,
+			want:    "no-store",
+		},
+		"raw": {
+			Raw:  "public, s-maxage=600",
+			want: "public, s-maxage=600",
+		},
+		"negative": {
+			MaxAge:  -time.Second,
+			wantErr: true,
+		},
+		"under 1s": {
+			MaxAge:  time.Millisecond,
+			wantErr: true,
+		},
+		"immutable without max age": {
+			Immutable: true,
+			wantErr:   true,
+		},
+		"immutable with no-cache": {
+			MaxAge:    year,
+			Immutable: true,
+			NoCache:   true,
+			wantErr:   true,
+		},
+		"no-store with max age": {
+			NoStore: true,
+			MaxAge:  time.Hour,
+			wantErr: true,
+		},
+		"raw with private": {
+			Raw:     "no-cache",
+			Private: true,
+			wantErr: true,
+		},
+		"raw with no-store": {
+			Raw:     "no-cache",
+			NoStore: true,
+			wantErr: true,
+		},
+		"raw with newline": {
+			Raw:     "no-cache\r\nX-Injected: 1",
+			wantErr: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := &closingReader{Reader: strings.NewReader("x")}
+			w := httptest.NewRecorder()
+			err := httpserve.ServeFile(w, httptest.NewRequest(http.MethodGet, "/", nil),
+				datapages.File{Type: "text/plain", Body: body, Cache: tc.FileCache})
+			require.True(t, body.closed)
+			if tc.wantErr {
+				require.ErrorIs(t, err, httpserve.ErrFileInvalidCache)
+				require.Empty(t, w.Header())
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, w.Header().Get("Cache-Control"))
+		})
+	}
+}
+
+// TestServeFileETag tests the ETag a File sets, quoted, and the conditional
+// requests net/http.ServeContent answers with it.
+func TestServeFileETag(t *testing.T) {
 	t.Parallel()
 
 	for name, tc := range map[string]struct {
-		file datapages.File
+		header   map[string]string
+		wantCode int
+		wantBody string
+	}{
+		"unconditional":       {nil, http.StatusOK, "abcdef"},
+		"if-none-match":       {map[string]string{"If-None-Match": `"v1"`}, http.StatusNotModified, ""},
+		"if-none-match other": {map[string]string{"If-None-Match": `"v2"`}, http.StatusOK, "abcdef"},
+		"if-match other":      {map[string]string{"If-Match": `"v2"`}, http.StatusPreconditionFailed, ""},
+		"if-range": {
+			map[string]string{"Range": "bytes=0-1", "If-Range": `"v1"`},
+			http.StatusPartialContent, "ab",
+		},
+		"if-range other": {
+			map[string]string{"Range": "bytes=0-1", "If-Range": `"v2"`},
+			http.StatusOK, "abcdef",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			for k, v := range tc.header {
+				r.Header.Set(k, v)
+			}
+			w := serveFile(t, r, datapages.File{
+				Type: "text/plain",
+				Body: &closingReader{Reader: strings.NewReader("abcdef")},
+				ETag: "v1",
+			})
+			require.Equal(t, `"v1"`, w.Header().Get("ETag"))
+			require.Equal(t, tc.wantCode, w.Code)
+			require.Equal(t, tc.wantBody, w.Body.String())
+		})
+	}
+}
+
+// TestServeFileRefused tests that a File without a Body or a Type, or with an
+// ETag that cannot stand between quotes, is refused before anything is
+// written, and that its Body is closed anyway.
+func TestServeFileRefused(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		datapages.File
 		want error
 	}{
 		"no body": {datapages.File{Type: "text/plain"}, httpserve.ErrFileNoBody},
 		"no type": {
-			datapages.File{Body: &closingReader{Reader: strings.NewReader("x")}},
-			httpserve.ErrFileNoType,
+			Body: &closingReader{Reader: strings.NewReader("x")},
+			want: httpserve.ErrFileNoType,
+		},
+		"quoted etag": {
+			Type: "text/plain", ETag: `"v1"`,
+			Body: &closingReader{Reader: strings.NewReader("x")},
+			want: httpserve.ErrFileInvalidETag,
+		},
+		"etag with space": {
+			Type: "text/plain", ETag: "v 1",
+			Body: &closingReader{Reader: strings.NewReader("x")},
+			want: httpserve.ErrFileInvalidETag,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
 			err := httpserve.ServeFile(w,
-				httptest.NewRequest(http.MethodGet, "/", nil), tc.file)
+				httptest.NewRequest(http.MethodGet, "/", nil), tc.File)
 			require.ErrorIs(t, err, tc.want)
 			require.Empty(t, w.Header())
 			require.Zero(t, w.Body.Len())
-			if c, ok := tc.file.Body.(*closingReader); ok {
+			if c, ok := tc.File.Body.(*closingReader); ok {
 				require.True(t, c.closed)
 			}
 		})
