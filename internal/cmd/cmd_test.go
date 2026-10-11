@@ -228,8 +228,8 @@ func setupProject(t *testing.T, appGoFile string) string {
 	return dir
 }
 
-// setupMultiappProject writes a module that builds two applications whose
-// events claim one subject, and chdirs into it.
+// setupMultiappProject writes a module that builds 2 applications whose
+// events claim the same subject, and chdirs into it.
 //
 // The generated packages are stubbed so that "go mod tidy" resolves the
 // imports of the entry point. They carry the generated header,
@@ -330,7 +330,7 @@ func main() {}
 }
 
 // TestLintSubjectAcrossApps tests the subject rule between the applications of
-// one module. Each app package is parsed on its own, so a subject two of them
+// 1 module. Each app package is parsed on its own, so a subject 2 of them
 // claim is only visible to a check that has every model of the module in hand.
 func TestLintSubjectAcrossApps(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -946,7 +946,7 @@ func chdirTemp(t *testing.T, dir string) {
 }
 
 // repoRootDir returns the absolute path of this repository's root.
-// Tests run in internal/cmd. The root is two levels up.
+// Tests run in internal/cmd. The root is 2 levels up.
 func repoRootDir(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -982,7 +982,7 @@ func writeLocalWorkspace(t *testing.T, dir, repoRoot string) {
 // workspaceGoVersion returns the go directive to put in the generated workspace:
 // the higher of the datapages module's own directive and the toolchain's version.
 // A workspace may not declare an older version than any module it uses,
-// and the two it uses here are this repository and the scaffolded project,
+// and the 2 it uses here are this repository and the scaffolded project,
 // which "go mod init" stamps with the toolchain's version.
 func workspaceGoVersion(t *testing.T, repoRoot string) string {
 	t.Helper()
@@ -1588,7 +1588,7 @@ func TestInitPinsTheDatapagesModule(t *testing.T) {
 // "+dirty", and a binary stamped with a tag that was never pushed reports a
 // version the proxy does not have. go.mod takes neither, hence it names the
 // checkout the binary was compiled from, which keeps the scaffold and the
-// generator on one tree.
+// generator on 1 tree.
 //
 // This test writes no workspace: the replace alone has to resolve datapages.
 func TestInitReplacesWithTheLocalCheckout(t *testing.T) {

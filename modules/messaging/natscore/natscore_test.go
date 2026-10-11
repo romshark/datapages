@@ -24,7 +24,7 @@ import (
 // testConn is shared by all tests.
 var testConn *nats.Conn
 
-// TestMain starts one NATS container for the whole package and tears it down after.
+// TestMain starts 1 NATS container for the whole package and tears it down after.
 func TestMain(m *testing.M) { os.Exit(runSuite(m)) }
 
 func runSuite(m *testing.M) int {
@@ -113,7 +113,7 @@ func receive(
 	}
 }
 
-// TestPublishSubscribe tests the delivery of one message and its metrics.
+// TestPublishSubscribe tests the delivery of 1 message and its metrics.
 func TestPublishSubscribe(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
 	m := new(testMetrics)
@@ -147,7 +147,7 @@ func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
 	require.False(t, open, "the channel is open after Close")
 }
 
-// TestFanOut tests two pages subscribed to the same subject.
+// TestFanOut tests 2 pages subscribed to the same subject.
 // Both receive, which is what the SSE fan-out relies on.
 func TestFanOut(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
@@ -177,8 +177,8 @@ func TestWildcardDelivery(t *testing.T) {
 	require.Equal(t, "payload", string(msg.Data))
 }
 
-// TestMultipleSubjects tests a page streaming more than one event type.
-// One subscription carries all of them.
+// TestMultipleSubjects tests a page streaming more than 1 event type.
+// 1 subscription carries all of them.
 func TestMultipleSubjects(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
 	m := new(testMetrics)
@@ -337,8 +337,8 @@ func TestFullChannelQueuesChanBufferMore(t *testing.T) {
 // TestFullQueueDropsOnlyWhenChannelIsFull tests that a subscription whose queue
 // is full moves the oldest message into a channel with room instead of dropping
 // the next one. With ChanBuffer 1, the channel and the queue hold each burst of 2.
-// A subscription that drops there loses a message in about half of the bursts,
-// which 20 bursts miss with a probability of about 1 in a million.
+// A subscription that drops there loses a message in about 1/2 of the bursts,
+// which 20 bursts miss with a probability of about 1 in 1 million.
 func TestFullQueueDropsOnlyWhenChannelIsFull(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{ChanBuffer: 1})
 	m := new(testMetrics)

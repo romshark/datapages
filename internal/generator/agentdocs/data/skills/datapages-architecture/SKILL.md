@@ -34,7 +34,7 @@ Before the first page, decide:
 | Are users authenticated? | Session data type and the `Session` alias shared by all handlers. See `datapages-sessions`. |
 | What does a handler need besides the request? | `App` fields. A page has no named dependency fields, only `App *App`. |
 | Can data change without the reader acting? | Whether events are needed. See `datapages-events`. |
-| Will one or multiple server processes run? | Broker, session store and data placement. See `Server topology`. |
+| Will 1 or multiple server processes run? | Broker, session store and data placement. See `Server topology`. |
 
 Add sessions, state and events when a feature needs them, not upfront.
 
@@ -49,7 +49,7 @@ Do not guess requirements that change the application model. Ask the operator wh
 | External changes | Whether data can change without the current tab acting and needs events. See `datapages-events`. |
 | Per-tab server state | Whether a handler without a request needs tab-local values. |
 | URL state | Whether a value must be shareable or survive reload. |
-| Server topology | Whether one or multiple server processes will run. See `Server topology`. |
+| Server topology | Whether 1 or multiple server processes will run. See `Server topology`. |
 | Shared routes | Whether a handler belongs to a page, `*App` or an embedded shared type. |
 
 Do not ask when the requirement is already explicit in the task or existing code.
@@ -71,7 +71,7 @@ For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 
 A command should normally mutate state and dispatch an event. The event says that something changed; it is not the authoritative state. Subscribers read the current state, render the page and send the result over SSE.
 
-Render one template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small DOM patches only to reduce transferred HTML. SSE streams use Brotli compression.
+Render 1 template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small DOM patches only to reduce transferred HTML. SSE streams use Brotli compression.
 
 Each stream update must contain enough current state to restore the UI after a missed event or interrupted connection. Send complete current state when a missed incremental update would make the client incorrect.
 
@@ -79,18 +79,18 @@ Handle local interactions on the client. Examples include opening a menu, changi
 
 ## Where to store a value
 
-Give each value one owner:
+Give each value 1 owner:
 
 | value | owner | constraint |
 | --- | --- | --- |
-| Shared by all users and outlives a request | `App` field behind a repository | One `App` serves all requests in one process. Guard its fields. For multiple servers, see `Server topology`. |
-| One user across tabs and restarts | Session data and its store | Every handler uses the same data type. |
-| One browser tab | `datapages.State[T]` | Reconnect starts zeroed. `StreamOpen` rebuilds it. |
+| Shared by all users and outlives a request | `App` field behind a repository | 1 `App` serves all requests in 1 process. Guard its fields. For multiple servers, see `Server topology`. |
+| 1 user across tabs and restarts | Session data and its store | Every handler uses the same data type. |
+| 1 browser tab | `datapages.State[T]` | Reconnect starts zeroed. `StreamOpen` rebuilds it. |
 | Shareable URL state that survives reload | `Query` field with `reflectsignal` | Seeds the signal on load and rewrites the URL on change. |
 | Interaction-only state such as an open menu or a selected tab | Local Datastar signal, named with a `_` prefix | Requests do not carry it. |
 | Input an action sends, such as draft text | Datastar signal without the prefix | The server sees it when an action sends it. |
 | Client state a library holds or that runs ahead of the server, such as a map viewport or unconfirmed editor text | Web Component | The server keeps what it confirmed. The element sends changes as events. See `datapages-templates`. |
-| Derived value | Nowhere | Compute it. Storing the same fact twice can create inconsistent values. |
+| Derived value | Nowhere | Compute it. Storing the same fact 2 times can create inconsistent values. |
 
 An `On` handler receives no request or signals. Put what it needs on the event or in `State[T]`.
 
@@ -108,7 +108,7 @@ For example, copy a user-selected filter into `State[T]` in `StreamOpen` or in t
 | Navigate to another page | `href`, or `datapages.Redirect` from the action. |
 | The input of a Web Component changed | Render its attributes from current state, and the morph changes them. Use `data-attr` with a signal for an element that morphs skip, and `ExecuteScript` for a stream of changes. See `datapages-templates`. |
 
-The acting tab also receives subscribed events. A command that dispatches an event rarely needs `SSE`. Using both usually sends the same state twice.
+The acting tab also receives subscribed events. A command that dispatches an event rarely needs `SSE`. Using both usually sends the same state 2 times.
 
 For server-rendered updates, render a complete DOM tree from current state. Avoid coordinating many small patches or client-side signal updates.
 
@@ -124,8 +124,8 @@ Every page must also render correctly from a plain `GET`.
 
 | route | owner |
 | --- | --- |
-| Serves one page | That page type, value receiver. |
-| Called from several pages | `*App`. An action has one absolute route, so embedding it twice conflicts. |
+| Serves 1 page | That page type, value receiver. |
+| Called from several pages | `*App`. An action has 1 absolute route, so embedding it 2 times conflicts. |
 | Shared `GET`, `On` or stream hook | A non-`Page` type with `App *App`, embedded in each page. |
 
 Keep an app action stateless unless every calling page uses the same `State[T]` type. A state type mismatch returns 409.
@@ -137,11 +137,11 @@ If pages render changed data differently, make the shared action dispatch an eve
 | receivers | subject |
 | --- | --- |
 | Everyone on the page | No subject fields. |
-| One authenticated user across tabs | `datapages.SubjectUser` field. |
-| One browser tab | `datapages.SubjectStateID` field populated from `stateID`. |
-| Watchers of one room or document | `datapages.Subject` field with a `signal` tag. |
+| 1 authenticated user across tabs | `datapages.SubjectUser` field. |
+| 1 browser tab | `datapages.SubjectStateID` field populated from `stateID`. |
+| Watchers of 1 room or document | `datapages.Subject` field with a `signal` tag. |
 
-One dispatch targets one subject. To target several users, dispatch once per user. Each dispatch can fail independently.
+1 dispatch targets 1 subject. To target several users, dispatch once per user. Each dispatch can fail independently.
 
 An event with subject fields claims every subject below its base subject. Define the subject namespace before splitting an event into several types.
 
@@ -151,9 +151,9 @@ An empty event is enough when every subscriber re-reads the repository.
 
 ## Multiple applications
 
-One Go module may contain several Datapages applications. Each application has its own app package, `datapagesgen` package and entry point.
+1 Go module may contain several Datapages applications. Each application has its own app package, `datapagesgen` package and entry point.
 
-Applications that use the same broker share one event namespace. They must not claim the same subject. For events shared across apps, declare the event type once in a shared package. Use that type in each application.
+Applications that use the same broker share 1 event namespace. They must not claim the same subject. For events shared across apps, declare the event type once in a shared package. Use that type in each application.
 
 Use:
 
@@ -165,18 +165,18 @@ when the module contains multiple applications.
 
 ## Server topology
 
-Determine whether the app will use one server process or several before you select infrastructure or store shared data.
+Determine whether the app will use 1 server process or several before you select infrastructure or store shared data.
 
 | component | single server | multiple servers |
 | --- | --- | --- |
 | Broker | `modules/messaging/inmem` | `modules/messaging/natscore` |
 | Session store | `modules/sessions/natskv`, or `inmem` in development | `modules/sessions/natskv` |
-| `State[T]` | In memory | One process per tab. Route its stream and actions by `Datapages-Instance`. |
+| `State[T]` | In memory | 1 process per tab. Route its stream and actions by `Datapages-Instance`. |
 | Data in `App` fields | May stay in memory | Move it to a datastore, or each process serves its own copy. |
 
 The application model otherwise stays the same.
 
-`modules/sessions/inmem` loses every session on restart and signs every user out. Do not use it in production, including on a single server. `modules/messaging/inmem` sends events only within one process. A restart loses only events in flight, which is consistent with at-most-once delivery.
+`modules/sessions/inmem` loses every session on restart and signs every user out. Do not use it in production, including on a single server. `modules/messaging/inmem` sends events only within 1 process. A restart loses only events in flight, which is consistent with at-most-once delivery.
 
 ## After changing the application model
 

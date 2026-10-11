@@ -84,7 +84,7 @@ func echoed(t *testing.T, body string) string {
 	return before
 }
 
-// TestMethods tests one action per HTTP method, page-level and app-level.
+// TestMethods tests 1 action per HTTP method, page-level and app-level.
 // The action package builds the URL the template would use. The routing of an
 // action is therefore asserted through the same expression a page carries.
 func TestMethods(t *testing.T) {
@@ -392,7 +392,7 @@ func TestCrossOriginQuery(t *testing.T) {
 }
 
 // TestSSEOutput tests an action that writes on the connection of its own request.
-// The client sent one request and reads elements and signals back from it.
+// The client sent 1 request and reads elements and signals back from it.
 func TestSSEOutput(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)

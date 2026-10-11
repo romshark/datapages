@@ -8,6 +8,7 @@ import (
 	"html"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -40,6 +41,10 @@ const (
 	// DefaultShutdownTimeout is how long [Core.ListenAndServe] waits for
 	// in-flight requests and stream cleanup after context cancellation.
 	DefaultShutdownTimeout = 10 * time.Second
+
+	// DefaultFileSendTimeout is how long the response of a file waits for its
+	// client to accept more of it. nginx defaults its send_timeout to the same.
+	DefaultFileSendTimeout = time.Minute
 
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
 	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar.js"
@@ -83,6 +88,7 @@ type Core struct {
 	cspNonce         func(*http.Request) string
 	bodySizeLimit    int64
 	shutdownTimeout  time.Duration
+	fileSendTimeout  time.Duration
 
 	// An empty buildID disables build checks.
 	buildID       string
@@ -102,7 +108,7 @@ type Core struct {
 	// stateLiveInstances counts the live per-page-instance states of every state type.
 	// They share the memory and the budget in
 	// [datapages.StateConfig.MaxConcurrentInstances].
-	// Each Core has its own counter. Servers in one process do not share it.
+	// Each Core has its own counter. Servers in 1 process do not share it.
 	stateLiveInstances atomic.Int64
 }
 
@@ -127,6 +133,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		httpServer:      cfg.HTTPServer,
 		bodySizeLimit:   cfg.BodySizeLimit,
 		shutdownTimeout: cfg.ShutdownTimeout,
+		fileSendTimeout: cfg.FileSendTimeout,
 	}
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
 	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
@@ -137,6 +144,9 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 	}
 	if c.shutdownTimeout <= 0 {
 		c.shutdownTimeout = DefaultShutdownTimeout
+	}
+	if c.fileSendTimeout <= 0 {
+		c.fileSendTimeout = DefaultFileSendTimeout
 	}
 	if c.logger == nil {
 		// Not in Build: the generated Init logs in between.
@@ -205,7 +215,7 @@ func (c *Core) Build() {
 	if c.datastarJSSrc == "" {
 		c.datastarJSSrc = DefaultDatastarJSSrc
 	}
-	// The two halves are kept apart as well: a page that must install a script
+	// The 2 halves are kept apart as well: a page that must install a script
 	// of its own before Datastar loads writes them around it.
 	c.datastarJSSrcEsc = html.EscapeString(c.datastarJSSrc)
 	if c.buildID != "" {
@@ -235,7 +245,8 @@ func (c *Core) Build() {
 		case c.assetsCache != nil && !c.assetsCache.Disabled:
 			h = newAssetsCache(fsys, *c.assetsCache, h)
 		}
-		c.mux.Handle("GET "+c.assetsURLPrefix, http.StripPrefix(c.assetsURLPrefix, h))
+		c.mux.Handle("GET "+c.assetsURLPrefix,
+			http.StripPrefix(c.assetsURLPrefix, limitingFileWrites(h)))
 	}
 
 	c.handler = http.Handler(c.mux)
@@ -258,6 +269,14 @@ func (c *Core) Build() {
 	c.httpServer.Handler = c
 }
 
+// limitingFileWrites limits the writes of the files next sends, see [limitFileWrites].
+func limitingFileWrites(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limitFileWrites(w)
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Mux is the router the routes are registered on.
 //
 // Handlers registered directly on it pass through the configured middleware.
@@ -269,7 +288,7 @@ func (c *Core) Mux() *http.ServeMux { return c.mux }
 func (c *Core) Logger() *slog.Logger { return c.logger }
 
 // SampledLogger is the logger for a warning the framework emits on every render.
-// It writes one record of each kind per interval and counts what it throttles,
+// It writes 1 record of each kind per interval and counts what it throttles,
 // which [github.com/romshark/datapages.WithLogSampling] configures.
 // Application code writes to [Core.Logger] instead.
 func (c *Core) SampledLogger() *slog.Logger { return c.sampledLogger }
@@ -380,7 +399,7 @@ func (c *Core) HTMLPrefix() string { return c.htmlPrefix }
 func (c *Core) HTMLHead() string { return c.htmlHead }
 
 // HTMLDatastarScript is the Datastar script tag [Core.HTMLHead] stops short of.
-// Writing the two in order produces [Core.HTMLPrefix].
+// Writing the 2 in order produces [Core.HTMLPrefix].
 func (c *Core) HTMLDatastarScript() string { return c.htmlDatastar }
 
 // noStateInstanceLimit reports whether MaxConcurrentInstances disables the limit.
@@ -405,7 +424,7 @@ func (c *Core) ReserveStateInstance() bool {
 	return true
 }
 
-// ReleaseStateInstance gives one instance back to the budget.
+// ReleaseStateInstance gives 1 instance back to the budget.
 // Generated code calls this when a stream drops its state.
 func (c *Core) ReleaseStateInstance() {
 	c.stateLiveInstances.Add(-1)
@@ -435,6 +454,10 @@ func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 // [Core.Shutdown] uses the deadline of its context instead.
 func (c *Core) ShutdownTimeout() time.Duration { return c.shutdownTimeout }
 
+// FileSendTimeout returns how long a write of the response of a file may block,
+// see [datapages.WithFileSendTimeout].
+func (c *Core) FileSendTimeout() time.Duration { return c.fileSendTimeout }
+
 // TLSEnabled reports whether the server listens for HTTPS connections.
 func (c *Core) TLSEnabled() bool {
 	c.lockListen.Lock()
@@ -451,17 +474,26 @@ func (c *Core) Addr() string {
 }
 
 // tracked records whether any of the response body went out. A body cannot be
-// taken back: an error page appended to a half-written page is two documents.
+// taken back: an error page appended to a half-written page is 2 documents.
 //
 // The status alone does not count. A handler that wrote one and nothing else
 // still has a body to write, which is what the error path writes into.
+//
+// In the response of a file, see [limitFileWrites], tracked also gives each
+// write a deadline of sendTimeout.
 type tracked struct {
 	http.ResponseWriter
 	wroteBody bool
+
+	sendTimeout time.Duration
+	sending     bool
+	// deadline is the write deadline last set, zero for none.
+	deadline time.Time
 }
 
 func (t *tracked) Write(b []byte) (int, error) {
 	t.wroteBody = true
+	t.keepDeadline()
 	return t.ResponseWriter.Write(b)
 }
 
@@ -469,7 +501,48 @@ func (t *tracked) Write(b []byte) (int, error) {
 // copies every string written through this wrapper into a new byte slice.
 func (t *tracked) WriteString(s string) (int, error) {
 	t.wroteBody = true
+	t.keepDeadline()
 	return io.WriteString(t.ResponseWriter, s)
+}
+
+// limitFileWrites makes every write of the rest of the response through w
+// fail once it blocks for the send timeout of the server. The server has no
+// write timeout, which would end SSE streams, and without this a client that
+// stops reading holds the request for as long as it keeps the connection.
+// A middleware that hides the writer behind one without an Unwrap method
+// leaves the writes unlimited.
+//
+// The deadline outlives the handler, which bounds what net/http still
+// writes after it. net/http clears it once the response is written,
+// and on HTTP/2 when the stream closes.
+func limitFileWrites(w http.ResponseWriter) {
+	for {
+		if t, ok := w.(*tracked); ok {
+			t.sending = t.sendTimeout > 0
+			return
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
+}
+
+// keepDeadline moves the write deadline of a file being sent to the send
+// timeout from now. It moves it only once 1/8 of the timeout has passed,
+// which leaves a write at least 7/8 of the timeout and makes a few calls per
+// timeout: on HTTP/2, each is a message to the goroutine of the connection.
+func (t *tracked) keepDeadline() {
+	if !t.sending {
+		return
+	}
+	now := time.Now()
+	if t.deadline.Sub(now) > t.sendTimeout-t.sendTimeout/8 {
+		return
+	}
+	t.deadline = now.Add(t.sendTimeout)
+	_ = http.NewResponseController(t.ResponseWriter).SetWriteDeadline(t.deadline)
 }
 
 // ReadFrom is how http.ServeContent copies a file into the response. Without
@@ -481,16 +554,47 @@ func (t *tracked) WriteString(s string) (int, error) {
 // net/http copies such a source with a new buffer per response
 // and more allocations than Write takes.
 //
-// wroteBody is set before the copy: zero bytes for an empty file is
+// wroteBody is set before the copy: 0 bytes for an empty file is
 // the same case as Write(nil), which sets it too.
 func (t *tracked) ReadFrom(src io.Reader) (int64, error) {
 	t.wroteBody = true
 	if rf, ok := t.ResponseWriter.(io.ReaderFrom); ok && zeroCopySource(src) {
+		if t.sending {
+			return t.readFromInChunks(rf, src)
+		}
 		return rf.ReadFrom(src)
 	}
 	buf := copyBufPool.Get().(*[]byte)
 	defer copyBufPool.Put(buf)
 	return io.CopyBuffer(writeOnly{t}, src, *buf)
+}
+
+// sendChunk is the most 1 sendfile call of a file being sent may copy.
+// The deadline moves between calls only, which makes a client that reads
+// less than this per 7/8 of the send timeout run out of time.
+const sendChunk = 64 << 10
+
+// readFromInChunks is ReadFrom for a file being sent from a source the kernel copies.
+// It hands the source to rf a chunk at a time.
+func (t *tracked) readFromInChunks(rf io.ReaderFrom, src io.Reader) (n int64, err error) {
+	lr, ok := src.(*io.LimitedReader)
+	if !ok {
+		lr = &io.LimitedReader{R: src, N: math.MaxInt64}
+	}
+	remaining := lr.N
+	defer func() { lr.N = remaining }()
+	for remaining > 0 {
+		t.keepDeadline()
+		lr.N = min(remaining, sendChunk)
+		m, err := rf.ReadFrom(lr)
+		n += m
+		remaining -= m
+		// A chunk left unread is the end of the source.
+		if err != nil || lr.N > 0 {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // zeroCopySource reports whether src is a [syscall.Conn], the only kind of
@@ -517,7 +621,10 @@ var copyBufPool = sync.Pool{New: func() any {
 // which converts to an io.Writer without an allocation.
 type writeOnly struct{ t *tracked }
 
-func (w writeOnly) Write(p []byte) (int, error) { return w.t.ResponseWriter.Write(p) }
+func (w writeOnly) Write(p []byte) (int, error) {
+	w.t.keepDeadline()
+	return w.t.ResponseWriter.Write(p)
+}
 
 func (t *tracked) Flush() {
 	if f, ok := t.ResponseWriter.(http.Flusher); ok {
@@ -526,7 +633,7 @@ func (t *tracked) Flush() {
 }
 
 // FlushError is what [http.ResponseController.Flush] prefers over Flush,
-// and the only one of the two that can report a failed flush.
+// and the only one of the 2 that can report a failed flush.
 func (t *tracked) FlushError() error {
 	if f, ok := t.ResponseWriter.(interface{ FlushError() error }); ok {
 		return f.FlushError()
@@ -612,7 +719,7 @@ func (c *Core) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	c.handler.ServeHTTP(&tracked{ResponseWriter: w}, r)
+	c.handler.ServeHTTP(&tracked{ResponseWriter: w, sendTimeout: c.fileSendTimeout}, r)
 }
 
 // WildcardPathValue reads the value of a {name...} route wildcard.

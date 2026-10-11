@@ -178,7 +178,7 @@ func TestDelete(t *testing.T) {
 	require.NoError(t, err, "first chunk")
 
 	require.NoError(t, s.Delete(f.ID), "deleting")
-	require.ErrorIs(t, s.Delete(f.ID), store.ErrNotFound, "deleting twice")
+	require.ErrorIs(t, s.Delete(f.ID), store.ErrNotFound, "deleting 2 times")
 
 	_, err = s.Get(f.ID)
 	require.ErrorIs(t, err, store.ErrNotFound)
@@ -187,12 +187,12 @@ func TestDelete(t *testing.T) {
 	require.Empty(t, left, "the deleted file left something behind")
 }
 
-// TestConcurrentRenamesKeepNamesApart tests that files renamed to one name at
+// TestConcurrentRenamesKeepNamesApart tests that files renamed to the same name at
 // the same time end up under distinct names.
 //
 // Against a Rename that picks the name and assigns it under separate holds of
-// the store lock, about three rounds in four list two files under one name on
-// two or more CPUs. On one CPU none do, and the test cannot fail.
+// the store lock, about 3 rounds in 4 list 2 files under 1 name on
+// 2 or more CPUs. On 1 CPU none do, and the test cannot fail.
 func TestConcurrentRenamesKeepNamesApart(t *testing.T) {
 	const files = 64
 	for round := range 20 {
@@ -223,7 +223,7 @@ func TestConcurrentRenamesKeepNamesApart(t *testing.T) {
 
 		seen := make(map[string]bool, files)
 		for _, f := range s.List() {
-			require.False(t, seen[f.Name], "round %d: two files are listed as %q", round, f.Name)
+			require.False(t, seen[f.Name], "round %d: 2 files are listed as %q", round, f.Name)
 			seen[f.Name] = true
 		}
 	}

@@ -83,7 +83,7 @@ func TestIsRenderedAsWritten(t *testing.T) {
 }
 
 // TestIsRenderedAsWrittenMatchesTempl holds the check to the sanitizer it
-// exists to predict. The two rules drifted once: an RFC 3986 scheme parser
+// exists to predict. The 2 rules drifted once: an RFC 3986 scheme parser
 // reads "foo bar:baz" and "1abc:x" as having no scheme, where templ takes
 // everything before the first ':' as the protocol and drops them.
 func TestIsRenderedAsWrittenMatchesTempl(t *testing.T) {

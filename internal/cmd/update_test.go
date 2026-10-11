@@ -137,7 +137,7 @@ func TestPrintUpdateNotice(t *testing.T) {
 }
 
 // TestParseSemver tests the version parsing behind the comparison: an optional
-// "v", missing components filled with zero, and a prerelease or build suffix cut off.
+// "v", missing components filled with 0, and a prerelease or build suffix cut off.
 func TestParseSemver(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string

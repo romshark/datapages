@@ -66,7 +66,7 @@ func Test() error {
 	return run("go", "test", "./...", "-cover")
 }
 
-// Coverage reports two numbers. The first is how much of the generator itself
+// Coverage reports 2 numbers. The first is how much of the generator itself
 // the test suite runs. The second is how much of the code the generator writes
 // the acceptance cases run.
 //
@@ -205,7 +205,7 @@ func CheckMod() error {
 // The working tree must be clean.
 // Every change left afterwards is then one a generator made.
 //
-// The generators run one at a time and each reports the files it changed,
+// The generators run 1 at a time and each reports the files it changed,
 // which names the target to rerun and the place to look.
 //
 // Changed files are left in place: they belong in the commit.
@@ -231,7 +231,7 @@ func CheckGen() error {
 		{"mage genOfflineWorker", GenOfflineWorker},
 	}
 
-	// A file one generator changed stays changed for the rest of the run.
+	// A file 1 generator changed stays changed for the rest of the run.
 	// Attributing it to the first generator that touched it keeps each report
 	// to the files that generator is responsible for.
 	attributed := make(map[string]bool)
@@ -261,7 +261,7 @@ func CheckGen() error {
 		strings.Join(report, "\n"))
 }
 
-// gitChanged maps every changed path to its two-letter git status code.
+// gitChanged maps every changed path to its 2-letter git status code.
 // Ignored paths never appear, docs/index.html among them.
 func gitChanged() (map[string]string, error) {
 	out, err := output("git", "status", "--porcelain")
@@ -280,7 +280,7 @@ func gitChanged() (map[string]string, error) {
 }
 
 // formatChanged renders the paths the way "git status --porcelain" prints
-// them, indented and sorted so that two runs read the same.
+// them, indented and sorted so that 2 runs read the same.
 func formatChanged(changed map[string]string) string {
 	lines := make([]string, 0, len(changed))
 	for path, state := range changed {
@@ -445,7 +445,7 @@ func buildCLI(bin string) error {
 	return run("go", "build", "-buildvcs=false", "-o", bin, "./cmd/datapages")
 }
 
-// acceptanceRoot holds the acceptance cases, one module each.
+// acceptanceRoot holds the acceptance cases, 1 module each.
 const acceptanceRoot = "internal/acceptance"
 
 // GenAISkills runs "datapages init" in every example module, which writes

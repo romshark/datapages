@@ -105,7 +105,7 @@ func TestAssetsCacheConditionalRequest(t *testing.T) {
 }
 
 // TestAssetsCacheETagPerFile tests that different files have different ETags
-// and one file keeps the same ETag.
+// and 1 file keeps the same ETag.
 func TestAssetsCacheETagPerFile(t *testing.T) {
 	t.Parallel()
 
@@ -157,7 +157,7 @@ func TestAssetsCacheSkipsNonFiles(t *testing.T) {
 
 // TestAssetsCacheDevMode tests that dev mode overrides asset cache settings
 // with no-cache, no ETag and no Last-Modified, which could answer 304 for a file
-// saved twice within one second.
+// saved 2 times within 1 second.
 func TestAssetsCacheDevMode(t *testing.T) {
 	t.Setenv("DATAPAGES_DEV_MODE", "1")
 
@@ -197,7 +197,7 @@ func TestAssetsCacheIndexHTML(t *testing.T) {
 }
 
 // TestAssetsCacheConcurrent tests that concurrent
-// first requests for one file receive the same ETag.
+// first requests for 1 file receive the same ETag.
 func TestAssetsCacheConcurrent(t *testing.T) {
 	t.Parallel()
 

@@ -84,13 +84,17 @@ type ServerConfig struct {
 	LogSampling *LogSamplingConfig
 
 	// BodySizeLimit is what [WithBodySizeLimit] carries.
-	// Zero selects httpserve.DefaultBodySizeLimit.
+	// 0 selects httpserve.DefaultBodySizeLimit.
 	BodySizeLimit int64
 
 	// ShutdownTimeout is the grace period used by
 	// [github.com/romshark/datapages/runtime/httpserve.Core.ListenAndServe].
-	// Zero selects httpserve.DefaultShutdownTimeout.
+	// 0 selects httpserve.DefaultShutdownTimeout.
 	ShutdownTimeout time.Duration
+
+	// FileSendTimeout is what [WithFileSendTimeout] carries.
+	// 0 selects httpserve.DefaultFileSendTimeout.
+	FileSendTimeout time.Duration
 
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
@@ -160,13 +164,13 @@ type AuthCookieConfig struct {
 	//
 	// Optional. Defaults to [DefaultSessionCookieName]. Change it when
 	// another application on the same domain already uses that name, since
-	// two applications sharing a cookie name overwrite each other.
+	// 2 applications sharing a cookie name overwrite each other.
 	Name string
 
 	// Domain is which hosts the browser sends the cookie to.
 	//
 	// Optional. By default it's empty, which means the exact host that set it.
-	// Set a parent domain ("example.com") to share one session
+	// Set a parent domain ("example.com") to share 1 session
 	// across subdomains such as app.example.com and admin.example.com,
 	// which also hands the token to every other host under it.
 	Domain string
@@ -327,9 +331,9 @@ type AssetsCacheConfig struct {
 	Disabled bool
 
 	// MaxAge is how long a browser may reuse an asset without asking again.
-	// The max-age directive has one-second precision.
+	// The max-age directive has 1-second precision.
 	//
-	// Zero writes max-age=0, which requires revalidation.
+	// 0 writes max-age=0, which requires revalidation.
 	// Use a positive value only when the asset URL changes with its content.
 	// Otherwise the browser may use stale content until MaxAge expires.
 	MaxAge time.Duration
@@ -377,7 +381,7 @@ func WithAssetsCache(conf AssetsCacheConfig) ServerOption {
 			)
 		case conf.Immutable && conf.MaxAge <= 0:
 			return fmt.Errorf("WithAssetsCache: immutable (%t) requires "+
-				"a max age (%s) above zero",
+				"a max age (%s) above 0",
 				conf.Immutable, conf.MaxAge)
 		}
 		// Reject control characters because CR or LF could inject response headers.
@@ -415,18 +419,18 @@ func WithSessions(o SessionsConfig) ServerOption {
 type LogSamplingConfig struct {
 	// Disabled reports every occurrence.
 	//
-	// WARNING: One bad value then writes a line per element per request.
+	// WARNING: 1 bad value then writes a line per element per request.
 	// Disable only when a shorter Interval won't do.
 	Disabled bool
 
 	// Interval is how long a warning is throttled for after it was reported.
 	// The next one carries what the throttling swallowed as "suppressed".
 	//
-	// Zero selects [DefaultLogSamplingInterval].
+	// 0 selects [DefaultLogSamplingInterval].
 	Interval time.Duration
 
 	// Limit is how many distinct warnings are tracked at once.
-	// Zero selects [DefaultLogSamplingLimit]. A full set first drops what has
+	// 0 selects [DefaultLogSamplingLimit]. A full set first drops what has
 	// gone quiet, so a mistake found later is still reported.
 	Limit int
 }
@@ -437,11 +441,11 @@ type LogSamplingConfig struct {
 //     drops for an invalid value
 //   - a URL the generated href.External cannot use
 //
-// Since such warnings are written per page render, one bad value may spike log volume.
+// Since such warnings are written per page render, 1 bad value may spike log volume.
 // This applies to the warnings named above and to nothing else,
 // neither to what the application logs nor to the rest of the built-in ones.
 //
-// Optional. By default one warning of each kind is reported per minute,
+// Optional. By default 1 warning of each kind is reported per minute,
 // carrying how many were held back since the last one.
 func WithLogSampling(conf LogSamplingConfig) ServerOption {
 	return func(c *ServerConfig) error {
@@ -470,7 +474,7 @@ func WithLogSampling(conf LogSamplingConfig) ServerOption {
 func WithBodySizeLimit(bytes int64) ServerOption {
 	return func(c *ServerConfig) error {
 		if bytes <= 0 {
-			return errors.New("WithBodySizeLimit: limit must be greater than zero")
+			return errors.New("WithBodySizeLimit: limit must be greater than 0")
 		}
 		c.BodySizeLimit = bytes
 		return nil
@@ -493,10 +497,33 @@ func WithShutdownTimeout(d time.Duration) ServerOption {
 	return func(c *ServerConfig) error {
 		if d <= 0 {
 			return errors.New(
-				"WithShutdownTimeout: timeout must be greater than zero",
+				"WithShutdownTimeout: timeout must be greater than 0",
 			)
 		}
 		c.ShutdownTimeout = d
+		return nil
+	}
+}
+
+// WithFileSendTimeout limits how long the response of a [File] or a static
+// asset waits for its client to accept more of the file. A client that stops
+// reading otherwise holds the request and the open file for as long as it keeps
+// the connection: the server has no write timeout, which would end SSE streams.
+//
+// Optional.
+// Defaults to [github.com/romshark/datapages/runtime/httpserve.DefaultFileSendTimeout].
+//
+// The time applies to each write of up to 64 KiB, not to the whole file:
+// a slow client that keeps reading gets its file. When it runs out,
+// the response ends early and the connection closes.
+func WithFileSendTimeout(d time.Duration) ServerOption {
+	return func(c *ServerConfig) error {
+		if d <= 0 {
+			return errors.New(
+				"WithFileSendTimeout: timeout must be greater than 0",
+			)
+		}
+		c.FileSendTimeout = d
 		return nil
 	}
 }
@@ -614,7 +641,7 @@ type PrometheusConfig struct {
 //
 // The HTTP metrics are labelled with the route pattern, not the request path:
 // /user/{uid} carries the requests of every user. A request that matched no route,
-// and a method no route registers, each carry one label of their own,
+// and a method no route registers, each carry 1 label of their own,
 // which is what keeps a visitor from opening time series at will.
 func WithPrometheus(conf PrometheusConfig) ServerOption {
 	return func(c *ServerConfig) error {
@@ -640,19 +667,19 @@ const DefaultMaxConcurrentInstances = 10_000
 // StateConfig sets the live-instance limit for per-tab [State].
 type StateConfig struct {
 	// MaxConcurrentInstances limits the live state instances held by this server
-	// across all state types. A stream allocates one instance before it opens and
+	// across all state types. A stream allocates 1 instance before it opens and
 	// releases it when it closes. Each server keeps its own count.
 	//
 	// A stream over the limit receives 503 with Retry-After. The generated page
-	// configures Datastar to retry the connection 10 times over about three minutes.
+	// configures Datastar to retry the connection 10 times over about 3 minutes.
 	//
-	// Reaching the limit does not notify application code. Read one server's live
+	// Reaching the limit does not notify application code. Read 1 server's live
 	// count with
 	// [github.com/romshark/datapages/runtime/httpserve.Core.StateLiveInstances],
 	// which the generated server embeds. Servers built with [EnablePrometheus]
 	// also add their counts to the datapages_state_instances process gauge.
 	//
-	// Zero selects [DefaultMaxConcurrentInstances].
+	// 0 selects [DefaultMaxConcurrentInstances].
 	// A negative value disables the limit.
 	MaxConcurrentInstances int
 }
@@ -660,7 +687,7 @@ type StateConfig struct {
 // WithStateConfig sets the concurrent instance limit for handlers that use [State].
 // A server built without it uses [DefaultMaxConcurrentInstances].
 //
-// State lives in one server process. In a multi-server deployment, the load balancer
+// State lives in 1 server process. In a multi-server deployment, the load balancer
 // must send a page instance's stream and action requests to the same server.
 // The Datapages-Instance request header is a stable routing key for that instance.
 // Otherwise, an action can reach a server that has no state for
@@ -676,7 +703,7 @@ func WithStateConfig(conf StateConfig) ServerOption {
 }
 
 // WithCSPNonce turns on Content-Security-Policy nonce mode. nonce reports the
-// nonce of a request. Datapages may call it several times while writing one response,
+// nonce of a request. Datapages may call it several times while writing 1 response,
 // and every call with the same request must return the same value.
 // Application middleware should mint the nonce once, store it in the request
 // context and write the same value into the script-src directive of the policy header.

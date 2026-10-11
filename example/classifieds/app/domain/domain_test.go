@@ -117,8 +117,8 @@ func TestSimilarPosts(t *testing.T) {
 			repo := newRepository(t, "alice")
 
 			// NewPost stamps TimePosted with time.Now, which makes the last
-			// post the newest. With 29 candidates, the first four a map yields
-			// are rarely the newest four.
+			// post the newest. With 29 candidates, the first 4 a map yields
+			// are rarely the newest 4.
 			ids := make([]string, 30)
 			for i := range ids {
 				id, err := repo.NewPost(t.Context(), "alice",

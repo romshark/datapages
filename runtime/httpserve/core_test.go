@@ -40,8 +40,8 @@ func serve(t *testing.T, c *httpserve.Core, path string) *httptest.ResponseRecor
 }
 
 // TestServeHTTPNormalizesPath tests the trailing slash every page path gets
-// before the router sees it. One canonical form per page keeps the route
-// patterns and the generated href helpers from having to agree on two.
+// before the router sees it. 1 canonical form per page keeps the route
+// patterns and the generated href helpers from having to agree on 2.
 func TestServeHTTPNormalizesPath(t *testing.T) {
 	t.Parallel()
 
@@ -360,7 +360,7 @@ func TestLimitRequestBodyClosesTheConnection(t *testing.T) {
 }
 
 // TestSampledLogger tests the logger the framework's own repeated warnings go to.
-// They are written where a page renders, so one bad value in the
+// They are written where a page renders, so 1 bad value in the
 // application would otherwise write a line per element per request.
 func TestSampledLogger(t *testing.T) {
 	t.Parallel()
@@ -374,7 +374,7 @@ func TestSampledLogger(t *testing.T) {
 			conf: &datapages.LogSamplingConfig{Disabled: true},
 			want: 20,
 		},
-		"limit of one": {
+		"limit of 1": {
 			conf: &datapages.LogSamplingConfig{Limit: 1},
 			want: 1,
 		},
@@ -666,14 +666,14 @@ func TestBuildHidesAssetDirectories(t *testing.T) {
 // handler after [httpserve.Core.ServeHTTP] normalized the path.
 func TestWildcardPathValue(t *testing.T) {
 	for name, tt := range map[string]struct{ raw, want string }{
-		"one segment":       {"a", "a"},
-		"trailing slash":    {"a/", "a"},
-		"several segments":  {"a/b/c", "a/b/c"},
-		"segments slash":    {"a/b/c/", "a/b/c"},
-		"empty":             {"", ""},
-		"slash only":        {"/", ""},
-		"inner slash kept":  {"a//b/", "a//b"},
-		"one slash trimmed": {"a//", "a/"},
+		"1 segment":        {"a", "a"},
+		"trailing slash":   {"a/", "a"},
+		"several segments": {"a/b/c", "a/b/c"},
+		"segments slash":   {"a/b/c/", "a/b/c"},
+		"empty":            {"", ""},
+		"slash only":       {"/", ""},
+		"inner slash kept": {"a//b/", "a//b"},
+		"1 slash trimmed":  {"a//", "a/"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -696,12 +696,12 @@ func mustCore(
 
 // TestStateBudget covers the per-instance budget the state runtime reserves against.
 // The counter lives on the core,
-// which leaves two servers in one process holding one each.
+// which leaves 2 servers in 1 process holding 1 each.
 func TestStateBudget(t *testing.T) {
 	for name, tc := range map[string]struct {
 		max int
 	}{
-		"one":  {max: 1},
+		"1":    {max: 1},
 		"few":  {max: 3},
 		"many": {max: 64},
 	} {
@@ -725,16 +725,16 @@ func TestStateBudget(t *testing.T) {
 	}
 }
 
-// TestStateBudgetDefault tests the two configurations that select
+// TestStateBudgetDefault tests the 2 configurations that select
 // [datapages.DefaultMaxConcurrentInstances]: a server built without
 // [datapages.WithStateConfig], and a [datapages.ServerConfig] assembled
-// without that option, whose limit is left at zero.
+// without that option, whose limit is left at 0.
 func TestStateBudgetDefault(t *testing.T) {
 	for name, tc := range map[string]struct {
 		state *datapages.StateConfig
 	}{
-		"no config":  {state: nil},
-		"zero limit": {state: &datapages.StateConfig{}},
+		"no config": {state: nil},
+		"0 limit":   {state: &datapages.StateConfig{}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := mustCore(t, datapages.ServerConfig{State: tc.state}, "")
@@ -759,7 +759,7 @@ func TestStateBudgetUnlimited(t *testing.T) {
 	}
 }
 
-// TestStateBudgetIsPerCore covers two servers in one process.
+// TestStateBudgetIsPerCore covers 2 servers in 1 process.
 // Each holds its own budget, which a package-level counter would not give them.
 func TestStateBudgetIsPerCore(t *testing.T) {
 	cfg := datapages.ServerConfig{
@@ -830,7 +830,7 @@ func TestStateInstancesMetric(t *testing.T) {
 		},
 		State: &datapages.StateConfig{MaxConcurrentInstances: 2},
 	}, "")
-	require.Zero(t, gaugeValue(t, reg, metric), "the gauge starts above zero")
+	require.Zero(t, gaugeValue(t, reg, metric), "the gauge starts above 0")
 
 	require.True(t, c.ReserveStateInstance())
 	require.True(t, c.ReserveStateInstance())
@@ -861,7 +861,7 @@ func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
 		if mf.GetName() != name {
 			continue
 		}
-		require.Len(t, mf.GetMetric(), 1, "%s carries more than one series", name)
+		require.Len(t, mf.GetMetric(), 1, "%s carries more than 1 series", name)
 		return mf.GetMetric()[0].GetGauge().GetValue()
 	}
 	t.Fatalf("no metric named %s", name)

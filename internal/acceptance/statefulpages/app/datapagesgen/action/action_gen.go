@@ -47,7 +47,7 @@ const (
 )
 
 // reporter keeps logging and metrics within this generated application.
-// A runtime variable would make servers in one process overwrite each other.
+// A runtime variable would make servers in 1 process overwrite each other.
 var reporter actionexpr.Reporter
 
 // SetLogger sets the logger for invalid options. A nil logger uses
@@ -197,7 +197,26 @@ func (pageCloseState_Mark) POST(options ...Option) string {
 var PageIndex pageIndex
 
 type pageIndex struct {
+	Export pageIndex_Export
 	Update pageIndex_Update
+}
+
+type pageIndex_Export struct{}
+
+// POST references /export/
+func (pageIndex_Export) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/export/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/export/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/export/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
 }
 
 type pageIndex_Update struct{}

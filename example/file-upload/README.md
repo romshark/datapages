@@ -2,7 +2,7 @@
 
 Upload files to disk and download them again. An upload is sent in chunks, can be paused and resumed, and survives a reload of the page or a restart of the server: the store knows how many bytes of each file arrived and the transfer continues there.
 
-Files are kept in the `uploads` directory, one blob and one metadata file each. The page shows the absolute path they land in.
+Files are kept in the `uploads` directory, 1 blob and 1 metadata file each. The page shows the absolute path they land in.
 
 > [!NOTE]
 > This example application has initially been a testbed for the new AI skills.
@@ -42,17 +42,17 @@ Then open http://localhost:7331/.
 
 The server owns everything: which files exist, how many bytes of each arrived and whether one is expecting more. The browser holds the `File` objects and nothing else. The page is rendered from the store on every change.
 
-### The one piece of JavaScript
+### The only piece of JavaScript
 
 `app/static/browser.js` holds every line of client-side logic in this example, and holds only what Datastar cannot reach: opening, slicing and streaming a `File`. Everything a visitor presses is a Datastar action, and every update the page shows was rendered in Go. The UI itself is [Morpheus](https://romshark.github.io/morpheus/), a web component kit built to survive being patched from the server.
 
 The uploader learns what to do from the server. `dpUpload.start(jobs)` and `dpUpload.go(job)` arrive as scripts on the stream, each job carrying the URL of the chunk endpoint and the offset to continue at. That URL is cut out of the generated action expression in `app/uploadjob.go`, which keeps the route declared only in the doc comment of its handler.
 
-The uploader never changes the state of a file. Pausing is the visitor pressing Pause, and nothing else: a chunk that fails is tried again with a growing delay, and a transfer this tab gives up on keeps its bytes and its place for whoever takes it up next. It sends at most three files at once. A browser opens only a handful of connections per origin, one of which the page stream holds for as long as the tab is open. Sending every picked file at once would leave none for that stream and none for the actions the page sends.
+The uploader never changes the state of a file. Pausing is the visitor pressing Pause, and nothing else: a chunk that fails is tried again with a growing delay, and a transfer this tab gives up on keeps its bytes and its place for whoever takes it up next. It sends at most 3 files at once. A browser opens only a handful of connections per origin, one of which the page stream holds for as long as the tab is open. Sending every picked file at once would leave none for that stream and none for the actions the page sends.
 
 ### The chunk endpoint
 
-`PUTChunk` is the one handler a Datastar action does not call. Its body is the chunk, `?offset=` says where it belongs, and its status codes are the protocol the uploader follows:
+`PUTChunk` is the only handler a Datastar action does not call. Its body is the chunk, `?offset=` says where it belongs, and its status codes are the protocol the uploader follows:
 
 | status | meaning | what the uploader does |
 | --- | --- | --- |
@@ -63,11 +63,11 @@ The uploader never changes the state of a file. Pausing is the visitor pressing 
 
 A chunk that repeats bytes the store already has is accepted and its overlap dropped, which is what makes a retried request harmless. Anything else that fails, a lost connection or a proxy error, is retried a few times and then left alone.
 
-A server times a whole request, and an upload held back by a limit outlives that: a megabyte at the lowest limit the page offers takes a quarter of an hour, and the transfer would die with `i/o timeout` halfway through. `ChunkDeadline` moves the read deadline forward while the bytes arrive, which turns the total into an idle deadline and still ends a connection that stopped sending.
+A server times a whole request, and an upload held back by a limit outlives that: a megabyte at the lowest limit the page offers takes 17 minutes, and the transfer would die with `i/o timeout` halfway through. `ChunkDeadline` moves the read deadline forward while the bytes arrive, which turns the total into an idle deadline and still ends a connection that stopped sending.
 
 ### Who may pause and resume
 
-Only the browser that read a `File` can go on reading it, which leaves one tab able to continue a given transfer. The store records which tab that is in `File.Owner`, a `stateID`, and the handlers refuse a pause or a resume from any other tab. `stateID` names the tab that is asking, and `fileList` renders **Pause** and **Resume** for that tab and **Take over** for the rest.
+Only the browser that read a `File` can go on reading it, which leaves 1 tab able to continue a given transfer. The store records which tab that is in `File.Owner`, a `stateID`, and the handlers refuse a pause or a resume from any other tab. `stateID` names the tab that is asking, and `fileList` renders **Pause** and **Resume** for that tab and **Take over** for the rest.
 
 `GET` cannot read `stateID`, because a tab has no state until it connects its stream. It does not need to: a tab that just loaded holds no `File` and owns nothing, which is exactly what it renders.
 
@@ -79,9 +79,9 @@ An unfinished file carries a status icon, which only moves while somebody is sen
 
 An unfinished upload of the same original name and size is offered in the dialog as something to continue, at the offset it reached, with uploading a second file as the other choice. A complete file is not offered: there is nothing left of it to send, and picking it again uploads a second copy.
 
-The choice stays with the visitor because a name and a size are all a browser reveals, and two different files can share both. Continuing the wrong one would append the bytes of one file to the prefix of another. `POSTStart` re-checks the match when the dialog is confirmed: an upload that completed or was deleted while the dialog stood open starts a new file instead.
+The choice stays with the visitor because a name and a size are all a browser reveals, and 2 different files can share both. Continuing the wrong one would append the bytes of one file to the prefix of another. `POSTStart` re-checks the match when the dialog is confirmed: an upload that completed or was deleted while the dialog stood open starts a new file instead.
 
-The name a matching row offers is the one that upload already carries, which is why confirming the dialog unchanged renames nothing. `store.Create` counts a name up to `notes (2).txt` when another file already answers to it, which is what keeps two rows of the list apart.
+The name a matching row offers is the one that upload already carries, which is why confirming the dialog unchanged renames nothing. `store.Create` counts a name up to `notes (2).txt` when another file already answers to it, which is what keeps 2 rows of the list apart.
 
 ### Resuming a file the browser lost
 
@@ -93,11 +93,11 @@ Name and size are all a browser reveals before the bytes are read. An applicatio
 
 ### Speed limits
 
-The browser holds one rate field and one **Unlimited** switch per direction and nothing else: no client sends itself slowly. Either control posts `POSTLimits`, which sets the two budgets in `App` and announces them, and every tab writes the values that took effect back into its controls.
+The browser holds 1 rate field and 1 **Unlimited** switch per direction and nothing else: no client sends itself slowly. Either control posts `POSTLimits`, which sets the 2 budgets in `App` and announces them, and every tab writes the values that took effect back into its controls.
 
-Each budget is one `throttle.Limiter` shared by every transfer in that direction, which makes the limit a limit of the server and not one per visitor. Uploads are paced by reading the request body more slowly in `PUTChunk`: its buffers fill, TCP stops the sender, and a client that ignores the limit gains nothing. Downloads are paced by reading the blob more slowly in the handler, which is what `http.ServeContent` writes from.
+Each budget is 1 `throttle.Limiter` shared by every transfer in that direction, which makes the limit a limit of the server and not 1 per visitor. Uploads are paced by reading the request body more slowly in `PUTChunk`: its buffers fill, TCP stops the sender, and a client that ignores the limit gains nothing. Downloads are paced by reading the blob more slowly in the handler, which is what `http.ServeContent` writes from.
 
-Pacing makes one chunk take a long time, which shapes `store`. An entry has one lock for its metadata and another for the chunk being written, which keeps listing the files from waiting for a transfer. The received bytes are recorded as they arrive, which moves the progress bar during a chunk and ends a paused one within one write rather than at the end of the request.
+Pacing makes 1 chunk take a long time, which shapes `store`. An entry has one lock for its metadata and another for the chunk being written, which keeps listing the files from waiting for a transfer. The received bytes are recorded as they arrive, which moves the progress bar during a chunk and ends a paused one within 1 write rather than at the end of the request.
 
 The limits live in memory and start unlimited on every restart.
 
@@ -107,14 +107,14 @@ The limits live in memory and start unlimited on every restart.
 | --- | --- |
 | Files, their bytes and their status | `store.Store`, on disk |
 | Which tab is sending a file | `store.File.Owner`, in memory |
-| The two transfer limits | `App`, one `throttle.Limiter` each |
+| The 2 transfer limits | `App`, 1 `throttle.Limiter` each |
 | Files picked but not confirmed yet | `StateIndex`, per tab |
 | Whether a drag is over the page | a Datastar signal |
 | The `File` objects being sent | the uploader, per tab |
 
-Which tab is sending a file is not per-tab state: two tabs must not send the same file, and no tab can decide that on its own.
+Which tab is sending a file is not per-tab state: 2 tabs must not send the same file, and no tab can decide that on its own.
 
-`EventFilesChanged` and `EventLimitsChanged` carry nothing: every subscriber reads what it needs from the store or from `App`. `EventUploadStarted` carries the jobs of one tab and is addressed with `datapages.SubjectStateID`, since only that tab holds the files. It also carries the dialog away, because a handler that opens a stream cannot read the request body afterwards, and `POSTStart` reads the names from the dialog form.
+`EventFilesChanged` and `EventLimitsChanged` carry nothing: every subscriber reads what it needs from the store or from `App`. `EventUploadStarted` carries the jobs of 1 tab and is addressed with `datapages.SubjectStateID`, since only that tab holds the files. It also carries the dialog away, because a handler that opens a stream cannot read the request body afterwards, and `POSTStart` reads the names from the dialog form.
 
 ### Downloads
 
@@ -122,7 +122,7 @@ Which tab is sending a file is not per-tab state: two tabs must not send the sam
 
 Serving the blobs through `datapages.WithAssetsFS` would work too, but the asset route is file serving and nothing else: it has no handler to check a session in, sets no `Content-Disposition`, and replaces the embedded serving of `WithAssets` including its dev-mode reads from disk.
 
-Every uploaded file is readable by whoever knows its 128 bit identifier. This example authenticates nobody. An application with visitors would take the session in `GETFile` and would limit what one visitor may store.
+Every uploaded file is readable by whoever knows its 128 bit identifier. This example authenticates nobody. An application with visitors would take the session in `GETFile` and would limit what 1 visitor may store.
 
 ### Interaction flow
 
@@ -142,8 +142,8 @@ sequenceDiagram
     S->>S: Keep them in StateIndex of this tab
     S->>B: SSE morph #upload-dialog
 
-    B->>S: POST /start/ (one name per file, form)
-    S->>D: Create one file per staged entry
+    B->>S: POST /start/ (1 name per file, form)
+    S->>D: Create 1 file per staged entry
     S-->>B: EventUploadStarted (this tab only)
     B->>B: morph #upload-dialog away, dpUpload.start(jobs)
     S-->>B: EventFilesChanged (every tab)

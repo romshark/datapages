@@ -9,8 +9,8 @@ import (
 
 // EventCounterUpdated is "simple.counter.updated"
 //
-// The subject carries the name of the application: the two applications of
-// this module must not claim one subject, since a broker given to both would
+// The subject carries the name of the application: the 2 applications of
+// this module must not claim the same subject, since a broker given to both would
 // carry each one's events to the other.
 type EventCounterUpdated struct{}
 

@@ -64,7 +64,7 @@ export class Cursors {
   }
 
   // textRects returns the boxes of the text between index and index+length,
-  // one range per text node: a range over whole paragraphs also returns the
+  // 1 range per text node: a range over whole paragraphs also returns the
   // paragraph boxes.
   private textRects(index: number, length: number): DOMRect[] {
     if (length <= 0) {

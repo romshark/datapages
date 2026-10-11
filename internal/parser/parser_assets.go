@@ -28,7 +28,7 @@ var (
 		"assets variable has no " + embedDirective + " directive",
 	)
 	ErrAssetsEmbedPatterns = errors.New(
-		embedDirective + " must name exactly one directory",
+		embedDirective + " must name exactly 1 directory",
 	)
 	ErrAssetsEmbedOutside = errors.New(
 		embedDirective + " must name a directory inside the app package",
@@ -145,8 +145,8 @@ func urlPrefixOf(doc *ast.CommentGroup, name string) (string, bool) {
 // embedDir reads the directory out of the go:embed directive of the variable.
 // srcDir is the directory the pattern is relative to.
 //
-// Exactly one directory is named. The generator serves it from the embed.FS in
-// production and from disk in dev mode, both of which need one root.
+// Exactly 1 directory is named. The generator serves it from the embed.FS in
+// production and from disk in dev mode, both of which need 1 root.
 // A glob such as static/*.css or a single file names none: used as the root,
 // it is a directory that doesn't exist, and every asset answers 404.
 func embedDir(doc *ast.CommentGroup, srcDir string) (string, error) {

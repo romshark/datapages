@@ -1,6 +1,6 @@
 // Wires the multi-call case into the shared contract suite.
 //
-// The suite runs against the server the test package builds. The other three
+// The suite runs against the server the test package builds. The other 3
 // constructors reach the same generated code, which multicall_test.go asserts.
 
 package acceptance_test

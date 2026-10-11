@@ -47,7 +47,7 @@ func ReceiverTypeName(expr ast.Expr) string {
 	return ""
 }
 
-// EmbeddedType is one embedded field of a struct.
+// EmbeddedType is 1 embedded field of a struct.
 type EmbeddedType struct {
 	// Name is what the field embeds, with the pointer and the type
 	// arguments stripped: *Base[int] is Base.
@@ -203,7 +203,7 @@ type SubjectFieldResult struct {
 	// AfterPayload is non-nil when a subject field appears after a
 	// non-subject (payload) field. It points to the offending field.
 	AfterPayload *SubjectField
-	// DuplicateSignal is non-nil when two subject fields share the
+	// DuplicateSignal is non-nil when 2 subject fields share the
 	// same signal:"..." tag value. It points to the second occurrence.
 	// DuplicateSignalFirst names the first field that used the signal.
 	DuplicateSignal      *SubjectField
@@ -271,7 +271,7 @@ func SubjectFields(
 			}
 		}
 
-		// Names declared together share one type and one tag.
+		// Names declared together share 1 type and 1 tag.
 		// Each is a field of its own: skipping the line would drop the
 		// subject silently and publish the event to the bare subject.
 		for _, ident := range f.Names {

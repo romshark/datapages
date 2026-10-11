@@ -1,7 +1,7 @@
 //nolint:all
 
-// Package app gives four pages a session. PageAbout, the first by name,
-// takes another data type than the other three, each of which conflicts with it.
+// Package app gives 4 pages a session. PageAbout, the first by name,
+// takes another data type than the other 3, each of which conflicts with it.
 package app
 
 import (

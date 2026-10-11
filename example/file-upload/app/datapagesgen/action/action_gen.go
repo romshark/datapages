@@ -49,7 +49,7 @@ const (
 )
 
 // reporter keeps logging and metrics within this generated application.
-// A runtime variable would make servers in one process overwrite each other.
+// A runtime variable would make servers in 1 process overwrite each other.
 var reporter actionexpr.Reporter
 
 // SetLogger sets the logger for invalid options. A nil logger uses

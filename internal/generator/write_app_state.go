@@ -46,7 +46,7 @@ func (w *Writer) writeStateFetchWrapper() {
 	if !w.usage.stateRuntime {
 		return
 	}
-	w.Line(1, "// The id authorizes access to one tab's state. The fetch wrapper keeps")
+	w.Line(1, "// The id authorizes access to 1 tab's state. The fetch wrapper keeps")
 	w.Line(1, "// it in a closure. Removing the script node prevents later DOM readers,")
 	w.Line(1, "// including replay and error-reporting tools, from recording it.")
 	w.Line(1, "// Cache-Control: no-store prevents caches from retaining the response body.")
@@ -138,15 +138,22 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 }
 
 // writeLockSlotOrReject emits the slot lock after the request body is read.
-// The mutex serializes all handlers of one tab, including the SSE event loop.
+// The mutex serializes all handlers of 1 tab, including the SSE event loop.
 // Locking before the read would let a slow request stall the tab and fill the
-// event buffer.
+// event buffer. A slow client would do the same to a file, which is why a
+// handler that returns one releases the lock before the file is served,
+// see [Writer.writeFileCall]. The deferred unlock covers a panic in the handler.
 //
 // The stream can close between the lookup and the lock and drop the state,
 // which is why liveness is re-checked here.
-func (w *Writer) writeLockSlotOrReject() {
+func (w *Writer) writeLockSlotOrReject(h *model.Handler) {
 	w.Line(1, "slot.mu.Lock()")
-	w.Line(1, "defer slot.mu.Unlock()")
+	if h.OutputFile != nil {
+		w.Line(1, "unlock := sync.OnceFunc(slot.mu.Unlock)")
+		w.Line(1, "defer unlock()")
+	} else {
+		w.Line(1, "defer slot.mu.Unlock()")
+	}
 	w.Line(1, "if slot.dead {")
 	w.Line(2, "w.Header().Set(stateRetryHeader, stateRetryReconnect)")
 	w.Line(2, "http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)")
@@ -327,7 +334,7 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 	stateType := st.TypeName
 
 	w.Raw("\n")
-	w.Linef(0, "// %s belongs to one stream and is never reused.", slot)
+	w.Linef(0, "// %s belongs to 1 stream and is never reused.", slot)
 	w.Line(0, "// A reconnect allocates a new slot and state value.")
 	w.Linef(0, "type %s struct {", slot)
 	w.Linef(1, "state *%s.%s", appPkg, stateType)

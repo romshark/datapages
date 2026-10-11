@@ -72,7 +72,7 @@ func TestQUERYInput(t *testing.T) {
 
 // TestQUERYInputOverLimit tests that the server refuses an input signal longer
 // than calc.MaxInputLen before evaluating it. calc.Evaluate recurses once per
-// parenthesis, and the default body limit of 1 MiB holds a million of them.
+// parenthesis, and the default body limit of 1 MiB holds 1 million of them.
 func TestQUERYInputOverLimit(t *testing.T) {
 	body, logs := query(t, calc.CalcButtonEq, false,
 		signals{Input: strings.Repeat("(", calc.MaxInputLen+1)})

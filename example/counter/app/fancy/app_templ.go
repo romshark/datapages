@@ -35,7 +35,7 @@ func head() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<title>Fancy Counter</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><script type=\"module\">\n\t\timport \"https://esm.sh/number-flow@0.6.0\"\n\t\tcustomElements.whenDefined(\"number-flow\").then(() => {\n\t\t\tconst data = document.getElementById(\"counter-data\")\n\t\t\tconst flow = document.getElementById(\"counter-value\")\n\t\t\tconst sync = () => flow.update(parseInt(data.value, 10))\n\t\t\tnew MutationObserver(sync).observe(data, { attributes: true })\n\t\t\tsync()\n\t\t})\n\t</script><style>\n\t\t* {\n\t\t\tmargin: 0;\n\t\t\tpadding: 0;\n\t\t\tbox-sizing: border-box;\n\t\t}\n\t\tbody {\n\t\t\tfont-family: system-ui, sans-serif;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\talign-items: center;\n\t\t\tjustify-content: center;\n\t\t\tmin-height: 100vh;\n\t\t\tpadding: 1rem;\n\t\t\tbackground: #f5f5f5;\n\t\t\tcolor: #1a1a1a;\n\t\t}\n\t\t.card {\n\t\t\tbackground: #fff;\n\t\t\tborder-radius: 1rem;\n\t\t\tpadding: 2.5rem 2rem;\n\t\t\tbox-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\talign-items: center;\n\t\t\twidth: fit-content;\n\t\t\tmin-width: min(100%, 24rem);\n\t\t}\n\t\th1 {\n\t\t\tfont-size: 0.875rem;\n\t\t\tfont-weight: 500;\n\t\t\ttext-transform: uppercase;\n\t\t\tletter-spacing: 0.08em;\n\t\t\tcolor: #888;\n\t\t\tmargin-bottom: 1rem;\n\t\t}\n\t\t#counter-value {\n\t\t\tdisplay: block;\n\t\t\tfont-size: clamp(1.5rem, 10vw, 6rem);\n\t\t\tfont-weight: 700;\n\t\t\tfont-variant-numeric: tabular-nums;\n\t\t\tline-height: 1;\n\t\t\twhite-space: nowrap;\n\t\t\ttext-align: center;\n\t\t\tmargin-bottom: 1.5rem;\n\t\t\t--number-flow-mask-height: 0.15em;\n\t\t}\n\t\t#counter-data {\n\t\t\tdisplay: none;\n\t\t}\n\t\t.buttons {\n\t\t\tdisplay: flex;\n\t\t\tflex-wrap: wrap;\n\t\t\tjustify-content: center;\n\t\t\tgap: 0.5rem;\n\t\t\twidth: 100%;\n\n\t\t\t& button {\n\t\t\t\tfont-size: 1.25rem;\n\t\t\t\tfont-weight: 500;\n\t\t\t\tpadding: 0.5rem 1.25rem;\n\t\t\t\tborder: 1px solid #ddd;\n\t\t\t\tborder-radius: 0.5rem;\n\t\t\t\tbackground: #fafafa;\n\t\t\t\tcursor: pointer;\n\t\t\t\ttransition: background 0.15s, border-color 0.15s;\n\t\t\t}\n\t\t\t& button:hover {\n\t\t\t\tbackground: #eee;\n\t\t\t\tborder-color: #bbb;\n\t\t\t}\n\t\t\t& button:active {\n\t\t\t\tbackground: #e0e0e0;\n\t\t\t}\n\t\t}\n\t\t.set-group {\n\t\t\tdisplay: flex;\n\t\t\tgap: 0.5rem;\n\t\t\twidth: 100%;\n\t\t\tmargin-top: 0.5rem;\n\n\t\t\t& input {\n\t\t\t\tflex: 1;\n\t\t\t\tmin-width: 0;\n\t\t\t\tfont-size: 1rem;\n\t\t\t\tpadding: 0.5rem 0.75rem;\n\t\t\t\tborder: 1px solid #ddd;\n\t\t\t\tborder-radius: 0.5rem;\n\t\t\t\tbackground: #fafafa;\n\t\t\t\tfont-variant-numeric: tabular-nums;\n\t\t\t}\n\t\t\t& input:focus {\n\t\t\t\toutline: none;\n\t\t\t\tborder-color: #999;\n\t\t\t}\n\t\t\t& button {\n\t\t\t\tfont-size: 1rem;\n\t\t\t\tfont-weight: 500;\n\t\t\t\tpadding: 0.5rem 1.25rem;\n\t\t\t\tborder: 1px solid #ddd;\n\t\t\t\tborder-radius: 0.5rem;\n\t\t\t\tbackground: #fafafa;\n\t\t\t\tcursor: pointer;\n\t\t\t\ttransition: background 0.15s, border-color 0.15s;\n\t\t\t}\n\t\t\t& button:hover {\n\t\t\t\tbackground: #eee;\n\t\t\t\tborder-color: #bbb;\n\t\t\t}\n\t\t\t& button:active {\n\t\t\t\tbackground: #e0e0e0;\n\t\t\t}\n\t\t}\n\t\t.hint {\n\t\t\tcolor: #aaa;\n\t\t\tfont-size: 0.8125rem;\n\t\t\tmargin-top: 1.5rem;\n\t\t\ttext-align: center;\n\t\t}\n\t\t.attribution {\n\t\t\tposition: fixed;\n\t\t\tbottom: 0.5rem;\n\t\t\tleft: 0;\n\t\t\tright: 0;\n\t\t\ttext-align: center;\n\t\t\tfont-size: 0.75rem;\n\t\t\tcolor: #aaa;\n\t\t\t& a { color: inherit; }\n\t\t}\n\t</style>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<title>Fancy Counter</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><script type=\"module\">\n\t\timport \"https://esm.sh/number-flow@0.6.2\"\n\t\tcustomElements.whenDefined(\"number-flow\").then(() => {\n\t\t\tconst data = document.getElementById(\"counter-data\")\n\t\t\tconst flow = document.getElementById(\"counter-value\")\n\t\t\tconst sync = () => flow.update(parseInt(data.value, 10))\n\t\t\tnew MutationObserver(sync).observe(data, { attributes: true })\n\t\t\tsync()\n\t\t})\n\t</script><style>\n\t\t* {\n\t\t\tmargin: 0;\n\t\t\tpadding: 0;\n\t\t\tbox-sizing: border-box;\n\t\t}\n\t\tbody {\n\t\t\tfont-family: system-ui, sans-serif;\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\talign-items: center;\n\t\t\tjustify-content: center;\n\t\t\tmin-height: 100vh;\n\t\t\tpadding: 1rem;\n\t\t\tbackground: #f5f5f5;\n\t\t\tcolor: #1a1a1a;\n\t\t}\n\t\t.card {\n\t\t\tbackground: #fff;\n\t\t\tborder-radius: 1rem;\n\t\t\tpadding: 2.5rem 2rem;\n\t\t\tbox-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);\n\t\t\tdisplay: flex;\n\t\t\tflex-direction: column;\n\t\t\talign-items: center;\n\t\t\twidth: fit-content;\n\t\t\tmin-width: min(100%, 24rem);\n\t\t}\n\t\th1 {\n\t\t\tfont-size: 0.875rem;\n\t\t\tfont-weight: 500;\n\t\t\ttext-transform: uppercase;\n\t\t\tletter-spacing: 0.08em;\n\t\t\tcolor: #888;\n\t\t\tmargin-bottom: 1rem;\n\t\t}\n\t\t#counter-value {\n\t\t\tdisplay: block;\n\t\t\tfont-size: clamp(1.5rem, 10vw, 6rem);\n\t\t\tfont-weight: 700;\n\t\t\tfont-variant-numeric: tabular-nums;\n\t\t\tline-height: 1;\n\t\t\twhite-space: nowrap;\n\t\t\ttext-align: center;\n\t\t\tmargin-bottom: 1.5rem;\n\t\t\t--number-flow-mask-height: 0.15em;\n\t\t}\n\t\t#counter-data {\n\t\t\tdisplay: none;\n\t\t}\n\t\t.buttons {\n\t\t\tdisplay: flex;\n\t\t\tflex-wrap: wrap;\n\t\t\tjustify-content: center;\n\t\t\tgap: 0.5rem;\n\t\t\twidth: 100%;\n\n\t\t\t& button {\n\t\t\t\tfont-size: 1.25rem;\n\t\t\t\tfont-weight: 500;\n\t\t\t\tpadding: 0.5rem 1.25rem;\n\t\t\t\tborder: 1px solid #ddd;\n\t\t\t\tborder-radius: 0.5rem;\n\t\t\t\tbackground: #fafafa;\n\t\t\t\tcursor: pointer;\n\t\t\t\ttransition: background 0.15s, border-color 0.15s;\n\t\t\t}\n\t\t\t& button:hover {\n\t\t\t\tbackground: #eee;\n\t\t\t\tborder-color: #bbb;\n\t\t\t}\n\t\t\t& button:active {\n\t\t\t\tbackground: #e0e0e0;\n\t\t\t}\n\t\t}\n\t\t.set-group {\n\t\t\tdisplay: flex;\n\t\t\tgap: 0.5rem;\n\t\t\twidth: 100%;\n\t\t\tmargin-top: 0.5rem;\n\n\t\t\t& input {\n\t\t\t\tflex: 1;\n\t\t\t\tmin-width: 0;\n\t\t\t\tfont-size: 1rem;\n\t\t\t\tpadding: 0.5rem 0.75rem;\n\t\t\t\tborder: 1px solid #ddd;\n\t\t\t\tborder-radius: 0.5rem;\n\t\t\t\tbackground: #fafafa;\n\t\t\t\tfont-variant-numeric: tabular-nums;\n\t\t\t}\n\t\t\t& input:focus {\n\t\t\t\toutline: none;\n\t\t\t\tborder-color: #999;\n\t\t\t}\n\t\t\t& button {\n\t\t\t\tfont-size: 1rem;\n\t\t\t\tfont-weight: 500;\n\t\t\t\tpadding: 0.5rem 1.25rem;\n\t\t\t\tborder: 1px solid #ddd;\n\t\t\t\tborder-radius: 0.5rem;\n\t\t\t\tbackground: #fafafa;\n\t\t\t\tcursor: pointer;\n\t\t\t\ttransition: background 0.15s, border-color 0.15s;\n\t\t\t}\n\t\t\t& button:hover {\n\t\t\t\tbackground: #eee;\n\t\t\t\tborder-color: #bbb;\n\t\t\t}\n\t\t\t& button:active {\n\t\t\t\tbackground: #e0e0e0;\n\t\t\t}\n\t\t}\n\t\t.hint {\n\t\t\tcolor: #aaa;\n\t\t\tfont-size: 0.8125rem;\n\t\t\tmargin-top: 1.5rem;\n\t\t\ttext-align: center;\n\t\t}\n\t\t.attribution {\n\t\t\tposition: fixed;\n\t\t\tbottom: 0.5rem;\n\t\t\tleft: 0;\n\t\t\tright: 0;\n\t\t\ttext-align: center;\n\t\t\tfont-size: 0.75rem;\n\t\t\tcolor: #aaa;\n\t\t\t& a { color: inherit; }\n\t\t}\n\t</style>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -94,7 +94,7 @@ func pageCounter(value int32) templ.Component {
 			action.PageIndex.Add.POSTQuery(-1),
 		))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 164, Col: 5}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 166, Col: 5}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -109,7 +109,7 @@ func pageCounter(value int32) templ.Component {
 			action.PageIndex.Add.POSTQuery(1),
 		))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 169, Col: 5}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 171, Col: 5}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -122,7 +122,7 @@ func pageCounter(value int32) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Set.POST(math.MaxInt32))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 171, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 173, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -135,7 +135,7 @@ func pageCounter(value int32) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Set.POST(0))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 175, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 179, Col: 55}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -177,7 +177,7 @@ func counterValue(value int32) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(value))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 187, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/fancy/app.templ`, Line: 191, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 		if templ_7745c5c3_Err != nil {

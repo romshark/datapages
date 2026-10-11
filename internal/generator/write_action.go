@@ -26,13 +26,13 @@ func (w *Writer) WritePkgAction(m *model.App) {
 		w.writeTextOf()
 	}
 
-	// An action reaches a template as action.PageFoo.Bar.POST: three
+	// An action reaches a template as action.PageFoo.Bar.POST: 3
 	// identifiers, each a field or method of the namespace above it.
-	// Two model names never concatenate, which PageUser.POSTSettingsSave and
-	// PageUserSettings.POSTSave would spell as one.
+	// 2 model names never concatenate, which PageUser.POSTSettingsSave and
+	// PageUserSettings.POSTSave would spell the same way.
 	//
 	// The unexported types below do concatenate, separated by "_", which no
-	// model name may contain: no pair of models spells one of them two ways.
+	// model name may contain: no pair of models spells one of them 2 ways.
 	type verbEntry struct {
 		httpMethod string
 		route      string

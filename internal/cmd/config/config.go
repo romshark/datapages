@@ -73,7 +73,7 @@ type WatchCustomWatcher struct {
 	Requires    WatcherRequires `yaml:"requires"`
 }
 
-// enumOption is one accepted text value of a config enum.
+// enumOption is 1 accepted text value of a config enum.
 type enumOption[T any] struct {
 	name  string
 	value T

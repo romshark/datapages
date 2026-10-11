@@ -1,6 +1,6 @@
 /* The theme of this application, replacing the one Morpheus ships.
  *
- * One palette serves both: the names are the kit's, and style.css uses the
+ * 1 palette serves both: the names are the kit's, and style.css uses the
  * same ones rather than keeping a second set that drifts from these. Every
  * component radius falls back to --page-radius,
  * which is what makes the whole kit square.
@@ -35,7 +35,7 @@
 	--btn-border: var(--border);
 	--btn-hover-bg: var(--surface-2);
 
-	/* Danger is the one saturated colour of this palette, at an OKLCH chroma
+	/* Danger is the only saturated colour of this palette, at an OKLCH chroma
 	 * of 0.213 against 0.000 for the accent and 0.001 to 0.008 for the greys.
 	 * It marks the only action on this page that nothing undoes. The hover is
 	 * the same hue a step darker, which also raises the contrast of the text on it.

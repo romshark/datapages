@@ -14,10 +14,10 @@ import (
 // is written as a route wildcard by the fixture named after the case.
 //
 // The fixture provokes the collision by naming a wildcard after something the
-// URL writers resolve. Nothing else ties the two together: an entry added here
+// URL writers resolve. Nothing else ties the 2 together: an entry added here
 // without a route there leaves generated code nobody compiles under that name,
-// and the fixture stays green while covering one name less. This closes that
-// loop in the one direction a test can.
+// and the fixture stays green while covering 1 name less. This closes that
+// loop in the only direction a test can.
 //
 // The other direction has no anchor. The names [newHrefLocals] picks are
 // literals in that function rather than a list, and a rename there leaves both

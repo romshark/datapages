@@ -118,7 +118,7 @@ var (
 
 	// Action options the expression writer refused. The label is the helper
 	// that built the option, never the value, which can come from a request
-	// and would then open one time series per visitor.
+	// and would then open 1 time series per visitor.
 	mActionOptionsDropped = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "datapages",
@@ -158,7 +158,7 @@ var (
 	)
 
 	// The gauge is what datapages.StateConfig.MaxConcurrentInstances is
-	// reached against. The cap itself is not exported: it belongs to one
+	// reached against. The cap itself is not exported: it belongs to 1
 	// server and this gauge, like every other here, counts every server of
 	// the process that registered metrics.
 	mStateInstances = prometheus.NewGauge(
@@ -172,7 +172,7 @@ var (
 )
 
 // Register registers the built-in metrics on r, followed by extra.
-// A collector r already holds is skipped, which lets two servers of one
+// A collector r already holds is skipped, which lets 2 servers of 1
 // process share a registerer.
 func Register(r prometheus.Registerer, extra ...prometheus.Collector) error {
 	builtin := [...]prometheus.Collector{
@@ -306,7 +306,7 @@ type statusRW struct {
 	http.ResponseWriter
 	status int
 	// isStream is set by [MarkStream] on the request goroutine,
-	// between the middleware's two halves.
+	// between the middleware's 2 halves.
 	isStream bool
 	// route is the pattern the router matched, set by [RecordRoute]
 	// on the request goroutine as well.
@@ -386,7 +386,7 @@ func (w *statusRW) Push(target string, opts *http.PushOptions) error {
 }
 
 // LabelUnmatched is the path label of a request that matched no route.
-// The raw path is whatever the client asked for: labelling with it opens one
+// The raw path is whatever the client asked for: labelling with it opens 1
 // time series per distinct path, which any visitor can then multiply.
 const LabelUnmatched = "<unmatched>"
 

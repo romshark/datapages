@@ -103,8 +103,8 @@ type parseCtx struct {
 	eventTypeNames map[string]struct{}
 
 	// eventPkgByName maps an event type name to the package it is taken from.
-	// Generated code names an event by its type name alone, hence two events
-	// of one name are refused however far apart they are declared.
+	// Generated code names an event by its type name alone, hence 2 events
+	// of 1 name are refused however far apart they are declared.
 	eventPkgByName map[string]string
 
 	// foreignEvents holds "pkgpath.TypeName" of every event this application
@@ -394,7 +394,7 @@ func firstPassEventType(
 		pickDoc(name, ctx.docByType, ctx.genDocByType), ctx.pkg)
 }
 
-// registerEventType reads one event declaration and adds it to the model.
+// registerEventType reads 1 event declaration and adds it to the model.
 // declPkg is the package the declaration is written in, which is the app
 // package for an event the application declares itself.
 func registerEventType(
@@ -459,7 +459,7 @@ func registerEventType(
 			},
 		)
 	}
-	// A stream subscribes by one user position.
+	// A stream subscribes by 1 user position.
 	// A user named in a second SubjectUser field would never receive the event.
 	firstUser := ""
 	for _, sf := range sfResult.Fields {
@@ -1025,14 +1025,14 @@ func validateAndAttachEventHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	// Invariants for OnXXX handlers:
-	//   - Must have exactly one parameter of an EventXXX type
+	//   - Must have exactly 1 parameter of an EventXXX type
 	//   - Must have a *datastar.ServerSentEventGenerator parameter
-	//   - Only one handler per EventXXX per receiver type
+	//   - Only 1 handler per EventXXX per receiver type
 	//   - Parameters may be in any order
 	params := fd.Type.Params
 	var evName string
 
-	// Find the event parameter by type. The event a handler takes is the one
+	// Find the event parameter by type. The event a handler takes is the only
 	// parameter carrying a declared event type, whatever the parameter is named.
 	evParams := 0
 	if params != nil {
@@ -1052,7 +1052,7 @@ func validateAndAttachEventHandler(
 				evName = name
 			}
 			// Passing the address is not the fix: a stream decodes each of its
-			// messages into one variable, which a pointer the handler keeps
+			// messages into 1 variable, which a pointer the handler keeps
 			// would see overwritten by the next event.
 			t := types.Unalias(ctx.pkg.TypesInfo.TypeOf(f.Type))
 			if _, ptr := t.(*types.Pointer); ptr {
@@ -1117,7 +1117,7 @@ func validateAndAttachEventHandler(
 	// What is left after the event, the SSE, the session, the stream ID and
 	// the per-tab state, each of which was matched already, is unsupported.
 	// So is a second SSE, session or stream ID, as for every other handler.
-	// Each name of a field is a parameter: `sse, sse2 datapages.SSE` is two.
+	// Each name of a field is a parameter: `sse, sse2 datapages.SSE` is 2.
 	if params != nil {
 		unsupported := func(f *ast.Field) {
 			p := f.Type.Pos()
@@ -1161,7 +1161,7 @@ func validateAndAttachEventHandler(
 		}
 	}
 
-	// OnXXX must return exactly one result of type error.
+	// OnXXX must return exactly 1 result of type error.
 	if !eventHandlerReturnsOnlyError(fd, ctx.pkg.TypesInfo) {
 		retPos := pos
 		if fd.Type.Results != nil {
@@ -1726,12 +1726,12 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 }
 
 // reportAmbiguousHandlers reports the handlers a page inherits through more
-// than one embedded field at the same depth. Generated code calls a handler as
+// than 1 embedded field at the same depth. Generated code calls a handler as
 // a method of the page, which Go refuses as an ambiguous selector.
 //
 // [flattenPage] keeps the first action of a method name and visits each
-// abstract page once. It therefore accepts two abstracts defining one action
-// at the same depth, and one abstract reached through two embedded fields.
+// abstract page once. It therefore accepts 2 abstracts defining the same action
+// at the same depth, and 1 abstract reached through 2 embedded fields.
 // [types.LookupFieldOrMethod] applies Go's selector rules, which refuse both
 // and let a shallower method shadow a deeper one.
 func reportAmbiguousHandlers(
@@ -1755,7 +1755,7 @@ func reportAmbiguousHandlers(
 			return
 		}
 		errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()), fmt.Errorf(
-			"%w: %s.%s is promoted from more than one embedded field "+
+			"%w: %s.%s is promoted from more than 1 embedded field "+
 				"at the same depth",
 			ErrPageAmbiguousEmbed, pg.TypeName, name,
 		))
@@ -1797,7 +1797,7 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-// validateRefreshOutputs rejects the two GET outputs that steer the reload of a
+// validateRefreshOutputs rejects the 2 GET outputs that steer the reload of a
 // hidden tab on a page that is served no stream. The reload renders the events
 // the closed stream missed, hence neither output has anything to act on.
 //
@@ -1828,9 +1828,9 @@ func validateRefreshOutputs(ctx *parseCtx, errs *Errors) {
 // validateErrorPageSessionOutputs rejects newSession and closeSession on the
 // GET of PageError404 and PageError500.
 //
-// Both pages serve two entry points through one method: their own route and
+// Both pages serve 2 entry points through 1 method: their own route and
 // the error path, render404 for the 404 page and httpErrIntern for the 500 one.
-// Nothing in the signature separates the two.
+// Nothing in the signature separates the 2.
 func validateErrorPageSessionOutputs(ctx *parseCtx, errs *Errors) {
 	for _, name := range []string{"PageError404", "PageError500"} {
 		pg := ctx.pages[name]
@@ -1898,7 +1898,7 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 }
 
 // checkPageSubjectKinds rejects a SubjectStateID event on a stateless page or
-// next to a private or signal-scoped event. A page subscribes once, with one
+// next to a private or signal-scoped event. A page subscribes once, with 1
 // list of subjects. A subject that ends in a tab id cannot share that list with
 // one that ends in a user id or a signal value.
 func checkPageSubjectKinds(ctx *parseCtx, errs *Errors) {
@@ -1946,7 +1946,7 @@ func checkPageSubjectKinds(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-// checkPageSignalPaths rejects a page whose events need one signal both as a
+// checkPageSignalPaths rejects a page whose events need the same signal both as a
 // value and as an object, such as chat and chat.room. $chat.room exists only
 // when $chat is an object, and the stream needs both to be values.
 func checkPageSignalPaths(ctx *parseCtx, errs *Errors) {
@@ -2059,7 +2059,7 @@ func collectPageStateNames(pg *model.Page) map[string]struct{} {
 // net/http rejects some of these itself, which [validateRouteConflicts] reports.
 // It accepts a Go keyword and the blank identifier,
 // and both leave a generated href and action package the user's build refuses.
-// The report names the route, which is the one line the user edits.
+// The report names the route, which is the only line the user edits.
 func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
 	eachRoute(ctx, func(route string, expr ast.Expr, owner string) {
 		for v := range routepattern.Vars(route) {
@@ -2077,7 +2077,7 @@ func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
 // a backtick ends a raw literal, a quote ends an interpreted one, and a backslash starts
 // an escape sequence, which can turn the route into another one, as `\u00e9` does.
 // The links, actions and stream URLs it generates carry the route as written:
-// a "?" starts the query there, a "#" the fragment, and a "%" without two hex
+// a "?" starts the query there, a "#" the fragment, and a "%" without 2 hex
 // digits after it makes net/http answer 400.
 //
 // None of these may stand unencoded in a URL path (RFC 3986, section 3.3).
@@ -2135,16 +2135,36 @@ func eachRoute(ctx *parseCtx, fn func(route string, expr ast.Expr, owner string)
 	}
 }
 
-// validateRouteConflicts reports routes that cannot live in one router.
+// validateRouteConflicts reports routes that cannot live in 1 router.
 // The generated server registers them on a net/http ServeMux,
 // which rejects a pattern matching the same requests as one already registered.
 // Asking the same mux keeps the answer identical to the one the server gets on startup.
+//
+// It also reports every route below the assets URL prefix, which the mux
+// accepts as more specific. The core adds no trailing slash to a path there,
+// and the mux redirects one to the route that has it: a route 1 segment
+// below the prefix takes the static files it shares a path with.
 func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 	mux := http.NewServeMux()
 	var claimed []routeClaim
+	assets := ctx.app.Assets.URLPrefix
+	// belowAssets reports route when it is below the assets URL prefix.
+	belowAssets := func(method, route string, expr ast.Expr, owner string) bool {
+		if assets == "" || !strings.HasPrefix(route, assets) {
+			return false
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &RouteConflictError{
+			Pattern:    method + " " + route,
+			Owner:      owner,
+			Other:      http.MethodGet + " " + assets,
+			OtherOwner: "the assets URL prefix",
+			Reason:     "every path below it belongs to the static files",
+		})
+		return true
+	}
 	claim := func(method, route string, expr ast.Expr, owner string) {
 		// A route that is not a path is already reported where it is read.
-		if !strings.HasPrefix(route, "/") {
+		if !strings.HasPrefix(route, "/") || belowAssets(method, route, expr, owner) {
 			return
 		}
 		pattern := method + " " + route
@@ -2188,6 +2208,10 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 	}
 
 	for _, p := range ctx.app.Pages {
+		// The stream and the actions of such a page are below the prefix too.
+		if belowAssets(http.MethodGet, pageRoutePattern(p), p.Expr, p.TypeName) {
+			continue
+		}
 		if p.GET != nil && p.GET.Handler != nil {
 			claim(http.MethodGet, pageRoutePattern(p), p.Expr, p.TypeName)
 		}
@@ -2366,7 +2390,7 @@ func registerRoute(mux *http.ServeMux, pattern string) (err error) {
 }
 
 // routerReason takes the sentence out of a ServeMux panic.
-// A conflict is reported over two lines, the second of which says what the conflict is.
+// A conflict is reported over 2 lines, the second of which says what the conflict is.
 // The first names the file registering each pattern, which is this file.
 func routerReason(msg string) string {
 	if _, rest, ok := strings.Cut(msg, ":\n"); ok {
@@ -2391,7 +2415,7 @@ func parseEventHandler(
 	ctx *parseCtx,
 	recv, name, eventTypeName string,
 ) (*model.EventHandler, error) {
-	// One input per name: the generated call passes an argument for each.
+	// 1 input per name: the generated call passes an argument for each.
 	params := expandFieldList(fd.Type.Params.List)
 
 	h := &model.EventHandler{
@@ -2798,7 +2822,7 @@ func parseRoute(
 }
 
 // expandFieldList splits multi-name fields (e.g. "r, a *http.Request")
-// into individual single-name fields so each represents one parameter.
+// into individual single-name fields so each represents 1 parameter.
 func expandFieldList(fields []*ast.Field) []*ast.Field {
 	var out []*ast.Field
 	for _, f := range fields {
@@ -3131,8 +3155,8 @@ func parseHandler(
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
-	// Expand multi-name fields (e.g. "r, a *http.Request" -> two fields)
-	// so that each field represents exactly one parameter.
+	// Expand multi-name fields (e.g. "r, a *http.Request" -> 2 fields)
+	// so that each field represents exactly 1 parameter.
 	expandedParams := expandFieldList(params.List)
 
 	// Match parameters by name/type in any order.
@@ -3353,7 +3377,7 @@ func parseHandler(
 	for _, r := range fd.Type.Results.List {
 		t := makeType(r.Type, info)
 
-		// A result field declares one value per name, or a single unnamed one.
+		// A result field declares 1 value per name, or a single unnamed one.
 		// Every output is matched by its type, the name is the app's to pick.
 		exprs := make([]ast.Expr, 0, max(len(r.Names), 1))
 		names := make([]string, 0, max(len(r.Names), 1))

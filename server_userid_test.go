@@ -27,7 +27,7 @@ func TestValidateUserID(t *testing.T) {
 		"percent":      {"100%", nil},
 		"at the limit": {strings.Repeat("a", datapages.MaxUserIDEncodedLen), nil},
 		"empty":        {"", datapages.ErrUserIDEmpty},
-		"one over": {
+		"1 over": {
 			strings.Repeat("a", datapages.MaxUserIDEncodedLen+1),
 			datapages.ErrUserIDTooLong,
 		},

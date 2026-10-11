@@ -16,8 +16,8 @@ type Delta struct {
 	Ops []Op `json:"ops"`
 }
 
-// Op is one operation of a [Delta].
-// Exactly one of Insert, Embed, Retain and Delete is nonzero.
+// Op is 1 operation of a [Delta].
+// Exactly 1 of Insert, Embed, Retain and Delete is nonzero.
 type Op struct {
 	Insert string
 	Embed  Embed // Inserted object of length 1, such as an image.
@@ -29,7 +29,7 @@ type Op struct {
 	Attributes Attributes
 }
 
-// Embed is an object Quill inserts as one unit, {"Type":"Value"} in JSON,
+// Embed is an object Quill inserts as 1 unit, {"Type":"Value"} in JSON,
 // such as {"image":"/images/a.png"}. The zero Embed is none.
 type Embed struct{ Type, Value string }
 
@@ -255,7 +255,7 @@ func (d Delta) Compose(other Delta) (Delta, error) {
 }
 
 // Transform returns other, a change concurrent with d, rewritten to apply after d.
-// For inserts at one position, priority puts the insert of d first.
+// For inserts at 1 position, priority puts the insert of d first.
 func (d Delta) Transform(other Delta, priority bool) Delta {
 	thisIter := newIterator(d.Ops)
 	otherIter := newIterator(other.Ops)

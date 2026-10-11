@@ -60,7 +60,7 @@ func (s *Server) writeHTML(
 		Status:      status,
 		HeadGeneric: headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
-			// The id authorizes access to one tab's state. The fetch wrapper keeps
+			// The id authorizes access to 1 tab's state. The fetch wrapper keeps
 			// it in a closure. Removing the script node prevents later DOM readers,
 			// including replay and error-reporting tools, from recording it.
 			// Cache-Control: no-store prevents caches from retaining the response body.
@@ -150,6 +150,26 @@ func (s *Server) recoverPanic(
 		slog.Any("panic", v),
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicFile is recoverPanic for a handler that answers with a file.
+func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	if p, ok := v.(datapages.PanicError); ok {
+		// httpserve.ServeFile carries a panic of the file's Body over from
+		// the goroutine of http.ServeContent, with the stack it had there.
+		v, stack = p.Value, p.Stack
+	}
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFile(w, r, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
@@ -369,7 +389,7 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	return true
 }
 
-// stateSlotStateFilters belongs to one stream and is never reused.
+// stateSlotStateFilters belongs to 1 stream and is never reused.
 // A reconnect allocates a new slot and state value.
 type stateSlotStateFilters struct {
 	state *dpapp.StateFilters
@@ -440,6 +460,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /update/{$}",
 		pageIndexHandlers{s}.POSTUpdate)
+	s.Mux().HandleFunc(
+		"POST /export/{$}",
+		pageIndexHandlers{s}.POSTExport)
 }
 
 func (s *Server) httpErrIntern(
@@ -451,6 +474,16 @@ func (s *Server) httpErrIntern(
 		// The stream is open, hence no status is left to send.
 		return
 	}
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+func (s *Server) httpErrFile(
+	w http.ResponseWriter, _ *http.Request, msg string, err error,
+) {
+	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
@@ -837,6 +870,48 @@ func (s pageIndexHandlers) POSTUpdate(
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Update", err)
 		return
+	}
+}
+
+func (s pageIndexHandlers) POSTExport(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateFilters(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot.mu.Lock()
+	unlock := sync.OnceFunc(slot.mu.Unlock)
+	defer unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	defer s.recoverPanicFile(w, r, "PageIndex.Export")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	file, err := p.POSTExport(r, datapages.State[dpapp.StateFilters]{Values: slot.state})
+	// The tab's other handlers don't wait for the client to read the file.
+	unlock()
+	if err != nil {
+		s.httpErrFile(w, r, "handling action PageIndex.Export", err)
+		return
+	}
+	if err := httpserve.ServeFile(w, r, file); err != nil {
+		s.httpErrFile(w, r, "serving the file of action PageIndex.Export", err)
 	}
 }
 

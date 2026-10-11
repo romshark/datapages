@@ -39,8 +39,8 @@ func main() {
 	// TODO: Initialize your app.
 	a := &app.App{}
 
-	// One application, built either here or by serve. Both calls name the same
-	// four type arguments, which every call naming one app package has to do.
+	// 1 application, built either here or by serve. Both calls name the same
+	// 4 type arguments, which every call naming the same app package has to do.
 	var s datapages.Server
 	var err error
 	if envOr("SERVE", "") == "lib" {

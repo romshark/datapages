@@ -33,7 +33,7 @@ const buildMetaName = "datapages-build"
 //
 // Reloads without a successful request wait 1s, 2s, 4s, and up to 30s.
 // sessionStorage keeps the count across reloads. This delay limits reloads
-// when a rolling deployment sends one tab to different builds.
+// when a rolling deployment sends 1 tab to different builds.
 //
 // A beforeunload handler can cancel a reload. The next stale response more than
 // 10s after the attempt schedules another one. A shorter wait would let the
@@ -42,7 +42,7 @@ const buildMetaName = "datapages-build"
 // history.replaceState changes a form POST history entry to GET so that
 // location.reload does not submit the form again.
 //
-// The wrapper builds one Request from the fetch arguments and copies it with
+// The wrapper builds 1 Request from the fetch arguments and copies it with
 // the build header. The copy sets body to undefined, which makes it reuse the
 // body of the first Request. Passing init.body again encodes the FormData of a
 // multipart form with a new boundary. The copied Content-Type header still

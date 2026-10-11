@@ -3,10 +3,10 @@ package app
 import (
 	"fmt"
 
-	"github.com/romshark/datapages/example/offline-cache/app/domain"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
+	"github.com/romshark/datapages/example/offline-cache/app/domain"
 )
 
 const dateLayout = "Mon, Jan 2 2006 at 3:04 PM"
@@ -58,7 +58,7 @@ templ fragmentNavbar(session Session, baseData baseData) {
 		if !session.IsGuest() {
 			@menuAccount("navbar-menu", baseData.UserName, baseData.UserAvatarURL)
 		} else {
-			<a class="btn-secondary" href={ href.PageLogin(href.QueryPageLogin{}) }>Sign in</a>
+			<a class="btn" data-variant="secondary" href={ href.PageLogin(href.QueryPageLogin{}) }>Sign in</a>
 		}
 	</nav>
 }
@@ -71,7 +71,8 @@ templ menuAccount(id, userName, userAvatarURL string) {
 			aria-haspopup="menu"
 			aria-controls={ id + "-menu" }
 			aria-expanded="false"
-			class="btn-ghost"
+			class="btn"
+			data-variant="ghost"
 		>
 			if userAvatarURL != "" {
 				<img src={ userAvatarURL } class="avatar"/>
@@ -326,8 +327,16 @@ templ pageTicket(session Session, ticket domain.Ticket, qr templ.SafeURL, baseDa
 			</div>
 		</div>
 		<div class="ticket-actions">
-			<a class="btn-secondary" href={ href.PageShow(ticket.ShowSlug) }>View show</a>
-			<a class="btn-ghost" href={ href.PageTickets() }>All my tickets</a>
+			<a
+				class="btn"
+				data-variant="secondary"
+				href={ href.PageShow(ticket.ShowSlug) }
+			>View show</a>
+			<a
+				class="btn"
+				data-variant="ghost"
+				href={ href.PageTickets() }
+			>All my tickets</a>
 		</div>
 	}
 	@fragmentFooter()
@@ -416,11 +425,13 @@ templ pageLogin(wrongCreds bool, next string) {
 			<i>Try one of these demo accounts:</i>
 			<div role="group" class="button-group">
 				<button
-					class="btn-secondary"
+					class="btn"
+					data-variant="secondary"
 					data-on:click="$emailorusername = 'moviebuff'; $password = 'demopass';"
 				>moviebuff</button>
 				<button
-					class="btn-secondary"
+					class="btn"
+					data-variant="secondary"
 					data-on:click="$emailorusername = 'jazzfan'; $password = 'demopass';"
 				>jazzfan</button>
 			</div>

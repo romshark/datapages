@@ -83,8 +83,8 @@ Each request fires `datastar-fetch` events. `evt.detail.type` is `started`, `fin
 
 ## Practice
 
-- Keep authoritative state on the server and interaction state in local signals, whose `_` prefix keeps them out of requests. Leave the prefix off only when an action must send the signal. Use signals only when needed. Keep expressions to one statement and put application logic in Go.
-- Patch elements instead of signals. Prefer one complete fragment over several small targeted updates.
+- Keep authoritative state on the server and interaction state in local signals, whose `_` prefix keeps them out of requests. Leave the prefix off only when an action must send the signal. Use signals only when needed. Keep expressions to 1 statement and put application logic in Go.
+- Patch elements instead of signals. Prefer 1 complete fragment over several small targeted updates.
 - Encode a value with `json.Marshal` before putting it in an attribute, or wrap the element in `data-ignore`. The browser decodes Templ's escaping before the expression is parsed, hence an apostrophe in the value ends the string and what follows runs as script.
 - Never put a secret in a signal. The browser can read signals, and requests send them to the server.
 - Put `data-indicator` on the element that sends the request to show a loading state without JavaScript.

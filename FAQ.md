@@ -92,7 +92,7 @@ complexity with no real payoff for this use case.
 - **Partial writes are unlikely and harmless.** Core NATS
   [`Publish` buffers outgoing data locally](https://docs.nats.io/using-nats/developer/sending/caches),
   so each call is a fast in-memory append. A dispatch loop failing
-  mid-way would require the connection to drop between two appends.
+  mid-way would require the connection to drop between 2 appends.
   Even then, the result is just a missed UI update - not data loss.
 - **Lower latency.** No ack round-trip per publish.
 - **Simpler deployment.** No stream/consumer configuration needed.

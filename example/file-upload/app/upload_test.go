@@ -30,7 +30,7 @@ import (
 // contents is what the test uploads, in chunks the test chooses.
 const contents = "0123456789abcdefghij"
 
-// tab is one browser tab: the instance identifier its page load minted,
+// tab is 1 browser tab: the instance identifier its page load minted,
 // the stream that keeps its per-tab state alive and what that stream delivered.
 type tab struct {
 	srv      *httptest.Server
@@ -177,7 +177,7 @@ func (tb *tab) action(
 	return tb.request(t, method, path, contentType, body, true)
 }
 
-// request sends one request, as Datastar or as
+// request sends 1 request, as Datastar or as
 // the plain fetch the uploader uses for the chunks.
 func (tb *tab) request(
 	t *testing.T, method, path, contentType, body string, datastar bool,
@@ -207,7 +207,7 @@ func (tb *tab) request(
 	return resp.StatusCode, string(b)
 }
 
-// chunk sends one chunk the way the uploader does, as a plain fetch.
+// chunk sends 1 chunk the way the uploader does, as a plain fetch.
 func (tb *tab) chunk(t *testing.T, id string, offset int64, data string) int {
 	t.Helper()
 	status, _ := tb.request(t, http.MethodPut,
@@ -222,7 +222,7 @@ func (tb *tab) pause(t *testing.T, id string) (int, string) {
 	return tb.action(t, http.MethodPost, "/pause/"+id+"/", "", "")
 }
 
-// stage opens the upload dialog on one file and starts it under name.
+// stage opens the upload dialog on 1 file and starts it under name.
 func (tb *tab) start(t *testing.T, original, name, contentType string, size int) string {
 	t.Helper()
 	status, _ := tb.action(t, http.MethodPost, "/stage/", "application/json",
@@ -237,7 +237,7 @@ func (tb *tab) start(t *testing.T, original, name, contentType string, size int)
 	return idOfStartScript(t, tb.waitForStreamFrom(t, from, "dpUpload.start(["))
 }
 
-// TestUpload covers one file from the dialog to the download,
+// TestUpload covers 1 file from the dialog to the download,
 // interrupted by a pause and resumed, then deleted.
 func TestUpload(t *testing.T) {
 	tb := newTab(t)
@@ -253,7 +253,7 @@ func TestUpload(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 	f, err = tb.files.Get(id)
 	require.NoError(t, err)
-	require.Equal(t, int64(10), f.Received, "half the file did not arrive")
+	require.Equal(t, int64(10), f.Received, "1/2 of the file did not arrive")
 	require.Equal(t, 50, f.Percent())
 
 	// A paused file refuses bytes, which is what stops an uploader that did
@@ -323,7 +323,7 @@ func TestChunkStatus(t *testing.T) {
 
 	f, err := tb.files.Get(id)
 	require.NoError(t, err)
-	require.Equal(t, int64(10), f.Received, "a repeated chunk was written twice")
+	require.Equal(t, int64(10), f.Received, "a repeated chunk was written 2 times")
 
 	require.Equal(t, http.StatusNotFound, tb.chunk(t, "nosuchfile", 0, "x"))
 
@@ -533,7 +533,7 @@ func TestOrphanedFileOffersTakeOver(t *testing.T) {
 	require.Contains(t, string(page), "status-interrupted")
 }
 
-// stage opens the upload dialog on one file and returns what it rendered.
+// stage opens the upload dialog on 1 file and returns what it rendered.
 func (tb *tab) stage(t *testing.T, name, contentType string, size int) string {
 	t.Helper()
 	_, body := tb.action(t, http.MethodPost, "/stage/", "application/json",
@@ -596,7 +596,7 @@ func TestPickingAnUnfinishedFileAgainSeparately(t *testing.T) {
 }
 
 // TestSeparateUploadKeepsNamesApart tests that confirming the dialog unchanged
-// for a second copy does not produce two rows a visitor cannot tell apart.
+// for a second copy does not produce 2 rows a visitor cannot tell apart.
 func TestSeparateUploadKeepsNamesApart(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
@@ -716,7 +716,7 @@ func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
 	}
 }
 
-// TestStartRefusesTheWholeDialog tests that a dialog with one name the store
+// TestStartRefusesTheWholeDialog tests that a dialog with 1 name the store
 // refuses starts none of its files, not even those listed before that name.
 func TestStartRefusesTheWholeDialog(t *testing.T) {
 	tb := newTab(t)
@@ -742,7 +742,7 @@ func TestSlowChunkOutlivesTheReadTimeout(t *testing.T) {
 	tb := newTabWith(t, idle, 200*time.Millisecond)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
 
-	// Five pieces, each within the idle deadline, together well past both it
+	// 5 pieces, each within the idle deadline, together well past both it
 	// and the read timeout of the server.
 	pr, pw := io.Pipe()
 	go func() {
@@ -813,14 +813,14 @@ func TestLimitsAreClamped(t *testing.T) {
 	tb.waitForStream(t, `"limitDown":`+strconv.Itoa(app.MaxLimitKiB))
 }
 
-// TestRateBelowTheMinimumResets tests that every way of reaching zero answers
+// TestRateBelowTheMinimumResets tests that every way of reaching 0 answers
 // with the minimum rather than an error. An emptied number field reports an
 // empty string, and refusing it would leave the field holding
 // a rate the server never took.
 func TestRateBelowTheMinimumResets(t *testing.T) {
 	for name, rate := range map[string]string{
-		"zero":            "0",
-		"quoted zero":     `"0"`,
+		"0":               "0",
+		"quoted 0":        `"0"`,
 		"empty":           `""`,
 		"blank":           `"  "`,
 		"null":            "null",
@@ -898,7 +898,7 @@ func TestLimitStepExprSnapsToTheGrid(t *testing.T) {
 }
 
 // stepped mirrors limitStepExpr, the expression the arrow keys evaluate in the
-// browser. The server never runs it, and what keeps the two honest is this
+// browser. The server never runs it, and what keeps the 2 honest is this
 // test asserting the rate the server ends up holding.
 func stepped(from string, up bool) string {
 	v, err := strconv.Atoi(from)
@@ -985,7 +985,7 @@ func lastFileList(t *testing.T, stream string) string {
 }
 
 // TestRowCarriesAnActionsMenu tests that every row also renders its controls
-// as one menu, which is what a phone shows in place of the row of buttons.
+// as 1 menu, which is what a phone shows in place of the row of buttons.
 func TestRowCarriesAnActionsMenu(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
@@ -1123,10 +1123,10 @@ func TestChunkSizeFollowsTheLimit(t *testing.T) {
 		unlimited bool
 		want      int64
 	}{
-		"unlimited sends the largest chunk":  {unlimited: true, want: 1 << 20},
-		"a high limit is capped":             {limitKiB: 1 << 20, want: 1 << 20},
-		"a slow limit sends a small chunk":   {limitKiB: 8, want: 8 * 1024 * 10},
-		"the slowest limit stays above zero": {limitKiB: 1, want: 16 << 10},
+		"unlimited sends the largest chunk": {unlimited: true, want: 1 << 20},
+		"a high limit is capped":            {limitKiB: 1 << 20, want: 1 << 20},
+		"a slow limit sends a small chunk":  {limitKiB: 8, want: 8 * 1024 * 10},
+		"the slowest limit stays above 0":   {limitKiB: 1, want: 16 << 10},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tb := newTab(t)

@@ -79,7 +79,7 @@ func (PageSearch) GET(
 
 // PageQuoted is /o'reilly
 //
-// RFC 3986 allows a quote in a path. The page writes its route into three
+// RFC 3986 allows a quote in a path. The page writes its route into 3
 // single-quoted JavaScript strings: the stream URL, the URL the reflected
 // query rewrites and the URL of each action expression.
 type PageQuoted struct{ App *App }

@@ -74,7 +74,7 @@ func (s *Server) writeHTML(
 		Status:      status,
 		HeadGeneric: headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
-			// The id authorizes access to one tab's state. The fetch wrapper keeps
+			// The id authorizes access to 1 tab's state. The fetch wrapper keeps
 			// it in a closure. Removing the script node prevents later DOM readers,
 			// including replay and error-reporting tools, from recording it.
 			// Cache-Control: no-store prevents caches from retaining the response body.
@@ -174,6 +174,11 @@ func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handle
 		return
 	}
 	stack := debug.Stack()
+	if p, ok := v.(datapages.PanicError); ok {
+		// httpserve.ServeFile carries a panic of the file's Body over from
+		// the goroutine of http.ServeContent, with the stack it had there.
+		v, stack = p.Value, p.Stack
+	}
 	s.Logger().Error("recovered panic",
 		slog.String("handler", handler),
 		slog.Any("panic", v),
@@ -398,7 +403,7 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	return true
 }
 
-// stateSlotStateDoc belongs to one stream and is never reused.
+// stateSlotStateDoc belongs to 1 stream and is never reused.
 // A reconnect allocates a new slot and state value.
 type stateSlotStateDoc struct {
 	state *dpapp.StateDoc
@@ -508,7 +513,7 @@ func (s *Server) httpErrIntern(
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
 		if httpserve.ResponseBodyWritten(w) {
-			// An error page after a half-written one sends two documents.
+			// An error page after a half-written one sends 2 documents.
 			return
 		}
 		switch httpserve.ErrStatus(err) {

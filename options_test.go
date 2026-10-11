@@ -93,7 +93,7 @@ func TestWithAssetsCache(t *testing.T) {
 			conf: datapages.AssetsCacheConfig{
 				Immutable: true,
 			},
-			wantErr: `immutable (true) requires a max age (0s) above zero`,
+			wantErr: `immutable (true) requires a max age (0s) above 0`,
 		},
 		"cache control with max age": {
 			conf: datapages.AssetsCacheConfig{

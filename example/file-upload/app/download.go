@@ -51,7 +51,7 @@ func (a *App) GETFile(
 			io.Closer
 		}{throttle.ReadSeeker(r.Context(), blob, a.download), blob},
 		ModTime: info.ModTime(),
-		// The bytes under one identifier never change,
+		// The bytes under 1 identifier never change,
 		// and a deleted file takes its identifier with it.
 		Cache: datapages.FileCache{
 			Private: true, MaxAge: 365 * 24 * time.Hour, Immutable: true,

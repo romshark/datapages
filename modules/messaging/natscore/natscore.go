@@ -20,7 +20,7 @@ import (
 var _ messaging.Broker = (*MessageBroker)(nil)
 
 // readLoopBuffer is the minimum capacity of the channel nats.go delivers into.
-// Its read loop parses up to 32 KiB per read, hundreds of small messages,
+// Its read loop parses up to 32 KiB per read, 100s of small messages,
 // before forward runs, and drops what the channel has no room for.
 const readLoopBuffer = 256
 
@@ -77,7 +77,7 @@ func (b *MessageBroker) Publish(
 
 // Subscribe implements messaging.Broker.
 //
-// All subjects deliver into one channel, which the read loop of the connection
+// All subjects deliver into 1 channel, which the read loop of the connection
 // fills in arrival order. Callback subscriptions would lose that order:
 // nats.go runs the callbacks of each one on a goroutine of its own.
 func (b *MessageBroker) Subscribe(

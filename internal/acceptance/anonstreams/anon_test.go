@@ -127,7 +127,7 @@ func TestAnonStreamHoldsPerTabState(t *testing.T) {
 		b := c.OpenTab(t, "/tabs/", "/tabs/_$/")
 
 		require.NotEqual(t, a.InstanceID(), b.InstanceID(),
-			"two page loads share one instance id")
+			"2 page loads share 1 instance id")
 
 		for range 2 {
 			require.Equal(t, http.StatusOK,

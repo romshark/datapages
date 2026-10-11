@@ -54,7 +54,7 @@ export class ImageToolbar {
   }
 
   // update shows the toolbar below the image with its width and alignment,
-  // or hides it unless the selection is one image or a field has the focus.
+  // or hides it unless the selection is 1 image or a field has the focus.
   update(): void {
     if (!this.bar.contains(document.activeElement)) {
       const range = this.quill.isEnabled() ? this.quill.getSelection() : null;

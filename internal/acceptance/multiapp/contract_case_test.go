@@ -1,6 +1,6 @@
 // Wires both applications of this module into the shared contract suite.
 //
-// The suite runs twice, against two generated packages written in one run.
+// The suite runs 2 times, against 2 generated packages written in 1 run.
 // Each has to pass on its own: what the frontend was generated with is no part
 // of what the admin server has to do, and the other way round.
 

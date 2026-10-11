@@ -12,7 +12,7 @@ import (
 const (
 	watchLockHeartbeat = 2 * time.Second
 
-	// watchLockTTL allows five missed heartbeats before readers treat a lock as stale.
+	// watchLockTTL allows 5 missed heartbeats before readers treat a lock as stale.
 	// SIGKILL prevents the watch from removing its lock.
 	watchLockTTL = 10 * time.Second
 

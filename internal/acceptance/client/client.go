@@ -155,7 +155,7 @@ func (c *Client) Do(t *testing.T, req *http.Request) Response {
 	}
 }
 
-// Stream is one open SSE connection, the way a browser tab holds one.
+// Stream is 1 open SSE connection, the way a browser tab holds one.
 type Stream struct {
 	t      *testing.T
 	cancel context.CancelFunc
@@ -207,7 +207,7 @@ func (c *Client) openStream(
 	go func() {
 		defer func() { _ = resp.Body.Close() }()
 		sc := bufio.NewScanner(resp.Body)
-		// A patch of a whole page is one SSE event and outgrows the default 64KiB token.
+		// A patch of a whole page is 1 SSE event and outgrows the default 64KiB token.
 		// Scan would stop there, and a test would read that as "the event never arrived".
 		sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		for sc.Scan() {
@@ -282,7 +282,7 @@ func (s *Stream) Close() {
 	time.Sleep(Settle)
 }
 
-// Tab is one browser tab of a stateful page: the instance id its page load minted,
+// Tab is 1 browser tab of a stateful page: the instance id its page load minted,
 // and the stream that owns it.
 type Tab struct {
 	*Stream
@@ -342,7 +342,7 @@ func WaitFor(cond func() bool, d time.Duration) bool {
 }
 
 // cookieJar is the smallest jar that keeps a session cookie across requests to
-// one server. net/http/cookiejar sorts and filters by domain, which a test
+// 1 server. net/http/cookiejar sorts and filters by domain, which a test
 // against 127.0.0.1 does not need.
 type cookieJar struct {
 	mu      sync.Mutex

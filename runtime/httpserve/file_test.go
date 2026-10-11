@@ -2,8 +2,10 @@ package httpserve_test
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -58,7 +60,7 @@ func TestServeFile(t *testing.T) {
 	require.True(t, body.closed)
 }
 
-// TestServeFileRequests tests the requests net/http.ServeContent answers on
+// TestServeFileRequests tests the requests [http.ServeContent] answers on
 // its own: HEAD, Range and If-Modified-Since.
 func TestServeFileRequests(t *testing.T) {
 	t.Parallel()
@@ -282,7 +284,7 @@ func TestServeFileCache(t *testing.T) {
 }
 
 // TestServeFileETag tests the ETag a File sets, quoted, and the conditional
-// requests net/http.ServeContent answers with it.
+// requests [http.ServeContent] answers with it.
 func TestServeFileETag(t *testing.T) {
 	t.Parallel()
 
@@ -322,42 +324,77 @@ func TestServeFileETag(t *testing.T) {
 	}
 }
 
-// TestServeFileRefused tests that a File without a Body or a Type, or with an
-// ETag that cannot stand between quotes, is refused before anything is
-// written, and that its Body is closed anyway.
+// failingSeeker fails every Seek, as a pipe does.
+type failingSeeker struct{ closingReader }
+
+func (*failingSeeker) Seek(int64, int) (int64, error) {
+	return 0, errors.New("seek failed")
+}
+
+// TestServeFileRefused tests that a File without a Body or a Type, with an
+// ETag that cannot stand between quotes, with a reserved header, with
+// a directory as Body or with a Body that fails to seek is refused before
+// anything is written, that its Body is closed anyway, and the status each
+// refusal answers.
 func TestServeFileRefused(t *testing.T) {
 	t.Parallel()
 
+	dir, err := os.Open(t.TempDir())
+	require.NoError(t, err)
 	for name, tc := range map[string]struct {
 		datapages.File
-		want error
+		want       error
+		wantStatus int
 	}{
-		"no body": {datapages.File{Type: "text/plain"}, httpserve.ErrFileNoBody},
+		"no body": {
+			Type:       "text/plain",
+			want:       httpserve.ErrFileNoBody,
+			wantStatus: http.StatusInternalServerError,
+		},
 		"no type": {
-			Body: &closingReader{Reader: strings.NewReader("x")},
-			want: httpserve.ErrFileNoType,
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileNoType,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"quoted etag": {
-			Type: "text/plain", ETag: `"v1"`,
-			Body: &closingReader{Reader: strings.NewReader("x")},
-			want: httpserve.ErrFileInvalidETag,
+			Type:       "text/plain",
+			ETag:       `"v1"`,
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileInvalidETag,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"etag with space": {
-			Type: "text/plain", ETag: "v 1",
-			Body: &closingReader{Reader: strings.NewReader("x")},
-			want: httpserve.ErrFileInvalidETag,
+			Type:       "text/plain",
+			ETag:       "v 1",
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileInvalidETag,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"reserved header": {
-			Type:   "text/plain",
-			Header: http.Header{"Cache-Control": {"no-store"}},
-			Body:   &closingReader{Reader: strings.NewReader("x")},
-			want:   httpserve.ErrFileReservedHeader,
+			Type:       "text/plain",
+			Header:     http.Header{"Cache-Control": {"no-store"}},
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileReservedHeader,
+			wantStatus: http.StatusInternalServerError,
 		},
 		"reserved header, not canonical": {
-			Type:   "text/plain",
-			Header: http.Header{"etag": {`"v1"`}},
-			Body:   &closingReader{Reader: strings.NewReader("x")},
-			want:   httpserve.ErrFileReservedHeader,
+			Type:       "text/plain",
+			Header:     http.Header{"etag": {`"v1"`}},
+			Body:       &closingReader{Reader: strings.NewReader("x")},
+			want:       httpserve.ErrFileReservedHeader,
+			wantStatus: http.StatusInternalServerError,
+		},
+		"directory": {
+			Type:       "image/png",
+			Body:       dir,
+			want:       httpserve.ErrFileDirectory,
+			wantStatus: http.StatusNotFound,
+		},
+		"seek fails": {
+			Type:       "text/plain",
+			Body:       &failingSeeker{closingReader{Reader: strings.NewReader("x")}},
+			want:       httpserve.ErrFileSeek,
+			wantStatus: http.StatusInternalServerError,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -366,6 +403,7 @@ func TestServeFileRefused(t *testing.T) {
 			err := httpserve.ServeFile(w,
 				httptest.NewRequest(http.MethodGet, "/", nil), tc.File)
 			require.ErrorIs(t, err, tc.want)
+			require.Equal(t, tc.wantStatus, httpserve.ErrStatus(err))
 			require.Empty(t, w.Header())
 			require.Zero(t, w.Body.Len())
 			if c, ok := tc.Body.(*closingReader); ok {
@@ -376,8 +414,8 @@ func TestServeFileRefused(t *testing.T) {
 }
 
 // TestServeFileHeader tests the headers File.Header adds: one replaces the
-// value a middleware set before, except Set-Cookie, whose values add to the
-// cookies set before. 2 spellings of one name write their values in sorted
+// value a middleware set before, except Set-Cookie and Vary, whose values add
+// to the ones set before. 2 spellings of 1 name write their values in sorted
 // order of the spellings, the same on every request.
 func TestServeFileHeader(t *testing.T) {
 	t.Parallel()
@@ -414,6 +452,11 @@ func TestServeFileHeader(t *testing.T) {
 			want: http.Header{
 				"Set-Cookie": {"session=; Max-Age=0", "theme=dark"},
 			},
+		},
+		"vary set before": {
+			middleware: http.Header{"Vary": {"Cookie"}},
+			header:     http.Header{"vary": {"Accept-Encoding"}},
+			want:       http.Header{"Vary": {"Cookie", "Accept-Encoding"}},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -495,6 +538,130 @@ func TestServeFileMultiRangeClientGone(t *testing.T) {
 			synctest.Wait()
 			require.Zero(t, body.afterClose.Load(), "Body was read after Close")
 			require.Zero(t, body.duringRead.Load(), "Body was closed during a Read")
+		})
+	}
+}
+
+// panickingBody panics in Read, or with seek in a Seek to a nonzero offset,
+// which [http.ServeContent] makes only to serve a range.
+type panickingBody struct {
+	*strings.Reader
+	seek   bool
+	closed bool
+}
+
+func (b *panickingBody) Read(p []byte) (int, error) {
+	if !b.seek {
+		panic("body panicked")
+	}
+	return b.Reader.Read(p)
+}
+
+func (b *panickingBody) Seek(offset int64, whence int) (int64, error) {
+	if b.seek && offset != 0 {
+		panic("body panicked")
+	}
+	return b.Reader.Seek(offset, whence)
+}
+
+func (b *panickingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+// TestServeFileMultiRangePanic tests a Body that panics on the goroutine
+// [http.ServeContent] reads the parts of a multi-range response on. ServeFile
+// closes Body and panics with the value and the stack of that panic.
+// Unrecovered there, the panic ends the test binary.
+func TestServeFileMultiRangePanic(t *testing.T) {
+	t.Parallel()
+
+	for name, seek := range map[string]bool{"read": false, "seek": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := &panickingBody{Reader: strings.NewReader("abcdefgh"), seek: seek}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.Header.Set("Range", "bytes=1-2,4-5")
+			var v any
+			func() {
+				defer func() { v = recover() }()
+				_ = httpserve.ServeFile(httptest.NewRecorder(), r,
+					datapages.File{Type: "text/plain", Body: body})
+			}()
+			p, ok := v.(datapages.PanicError)
+			require.True(t, ok, "ServeFile panicked with %#v", v)
+			require.Equal(t, "body panicked", p.Value)
+			require.Contains(t, string(p.Stack), "(*panickingBody).")
+			require.True(t, body.closed, "Body was not closed before the panic")
+		})
+	}
+}
+
+// seekPanickingBody panics in every Seek. The first one is for the size,
+// which [http.ServeContent] reads before it writes the status.
+type seekPanickingBody struct {
+	*strings.Reader
+	closed bool
+}
+
+func (*seekPanickingBody) Seek(int64, int) (int64, error) { panic("body panicked") }
+
+func (b *seekPanickingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+// TestServeFilePanicBeforeBody tests a Body that panics before the status went out:
+// for the size, and for the start of a range. ServeFile leaves the headers
+// as a middleware set them, a value File.Header replaced and a cookie included,
+// and panics with the value and the stack of the panic.
+func TestServeFilePanicBeforeBody(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		body io.ReadSeekCloser
+		rng  string
+	}{
+		"size":  {body: &seekPanickingBody{Reader: strings.NewReader("abcdefgh")}},
+		"range": {body: &panickingBody{Reader: strings.NewReader("abcdefgh"), seek: true}, rng: "bytes=1-2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			middleware := http.Header{
+				"Cache-Control":           {"public, max-age=60"},
+				"Content-Security-Policy": {"default-src 'self'"},
+				"Set-Cookie":              {"session=; Max-Age=0"},
+			}
+			w := httptest.NewRecorder()
+			for k, v := range middleware {
+				w.Header()[k] = slices.Clone(v)
+			}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.rng != "" {
+				r.Header.Set("Range", tc.rng)
+			}
+			var v any
+			func() {
+				defer func() { v = recover() }()
+				_ = httpserve.ServeFile(w, r, datapages.File{
+					Type:        "application/pdf",
+					Body:        tc.body,
+					ModTime:     time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+					ETag:        "v1",
+					Cache:       datapages.FileCache{MaxAge: time.Hour},
+					Disposition: datapages.FileDisposition{Download: true, Filename: "report.pdf"},
+					Header: http.Header{
+						"Content-Security-Policy": {"sandbox"},
+						"Content-Language":        {"de"},
+						"Set-Cookie":              {"theme=dark"},
+					},
+				})
+			}()
+			p, ok := v.(datapages.PanicError)
+			require.True(t, ok, "ServeFile panicked with %#v", v)
+			require.Equal(t, "body panicked", p.Value)
+			require.Contains(t, string(p.Stack), "anickingBody).Seek")
+			require.Equal(t, middleware, w.Header())
 		})
 	}
 }

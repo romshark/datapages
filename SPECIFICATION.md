@@ -63,15 +63,17 @@ An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]`
 
 A `Page*` declaration must use a struct type literal. An alias to a struct literal is recognized as a page; an alias to a named type or a non-struct type is rejected.
 
-A page type must declare exactly one named field: `App *App`. Embedded types are permitted under [Abstract Page Types](#abstract-page-types).
+A page type must declare exactly 1 named field: `App *App`. Embedded types are permitted under [Abstract Page Types](#abstract-page-types).
 
 URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux). A route must not contain `"`, `\`, `` ` ``, `?` or `#`, nor a `%` that does not start a percent-encoding. Write them as `%22`, `%5C`, `%60`, `%3F`, `%23` and `%25`, which ServeMux decodes before matching.
 
 `PageIndex` is required for `/`, and no other page may use `/` or `/{$}`. `PageIndex` also answers every path that no other route matches.
 
+No page or action route may start with the URL prefix of the static files, as `/static/thumbs/{name}` with `// StaticFS is /static/`. Every path below the prefix belongs to the static files: net/http would redirect the request for a file there to a route below the prefix.
+
 `PageError500`, `PageError404` and `PageOffline` are optional reserved page names. `PageError500` and `PageError404` may override the default pages for status codes 500 and 404. `PageOffline` is the fallback that the [service worker](#service-worker) serves for an uncached URL while offline. Datapages supplies defaults when these pages are absent.
 
-Each declares its route by comment like any other page. `PageOffline` always renders with a zero `Session`: the worker precaches one copy and serves it to every visitor, which means it cannot depend on who is signed in.
+Each declares its route by comment like any other page. `PageOffline` always renders with a zero `Session`: the worker precaches 1 copy and serves it to every visitor, which means it cannot depend on who is signed in.
 
 The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document. For a URL that no route matches and for a page load that fails with `datapages.ErrNotFound`, `PageError404.GET` receives that URL's query and signals and a zero path. When `PageError500.GET` fails, or `PageError404.GET` fails with `datapages.ErrNotFound`, the server writes a plain HTTP error instead of rendering the failing page again.
 
@@ -171,7 +173,7 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-`OnXXX` requires exactly one event parameter and exactly one `sse datapages.SSE`, takes each optional parameter at most once, and must return exactly one `error`. The event parameter is identified by type and takes the event by value, as `EventXXX` and not `*EventXXX`. `XXX` must match the event type's name after `Event`. Parameter order and the event parameter's name are unrestricted.
+`OnXXX` requires exactly 1 event parameter and exactly 1 `sse datapages.SSE`, takes each optional parameter at most once, and must return exactly 1 `error`. The event parameter is identified by type and takes the event by value, as `EventXXX` and not `*EventXXX`. `XXX` must match the event type's name after `Event`. Parameter order and the event parameter's name are unrestricted.
 
 ```go
 func (PageIndex) OnSomethingHappened(
@@ -257,7 +259,7 @@ Query parameters use the adjacent constructor: `href.App.Image(name, href.App.Im
 
 A struct in the app package whose name does not start with `Page` and that declares `App *App` is an abstract page type. Pages may embed it to share its handlers.
 
-A handler declared by the page shadows an embedded one with the same method name. A page declaring `POSTSave` keeps an embedded `PUTSave`. An action embedded at a shallower depth shadows one with the same method name at a deeper depth, as Go's promoted methods do. A page is rejected when two types embedded at the same depth declare one action, or when it reaches an abstract page through two embedded fields at the same depth. Go reports both selectors as ambiguous.
+A handler declared by the page shadows an embedded one with the same method name. A page declaring `POSTSave` keeps an embedded `PUTSave`. An action embedded at a shallower depth shadows one with the same method name at a deeper depth, as Go's promoted methods do. A page is rejected when 2 types embedded at the same depth declare the same action, or when it reaches an abstract page through 2 embedded fields at the same depth. Go reports both selectors as ambiguous.
 
 #### Parameter: `datapages.State[T]`
 
@@ -269,7 +271,7 @@ state datapages.State[T]
 
 An instance belongs to a tab, is not session-bound, and survives sign-out.
 
-**`State.Values` must not outlive its handler.** The mutex does not protect goroutines started by a handler. Retaining the pointer in application state or a component rendered later can retain it past the tab's lifetime. Copy needed fields instead.
+**`State.Values` must not outlive its handler.** The mutex doesn't protect goroutines started by a handler. It is released before a returned [`datapages.File`](#return-value-datapagesfile) is served, which keeps a client that reads the file slowly from stalling the tab: the file's `Body` must not read `Values`. Retaining the pointer in application state or a component rendered later can retain it past the tab's lifetime. Copy needed fields instead.
 
 A page enables state by declaring an exported struct and using it as `T` in an action, `OnXXX`, `StreamOpen`, or `StreamClose`:
 
@@ -323,7 +325,7 @@ The server accepts any well-formed ID, including one issued elsewhere. The strea
 
 A process restart drops all instances. Reconnect creates zeroed state under the same ID. An action arriving before reconnect receives `409` and reloads once.
 
-`MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most one instance per open stream. Zero selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
+`MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most 1 instance per open stream. 0 selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
 
 Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Datastar ignores `Retry-After` and retries after 1s, doubling to a 30s ceiling, without a limit; see [Deployments](#deployments). Until the stream connects, a stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. `Server.StateLiveInstances()` reports the live count; servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
 
@@ -428,7 +430,7 @@ Reflected integer, float, and bool fields seed JavaScript numbers or booleans un
 
 A reflected field must be a basic type or implement `encoding.TextMarshaler`. `datapages gen` rejects any other type: it has no text form to seed the signal with, and the browser would write that seed back into the query.
 
-`datapages gen` rejects two query fields with the same `reflectsignal` value. They would generate duplicate `data-signals` attributes, and the browser would ignore the second value.
+`datapages gen` rejects 2 query fields with the same `reflectsignal` value. They would generate duplicate `data-signals` attributes, and the browser would ignore the second value.
 
 The query field's seed must have a JSON kind that the signal field can decode. `datapages gen` rejects incompatible pairs. For example, it rejects a string query field reflected into a `bool` signal because the browser would submit `"true"` and the action would return 400 while decoding the signals. Fields that implement `json.Unmarshaler` and interface fields accept every JSON kind.
 
@@ -471,11 +473,11 @@ See [datapages.go](datapages.go) for method definitions.
 
 Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends when the session closes or reaches its `ExpiresAt()`. Its page then reloads after 1s and renders for the session the browser holds, if any. The delay lets the tab that signed out follow the sign-out redirect first. A page with only user-addressed events also reloads when its stream reconnects after the session ended. A page that also has public events reconnects to `_$/anon/` and keeps its content. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
 
-A `POST`, `PUT`, `PATCH` or `DELETE` action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions. When a handler renders a document without reading the session, it uses the session cookie to write the CSRF script without reading the store. A document rendered for a session cookie is sent with `Cache-Control: private` unless the response already has a `Cache-Control` header, since a shared cache would serve its CSRF token to other visitors.
+A `POST`, `PUT`, `PATCH` or `DELETE` action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions. When a handler renders a document without reading the session, it uses the session cookie to write the CSRF script without reading the store. A document rendered for a session cookie is sent with `Cache-Control: private` unless the response already has a `Cache-Control` header, since a shared cache would serve its CSRF token to other visitors. A [`datapages.File`](#return-value-datapagesfile) from a handler with a session parameter is sent with `Vary: Cookie`.
 
 Expired sessions are removed on read. Datapages does not call the session manager's `DeleteExpired`; applications must schedule cleanup for abandoned sessions.
 
-All handlers must use the same `Data` type because the server has one session manager. A type alias is permitted:
+All handlers must use the same `Data` type because the server has 1 session manager. A type alias is permitted:
 
 ```go
 type SessionData struct {
@@ -658,7 +660,7 @@ Applications using the same event type share its subject. Separate event types w
 Restrictions:
 
 - The type must be reachable through application-package imports.
-- An application cannot use two event types with the same name, regardless of declaring package.
+- An application cannot use 2 event types with the same name, regardless of declaring package.
 
 A type alias such as `type EventX = other.EventX` refers to the original event's subject, payload, and declaring package. It may occur anywhere along the import path.
 
@@ -675,13 +677,13 @@ Subject fields must be exported and precede payload fields. Names are unrestrict
 
 Subject fields must not use `json:"-"`. Their values must remain in the payload because the subject only routes the event.
 
-Each dispatch publishes to one subject. Subject field values follow the base subject in field order, separated by dots. For base `notify` and values `u1`, `r1`, and `mobile`, the subject is `notify.u1.r1.mobile`.
+Each dispatch publishes to 1 subject. Subject field values follow the base subject in field order, separated by dots. For base `notify` and values `u1`, `r1`, and `mobile`, the subject is `notify.u1.r1.mobile`.
 
-A subject field value may contain any byte. `.`, `*`, `>`, `%`, and whitespace are escaped into one literal segment. Escaping `%` distinguishes a literal value such as `a%2Eb` from an encoded `a.b`. Empty values cause dispatch to fail without publishing.
+A subject field value may contain any byte. `.`, `*`, `>`, `%`, and whitespace are escaped into 1 literal segment. Escaping `%` distinguishes a literal value such as `a%2Eb` from an encoded `a.b`. Empty values cause dispatch to fail without publishing.
 
 Publish and subscription use the same escaping. Values that need none remain unchanged; `a.b` becomes `a%2Eb` in the broker subject.
 
-Addressing multiple values requires one dispatch per value. Each dispatch can fail independently, and each recipient receives only its addressed payload.
+Addressing multiple values requires 1 dispatch per value. Each dispatch can fail independently, and each recipient receives only its addressed payload.
 
 `datapages.SubjectUser` requires authentication and routes to the named user. An application dispatching such an event must define a Session type.
 
@@ -702,7 +704,7 @@ type EventCalcUpdated struct {
 }
 ```
 
-Here, SSE connect subscribes to `calc.updated.<instance_id>` after escaping the signal. An empty value receives 400. A `*` is escaped as one literal segment.
+Here, SSE connect subscribes to `calc.updated.<instance_id>` after escaping the signal. An empty value receives 400. A `*` is escaped as 1 literal segment.
 
 Signal-scoped events may coexist with user-addressed and public events on a page. Signal-scoped fields may coexist with other subject fields:
 
@@ -720,16 +722,16 @@ type EventRoomUpdate struct {
 **Restrictions:**
 
 - A user-addressed subject field must not have a `signal:"..."` tag.
-- An event must not have more than one `datapages.SubjectUser` field. To address several users, dispatch once per user.
-- No two subject fields may share the same `signal:"..."` tag value.
+- An event must not have more than 1 `datapages.SubjectUser` field. To address several users, dispatch once per user.
+- No 2 subject fields may share the same `signal:"..."` tag value.
 - `signal` tag values must be period-separated signal names. Each step follows the `Signals` `json` tag rule.
 - A page must not subscribe by a signal and by a signal under it, such as `chat` and `chat.room`. Datastar holds `chat` either as a value or as an object.
-- Two event types cannot claim the same subject anywhere in a module. `datapages gen` and `datapages lint` report conflicts across applications. To share a subject, use one event declaration; see [Events declared outside the application package](#events-declared-outside-the-application-package).
-- An event with subject fields reserves every subject below its base. `"notify"` with one subject field conflicts with `"notify.user"`.
+- 2 event types cannot claim the same subject anywhere in a module. `datapages gen` and `datapages lint` report conflicts across applications. To share a subject, use 1 event declaration; see [Events declared outside the application package](#events-declared-outside-the-application-package).
+- An event with subject fields reserves every subject below its base. `"notify"` with 1 subject field conflicts with `"notify.user"`.
 
 Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected. So is a field whose type holds a subject-field type in a slice, array, map, pointer or channel, such as `[]datapages.SubjectUser`: it would be a payload field and route nothing. To address several values, dispatch once per value.
 
-Each dispatcher publishes one event type. A handler may declare one dispatcher per event type, but cannot declare two for the same type. Events publish in dispatch order. Failure does not undo earlier publishes or prevent later ones.
+Each dispatcher publishes 1 event type. A handler may declare 1 dispatcher per event type, but cannot declare 2 for the same type. Events publish in dispatch order. Failure does not undo earlier publishes or prevent later ones.
 
 ##### Event delivery
 
@@ -780,9 +782,9 @@ file datapages.File
 
 Application HTML must be returned as a Templ `datapages.Component`. HTML in a `datapages.File` bypasses Templ's contextual escaping and the Datapages template lint checks.
 
-`Type` sets `Content-Type`. `Body` provides the content. Both are required; omitting either produces 500. `Cache` sets [`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control) from `MaxAge`, `Immutable`, `Private`, `NoCache` and `NoStore`, or from `Raw` as written. Fields that contradict each other produce 500: `MaxAge` with `NoCache` or `NoStore`, `Immutable` without `MaxAge`, and `Raw` with any other field. A browser may reuse a response without `max-age`, `no-cache` or `no-store` without asking, by [heuristic freshness](https://www.rfc-editor.org/rfc/rfc9111#section-4.2.2). `Cache` therefore adds `no-cache` to a value without `MaxAge`, `NoCache` or `NoStore`: `Private` alone sends `private, no-cache`, and `Raw` sends `private` alone. The zero `Cache` sends `no-cache` unless middleware set a `Cache-Control` header before. Without `Private`, which sends [`private`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#private), a shared cache may serve a response with `MaxAge` to other visitors without asking the server. `Disposition` sets [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition): `attachment` with `Download`, `inline` without it, and `Filename` as the `filename` parameter. `Header` adds the headers the other fields don't set and replaces a header of the same name that middleware set, except `Set-Cookie`, whose values add to the cookies set before. Keys that spell one name differently are joined in their sorted order. A header a field or `ServeContent` writes produces 500.
+`Type` sets `Content-Type`. `Body` provides the content. Both are required; omitting either produces 500. `Cache` sets [`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control) from `MaxAge`, `Immutable`, `Private`, `NoCache` and `NoStore`, or from `Raw` as written. Fields that contradict each other produce 500: `MaxAge` with `NoCache` or `NoStore`, `Immutable` without `MaxAge`, and `Raw` with any other field. A browser may reuse a response without `max-age`, `no-cache` or `no-store` without asking, by [heuristic freshness](https://www.rfc-editor.org/rfc/rfc9111#section-4.2.2). `Cache` therefore adds `no-cache` to a value without `MaxAge`, `NoCache` or `NoStore`: `Private` alone sends `private, no-cache`, and `Raw` sends `private` alone. The zero `Cache` sends `no-cache` unless middleware set a `Cache-Control` header before. Without `Private`, which sends [`private`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#private), a shared cache may serve a response with `MaxAge` to other visitors without asking the server. `Disposition` sets [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Disposition): `attachment` with `Download`, `inline` without it, and `Filename` as the `filename` parameter. `Header` adds the headers the other fields don't set and replaces a header of the same name that middleware set, except `Set-Cookie` and `Vary`, whose values add to the ones set before. Keys that spell the same name differently are joined in their sorted order. A header a field or `ServeContent` writes produces 500.
 
-Datapages closes `Body` after serving. `Body` must seek, which `ServeContent` needs for the size and for ranges: copy a stream, such as an `http.Response` body, into memory or a temporary file first. Content held in memory needs a `Close` that does nothing: a `bytes.Reader` has none, and `io.NopCloser` drops `Seek`.
+Datapages closes `Body` after serving. `Body` must seek, which `ServeContent` needs for the size and for ranges: copy a stream, such as an `http.Response` body, into memory or a temporary file first. A `Body` that fails to seek produces 500, and a directory, as an `os.Root` opens for the path of one, produces 404. A read error after the status ends the response early, and nothing reports it. Content held in memory needs a `Close` that does nothing: a `bytes.Reader` has none, and `io.NopCloser` drops `Seek`. A client that stops reading ends the response once a write of up to 64 KiB blocks for `httpserve.DefaultFileSendTimeout` (1 minute), and the connection closes. `datapages.WithFileSendTimeout` changes the time. The server has no write timeout, which would end SSE streams.
 
 ```go
 type memBody struct{ *bytes.Reader }
@@ -790,9 +792,9 @@ type memBody struct{ *bytes.Reader }
 func (memBody) Close() error { return nil }
 ```
 
-[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. An `ETag` with a character outside `etagc` of that section produces 500. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options). It changes nothing for a declared type that runs script itself, such as `text/html` or `image/svg+xml`, which an uploaded file carries whenever the uploading browser reports it. Serve a file a visitor uploaded with `Disposition.Download`, or show inline only types from an allowlist. A `Content-Security-Policy: sandbox` in `Header` adds a second layer.
+[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. An `ETag` with a character outside `etagc` of that section produces 500. A handler with a session parameter sends [`Vary: Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary), which keeps a browser from showing one visitor the copy it stored for another. A shared cache, such as a CDN, then stores 1 copy per cookie: serve a file that is the same for every visitor from a handler without a session parameter. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options). It changes nothing for a declared type that runs script itself, such as `text/html` or `image/svg+xml`, which an uploaded file carries whenever the uploading browser reports it. Serve a file a visitor uploaded with `Disposition.Download`, or show inline only types from an allowlist. A `Content-Security-Policy: sandbox` in `Header` adds a second layer.
 
-An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with [`Sec-Fetch-Dest: document`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest), status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. Requests from an `img` element or `fetch` therefore receive the error response, not an event stream.
+An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with [`Sec-Fetch-Dest: document`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest), status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. Requests from an `img` element or `fetch` therefore receive the error response, not an event stream. A panic in `Body` takes the same path. Once the status went out, it's logged with its stack and the response ends early, also for a request with several ranges, whose parts `ServeContent` reads on a goroutine of its own. A panic before the status gets an error response without the headers of the file.
 
 See [datapages.go](datapages.go) for field definitions.
 
@@ -855,7 +857,7 @@ Sentinels:
 - `datapages.ErrNotFound` - 404
 - `datapages.ErrConflict` - 409
 
-Do not wrap multiple sentinels into one error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
+Do not wrap multiple sentinels into 1 error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
 Sentinels may be returned directly or wrapped. `RecoverError` handles errors from Datastar requests when defined, and the response keeps status 200. If the response has not started, other requests get `PageError404` for status 404 and `PageError500` for status 500 when defined. In every other case where the response has not started, the server writes the status and its standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
@@ -899,7 +901,7 @@ Without `WithCSPNonce` a policy must allow `script-src 'unsafe-inline' 'unsafe-e
 datapages.WithCSPNonce(func(r *http.Request) string { return nonceOf(r) })
 ```
 
-Datapages may call the function several times while writing one response. It must return the same value for every call with the same request. Application middleware should mint the nonce once, store it in the request context and write the same value into its `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script Datapages writes as `nonce`. An empty return writes the page without nonces.
+Datapages may call the function several times while writing 1 response. It must return the same value for every call with the same request. Application middleware should mint the nonce once, store it in the request context and write the same value into its `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script Datapages writes as `nonce`. An empty return writes the page without nonces.
 
 `data-nonce` turns on Datastar's CSP mode. Datastar compiles an expression by appending a script element with that nonce instead of calling `Function`, which removes the need for `'unsafe-eval'`. It requires Datastar 1.0.3 or later. An older bundle throws `Datastar CSP requires a nonempty html data-nonce.` or compiles with `Function` regardless.
 
@@ -929,9 +931,9 @@ The build ID defaults to the first 16 bytes of the executable's SHA-256 hash, en
 
 Stream initialization uses `{retry:'always',retryMaxCount:Infinity}`. The page reconnects its stream after every end, including an error response such as a reverse proxy's `502` while the application restarts. Datastar retries after 1s and doubles the delay up to 30s. It does not give up. Graceful shutdown resets every open stream, because pages from earlier Datapages releases reconnect only a stream that fails. A connection to the same build resumes the stream. A connection to another build reloads the page. Events published while no process serves the stream are lost; see [Event delivery](#event-delivery).
 
-Shutdown resets a stream by panicking with `http.ErrAbortHandler`. Middleware added with `WithMiddleware` that recovers panics must re-panic this value. Otherwise it receives one panic per open stream at each shutdown, and pages from earlier Datapages releases can stay without a live stream.
+Shutdown resets a stream by panicking with `http.ErrAbortHandler`. Middleware added with `WithMiddleware` that recovers panics must re-panic this value. Otherwise it receives 1 panic per open stream at each shutdown, and pages from earlier Datapages releases can stay without a live stream.
 
-During a rolling deployment, route each client to one build until the old servers stop. Otherwise, requests from one tab may alternate between builds and cause repeated reloads. Session affinity is one way to keep the route stable.
+During a rolling deployment, route each client to 1 build until the old servers stop. Otherwise, requests from 1 tab may alternate between builds and cause repeated reloads. Session affinity is one way to keep the route stable.
 
 ## Dev Mode
 
@@ -950,6 +952,8 @@ Files passed to `datapages.WithAssets` come from `embed.FS`, which reports a zer
 `datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. `Disabled` suppresses both headers; `DisableETag` suppresses the `ETag`.
 
 Generated asset URLs do not contain a content hash. With a positive `MaxAge`, browsers may reuse stale content until it expires unless the file name changes with the file contents.
+
+An asset response ends early when its client accepts no more of the file for the time `datapages.WithFileSendTimeout` sets, as the response of a [`datapages.File`](#return-value-datapagesfile) does.
 
 ## Linting
 
@@ -1040,7 +1044,7 @@ The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecac
 
 The worker scope covers the whole origin, regardless of the script URL. The registration script requests scope `/`, and the script response sets `Service-Worker-Allowed: /`, which permits that scope for a script in a subdirectory.
 
-The offline middleware writes the registration and connectivity scripts into every HTML response. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
+The offline middleware writes the registration and connectivity scripts into every HTML response. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. So do a range response (206), whose `Content-Range` the scripts would contradict, and the response of a [`datapages.File`](#return-value-datapagesfile), whose bytes are the file's whatever its type. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
 
 Offline support writes inline scripts. The connectivity and worker registration scripts go into every HTML response. Queued cache writes go into a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence.
 
@@ -1052,15 +1056,15 @@ The `X-Datapages-Worker-Version` request header controls installation and update
 - Header lower than the server version: the server adds registration for the current worker script.
 - Header equal: the response omits registration.
 
-The worker holds one cache of offline bodies keyed by URL. Each entry stores the rendered HTML and its version.
+The worker holds 1 cache of offline bodies keyed by URL. Each entry stores the rendered HTML and its version.
 
-Writes reach the worker in one of three ways, depending on how the handler responds:
+Writes reach the worker in 1 of 3 ways, depending on how the handler responds:
 
 - `GET`: the queued entries are embedded in the page and an inline script passes them to the worker after load.
 - Action opening an SSE stream: they are sent over that stream.
 - Action returning a redirect: the `text/javascript` response sends the writes. Navigation waits up to 500ms for the worker to apply them before loading the destination.
 
-The worker applies a request's `Set`, `Clear` and `ClearAll` calls together, once the handler returns without error. `Set` writes or overwrites one entry, `Clear` deletes one, `ClearAll` empties the cache.
+The worker applies a request's `Set`, `Clear` and `ClearAll` calls together, once the handler returns without error. `Set` writes or overwrites 1 entry, `Clear` deletes 1, `ClearAll` empties the cache.
 
 On every navigation the worker sets the `X-Datapages-Offline-Version` request header to the version it holds for the requested URL, or omits it when the URL is not cached. The server reads it back through `Version()` (which returns 0 when the header is absent).
 

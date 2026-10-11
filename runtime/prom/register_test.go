@@ -26,7 +26,7 @@ func builtinCount(t *testing.T, r *prometheus.Registry) int {
 	return n
 }
 
-// TestRegisterPerRegisterer tests two servers of one process, each given a
+// TestRegisterPerRegisterer tests 2 servers of 1 process, each given a
 // registerer of its own. Both have to end up with the metrics: registering
 // once per process would leave the second endpoint empty and say nothing.
 func TestRegisterPerRegisterer(t *testing.T) {
@@ -40,10 +40,10 @@ func TestRegisterPerRegisterer(t *testing.T) {
 		"the second registerer carries fewer metrics than the first")
 }
 
-// TestRegisterTwiceOnOneRegisterer tests two servers sharing a registerer,
+// TestRegister2TimesOn1Registerer tests 2 servers sharing a registerer,
 // which is what they get by default. The second registration is a no-op
 // instead of the duplicate MustRegister panics on.
-func TestRegisterTwiceOnOneRegisterer(t *testing.T) {
+func TestRegister2TimesOn1Registerer(t *testing.T) {
 	r := prometheus.NewRegistry()
 	require.NoError(t, prom.Register(r))
 	require.NoError(t, prom.Register(r))

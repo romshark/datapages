@@ -6,7 +6,7 @@
 // The server is generated per model. The same assertion therefore runs against
 // a different piece of code in each case, which is why the suite is shared.
 //
-// A case module wires itself in with a Case value and one test:
+// A case module wires itself in with a Case value and 1 test:
 //
 //	func TestContract(t *testing.T) { contract.Run(t, contract.Case{...}) }
 //
@@ -53,7 +53,7 @@ type Case struct {
 	// converts them back to the generated option type.
 	NewServer func(t *testing.T, opts ...any) Server
 
-	// The fields below hand the suite one generated
+	// The fields below hand the suite 1 generated
 	// server option each. A nil field skips the assertions that need it.
 	WithMiddleware func(...func(http.Handler) http.Handler) any
 	WithDatastarJS func(src string) any
@@ -104,7 +104,7 @@ type Case struct {
 	// OptionedAction is one of the case's action expressions built with every
 	// option the generated package offers, in the order listed by optionKeys.
 	// A template can pass any combination to any action. Every generated
-	// builder must write one well-formed expression out of whatever it is given.
+	// builder must write 1 well-formed expression out of whatever it is given.
 	OptionedAction string
 }
 
@@ -205,7 +205,7 @@ func (c Case) testActionOptions(t *testing.T) {
 		t.Errorf("the call is not closed: %s", call)
 	}
 
-	// The options are one JavaScript object literal.
+	// The options are 1 JavaScript object literal.
 	found := strings.Contains(call, ", {")
 	if !found {
 		t.Fatalf("the call carries no options object: %s", call)
@@ -328,14 +328,14 @@ func (c Case) testPageShell(t *testing.T) {
 // server writes.
 //
 // Every attribute writer opens with its own space and the shell writes none,
-// which is the one convention that keeps two attributes apart. A quote followed
+// which is the only convention that keeps 2 attributes apart. A quote followed
 // by an attribute name is the HTML parse error
 // missing-whitespace-between-attributes: browsers recover from it, validators
 // refuse it.
 func checkAttributeSeparation(t *testing.T, url, body string) {
 	t.Helper()
 	if i := strings.Index(body, `"data-`); i >= 0 {
-		t.Errorf("%s writes two attributes without a space:\n%s",
+		t.Errorf("%s writes 2 attributes without a space:\n%s",
 			url, body[max(0, i-80):min(len(body), i+80)])
 	}
 	for _, tag := range []string{"<body >", "<body  ", "<template >", "<template  "} {
@@ -418,7 +418,7 @@ func (c Case) testUnknownRoute(t *testing.T) {
 
 // testGeneratedLinksAreRouted tests every URL the generated href package builds.
 //
-// The builder and the router are written from one model and form the two
+// The builder and the router are written from 1 model and form the 2
 // halves of every link in the application. If they disagree the link is dead.
 // Neither half can detect that by itself.
 func (c Case) testGeneratedLinksAreRouted(t *testing.T) {
@@ -445,7 +445,7 @@ func (c Case) testGeneratedLinksAreRouted(t *testing.T) {
 // unroutedBody asks for a URL nothing claims and returns what the server answers with.
 //
 // A 404 alone does not mean a URL is unrouted. A handler may answer 404
-// because the thing it was asked for does not exist. The body separates the two cases.
+// because the thing it was asked for does not exist. The body separates the 2 cases.
 // An unrouted URL is answered by the router, with the app's own
 // error page when it has one.
 func unroutedBody(t *testing.T, srv *httptest.Server, method string) string {
@@ -607,7 +607,7 @@ func sendAs(
 
 // testStream tests the SSE connection of a page with events or stream hooks.
 //
-// The stream is the one long-lived resource a generated server holds, and a
+// The stream is the only long-lived resource a generated server holds, and a
 // test that only sends requests never touches it.
 // Here it is opened, closed, and opened again, the way a browser does across a reload.
 func (c Case) testStream(t *testing.T) {
@@ -676,7 +676,7 @@ func (c Case) testTrailingSlash(t *testing.T) {
 	if withSlash.Header.Get("Datapages-Instance") != "" ||
 		withSlash.Header.Get("Set-Cookie") != "" {
 		// A stateful page mints an id per load, a page that issues a session
-		// mints a token the CSRF script carries. Two loads of either differ
+		// mints a token the CSRF script carries. 2 loads of either differ
 		// by design and only the status can be compared.
 		return
 	}
@@ -912,7 +912,7 @@ func (c Case) testExternalHref(t *testing.T) {
 		t.Errorf("an app-internal URL was not warned about:\n%s", logged)
 	}
 
-	// The templ sanitizer keeps six schemes and rewrites the rest to
+	// The templ sanitizer keeps 6 schemes and rewrites the rest to
 	// about:invalid, which is a link the visitor cannot follow.
 	buf.Reset()
 	const dropped = "sms:+15550100"
@@ -929,7 +929,7 @@ func (c Case) testExternalHref(t *testing.T) {
 //
 // Every write of the page shell can fail from that point on and the generated code
 // checks each one. It must not panic, and it must not keep writing into a connection
-// that is gone. One visitor closing a tab would otherwise take the process down.
+// that is gone. 1 visitor closing a tab would otherwise take the process down.
 func (c Case) testClientGoesAway(t *testing.T) {
 	handler := c.NewServer(t)
 
@@ -1008,7 +1008,7 @@ func (c Case) testMiddleware(t *testing.T) {
 		}
 	}
 
-	// One call carrying two and a second call carrying one: all three run in
+	// 1 call carrying 2 and a second call carrying 1: all 3 run in
 	// the order they were written, across calls.
 	srv := c.server(t,
 		c.WithMiddleware(tag("first"), tag("second")),
@@ -1140,7 +1140,7 @@ func (c Case) testHTTPServerOption(t *testing.T) {
 
 // testMessageBrokerStreamSubjects tests what the server exports for an
 // operator to create streams with before it starts. An empty subject,
-// or one listed twice, cannot be turned into a stream.
+// or one listed 2 times, cannot be turned into a stream.
 func (c Case) testMessageBrokerStreamSubjects(t *testing.T) {
 	if c.StreamSubjects == nil {
 		t.Skip("the case wires no MessageBrokerStreamSubjects")
@@ -1151,7 +1151,7 @@ func (c Case) testMessageBrokerStreamSubjects(t *testing.T) {
 			t.Error("an exported stream subject is empty")
 		}
 		if seen[s] {
-			t.Errorf("stream subject %q is exported twice", s)
+			t.Errorf("stream subject %q is exported 2 times", s)
 		}
 		seen[s] = true
 	}

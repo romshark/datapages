@@ -10,7 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action one route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`. An action route cannot end in a `{name...}` wildcard. Pass that value in a query parameter or a signal.
+Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action 1 route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`. An action route cannot end in a `{name...}` wildcard. Pass that value in a query parameter or a signal.
 
 ```go
 // POSTSubmit is /login/submit
@@ -75,7 +75,10 @@ func (a *App) GETImage(
 	// a.images opens through an os.Root: the name is unescaped
 	// and can hold "/" and "..".
 	f, contentType, err := a.images.Open(path.Values.Name)
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return datapages.File{}, datapages.ErrNotFound
+	case err != nil:
 		return datapages.File{}, err
 	}
 	return datapages.File{Type: contentType, Body: f}, nil
@@ -102,7 +105,7 @@ Datapages template linter.
 
 Serve a file a visitor uploaded with `Disposition: datapages.FileDisposition{Download: true}`, or show inline only types from an allowlist. The type of an upload is what the uploading browser reported, and `text/html` or `image/svg+xml` runs script on the application's origin when shown. `X-Content-Type-Options: nosniff`, which Datapages always sends, does not prevent that.
 
-The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. Without `MaxAge` or `NoStore`, Datapages adds `no-cache`, also next to `Private`. `NoStore` also keeps the file out of the offline worker's cache.
+The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. Without `MaxAge` or `NoStore`, Datapages adds `no-cache`, also next to `Private`. `NoStore` also keeps the file out of the offline worker's cache. A handler that takes `Session` sends `Vary: Cookie`, which keeps one visitor from getting the copy a browser or CDN stored for another. Serve a file that is the same for every visitor from a handler without `Session`, which a CDN can share.
 
 ## SSE
 
@@ -118,7 +121,7 @@ The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask be
 | `Redirect(url)` | client-side navigation |
 | `Prefetch(urls...)` | speculation rules hint |
 
-A selector must not contain a line break. Prefer one complete fragment over several small targeted patches. `...Prepend` and `...Append` cannot recover missed events. See the delivery rules in `datapages-events`.
+A selector must not contain a line break. Prefer 1 complete fragment over several small targeted patches. `...Prepend` and `...Append` cannot recover missed events. See the delivery rules in `datapages-events`.
 
 ## Errors
 
@@ -130,7 +133,7 @@ return datapages.ErrConflict                              // 409
 return fmt.Errorf("%w: %w", datapages.ErrNotFound, err)   // 404, keeps err
 ```
 
-Any other error returns 500. The response body is the standard status text. A page load gets `PageError404` for 404 and `PageError500` for 500 instead when the app defines them. A Datastar request gets status 200 when the app defines `RecoverError`, and a handler with `sse` sends 200 before it runs. Wrap at most one sentinel. If an error contains several sentinels, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` sets the status.
+Any other error returns 500. The response body is the standard status text. A page load gets `PageError404` for 404 and `PageError500` for 500 instead when the app defines them. A Datastar request gets status 200 when the app defines `RecoverError`, and a handler with `sse` sends 200 before it runs. Wrap at most 1 sentinel. If an error contains several sentinels, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` sets the status.
 
 ## RecoverError
 
@@ -148,4 +151,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:76f922ad5208add1 -->
+<!-- written by datapages sha256:1f5ee0ea0d506cfc -->

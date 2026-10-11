@@ -89,7 +89,7 @@ func TestValidateChange(t *testing.T) {
 		"removal in insert": {
 			ops(ins("a", attrs{"bold": nil})), false,
 		},
-		"two line types": {
+		"2 line types": {
 			ops(ret(1, attrs{"header": 1.0, "list": "bullet"})), false,
 		},
 		"carriage return": {
@@ -126,7 +126,7 @@ func TestValidateChange(t *testing.T) {
 		"width on text": {
 			ops(ins("x", attrs{"width": "50%"})), false,
 		},
-		"width zero": {
+		"width 0": {
 			ops(ret(1, attrs{"width": "0%"})), false,
 		},
 		"width above 100": {
@@ -138,7 +138,7 @@ func TestValidateChange(t *testing.T) {
 		"width above 9999 pixels": {
 			ops(ret(1, attrs{"width": "10000"})), false,
 		},
-		"width zero pixels": {
+		"width 0 pixels": {
 			ops(ret(1, attrs{"width": "0"})), false,
 		},
 		"width with leading zero": {
@@ -236,7 +236,7 @@ func apply(t *testing.T, doc delta.Delta, changes ...delta.Delta) delta.Delta {
 	return doc
 }
 
-// TestRepairLineTypes tests that a conflict of two line types on one line
+// TestRepairLineTypes tests that a conflict of 2 line types on 1 line
 // keeps the last-set type, which the repair sets again.
 func TestRepairLineTypes(t *testing.T) {
 	doc := ops(ins("one\ntwo\n", nil))

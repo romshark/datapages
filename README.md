@@ -33,7 +33,7 @@ Datapages parses your app source packages, lints them, reports errors, and gener
 
 ## Examples
 
-- [`counter`](example/counter/): Real-time counter built twice in one module, bare bones as `app/simple` and polished as `app/fancy`. Bare bones starting point, and the example of a module that builds more than one application.
+- [`counter`](example/counter/): Real-time counter built 2 times in 1 module, bare bones as `app/simple` and polished as `app/fancy`. Bare bones starting point, and the example of a module that builds more than 1 application.
 - [`todolist`](example/todolist/): Real-time collaborative todo list with per-tab server-side state (Most [Tao](https://data-star.dev/guide/the_tao_of_datastar) conform example).
 - [`calculator`](example/calculator/): Hybrid calculator app that runs both as a multi-client server and single-client Desktop app.
 - [`classifieds`](example/classifieds/): Full-featured classifieds marketplace with sessions, auth, Prometheus metrics, Grafana dashboards and load testing.

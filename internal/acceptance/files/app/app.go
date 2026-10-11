@@ -54,6 +54,18 @@ type memBody struct{ *strings.Reader }
 
 func (memBody) Close() error { return nil }
 
+// panicBody is a File body whose Read panics. Its Seek works, which lets
+// net/http find the size and send the status before the first Read.
+type panicBody struct{ memBody }
+
+func (panicBody) Read([]byte) (int, error) { panic("body panicked") }
+
+// seekPanicBody is a File body whose Seek panics, which net/http calls for
+// the size before it sends the status.
+type seekPanicBody struct{ memBody }
+
+func (seekPanicBody) Seek(int64, int) (int64, error) { panic("seek panicked") }
+
 // GETFile is /files/{name}
 //
 // Serves the name back as text. The query selects a failure.
@@ -76,6 +88,21 @@ func (*App) GETFile(
 		panic("the handler panicked")
 	case "type":
 		return datapages.File{Body: memBody{strings.NewReader("no type")}}, nil
+	case "body-panic":
+		return datapages.File{
+			Type: "text/plain; charset=utf-8",
+			Body: panicBody{memBody{strings.NewReader("never read")}},
+		}, nil
+	case "seek-panic":
+		return datapages.File{
+			Type:        "application/pdf",
+			Body:        seekPanicBody{memBody{strings.NewReader("never read")}},
+			ModTime:     ModTime,
+			ETag:        "v1",
+			Cache:       datapages.FileCache{MaxAge: time.Hour, Immutable: true},
+			Disposition: datapages.FileDisposition{Download: true, Filename: "report.pdf"},
+			Header:      http.Header{"Content-Language": {"de"}},
+		}, nil
 	}
 	f := datapages.File{
 		Type:    "text/plain; charset=utf-8",

@@ -436,7 +436,7 @@ func ContainedSubjectKind(t types.Type, pkg *packages.Package) model.SubjectKind
 
 // DerivedSubjectKindOf reports which datapages subject segment type t is declared from,
 // e.g. [model.SubjectKindUser] for `type UserID datapages.SubjectUser`.
-// It returns [model.SubjectKindNone] for the two framework types themselves,
+// It returns [model.SubjectKindNone] for the 2 framework types themselves,
 // which [SubjectKindOf] reports, and for every other type.
 //
 // pkg is the package t is written in. Both framework types are strings
@@ -513,7 +513,7 @@ func TypeDeclOf(obj *types.TypeName, pkg *packages.Package) (
 
 // packageByPath returns pkg itself or the package with the given path among
 // what pkg imports, directly or further down. An alias re-exporting a type puts
-// the declaration one package further out than the app package imports.
+// the declaration 1 package further out than the app package imports.
 func packageByPath(pkg *packages.Package, path string) *packages.Package {
 	if pkg.PkgPath == path {
 		return pkg

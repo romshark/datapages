@@ -106,7 +106,7 @@ func runGen(
 	}
 
 	// Every app is generated, even when another one failed to parse:
-	// one broken model must not leave the rest of the module without code.
+	// 1 broken model must not leave the rest of the module without code.
 	var errs []error
 	var events []subject.AppEvent
 	for _, app := range scan.Apps {
@@ -138,7 +138,7 @@ func runGen(
 	return errors.Join(errs...)
 }
 
-// appEvents is what [subject.CheckAcrossApps] takes for one application.
+// appEvents is what [subject.CheckAcrossApps] takes for 1 application.
 // A model that failed to parse contributes nothing.
 func appEvents(appDir string, m *model.App) []subject.AppEvent {
 	if m == nil {
@@ -157,7 +157,7 @@ func appEvents(appDir string, m *model.App) []subject.AppEvent {
 	return events
 }
 
-// genApp parses one app package and generates the code for it.
+// genApp parses 1 app package and generates the code for it.
 // It returns the parsed model, which is nil when the app package has no model
 // to generate from, and partial when it has errors. datastarJS goes into the
 // main.go written for a module that has none.

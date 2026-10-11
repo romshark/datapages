@@ -51,7 +51,7 @@ func newUser(t *testing.T, repo *domain.Repository, name string) {
 	require.NoError(t, err, "adding user %q", name)
 }
 
-// visitor is one browser. A visitor without a session is a guest.
+// visitor is 1 browser. A visitor without a session is a guest.
 type visitor struct {
 	srv     *httptest.Server
 	session string

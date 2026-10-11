@@ -43,7 +43,7 @@ const claudeMD = "@AGENTS.md\n"
 // project collects backups nobody reads, which is worth an error.
 const maxBackups = 100
 
-// App is one app package of the module.
+// App is 1 app package of the module.
 type App struct {
 	// Dir is the app package relative to the module root, for example "app".
 	Dir string
@@ -60,7 +60,7 @@ type Project struct {
 	// Cmds holds the existing server command packages, ordered by path.
 	Cmds []string
 
-	// Apps holds one entry per app package, ordered by directory.
+	// Apps holds 1 entry per app package, ordered by directory.
 	Apps []App
 
 	// Components is where the module keeps its Web Components, nil for a
@@ -130,7 +130,7 @@ func Write(moduleDir string, p Project, perm os.FileMode) (Result, error) {
 	return res, nil
 }
 
-// file is what [Write] writes to one path.
+// file is what [Write] writes to 1 path.
 type file struct {
 	content string
 
@@ -145,7 +145,7 @@ type file struct {
 }
 
 // v0100Skills holds the [contentHash] of each skill file as v0.10.0 wrote it,
-// its stamp included. v0.10.0 is the one release that stamped skills without
+// its stamp included. v0.10.0 is the only release that stamped skills without
 // the hash, and upgrades from it compare against these.
 var v0100Skills = map[string]string{
 	"datapages":              "1df7d9265747bf16",

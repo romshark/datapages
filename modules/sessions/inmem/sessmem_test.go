@@ -205,7 +205,7 @@ func TestCreateSessionEmptyUserID(t *testing.T) {
 }
 
 // TestCreateSessionUniqueTokens tests that the default generator does not repeat
-// itself over a run of creations for one user.
+// itself over a run of creations for 1 user.
 func TestCreateSessionUniqueTokens(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -267,7 +267,7 @@ func TestCreateSessionTokenCollisionOverwrites(t *testing.T) {
 
 // TestCloseSession tests that the session is gone afterwards, and that closing
 // an already closed or never existing token is a no-op rather than an error:
-// a sign-out may arrive twice.
+// a sign-out may arrive 2 times.
 func TestCloseSession(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -441,8 +441,8 @@ func TestNotifyClosedAlreadyCanceledContext(t *testing.T) {
 	require.Zero(t, called.Load())
 }
 
-// TestNotifyClosedMultipleWatchersDifferentContexts tests two watchers of one
-// session where only one context ended. Cancelling one must not unregister the other.
+// TestNotifyClosedMultipleWatchersDifferentContexts tests 2 watchers of 1
+// session where only 1 context ended. Cancelling one must not unregister the other.
 func TestNotifyClosedMultipleWatchersDifferentContexts(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -736,7 +736,7 @@ func TestCloseAllUserSessionsNotifiesWatchers(t *testing.T) {
 
 // UserSessions tests.
 
-// TestUserSessions tests the listing a settings page reads: one entry per live session
+// TestUserSessions tests the listing a settings page reads: 1 entry per live session
 // of the user, each carrying a token, and nothing for an unknown or empty user ID.
 func TestUserSessions(t *testing.T) {
 	sm := newManager(t)
@@ -800,7 +800,7 @@ func TestUserSessionsDoesNotIncludeOtherUsers(t *testing.T) {
 }
 
 // TestUserSessionsTokenUsableWithSessionAndClose tests that a token from the listing
-// works with the rest of the API: reading the payload and closing that one session.
+// works with the rest of the API: reading the payload and closing that session.
 func TestUserSessionsTokenUsableWithSessionAndClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -920,7 +920,7 @@ func TestConcurrentCreateAndClose(t *testing.T) {
 }
 
 // TestConcurrentCloseWithNotify tests each session being closed while a watcher is
-// registered on it. Every callback runs exactly once, never twice and never not at all.
+// registered on it. Every callback runs exactly once, never 2 times and never not at all.
 func TestConcurrentCloseWithNotify(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -958,8 +958,8 @@ func TestConcurrentCloseWithNotify(t *testing.T) {
 	}
 }
 
-// TestConcurrentDoubleClose tests two goroutines closing one session, which is what
-// a sign-out in two tabs looks like. The watcher must still be called only once.
+// TestConcurrentDoubleClose tests 2 goroutines closing 1 session, which is what
+// a sign-out in 2 tabs looks like. The watcher must still be called only once.
 func TestConcurrentDoubleClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -972,7 +972,7 @@ func TestConcurrentDoubleClose(t *testing.T) {
 		called.Add(1)
 	}))
 
-	// Two goroutines race to close the same session.
+	// 2 goroutines race to close the same session.
 	closeErrs := make([]error, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -1052,7 +1052,7 @@ func TestConcurrentNotifyAndClose(t *testing.T) {
 	errs := make([]error, goroutines)
 	var wg sync.WaitGroup
 
-	// Half the goroutines register watchers, half attempt to close.
+	// 1/2 of the goroutines register watchers, 1/2 attempt to close.
 	wg.Add(goroutines)
 	for i := range goroutines {
 		if i%2 == 0 {
@@ -1077,11 +1077,11 @@ func TestConcurrentNotifyAndClose(t *testing.T) {
 	// The exact count depends on scheduling: watchers registered before close
 	// are notified via CloseSession, watchers registered after close are called
 	// immediately by NotifyClosed.
-	// This test validates no panics, no races, and that at least one callback fires.
+	// This test validates no panics, no races, and that at least 1 callback fires.
 	require.GreaterOrEqual(t, totalCalls.Load(), int32(1))
 }
 
-// TestConcurrentSaveSession tests many saves to one session at once.
+// TestConcurrentSaveSession tests many saves to 1 session at once.
 // The last writer wins and the session stays readable.
 func TestConcurrentSaveSession(t *testing.T) {
 	sm := newManager(t)
@@ -1115,7 +1115,7 @@ func TestConcurrentSaveSession(t *testing.T) {
 	require.Equal(t, "alice", sess.Username)
 }
 
-// TestConcurrentSessionRead tests concurrent reads of one session all returning
+// TestConcurrentSessionRead tests concurrent reads of 1 session all returning
 // the same payload.
 func TestConcurrentSessionRead(t *testing.T) {
 	sm := newManager(t)
@@ -1145,8 +1145,8 @@ func TestConcurrentSessionRead(t *testing.T) {
 	}
 }
 
-// TestConcurrentCloseAllUserSessions tests two bulk closes racing over the same user,
-// which is a settings page clicked twice.
+// TestConcurrentCloseAllUserSessions tests 2 bulk closes racing over the same user,
+// which is a settings page clicked 2 times.
 func TestConcurrentCloseAllUserSessions(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -1156,7 +1156,7 @@ func TestConcurrentCloseAllUserSessions(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Two goroutines race to close all sessions for the same user.
+	// 2 goroutines race to close all sessions for the same user.
 	closeErrs := make([]error, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -1174,7 +1174,7 @@ func TestConcurrentCloseAllUserSessions(t *testing.T) {
 	require.Empty(t, userSessions(t, sm, "alice"))
 }
 
-// TestConcurrentUserSessions tests concurrent listings of one user's sessions:
+// TestConcurrentUserSessions tests concurrent listings of 1 user's sessions:
 // each returns the full set, never a partially built one.
 func TestConcurrentUserSessions(t *testing.T) {
 	sm := newManager(t)

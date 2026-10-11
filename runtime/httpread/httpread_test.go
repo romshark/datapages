@@ -77,8 +77,8 @@ func TestCookieValueManyPairs(t *testing.T) {
 	require.Equal(t, wantValue, value)
 }
 
-// TestCookieValueSeveralLines tests a request carrying more than one
-// Cookie header, which net/http reads as one sequence of pairs.
+// TestCookieValueSeveralLines tests a request carrying more than 1
+// Cookie header, which net/http reads as 1 sequence of pairs.
 func TestCookieValueSeveralLines(t *testing.T) {
 	t.Parallel()
 
