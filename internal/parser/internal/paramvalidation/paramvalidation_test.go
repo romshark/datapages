@@ -72,7 +72,7 @@ func namedType(t *testing.T, src string) types.Type {
 	return obj.Type()
 }
 
-// wrapperSrc declares the datapages input types and a function taking one
+// wrapperSrc declares the datapages input types and a function taking 1
 // parameter of each, plus one that is none of them. It is type-checked under
 // the import path of the datapages package, which is what the predicates match.
 const wrapperSrc = `package datapages
@@ -610,7 +610,7 @@ type P struct {
 		})
 	}
 
-	t.Run("two extra fields both reported", func(t *testing.T) {
+	t.Run("2 extra fields both reported", func(t *testing.T) {
 		t.Parallel()
 		h := &model.Handler{
 			Route: "/items/{id}",
@@ -630,7 +630,7 @@ type P struct {
 		require.Contains(t, err.Error(), `"bar"`)
 	})
 
-	t.Run("two missing route vars both reported", func(t *testing.T) {
+	t.Run("2 missing route vars both reported", func(t *testing.T) {
 		t.Parallel()
 		h := &model.Handler{Route: "/a/{id}/b/{slug}"}
 		err := ValidatePathAgainstRoute(h, "Recv", "Method")

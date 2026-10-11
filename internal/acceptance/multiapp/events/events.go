@@ -1,7 +1,7 @@
 // Package events holds the event both applications of this module take part in.
 //
 // Neither app package declares it. Each names the type declared here,
-// which puts the two applications on one subject deliberately:
+// which puts the 2 applications on the same subject deliberately:
 // what admin dispatches reaches the streams of frontend and the other way round.
 package events
 

@@ -218,7 +218,7 @@ func (s *server) text(t *testing.T, doc string) string {
 	return b.String()
 }
 
-// TestEditTogether tests that two tabs typing at once receive each change in
+// TestEditTogether tests that 2 tabs typing at once receive each change in
 // the order the server applied it, the change of the other transformed, and
 // their own as the acknowledgment.
 func TestEditTogether(t *testing.T) {
@@ -240,7 +240,7 @@ func TestEditTogether(t *testing.T) {
 	require.Equal(t, "HelloWorld\n", s.text(t, doc))
 }
 
-// TestSubmitRetry tests that a change sent twice is applied once.
+// TestSubmitRetry tests that a change sent 2 times is applied once.
 func TestSubmitRetry(t *testing.T) {
 	s := newServer(t)
 	doc := s.create(t)

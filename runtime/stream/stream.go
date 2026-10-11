@@ -43,7 +43,7 @@ type ErrorHandler func(
 	sse *dpsse.Stream, msg string, err error,
 )
 
-// Handler serves the streams of one server.
+// Handler serves the streams of 1 server.
 type Handler struct {
 	core          *httpserve.Core
 	broker        messaging.Broker
@@ -76,7 +76,7 @@ func NewHandler(
 	}
 }
 
-// Handle serves the stream of one request, subscribed to subjects,
+// Handle serves the stream of 1 request, subscribed to subjects,
 // and returns once fn does. onOpen and onClose may be nil; fn must not be nil.
 //
 // sessionKey names the session the stream belongs to.
@@ -162,7 +162,7 @@ func (h *Handler) Handle(
 		sessionClosed = make(chan struct{})
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		// A store may report closure more than once; closing the channel twice panics.
+		// A store may report closure more than once; closing the channel 2 times panics.
 		var once sync.Once
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
 			once.Do(func() { close(sessionClosed) })

@@ -1,8 +1,8 @@
 # Counter
 
-A real-time collaborative counter, built twice in one module.
+A real-time collaborative counter, built 2 times in 1 module.
 
-This is what a multi-application module looks like. Two app packages, two generated packages, two entry points:
+This is what a multi-application module looks like. 2 app packages, 2 generated packages, 2 entry points:
 
 ```
 app/simple/                    cmd/simple/
@@ -14,7 +14,7 @@ app/fancy/datapagesgen/
 - `simple` is the bare-bones version: the smallest thing that counts.
 - `fancy` is the same model with animated digits and a polished shell.
 
-Generated code always goes into a `datapagesgen` package directly under the app package it belongs to, which is what lets the two live side by side.
+Generated code always goes into a `datapagesgen` package directly under the app package it belongs to, which is what lets the 2 live side by side.
 
 ## Run
 
@@ -25,7 +25,7 @@ go run ./cmd/fancy    # http://localhost:8081/
 
 ## Develop
 
-One dev server runs one application, so name the one to run:
+1 dev server runs 1 application, so name the one to run:
 
 ```sh
 datapages watch --app simple

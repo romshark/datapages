@@ -263,7 +263,7 @@ func (PageHookDuplicateDispatch) GET(
 	return nil, nil
 }
 
-/* ErrDispatchDuplicate: stream hook with two dispatchers of one event type */
+/* ErrDispatchDuplicate: stream hook with 2 dispatchers of 1 event type */
 
 func (PageHookDuplicateDispatch) StreamClose(
 	r *http.Request,

@@ -177,7 +177,7 @@ func newID() string {
 // Login returns the name of the user whose name or email is emailOrUsername.
 // [Repository.NewUser] and [Repository.RenameUser] refuse a name equal to
 // another user's email and an email equal to another user's name.
-// At most one user matches, whatever order the map yields them in.
+// At most 1 user matches, whatever order the map yields them in.
 func (r *Repository) Login(
 	emailOrUsername, passwordPlaintext string,
 ) (userName string, err error) {
@@ -523,7 +523,7 @@ func (r *Repository) ChatByPostID(
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	// A post carries one chat per sender. Keyed by post alone,
+	// A post carries 1 chat per sender. Keyed by post alone,
 	// the second buyer's chat would hide the first buyer's.
 	c, ok := r.chatsByKey[chatKey{PostID: postID, SenderUserName: userName}]
 	if !ok {

@@ -23,7 +23,7 @@ func TestSignInRedirect(t *testing.T) {
 		"empty":             {"", "/"},
 		"absolute":          {"https://evil.example/", "/"},
 		"protocol-relative": {"//evil.example/", "/"},
-		"three slashes":     {"///evil.example/", "/"},
+		"3 slashes":         {"///evil.example/", "/"},
 		"backslash":         {`/\evil.example/`, "/"},
 		"tab":               {"/\t/evil.example/", "/"},
 		"newline":           {"/\n/evil.example/", "/"},

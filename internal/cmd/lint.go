@@ -40,7 +40,7 @@ call, defaulting to ./app when the module holds none.`,
 			}
 
 			// Every app is linted, even when an earlier one failed:
-			// one report per run beats one run per app.
+			// 1 report per run beats 1 run per app.
 			var errs []error
 			var events []subject.AppEvent
 			for _, a := range scan.Apps {

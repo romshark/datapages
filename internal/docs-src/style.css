@@ -134,7 +134,7 @@ a {
     margin: 0 auto 2rem;
   }
 
-  /* The command is shown on one line or not at all: broken across lines it
+  /* The command is shown on 1 line or not at all: broken across lines it
      is no longer copy-and-paste readable, and wrapping it mid-token widens
      the page. Measured at v0.9.4, the line needs 545px of viewport at
      0.8rem and 657px at 0.95rem, both including the hero padding. The

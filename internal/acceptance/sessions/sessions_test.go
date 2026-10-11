@@ -55,7 +55,7 @@ func newServer(t *testing.T, broker messaging.Broker) server {
 	return server{Server: s, sessions: sessions}
 }
 
-// client is one visitor:
+// client is 1 visitor:
 // a cookie jar and the CSRF token that goes with the session in it.
 type client struct {
 	http  *http.Client
@@ -160,7 +160,7 @@ func (c *client) setCookie() *http.Cookie {
 
 // signIn creates a session and keeps the CSRF token that goes with it.
 // An anonymous request needs no token.
-// Signing in is the one action that can be sent without one.
+// Signing in is the only action that can be sent without one.
 func (c *client) signIn(t *testing.T, user, nickname string) string {
 	t.Helper()
 	status, body := c.postWithToken(t, "/login/submit/",
@@ -743,8 +743,8 @@ func TestCSRF(t *testing.T) {
 	})
 }
 
-// TestPrivateEvent tests an event addressed to a user. Two visitors,
-// two streams, one dispatch: the user it names sees it and the other does not.
+// TestPrivateEvent tests an event addressed to a user. 2 visitors,
+// 2 streams, 1 dispatch: the user it names sees it and the other does not.
 func TestPrivateEvent(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
@@ -813,7 +813,7 @@ func TestStreamEndsAtSessionExpiry(t *testing.T) {
 		srv := newServer(t, broker)
 		alice := srv.client(t)
 
-		// Long enough to open the stream and see one event through it.
+		// Long enough to open the stream and see 1 event through it.
 		expiresAt := time.Now().Add(2 * time.Second)
 		token, err := srv.sessions.CreateSession(context.Background(),
 			sessions.Record[app.SessionData]{UserID: "alice", ExpiresAt: expiresAt})
@@ -1031,7 +1031,7 @@ func TestAnonymousStream(t *testing.T) {
 		alice.signIn(t, "alice", "")
 		aliceStream := alice.openStream(t)
 
-		// The two connections are served by two different handlers.
+		// The 2 connections are served by 2 different handlers.
 		if anonStream.path == aliceStream.path {
 			t.Errorf("both connections landed on %s", anonStream.path)
 		}
@@ -1132,7 +1132,7 @@ func (c *client) openStreamAt(
 		defer close(s.done)
 		defer func() { _ = resp.Body.Close() }()
 		sc := bufio.NewScanner(resp.Body)
-		// A patch of a whole page is one SSE event and outgrows the default 64KiB token.
+		// A patch of a whole page is 1 SSE event and outgrows the default 64KiB token.
 		// Scan would stop there, and a test would read that as "the event never arrived".
 		sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		for sc.Scan() {

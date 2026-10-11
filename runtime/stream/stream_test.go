@@ -34,7 +34,7 @@ func TestHandleSessionExpiry(t *testing.T) {
 	const leave = 365 * 24 * time.Hour
 
 	for name, tt := range map[string]struct {
-		expiresIn  time.Duration // zero: the session never expires
+		expiresIn  time.Duration // 0: the session never expires
 		wantOpen   time.Duration
 		wantReason string
 	}{
@@ -89,7 +89,7 @@ func TestHandleEnds(t *testing.T) {
 	t.Parallel()
 
 	for name, tt := range map[string]struct {
-		expiresIn    time.Duration // zero: the session does not expire
+		expiresIn    time.Duration // 0: the session does not expire
 		closeSession bool
 		wantErr      error
 		wantReload   bool

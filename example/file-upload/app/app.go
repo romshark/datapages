@@ -11,7 +11,7 @@ import (
 	"github.com/romshark/datapages/example/file-upload/throttle"
 )
 
-// The limit inputs accept a rate between these, in KiB/s. Zero is not one of them:
+// The limit inputs accept a rate between these, in KiB/s. 0 is not one of them:
 // no limit is the Unlimited switch of [Limit], not a rate of nothing.
 const (
 	MinLimitKiB = 1
@@ -22,25 +22,25 @@ const (
 // limit on offers a number rather than an empty field.
 const DefaultLimitKiB = 1024
 
-// LimitStepKiB is how far one step of the rate field moves it.
-// The field declares it and the arrow keys apply it, hence one constant for both.
+// LimitStepKiB is how far 1 step of the rate field moves it.
+// The field declares it and the arrow keys apply it, hence 1 constant for both.
 const LimitStepKiB = 64
 
-// chunkBudget is how much of the upload limit one chunk may carry, hence how
+// chunkBudget is how much of the upload limit 1 chunk may carry, hence how
 // long a transfer that died goes on moving the progress bar. The limit is enforced by
 // reading the body slowly, which leaves the bytes the browser handed over sitting in
 // the socket buffers: the server commits them whatever the browser does.
 // A fixed size bounds that by nothing: 1 MiB at 1 KiB/s is 17 minutes.
 const chunkBudget = 10 * time.Second
 
-// The floor keeps a slow transfer from paying a request per few hundred bytes.
+// The floor keeps a slow transfer from paying a request per 100s of bytes.
 // The ceiling is what an unlimited transfer sends.
 const (
 	minChunkSize = 16 << 10
 	maxChunkSize = 1 << 20
 )
 
-// morpheusCDN serves the three static assets of the Morpheus UI kit.
+// morpheusCDN serves the 3 static assets of the Morpheus UI kit.
 // Self-hosting takes the same files from the min directory of its repository.
 const morpheusCDN = "https://cdn.jsdelivr.net/gh/romshark/morpheus@v0.1.0/min"
 
@@ -56,7 +56,7 @@ type EventFilesChanged struct{}
 
 // EventUploadStarted is "upload.started"
 //
-// It reaches the one tab that holds the files the jobs describe.
+// It reaches the only tab that holds the files the jobs describe.
 type EventUploadStarted struct {
 	Tab datapages.SubjectStateID `json:"tab"`
 
@@ -71,7 +71,7 @@ type EventLimitsChanged struct{}
 // StateIndex is the per-tab state of [PageIndex]:
 // the files a tab picked but has not confirmed in the upload dialog yet.
 //
-// Which tab is sending a file is not part of it. Two tabs must not send the same one,
+// Which tab is sending a file is not part of it. 2 tabs must not send the same one,
 // which no tab can decide on its own: [store.File.Owner] holds it
 // and the handlers name their tab with stateID.
 type StateIndex struct {
@@ -83,26 +83,26 @@ type StateIndex struct {
 	Origin string
 }
 
-// PickedFile is one file as the browser described it to [PageIndex.POSTStage].
+// PickedFile is 1 file as the browser described it to [PageIndex.POSTStage].
 type PickedFile struct {
 	Name        string `json:"name"`
 	Size        int64  `json:"size"`
 	ContentType string `json:"type"`
 }
 
-// PendingFile is one picked file as the upload dialog shows it.
+// PendingFile is 1 picked file as the upload dialog shows it.
 type PendingFile struct {
 	PickedFile
 
 	// MatchID is an unfinished upload of the same original name and size,
 	// which this file can continue instead of starting a second one.
 	// The dialog offers the choice, since a name and a size are all a browser
-	// reveals and two different files can share both.
+	// reveals and 2 different files can share both.
 	MatchID      string
 	MatchPercent int
 }
 
-// Limit is one direction's transfer limit. KiB outlives Unlimited being
+// Limit is 1 direction's transfer limit. KiB outlives Unlimited being
 // switched on, so that switching it off again restores the rate the visitor
 // had chosen instead of an empty field.
 type Limit struct {
@@ -110,7 +110,7 @@ type Limit struct {
 	Unlimited bool
 }
 
-// Rate is what the limiter enforces, in bytes per second. Zero is unlimited.
+// Rate is what the limiter enforces, in bytes per second. 0 is unlimited.
 func (l Limit) Rate() int64 {
 	if l.Unlimited {
 		return 0
@@ -124,7 +124,7 @@ type Limits struct{ Upload, Download Limit }
 type App struct {
 	files *store.Store
 
-	// One budget per direction, shared by every transfer in it:
+	// 1 budget per direction, shared by every transfer in it:
 	// a limit of this application is a limit of the server.
 	upload, download *throttle.Limiter
 
@@ -169,7 +169,7 @@ func (a *App) SetLimits(l Limits) Limits {
 
 func clampLimit(kib int64) int64 { return min(max(kib, MinLimitKiB), MaxLimitKiB) }
 
-// ChunkSize is how many bytes the uploader puts in one chunk:
+// ChunkSize is how many bytes the uploader puts in 1 chunk:
 // [chunkBudget] of the upload limit, within the size bounds.
 func (a *App) ChunkSize() int64 {
 	rate := a.upload.Rate()

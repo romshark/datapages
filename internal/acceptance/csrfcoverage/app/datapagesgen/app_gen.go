@@ -295,7 +295,7 @@ func (s *Server) httpErrIntern(
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
 		if httpserve.ResponseBodyWritten(w) {
-			// An error page after a half-written one sends two documents.
+			// An error page after a half-written one sends 2 documents.
 			return
 		}
 		switch httpserve.ErrStatus(err) {

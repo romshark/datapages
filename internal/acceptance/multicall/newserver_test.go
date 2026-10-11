@@ -14,7 +14,7 @@ import (
 // mustNewServer builds the server the way datapages.NewServer does and fails the
 // test on a configuration error, which no test can carry on from.
 //
-// The call here is one of four naming app.App. The others are in cmd/server,
+// The call here is 1 of 4 naming app.App. The others are in cmd/server,
 // serve and internal/boot.
 func mustNewServer(
 	t *testing.T, a *app.App, broker messaging.Broker,

@@ -37,7 +37,7 @@ func randomText(r *rand.Rand, n int) string {
 
 var image = delta.Embed{Type: "image", Value: "a.png"}
 
-// insertRandom appends up to maxLen random runes, or one time in five an image.
+// insertRandom appends up to maxLen random runes, or 1 time in 5 an image.
 func insertRandom(r *rand.Rand, d *delta.Delta, maxLen int) {
 	format := formats[r.IntN(len(formats))]
 	if r.IntN(5) == 0 {
@@ -101,7 +101,7 @@ func compose(t *testing.T, a, b delta.Delta) delta.Delta {
 	return c
 }
 
-// TestConvergence tests on seeded random cases that two concurrent changes,
+// TestConvergence tests on seeded random cases that 2 concurrent changes,
 // each transformed against the other with opposite priority, give the same
 // document in either order. Server and editors depend on it.
 func TestConvergence(t *testing.T) {

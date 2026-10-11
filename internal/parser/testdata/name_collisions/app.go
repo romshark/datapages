@@ -1,6 +1,6 @@
 //nolint:all
 
-// Package app carries every pair of names that concatenate to one identifier
+// Package app carries every pair of names that concatenate to the same identifier
 // when spelled as one. Each pair is valid Go with distinct routes.
 package app
 
@@ -124,7 +124,7 @@ func (PageEF) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTG is /ef/g
 func (PageEF) POSTG(r *http.Request) error { return nil }
 
-// The same where both take a query, whose argument type concatenates to one
+// The same where both take a query, whose argument type concatenates to the same
 // QueryPOSTPageUserSettingsSave:
 // PageUser.POSTSettingsSave and PageUserSettings.POSTSave.
 
@@ -188,7 +188,7 @@ type EventPrefTick struct {
 // EventPrefixTick is "prefixtick"
 //
 // Named after the prefix EventTick's constants carry, which is the pair the
-// two constant prefixes must keep apart.
+// 2 constant prefixes must keep apart.
 type EventPrefixTick struct {
 	Text string `json:"text"`
 }

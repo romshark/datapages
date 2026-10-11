@@ -1,5 +1,5 @@
-// Package app has event handlers that declare two parameters in one field, and one
-// that declares the SSE twice in two fields. Each name is a parameter of its own:
+// Package app has event handlers that declare 2 parameters in 1 field, and one
+// that declares the SSE 2 times in 2 fields. Each name is a parameter of its own:
 // a second SSE or stream ID is unsupported, and so is a string next to stateID.
 package app
 

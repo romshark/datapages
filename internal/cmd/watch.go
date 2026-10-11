@@ -31,13 +31,13 @@ the application, and live-reloads the browser tabs. Configuration is read
 from the "watch" section of datapages.yaml; sane defaults are used
 if the section is missing.
 
-One dev server runs one application. A module that builds more than one
+1 dev server runs 1 application. A module that builds more than 1
 needs --app to say which, naming the app package: "datapages watch --app frontend".`,
 	}
 	host := cmd.Flags().String("host", "localhost:7331",
 		"Host address for the dev server proxy")
 	app := cmd.Flags().String("app", "",
-		"App package to run, required when the module builds more than one")
+		"App package to run, required when the module builds more than 1")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		return runWatch(c.Context(), *host, *app, stderr, version)
 	}
@@ -45,7 +45,7 @@ needs --app to say which, naming the app package: "datapages watch --app fronten
 }
 
 // selectApp picks the app the dev server runs.
-// A module building one needs no flag; one building more must name it.
+// A module building 1 needs no flag; one building more must name it.
 func selectApp(r serverscan.Result, name string) (serverscan.App, error) {
 	if name != "" {
 		a, ok := r.Find(name)
@@ -250,7 +250,7 @@ func genWatcherCmd(exe string) string {
 	return "env " + shQuote(exe) + " gen"
 }
 
-// shQuote wraps s as one word of a shell command. A single quote ends the quoting,
+// shQuote wraps s as 1 word of a shell command. A single quote ends the quoting,
 // escapes itself and reopens it, which is the only form `sh` takes.
 func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

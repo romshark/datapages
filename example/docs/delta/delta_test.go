@@ -162,7 +162,7 @@ func TestCompose(t *testing.T) {
 			b:    ops(ins("Hello", nil)),
 			want: ops(ins("HelloHello", nil)),
 		},
-		"insert and delete at one position": {
+		"insert and delete at 1 position": {
 			a:    ops(ins("Hello", nil)),
 			b:    ops(ret(3, nil), ins("X", nil), del(1)),
 			want: ops(ins("HelXo", nil)),
@@ -431,15 +431,15 @@ func TestJSON(t *testing.T) {
 // never produces for text and images.
 func TestJSONRejects(t *testing.T) {
 	for name, in := range map[string]string{
-		"embed with two keys":     `{"insert":{"image":"a.png","video":"b.mp4"}}`,
+		"embed with 2 keys":       `{"insert":{"image":"a.png","video":"b.mp4"}}`,
 		"embed without key":       `{"insert":{}}`,
 		"embed without type":      `{"insert":{"":"a.png"}}`,
 		"embed number":            `{"insert":{"image":1}}`,
 		"empty insert":            `{"insert":""}`,
 		"null insert":             `{"insert":null}`,
 		"no action":               `{"attributes":{"bold":true}}`,
-		"two actions":             `{"insert":"a","retain":1}`,
-		"zero retain":             `{"retain":0}`,
+		"2 actions":               `{"insert":"a","retain":1}`,
+		"0 retain":                `{"retain":0}`,
 		"negative delete":         `{"delete":-1}`,
 		"fractional retain":       `{"retain":1.5}`,
 		"embed retain":            `{"retain":{"image":"x.png"}}`,

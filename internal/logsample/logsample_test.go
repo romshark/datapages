@@ -26,8 +26,8 @@ func newLogger(t *testing.T, limit int) (*slog.Logger, *bytes.Buffer) {
 	return slog.New(logsample.New(h, limit, interval)), &buf
 }
 
-// TestRepeatIsHeldBack tests the record a render path repeats. One line says
-// what a thousand say, and the count of the rest rides on the next one.
+// TestRepeatIsHeldBack tests the record a render path repeats. 1 line says
+// what 1000 say, and the count of the rest rides on the next one.
 func TestRepeatIsHeldBack(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestFullSetRecovers(t *testing.T) {
 		log.Warn("dropped", slog.String("value", "c"))
 		require.Equal(t, 2, strings.Count(buf.String(), "dropped"))
 
-		// The first two have gone quiet, which makes room.
+		// The first 2 have gone quiet, which makes room.
 		time.Sleep(interval)
 		log.Warn("dropped", slog.String("value", "c"))
 		require.Contains(t, buf.String(), "value=c")

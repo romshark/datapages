@@ -83,7 +83,7 @@ var (
 			"implement encoding.TextMarshaler",
 	)
 	ErrSignalsFieldNameDotted = errors.New(
-		"signals struct field declares one signal, which carries no period",
+		"signals struct field declares 1 signal, which carries no period",
 	)
 )
 
@@ -398,7 +398,7 @@ func ValidateSignalsStruct(t types.Type, recv, method string) error {
 	return validateSignalsFields(st, recv, method, map[types.Type]bool{})
 }
 
-// validateSignalsFields validates one level of a signals struct and every
+// validateSignalsFields validates 1 level of a signals struct and every
 // struct below it. A nested struct is a nested signal: the client sends
 // {"form":{"term":...}} for it and Datastar reads the name as "form.term",
 // which puts the same rules on it as on the level above.
@@ -459,7 +459,7 @@ func validateSignalsFields(
 
 		nested, ok := signalsNestedStruct(field.Type())
 		// visited holds what stands above this field rather than everything seen:
-		// two fields of one struct type are two signals, while a type
+		// 2 fields of 1 struct type are 2 signals, while a type
 		// that reaches itself through a pointer is a walk that never ends.
 		if ok && !visited[nested] {
 			visited[nested] = true

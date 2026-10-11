@@ -415,7 +415,7 @@ func TestServeFileRefused(t *testing.T) {
 
 // TestServeFileHeader tests the headers File.Header adds: one replaces the
 // value a middleware set before, except Set-Cookie and Vary, whose values add
-// to the ones set before. 2 spellings of one name write their values in sorted
+// to the ones set before. 2 spellings of 1 name write their values in sorted
 // order of the spellings, the same on every request.
 func TestServeFileHeader(t *testing.T) {
 	t.Parallel()

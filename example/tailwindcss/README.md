@@ -4,7 +4,7 @@ Demonstrates how to integrate [TailwindCSS](https://tailwindcss.com) with Datapa
 
 ## How It Works
 
-The `datapages.yaml` defines two custom watchers:
+The `datapages.yaml` defines 2 custom watchers:
 
 ```yaml
 custom-watchers:

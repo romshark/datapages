@@ -36,7 +36,7 @@ type watcher struct {
 	fn  func()
 }
 
-// SessionManager implements [sessions.Manager] over a map guarded by one lock.
+// SessionManager implements [sessions.Manager] over a map guarded by 1 lock.
 // It is safe for concurrent use.
 type SessionManager[Data any] struct {
 	lock     sync.Mutex

@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/325a5f88-a9c5-45f1-b2fc-bbaca92bb246
 | `moviebuff` | `demopass` |
 | `jazzfan`   | `demopass` |
 
-`moviebuff` starts with two pre-purchased tickets.
+`moviebuff` starts with 2 pre-purchased tickets.
 
 ## Running
 
@@ -55,7 +55,7 @@ datapages watch
 ## How it works
 
 - `app/domain` is the thread-safe, in-memory data store: shows, users, tickets.
-- `app/*.go` holds one page struct per route with its `GET` and action handlers.
+- `app/*.go` holds 1 page struct per route with its `GET` and action handlers.
 - `app/app.templ` holds every templ template: navbar, cards, ticket, forms.
 - `cmd/server` wires up the in-memory session manager and message broker and seeds the mock data (`testdata.go`).
 
@@ -63,7 +63,7 @@ QR codes are rendered server-side (`github.com/skip2/go-qrcode`) and embedded as
 
 ## Offline support
 
-Offline support comes from `github.com/romshark/datapages/modules/offline` and is configured with one server option in `cmd/server/main.go`:
+Offline support comes from `github.com/romshark/datapages/modules/offline` and is configured with 1 server option in `cmd/server/main.go`:
 
 ```go
 datapagesgen.WithOffline(app.OfflineConfig())

@@ -47,7 +47,7 @@ func update(t *testing.T, tab *client.Tab, filter string) client.Response {
 	return tab.Act(t, http.MethodPost, pathAction, `{"filter":"`+filter+`"}`)
 }
 
-// TestPerTabState covers what per-tab state promises: two tabs of one page
+// TestPerTabState covers what per-tab state promises: 2 tabs of 1 page
 // hold separate values, and a tab-scoped event reaches the tab that caused it.
 func TestPerTabState(t *testing.T) {
 	c := newClient(t)
@@ -56,7 +56,7 @@ func TestPerTabState(t *testing.T) {
 	b := c.OpenTab(t, "/", pathStream)
 
 	require.NotEqual(t, a.InstanceID(), b.InstanceID(),
-		"two page loads share one instance id")
+		"2 page loads share 1 instance id")
 
 	require.Equal(t, http.StatusOK, update(t, a, "from-a").Status)
 
@@ -71,7 +71,7 @@ func TestPerTabState(t *testing.T) {
 	require.True(t, a.Never("filter:from-b"), "one tab sees the state of another")
 }
 
-// TestSecondStreamUnderOneID covers a tab that opens a second stream before
+// TestSecondStreamUnderTheSameID covers a tab that opens a second stream before
 // the server has noticed its first one is gone, which is what a Datastar
 // reconnect does over a connection that dropped without closing.
 //
@@ -80,7 +80,7 @@ func TestPerTabState(t *testing.T) {
 // rather than by the id, which is what keeps it from taking the live slot with it.
 // Releasing by id would leave the tab holding a page whose every action is
 // answered 409 while its stream is open.
-func TestSecondStreamUnderOneID(t *testing.T) {
+func TestSecondStreamUnderTheSameID(t *testing.T) {
 	c := newClient(t)
 
 	tab := c.OpenTab(t, "/", pathStream)
@@ -385,8 +385,8 @@ func TestStreamInitRetriesOnRefusal(t *testing.T) {
 			"at the instance cap without a stream")
 }
 
-// TestInstanceCapIsPerServer covers two servers built from one generated
-// package in one process. Each holds its own counter and its own instance store,
+// TestInstanceCapIsPerServer covers 2 servers built from 1 generated
+// package in 1 process. Each holds its own counter and its own instance store,
 // which is what keeps one server's budget and state its own.
 //
 // Sharing a counter would let a full server A refuse every stream of an
@@ -400,7 +400,7 @@ func TestInstanceCapIsPerServer(t *testing.T) {
 	require.Equal(t, http.StatusOK, openInstance(t, ctx, a),
 		"the only instance server A may hold")
 	require.Equal(t, http.StatusServiceUnavailable, openInstance(t, ctx, a),
-		"a second instance on a server that may hold one")
+		"a second instance on a server that may hold 1")
 
 	require.Equal(t, http.StatusOK, openInstance(t, ctx, b),
 		"server B refuses its first stream while server A is full")
@@ -434,7 +434,7 @@ func TestInstanceIDIsNotSharedBetweenServers(t *testing.T) {
 //
 // The check the cap performs compares the live count against the configured one,
 // which a negative value inverts: read literally, a server that may hold
-// fewer than zero instances refuses the first stream and every stream after it.
+// fewer than 0 instances refuses the first stream and every stream after it.
 func TestInstanceCapDisabled(t *testing.T) {
 	const streams = 8
 
@@ -455,7 +455,7 @@ func TestInstanceCapDisabled(t *testing.T) {
 // hook has succeeded, which leaves an open that fails to release what it took
 // by itself. An instance it kept instead would be held for the life of the process,
 // and enough of those leave no tab of any stateful page able to open a stream again.
-// The server holds a budget of one, which is what makes the release observable:
+// The server holds a budget of 1, which is what makes the release observable:
 // a second stream is served only if the first gave its instance back.
 // The id that named it stops being answered in the same place, and both are asserted.
 func TestFailedOpenReleasesInstance(t *testing.T) {

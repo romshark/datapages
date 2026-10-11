@@ -1,5 +1,5 @@
 // Package app exercises what happens when a handler fails: the status the
-// client is given, and the pages the app supplies for the two statuses it can take over.
+// client is given, and the pages the app supplies for the 2 statuses it can take over.
 package app
 
 import (

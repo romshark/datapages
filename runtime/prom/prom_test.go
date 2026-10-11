@@ -218,7 +218,7 @@ func requireInFlight(t *testing.T, want string) {
 
 // TestMiddlewareLabelsAreBounded tests the cardinality of the HTTP metrics.
 // Both labels come from a closed set: the routes the router registers,
-// plus one label for everything else.
+// plus 1 label for everything else.
 func TestMiddlewareLabelsAreBounded(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /user/{uid}/", func(http.ResponseWriter, *http.Request) {})
@@ -236,13 +236,13 @@ func TestMiddlewareLabelsAreBounded(t *testing.T) {
 	const metric = "datapages_http_requests_total"
 	require.Equal(t, 1, series(t, metric, map[string]string{
 		"path": "GET /user/{uid}/", "status": "200",
-	}), "one series for every user of the route")
+	}), "1 series for every user of the route")
 	require.Equal(t, 1, series(t, metric, map[string]string{
 		"path": prom.LabelUnmatched, "status": "404",
-	}), "one series for every path that matched no route")
+	}), "1 series for every path that matched no route")
 	require.Equal(t, 1, series(t, metric, map[string]string{
 		"method": prom.LabelOtherMethod,
-	}), "one series for every method no route registers")
+	}), "1 series for every method no route registers")
 	require.Zero(t, series(t, metric, map[string]string{
 		"path": "/user/1/",
 	}), "the raw path must not appear as a label")

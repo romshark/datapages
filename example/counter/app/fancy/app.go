@@ -9,7 +9,7 @@ import (
 
 // EventCounterUpdated is "fancy.counter.updated"
 //
-// See the event of app/simple: no two applications of one module may claim one subject.
+// See the event of app/simple: no 2 applications of 1 module may claim the same subject.
 type EventCounterUpdated struct{}
 
 type App struct{ counter atomic.Int32 }

@@ -19,7 +19,7 @@ func TestVars(t *testing.T) {
 		"static":         {"/items", nil},
 		"single var":     {"/items/{id}", []string{"id"}},
 		"var mid-path":   {"/items/{id}/details", []string{"id"}},
-		"two vars":       {"/users/{name}/posts/{slug}", []string{"name", "slug"}},
+		"2 vars":         {"/users/{name}/posts/{slug}", []string{"name", "slug"}},
 		"exact match":    {"/exact/{$}", nil},
 		"var + exact":    {"/items/{id}/{$}", []string{"id"}},
 		"wildcard":       {"/files/{path...}", []string{"path"}},
@@ -98,7 +98,7 @@ func TestWithTrailingSlash(t *testing.T) {
 
 // TestSegments tests the split the generated href helpers are built from:
 // the literal pieces they concatenate and the variable names that go between them.
-// There is always one more literal than variable, which lets a helper write
+// There is always 1 more literal than variable, which lets a helper write
 // literal, value, literal.
 func TestSegments(t *testing.T) {
 	tests := map[string]struct {
@@ -115,7 +115,7 @@ func TestSegments(t *testing.T) {
 		"var mid-path": {
 			"/post/{slug}/edit", []string{"/post/", "/edit/"}, []string{"slug"},
 		},
-		"two vars": {
+		"2 vars": {
 			"/users/{name}/posts/{slug}",
 			[]string{"/users/", "/posts/", "/"},
 			[]string{"name", "slug"},
@@ -166,13 +166,13 @@ func TestSegments(t *testing.T) {
 }
 
 // FuzzSegments tests the invariant both generator writers rely on:
-// [Segments] returns one literal more than it returns variables, whatever the route.
+// [Segments] returns 1 literal more than it returns variables, whatever the route.
 // They index vars[i] against literals[i], and a route reaches them straight
 // from a doc comment, since the generator runs on a model the parser rejected.
 //
 // Agreement with [Vars] is not an invariant. Segments trims a "{$}" suffix
-// before it scans and Vars does not, which the two read differently when that
-// text is the tail of an unterminated brace: "{{$}" is one variable to Vars
+// before it scans and Vars does not, which the 2 read differently when that
+// text is the tail of an unterminated brace: "{{$}" is 1 variable to Vars
 // and none to Segments. Every well-formed route reads the same through both.
 func FuzzSegments(f *testing.F) {
 	for _, seed := range []string{

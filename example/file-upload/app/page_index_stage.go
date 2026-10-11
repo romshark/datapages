@@ -43,8 +43,8 @@ func (p PageIndex) POSTStage(
 			// so that confirming the dialog unchanged renames nothing.
 			row.Name = match.Name
 			row.MatchID, row.MatchPercent = match.ID, match.Percent()
-			// One unfinished upload takes one of the picked files,
-			// which stops the same file picked twice from continuing it twice.
+			// 1 unfinished upload takes 1 of the picked files,
+			// which stops the same file picked 2 times from continuing it 2 times.
 			delete(unfinished, key(name, f.Size))
 		}
 		pending = append(pending, row)
@@ -83,7 +83,7 @@ func (p PageIndex) POSTCancel(
 
 // POSTStart is /start
 //
-// The dialog answers as form fields because it holds one name and one choice
+// The dialog answers as form fields because it holds 1 name and 1 choice
 // per file, which no fixed signal struct describes. The jobs travel back on a
 // tab-scoped event rather than on this response, since a handler that opens a
 // stream cannot read the request body afterwards.
@@ -100,7 +100,7 @@ func (p PageIndex) POSTStart(
 	pending := state.Values.Pending
 
 	// The names are cleaned before the store changes: [PageIndex.continueUpload]
-	// requires it, and a dialog refused for one name creates none of its files.
+	// requires it, and a dialog refused for 1 name creates none of its files.
 	names := make([]string, len(pending))
 	for i := range pending {
 		name, err := store.CleanName(r.PostForm.Get(nameField(i)))
@@ -112,7 +112,7 @@ func (p PageIndex) POSTStart(
 
 	jobs := make([]UploadJob, 0, len(pending))
 	for i, f := range pending {
-		// One job per picked file and in the order they were picked:
+		// 1 job per picked file and in the order they were picked:
 		// that is how the uploader pairs them with the File objects it holds.
 		if f.MatchID != "" && r.PostForm.Get(dupField(i)) != dupSeparate {
 			job, err := p.continueUpload(f.MatchID, names[i], stateID)

@@ -457,7 +457,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	// the store. The CSRF script sends this token with subsequent actions.
 	//
 	// PageError500 uses the same rule. PageOffline omits the script because the
-	// worker precaches one copy for every visitor.
+	// worker precaches 1 copy for every visitor.
 	getRendersBody := p.PageSpecialization != model.PageTypeOffline
 	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody, hasSess)
 	w.writeSessionOutputs(h, getSessRebind)
@@ -683,7 +683,7 @@ func (w *Writer) writeHeadArgs(gh *model.GlobalHead, sessArg string) {
 // a network error, after an error response such as 503 at
 // [datapages.StateConfig.MaxConcurrentInstances] or a reverse proxy's 502 while
 // the application restarts, and after a stream the server ends. Datastar stops
-// after 10 failed attempts by default, about three minutes. Infinity keeps
+// after 10 failed attempts by default, about 3 minutes. Infinity keeps
 // the page trying through a longer outage, once every 30s.
 func streamInitTail(openWhenHidden bool) string {
 	if openWhenHidden {
@@ -731,7 +731,7 @@ func (w *Writer) writeGETBodyAttrs(
 
 	// The reload renders the events the closed stream missed. A page without
 	// a stream misses none and would lose what the visitor typed.
-	// The parser refuses the two outputs below on such a page.
+	// The parser refuses the 2 outputs below on such a page.
 	if hasStream {
 		switch {
 		case hasDisableRefresh:
@@ -1015,7 +1015,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	}
 }
 
-// writeDeferRecover registers the deferred recover of one handler. hasSSE
+// writeDeferRecover registers the deferred recover of 1 handler. hasSSE
 // selects the open stream, which is what a recovered panic patches into when
 // the application renders one.
 func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
@@ -1282,7 +1282,7 @@ func (w *Writer) writeStreamRecover(handler string) {
 }
 
 // writeStreamEventVars declares the event of every case of the message loop.
-// One declaration per stream keeps the decode of every message off the heap.
+// 1 declaration per stream keeps the decode of every message off the heap.
 func (w *Writer) writeStreamEventVars(
 	handlers []*model.EventHandler, appPkg string,
 ) {
@@ -1799,7 +1799,7 @@ func (w *Writer) writePageActionHandler(
 // it reads signals, answers with an event stream or takes a page cache.
 // Page cache writes reach the worker through a script in the response, which an
 // HTTP redirect, the answer to a plain request, cannot carry. A plain request
-// for a body could receive them and is refused too, which keeps one rule for
+// for a body could receive them and is refused too, which keeps 1 rule for
 // every page cache action. Any other action is a plain form target.
 func needsDatastarRequest(h *model.Handler) bool {
 	return h.InputSSE != nil || h.InputSignals != nil || h.InputPageCache != nil
@@ -1816,7 +1816,7 @@ func pageCacheViaRedirect(h *model.Handler) bool {
 //
 // A handler returning both a body and a redirect picks between them at run
 // time, which no signature can settle. Both deliveries are generated for it and
-// exactly one branch runs.
+// exactly 1 branch runs.
 func pageCacheViaBody(h *model.Handler) bool {
 	return h.InputPageCache != nil && h.InputSSE == nil && h.OutputBody != nil
 }

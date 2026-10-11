@@ -40,7 +40,7 @@ func TestJSONTagValue(t *testing.T) {
 	}
 }
 
-// TestTagValues tests the three tags the parser reads off a struct field.
+// TestTagValues tests the 3 tags the parser reads off a struct field.
 // A tag key must match whole: "xpath" is not "path", which a suffix match would
 // accept and then bind the wrong request value to the field.
 func TestTagValues(t *testing.T) {

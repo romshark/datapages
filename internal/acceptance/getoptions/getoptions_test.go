@@ -18,7 +18,7 @@ import (
 )
 
 // reloadAttr is what the server writes on the body of a page with a stream so
-// that a tab reloads it when it becomes visible again. The two streaming flags
+// that a tab reloads it when it becomes visible again. The 2 streaming flags
 // exist to suppress it.
 const reloadAttr = "data-on:visibilitychange"
 

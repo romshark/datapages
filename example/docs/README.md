@@ -4,7 +4,7 @@ A real-time collaborative rich text editor like [Google Docs](https://docs.googl
 
 The application is ~2,6k lines of Go, 457 lines of templ and ~1k lines of TypeScript, not counting blank lines, comments, tests and generated code.
 
-The `documents` directory stores one snapshot and one change log for each document.
+The `documents` directory stores 1 snapshot and 1 change log for each document.
 
 ## How it works
 
@@ -19,7 +19,7 @@ flowchart LR
 
 All editor JavaScript runs in the `<docs-editor>` [Web Component](https://developer.mozilla.org/en-US/docs/Web/API/Web_components), which wraps [Quill](https://quilljs.com).
 
-Quill reports each edit as a [Delta](https://quilljs.com/docs/delta/). The editor emits a `docs-submit` event. A Datastar `data-on:docs-submit` attribute turns the event into a `POST` request to `POSTSubmit`. The server puts changes from all tabs in one order. It sends each tab its missing changes over SSE with `ExecuteScript`. The script calls the editor's `receive` method. The editor merges the changes into its text, which may include changes that the server does not have yet. This design uses [OT (operational transformation)](https://en.wikipedia.org/wiki/Operational_transformation) with a central server.
+Quill reports each edit as a [Delta](https://quilljs.com/docs/delta/). The editor emits a `docs-submit` event. A Datastar `data-on:docs-submit` attribute turns the event into a `POST` request to `POSTSubmit`. The server puts changes from all tabs in 1 order. It sends each tab its missing changes over SSE with `ExecuteScript`. The script calls the editor's `receive` method. The editor merges the changes into its text, which may include changes that the server does not have yet. This design uses [OT (operational transformation)](https://en.wikipedia.org/wiki/Operational_transformation) with a central server.
 
 The editor sends each change to `POSTSubmit` with the revision where it was made. The store transforms the change against all changes applied since that revision. It applies the result as the next revision and appends it to the document log. `POSTSubmit` then dispatches `EventDocChanged` with the document id. The broker delivers the event to the stream for every tab that has the document open. For each tab, `OnDocChanged` reads its missing changes from the store and passes them to the editor's `receive` method. The source tab also receives its change. This acknowledges the change.
 
@@ -64,7 +64,7 @@ The code is in these directories:
 | `store/` | documents in memory and on disk, submitted change transformations, open tabs and cursor positions |
 | `delta/` | the Delta operations of quill-delta, ported to Go |
 | `richtext/` | allowed document formats, repairs for concurrent changes and document HTML |
-| `images/` | uploaded images, one file per image named after the SHA-256 of its bytes |
+| `images/` | uploaded images, 1 file per image named after the SHA-256 of its bytes |
 | `templates/` | the documents a new document can start from, and their pictures |
 | `web/src/` | the editor and styles that esbuild bundles into `app/static/` |
 | `cmd/server/` | the entry point |
@@ -98,7 +98,7 @@ Open http://localhost:7331/. Editing a file in `web/src/` rebuilds `editor.js`, 
 make test
 ```
 
-`go test ./...` tests the Delta port, document rules, store and HTTP protocol. `npm test` in `web/` runs three editors against a server model. It interleaves requests and streams at random, then checks that every editor ends with the server's document.
+`go test ./...` tests the Delta port, document rules, store and HTTP protocol. `npm test` in `web/` runs 3 editors against a server model. It interleaves requests and streams at random, then checks that every editor ends with the server's document.
 
 ## Design notes
 
@@ -126,17 +126,17 @@ A Delta is a flat list of formatted text runs. Each line break carries its line'
 
 ### The protocol
 
-The editor sends one change at a time with the tab's client id and a sequence number. It buffers text that the user types while the change is pending. The editor sends the buffer when the change returns.
+The editor sends 1 change at a time with the tab's client id and a sequence number. It buffers text that the user types while the change is pending. The editor sends the buffer when the change returns.
 
 A dropped event loses no data. The broker drops events only for a stream with a backlog. The next delivered event includes everything covered by the dropped events. When a stream reconnects, `StreamOpen` reads the editor revision from the `rev` signal and sends the missing changes. The editor keeps this signal current. The page keeps its stream open while the tab is hidden because the default reload on return would discard the undo history.
 
-A change can arrive twice. Datastar retries a request that failed to connect. The editor resends a change if it has not returned after 10 seconds. The store skips a change if it has already applied its client id and sequence number.
+A change can arrive 2 times. Datastar retries a request that failed to connect. The editor resends a change if it has not returned after 10 seconds. The store skips a change if it has already applied its client id and sequence number.
 
 `GET` gives each page load a random client id. The tab uses it to send changes. The server never sends it to another tab, which sees a name and color derived from the id.
 
 ### Repairs
 
-Two valid concurrent changes can produce a document that Quill cannot show. One tab may make a line a heading while another makes it a list item, which puts two line types on one line. Concurrent changes can also put text formats on a code line. Quill then shows the line differently in each editor because the editors applied the changes in different orders. `richtext.Repair` computes a change that removes the conflict, and the store applies it as the next revision. The repair keeps and reapplies the last line type, which makes every editor use it.
+2 valid concurrent changes can produce a document that Quill cannot show. One tab may make a line a heading while another makes it a list item, which puts 2 line types on 1 line. Concurrent changes can also put text formats on a code line. Quill then shows the line differently in each editor because the editors applied the changes in different orders. `richtext.Repair` computes a change that removes the conflict, and the store applies it as the next revision. The repair keeps and reapplies the last line type, which makes every editor use it.
 
 ### Cursors
 
@@ -144,7 +144,7 @@ The editor reports its selection with `POSTCursor` only when the server has all 
 
 ### Storage
 
-`store/` keeps each document in two files. `<id>.json` is a snapshot. `<id>.log` contains one JSON line per change. After 200 logged changes, the store writes a new snapshot and keeps the last 100 changes in the log. A process crash loses no applied changes because the next start replays the log.
+`store/` keeps each document in 2 files. `<id>.json` is a snapshot. `<id>.log` contains 1 JSON line per change. After 200 logged changes, the store writes a new snapshot and keeps the last 100 changes in the log. A process crash loses no applied changes because the next start replays the log.
 
 The store keeps the last 1000 changes of a document in memory. It uses them to transform changes made at earlier revisions. After a restart, this history contains the logged changes: all changes since the last snapshot and the 100 changes before it. A tab that falls further behind cannot catch up. Its editor becomes read-only and offers a reload. After the reload, the changes the server lacked go to a new document, as described in [Disconnections](#disconnections).
 
@@ -198,6 +198,6 @@ sequenceDiagram
 
 IndexedDB records, Web Locks and the service worker require HTTPS or localhost. Over plain HTTP at `http://<this-machine>:8080/`, a reload loses changes missing from the server. Safari [deletes site storage](https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/) after 7 days of Safari use without interaction with the site.
 
-### One process
+### 1 process
 
-The example runs one server with the in-memory broker. Multiple servers would need a shared store and one place that orders each document's changes. For example, they could use a database row whose revision each change advances with compare-and-swap.
+The example runs 1 server with the in-memory broker. Multiple servers would need a shared store and 1 place that orders each document's changes. For example, they could use a database row whose revision each change advances with compare-and-swap.

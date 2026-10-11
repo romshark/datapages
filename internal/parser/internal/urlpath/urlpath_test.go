@@ -9,7 +9,7 @@ import (
 )
 
 // TestClean tests the form a declared path is compared in, which is why the trailing
-// slashes go: "/foo" and "/foo/" are one route and have to collide as duplicates.
+// slashes go: "/foo" and "/foo/" are the same route and have to collide as duplicates.
 // "/" is the exception and keeps its slash.
 func TestClean(t *testing.T) {
 	for name, tc := range map[string]struct {

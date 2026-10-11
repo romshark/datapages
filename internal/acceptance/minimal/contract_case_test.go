@@ -1,7 +1,7 @@
 // Wires the smallest possible application into the shared contract suite.
 //
 // The case has no tests of its own. Its purpose is to run the contract
-// against a model with nothing in it but one page and one event, which is
+// against a model with nothing in it but 1 page and 1 event, which is
 // where a generator that assumes a feature is present gives itself away.
 
 package acceptance_test

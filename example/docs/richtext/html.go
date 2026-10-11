@@ -50,7 +50,7 @@ func writeLines(b *strings.Builder, doc delta.Delta, maxLines int, links bool) {
 	b.WriteString(containerClose[container])
 }
 
-// Quill wraps each run of list items or code lines in one container element.
+// Quill wraps each run of list items or code lines in 1 container element.
 var (
 	containerOpen = map[string]string{
 		"list":       "<ol>",

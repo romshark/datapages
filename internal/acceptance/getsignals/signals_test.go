@@ -69,7 +69,7 @@ func TestGETReadsSignals(t *testing.T) {
 
 // TestGETReadsNestedSignals tests a signals struct that nests.
 //
-// A nested struct is a nested signal: the client sends one object and the
+// A nested struct is a nested signal: the client sends 1 object and the
 // handler reads foo.bar.bazz and foo.fuzz out of it. The page reflects foo.fuzz into
 // a query parameter, which is how a nested signal is referenced by its path.
 func TestGETReadsNestedSignals(t *testing.T) {

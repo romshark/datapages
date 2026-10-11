@@ -43,7 +43,7 @@ var types = map[string]string{
 // namePattern matches the SHA-256 of an image and the extension of its type.
 var namePattern = regexp.MustCompile(`^[0-9a-f]{64}\.(gif|jpg|png|webp)$`)
 
-// Store keeps the images of one directory.
+// Store keeps the images of 1 directory.
 type Store struct{ dir string }
 
 // Open opens the images in dir, creating dir if needed.

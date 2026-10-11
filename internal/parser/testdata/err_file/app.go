@@ -48,7 +48,7 @@ func (PageIndex) POSTCache(
 	return file, nil
 }
 
-/* ErrSignatureDuplicateOutput: two files */
+/* ErrSignatureDuplicateOutput: 2 files */
 
 // POSTTwo is /two
 func (PageIndex) POSTTwo(r *http.Request) (a, b datapages.File, err error) {

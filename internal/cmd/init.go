@@ -650,7 +650,7 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 		return fmt.Errorf("writing agent instructions: %w", err)
 	}
 
-	// Group skill writes into one line to keep init output short.
+	// Group skill writes into 1 line to keep init output short.
 	skillsDirs := []string{
 		filepath.FromSlash(agentdocs.SkillsDir),
 		filepath.FromSlash(agentdocs.AgentsSkillsDir),

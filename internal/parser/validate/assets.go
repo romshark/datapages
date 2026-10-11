@@ -64,7 +64,7 @@ func AssetsURLPrefix(s string) error {
 		return ErrAssetsURLPrefixFragment
 	}
 	// The prefix starts and ends with a slash, which puts every segment
-	// between two of them.
+	// between 2 of them.
 	if strings.Contains(s, "/./") || strings.Contains(s, "/../") {
 		return ErrAssetsURLPrefixDotSegment
 	}

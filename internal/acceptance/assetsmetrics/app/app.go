@@ -1,4 +1,4 @@
-// Package app exercises the two generator options a datapages.yaml carries
+// Package app exercises the 2 generator options a datapages.yaml carries
 // that change what is generated: static asset serving and Prometheus metrics.
 package app
 

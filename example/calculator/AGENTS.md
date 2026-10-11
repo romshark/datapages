@@ -22,7 +22,7 @@ Hard rules:
 - Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
 - Never hardcode an app-internal URL. Use the generated `href` package for links and the generated `action` package for Datastar actions.
 - Never write JavaScript for application logic, open an SSE stream by hand, set a CSRF header, add the Datastar script or register a service worker.
-- Keep interaction state in local Datastar signals, whose `_` prefix keeps them out of requests. Put JavaScript that would be impractical in one-statement Datastar expressions, such as a library, in a Web Component. It observes the attributes that morphs or signals can change, dispatches events and never reaches outside its element.
+- Keep interaction state in local Datastar signals, whose `_` prefix keeps them out of requests. Put JavaScript that would be impractical in 1-statement Datastar expressions, such as a library, in a Web Component. It observes the attributes that morphs or signals can change, dispatches events and never reaches outside its element.
 - Submit forms through generated Datastar actions. Browser form submissions do not carry the CSRF token.
 
 Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that matches the task:
@@ -43,4 +43,4 @@ Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that mat
 
 Full reference: https://github.com/romshark/datapages/blob/main/SPECIFICATION.md
 
-<!-- written by datapages sha256:23d6c40b76339e12 -->
+<!-- written by datapages sha256:a01c2c886a2d2755 -->

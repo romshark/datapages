@@ -7,8 +7,8 @@ import (
 )
 
 var urlsWithoutEscapes = map[string][]string{
-	"one":   {"/listing/42/"},
-	"three": {"/listing/42/", "/listing/43/", "/search/?q=bike&page=2"},
+	"1":     {"/listing/42/"},
+	"3":     {"/listing/42/", "/listing/43/", "/search/?q=bike&page=2"},
 	"empty": {""},
 }
 

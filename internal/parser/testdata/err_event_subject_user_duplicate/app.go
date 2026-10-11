@@ -1,5 +1,5 @@
-// Package app declares events with more than one datapages.SubjectUser field,
-// which are rejected: a stream subscribes by one user position.
+// Package app declares events with more than 1 datapages.SubjectUser field,
+// which are rejected: a stream subscribes by 1 user position.
 package app
 
 import (

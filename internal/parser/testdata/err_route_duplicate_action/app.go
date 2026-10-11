@@ -1,4 +1,4 @@
-// Package app declares two actions of one page at one URL.
+// Package app declares 2 actions of 1 page at the same URL.
 package app
 
 import (

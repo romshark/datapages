@@ -92,7 +92,7 @@ type Path[Values any] struct{ Values Values }
 // The tag value must match a json tag in the signals struct.
 type Query[Values any] struct{ Values Values }
 
-// State carries the per-page-instance server-side state of one browser tab.
+// State carries the per-page-instance server-side state of 1 browser tab.
 // It may be received as a parameter by:
 //
 //   - StreamOpen
@@ -123,7 +123,7 @@ type Query[Values any] struct{ Values Values }
 // once nothing else holds it. A tab that reconnects gets a new one.
 // No instance is ever reused by another tab.
 //
-// Datapages serializes the handlers of one tab that take State,
+// Datapages serializes the handlers of 1 tab that take State,
 // which is why the fields need no explicit synchronization (like a mutex lock).
 // Handlers without a State parameter (like GET) are not serialized,
 // and neither are the handlers of other tabs.
@@ -146,7 +146,7 @@ type Query[Values any] struct{ Values Values }
 // Without it the server uses [DefaultMaxConcurrentInstances].
 type State[Values any] struct{ Values *Values }
 
-// StreamID identifies one SSE stream instance within the process.
+// StreamID identifies 1 SSE stream instance within the process.
 // A declared StreamOpen or StreamClose must take StreamID, [State], or both.
 // Event (OnXXX) handlers may also take StreamID:
 //
@@ -162,10 +162,10 @@ type State[Values any] struct{ Values *Values }
 //		return p.App.CloseTab(streamID)
 //	}
 //
-// It pairs the two hooks for the same stream. One session can hold several streams,
-// one per open tab, and the ID is what tells them apart: register per-tab state under
+// It pairs the 2 hooks for the same stream. 1 session can hold several streams,
+// 1 per open tab, and the ID is what tells them apart: register per-tab state under
 // it in StreamOpen, read that state in the OnXXX handlers,
-// and drop it in StreamClose. It also ties the log lines of one stream together.
+// and drop it in StreamClose. It also ties the log lines of 1 stream together.
 //
 // A StreamOpen that returns an error or panics gets no StreamClose.
 // Drop what it already registered before returning the error.
@@ -325,7 +325,7 @@ type Redirect struct {
 	URL string
 
 	// Status is the HTTP status code of the redirect response.
-	// Zero, or any code that isn't a redirect status, means [http.StatusFound].
+	// 0, or any code that isn't a redirect status, means [http.StatusFound].
 	//
 	// Status is ignored for requests issued by a Datastar action
 	// (those carrying the header "Datastar-Request: true"),
@@ -364,7 +364,7 @@ type Redirect struct {
 //
 // A handler that takes a [Session] sends [Vary]: Cookie, which keeps a browser
 // from showing one visitor the copy it stored for another. A shared cache, such
-// as a CDN, then stores one copy per cookie: serve a file that is the same for
+// as a CDN, then stores 1 copy per cookie: serve a file that is the same for
 // every visitor from a handler that takes no Session.
 //
 // A client that stops reading ends the response after the time
@@ -420,7 +420,7 @@ type File struct {
 
 	// ETag sets the [entity tag] of the body, which answers [If-None-Match],
 	// [If-Match] and [If-Range] requests. Datapages quotes it: set the tag alone,
-	// such as a hash of the content. It's a strong validator, which two bodies
+	// such as a hash of the content. It's a strong validator, which 2 bodies
 	// share only when their bytes are equal. A tag with a character outside
 	// etagc of [RFC 9110 section 8.8.3] returns HTTP 500. Empty omits the header.
 	//
@@ -447,7 +447,7 @@ type File struct {
 	// Content-Language, or a Content-Security-Policy for an untrusted type.
 	// It replaces a header of the same name that middleware set before, except
 	// Set-Cookie and Vary, whose values add to the ones set before. Keys that
-	// spell one name differently are joined in their sorted order.
+	// spell the same name differently are joined in their sorted order.
 	// A header the fields or [http.ServeContent] write returns HTTP 500:
 	// Content-Type, X-Content-Type-Options, ETag, Last-Modified, Cache-Control,
 	// Content-Disposition, Content-Length, Content-Range and Accept-Ranges.
@@ -471,7 +471,7 @@ type FileCache struct {
 	// MaxAge sets [max-age]: how long a cache may reuse the response without
 	// asking again, in whole seconds. Without Private, a shared cache may serve
 	// the response to other visitors for MaxAge without asking the server.
-	// Zero omits it. A negative MaxAge or one under a second returns HTTP 500,
+	// 0 omits it. A negative MaxAge or one under a second returns HTTP 500,
 	// and so does a MaxAge next to NoCache or NoStore, which forbid such reuse.
 	//
 	// [max-age]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#max-age
@@ -661,7 +661,7 @@ const (
 // use [errors.Is] to identify it. A handler that takes an [SSE] sends status 200
 // before it runs, which leaves no status for its error.
 //
-// Don't wrap multiple sentinels in one error. If you do, the first of
+// Don't wrap multiple sentinels in 1 error. If you do, the first of
 // ErrBadRequest, ErrForbidden, ErrNotFound, ErrConflict wins.
 //
 // Any other error results in 500 Internal Server Error.
@@ -674,13 +674,13 @@ var (
 
 // ErrSelectorLineBreak is returned by [SSE.PatchElementAt] and
 // [SSE.RemoveElement] for a CSS selector containing "\r" or "\n".
-// The selector is written on one line of the event. A line break would end that line,
+// The selector is written on 1 line of the event. A line break would end that line,
 // and the browser would read the rest as further lines and events.
 // A valid CSS selector never contains one.
 var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 
 // Subject is a subject segment of an event. Segment values are appended to the
-// event's base subject in field order at dispatch time, one publish per dispatch:
+// event's base subject in field order at dispatch time, 1 publish per dispatch:
 //
 //	// EventNotify is "notify"
 //	type EventNotify struct {
@@ -729,8 +729,8 @@ type Subject string
 // since the stream subscribes with the ID of the authenticated user.
 // That same binding is why the field must not carry a signal:"<name>" tag.
 //
-// An event declares at most one field of this type, and one dispatch
-// publishes to one subject. To address several users, dispatch once per user,
+// An event declares at most 1 field of this type, and 1 dispatch
+// publishes to 1 subject. To address several users, dispatch once per user,
 // which leaves the handler in control of what happens when one of the publishes fails.
 //
 // As with [Subject], a field must have this exact type.
@@ -767,7 +767,7 @@ var (
 
 // MaxUserIDEncodedLen is the longest a user ID may be once escaped.
 //
-// A user ID is one token of a longer subject and hence, is limited to this length.
+// A user ID is 1 token of a longer subject and hence, is limited to this length.
 // The limit is conservative, yet well above what any real identifier should need.
 const MaxUserIDEncodedLen = 1024
 
@@ -788,10 +788,10 @@ func ValidateUserID(userID string) error {
 	return nil
 }
 
-// Dispatcher publishes events of one type. Handlers receive it as a parameter,
+// Dispatcher publishes events of 1 type. Handlers receive it as a parameter,
 // which may carry any name; the type is what makes it a dispatcher.
-// One dispatcher publishes one event type, so a handler that
-// publishes three declares three, and calls each as often as it needs:
+// 1 dispatcher publishes 1 event type, so a handler that
+// publishes 3 declares 3, and calls each as often as it needs:
 //
 //	func (p PageChat) POSTSend(
 //		r *http.Request,
@@ -808,7 +808,7 @@ func ValidateUserID(userID string) error {
 //		if err != nil {
 //			return err
 //		}
-//		// One dispatch addresses one user: each event goes out once per participant.
+//		// 1 dispatch addresses 1 user: each event goes out once per participant.
 //		var errs []error
 //		for _, id := range room.ParticipantIDs {
 //			to := datapages.SubjectUser(id)
@@ -830,7 +830,7 @@ func ValidateUserID(userID string) error {
 //	}
 //
 // The events go out in the order the handler dispatches them,
-// arguments of one call included. Nothing is atomic across them:
+// arguments of 1 call included. Nothing is atomic across them:
 // a failed publish neither undoes the ones before it nor stops the ones after.
 type Dispatcher[Event any] interface {
 	// Dispatch publishes the event. Every open stream subscribed to its subject

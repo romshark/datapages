@@ -147,7 +147,7 @@ Rules:
 - Prefer simple (near primitive) technical English.
 - Lead with the conclusion, then the facts that support it.
 - Name concrete things: files, lines, symbols, values, error codes. Write `internal/parser/parser.go:142`, not "the place where the parser reads it".
-- Write numbers as digits, counts, multiples and fractions included: `8 instances`, `2 times`, `1/5 of the time`, not `eight instances`, `twice`, `a fifth of the time`. This applies to code comments, docs, test names and error messages as well.
+- Write numbers as digits, counts, multiples and fractions included: `8 instances`, `2 times`, `1/5 of the time`, not `eight instances`, `twice`, `a fifth of the time`. This applies to code comments, docs, test names and error messages as well. It covers quantities only: idioms and prose written for tone keep their words, as in `one by one`, `halfway through`, `half-written` and `only half as awesome`.
 - End with what to do about it, or say plainly that nothing needs doing.
 - Don't paraphrase code changes, the diff already shows them. Name the file and what it does now. Prose is for the non-obvious what the diff can't show: why, what was left out, what could break.
 - Say what was verified and how: "`mage test` passes", "not run". Never imply a check that didn't happen.

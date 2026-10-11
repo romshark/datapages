@@ -34,7 +34,7 @@ Use Templ `v0.3.1070`, which the generated CI workflow pins. Use `datapages watc
 
 Running `templ generate` interrupts the development server. `datapages watch` runs templ in watch mode, which reads application template strings from files in the temporary directory. A separate `templ generate` deletes those files when it exits. The server cannot render again until the next `.templ` change recreates them.
 
-Check before generating. `datapages watch` keeps one lock file per module fresh in the `datapages-watch` directory under the system temporary directory (`$TMPDIR` on macOS, `/tmp` on Linux, `%TEMP%` on Windows). A `.lock` file written less than 10 seconds ago means a watch is running. The file contains its PID, module directory, and development server host:
+Check before generating. `datapages watch` keeps 1 lock file per module fresh in the `datapages-watch` directory under the system temporary directory (`$TMPDIR` on macOS, `/tmp` on Linux, `%TEMP%` on Windows). A `.lock` file written less than 10 seconds ago means a watch is running. The file contains its PID, module directory, and development server host:
 
 ```sh
 ls -lt "${TMPDIR:-/tmp}/datapages-watch" # inspect lock modification times
@@ -51,12 +51,12 @@ To restore rendering, save a `.templ` file or restart the watcher.
 
 - Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
 - Never hardcode an app-internal URL. `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
-- Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. Keep interaction state, such as an open menu or a selected tab, in local Datastar signals, whose `_` prefix keeps them out of requests. Write JavaScript only where Datastar attributes are impractical: a browser API such as the clipboard, a library such as a map or a rich text editor, or client state that runs ahead of the server, such as typed text the server has not confirmed. Put such JavaScript in a Web Component when it needs more than a one-statement expression; see `datapages-templates`.
+- Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. Keep interaction state, such as an open menu or a selected tab, in local Datastar signals, whose `_` prefix keeps them out of requests. Write JavaScript only where Datastar attributes are impractical: a browser API such as the clipboard, a library such as a map or a rich text editor, or client state that runs ahead of the server, such as typed text the server has not confirmed. Put such JavaScript in a Web Component when it needs more than a 1-statement expression; see `datapages-templates`.
 - Return application HTML as a Templ `datapages.Component`. Do not render it into a `datapages.File`: its bytes bypass Templ's contextual escaping and the Datapages template linter.
-- Never open an SSE stream, set a CSRF header, add the Datastar script or register a service worker by hand. Datapages does all four.
+- Never open an SSE stream, set a CSRF header, add the Datastar script or register a service worker by hand. Datapages does all 4.
 - Submit `<form>` elements through Datastar actions. Browser form submissions do not carry the CSRF token; see `datapages-templates`.
 - Do not put build-constrained files in the app package. The generator reads its pages, actions and events for the host platform, so a platform-specific declaration can disappear from generated code elsewhere.
-- Prefer one HTML fragment that carries its own context over many small patches or over signal updates. The server is the source of truth, signals hold transient client state.
+- Prefer 1 HTML fragment that carries its own context over many small patches or over signal updates. The server is the source of truth, signals hold transient client state.
 
 ## Security
 
@@ -110,4 +110,4 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:0e3c39cccb63a773 -->
+<!-- written by datapages sha256:6f263549c674d42a -->

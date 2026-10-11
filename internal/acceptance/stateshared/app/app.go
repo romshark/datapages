@@ -1,4 +1,4 @@
-// Package app exercises one state type shared by two pages,
+// Package app exercises 1 state type shared by 2 pages,
 // and an app-level action that reaches it.
 //
 // An abstract page gives its state type to every page that embeds it.

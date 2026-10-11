@@ -21,7 +21,7 @@ type EventTodoUpdated struct{}
 
 // StateIndex is the per-tab state held by PageIndex.
 //
-// The datapages generator allocates one zeroed *StateIndex per SSE stream
+// The datapages generator allocates 1 zeroed *StateIndex per SSE stream
 // (i.e. per browser tab) and drops it when that stream closes.
 // All stateful handlers touching the same instance are serialized by
 // the generator under a per-instance mutex.

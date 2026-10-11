@@ -1,7 +1,7 @@
-// <wc-counter from="10h"> — counts down to zero.
+// <wc-counter from="10h"> — counts down to 0.
 //
 // The `from` attribute accepts a simple duration string composed of
-// one or more `<number><unit>` pairs, e.g. "10h", "1h30m", "45s",
+// 1 or more `<number><unit>` pairs, e.g. "10h", "1h30m", "45s",
 // "2h15m30s". Supported units: h, m, s.
 //
 // Rendering is done into Shadow DOM so the host page cannot style or

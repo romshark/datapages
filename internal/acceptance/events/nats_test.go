@@ -1,8 +1,8 @@
 // Runs this case against every broker datapages ships.
 //
 // The table lives in internal/acceptance/brokers, hence every test that reaches
-// the generated code runs twice, once per implementation.
-// What stays here is the one assertion only a real server can make.
+// the generated code runs 2 times, once per implementation.
+// What stays here is the single assertion only a real server can make.
 
 package acceptance_test
 

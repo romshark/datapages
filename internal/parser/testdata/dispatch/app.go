@@ -42,7 +42,7 @@ func (PageIndex) POSTSingle(
 
 // POSTMulti is /multi
 //
-// Action with one dispatcher per event type.
+// Action with 1 dispatcher per event type.
 func (PageIndex) POSTMulti(
 	r *http.Request,
 	dispatchFoo datapages.Dispatcher[EventFoo],

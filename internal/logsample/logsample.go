@@ -23,7 +23,7 @@ const (
 	DefaultInterval = time.Minute
 )
 
-// Handler writes one record per distinct message and attribute set per
+// Handler writes 1 record per distinct message and attribute set per
 // interval and counts what it holds back. The next record of that kind
 // carries the count as "suppressed". It is safe for concurrent use.
 type Handler struct {
@@ -45,8 +45,8 @@ type entry struct {
 	suppressed atomic.Int64
 }
 
-// New wraps next. A limit below one means [DefaultLimit],
-// an interval below one [DefaultInterval].
+// New wraps next. A limit below 1 means [DefaultLimit],
+// an interval below 1 [DefaultInterval].
 func New(next slog.Handler, limit int, interval time.Duration) *Handler {
 	if limit < 1 {
 		limit = DefaultLimit
@@ -132,7 +132,7 @@ func (h *Handler) key(r slog.Record) string {
 //
 // A known key takes the lock-free path. sync.Map carries the keys because one
 // is stored once and read on every later render, and the timestamp moves by CAS,
-// which lets exactly one caller of a burst write.
+// which lets exactly 1 caller of a burst write.
 func (s *state) admit(
 	key string, limit int, interval time.Duration,
 ) (write bool, suppressed int64) {

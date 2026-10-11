@@ -1,4 +1,4 @@
-// Package app declares four events with a field of one struct type,
+// Package app declares 4 events with a field of 1 struct type,
 // whose own field has no json tag. Each event reports that field.
 package app
 

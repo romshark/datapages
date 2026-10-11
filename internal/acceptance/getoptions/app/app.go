@@ -1,7 +1,7 @@
 // Package app exercises the values a GET handler may return besides its body.
 //
 // Each one changes the response, not the page. A redirect leaves the page unrendered.
-// The two streaming flags decide whether a page with a stream carries the
+// The 2 streaming flags decide whether a page with a stream carries the
 // attribute that reloads it when the tab becomes visible again.
 package app
 

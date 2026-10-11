@@ -10,7 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action one route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`. An action route cannot end in a `{name...}` wildcard. Pass that value in a query parameter or a signal.
+Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action 1 route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`. An action route cannot end in a `{name...}` wildcard. Pass that value in a query parameter or a signal.
 
 ```go
 // POSTSubmit is /login/submit
@@ -121,7 +121,7 @@ The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask be
 | `Redirect(url)` | client-side navigation |
 | `Prefetch(urls...)` | speculation rules hint |
 
-A selector must not contain a line break. Prefer one complete fragment over several small targeted patches. `...Prepend` and `...Append` cannot recover missed events. See the delivery rules in `datapages-events`.
+A selector must not contain a line break. Prefer 1 complete fragment over several small targeted patches. `...Prepend` and `...Append` cannot recover missed events. See the delivery rules in `datapages-events`.
 
 ## Errors
 
@@ -133,7 +133,7 @@ return datapages.ErrConflict                              // 409
 return fmt.Errorf("%w: %w", datapages.ErrNotFound, err)   // 404, keeps err
 ```
 
-Any other error returns 500. The response body is the standard status text. A page load gets `PageError404` for 404 and `PageError500` for 500 instead when the app defines them. A Datastar request gets status 200 when the app defines `RecoverError`, and a handler with `sse` sends 200 before it runs. Wrap at most one sentinel. If an error contains several sentinels, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` sets the status.
+Any other error returns 500. The response body is the standard status text. A page load gets `PageError404` for 404 and `PageError500` for 500 instead when the app defines them. A Datastar request gets status 200 when the app defines `RecoverError`, and a handler with `sse` sends 200 before it runs. Wrap at most 1 sentinel. If an error contains several sentinels, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` sets the status.
 
 ## RecoverError
 

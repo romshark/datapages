@@ -2,7 +2,7 @@
 //
 // It names datapages.EnablePrometheus where the frontend names
 // datapages.DisablePrometheus, and datapages.DisableSessions where the frontend
-// names a session type. One run generates the metrics instrumentation into
+// names a session type. 1 run generates the metrics instrumentation into
 // app/admin/datapagesgen and the session handling into the frontend's.
 package admin
 

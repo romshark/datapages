@@ -106,7 +106,7 @@ type EventTick struct {
 
 // EventPong is "pong"
 //
-// The second event type of an action that dispatches two.
+// The second event type of an action that dispatches 2.
 type EventPong struct {
 	N int `json:"n"`
 }
@@ -130,7 +130,7 @@ type EventStreamGone struct {
 
 // EventRoomSaid is "room.said"
 //
-// One subject field bound to a signal. A stream supplies the signal when it
+// 1 subject field bound to a signal. A stream supplies the signal when it
 // connects and receives only what is published for that value.
 type EventRoomSaid struct {
 	Room datapages.Subject `signal:"room"`
@@ -140,7 +140,7 @@ type EventRoomSaid struct {
 
 // EventRoomBroadcast is "room.broadcast"
 //
-// One dispatch publishes to one subject, so reaching several rooms is a loop
+// 1 dispatch publishes to 1 subject, so reaching several rooms is a loop
 // over the dispatcher, which leaves the handler in control of the failures.
 type EventRoomBroadcast struct {
 	Room datapages.Subject `signal:"room"`
@@ -150,7 +150,7 @@ type EventRoomBroadcast struct {
 
 // EventChatSaid is "chat.said"
 //
-// Two subject fields bound to signals under one object.
+// 2 subject fields bound to signals under 1 object.
 // Datastar sends them nested, as {"chat":{"room":"red","thread":"a"}}.
 type EventChatSaid struct {
 	Room   datapages.Subject `signal:"chat.room"`
@@ -261,7 +261,7 @@ func (p PageIndex) POSTRelease(_ *http.Request) error {
 
 // POSTBoth is /both
 //
-// Two dispatchers in one handler, one per event type.
+// 2 dispatchers in 1 handler, 1 per event type.
 func (p PageIndex) POSTBoth(
 	_ *http.Request,
 	signals datapages.Signals[struct {

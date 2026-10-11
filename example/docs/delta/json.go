@@ -65,10 +65,10 @@ func (op Op) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// UnmarshalJSON reads one operation and rejects what quill-delta never
-// produces for text and images: an empty insert, an embed other than one key
+// UnmarshalJSON reads 1 operation and rejects what quill-delta never
+// produces for text and images: an empty insert, an embed other than 1 key
 // with a string value, a count that is not a positive integer, a delete with
-// attributes, zero or several actions.
+// attributes, 0 or several actions.
 func (op *Op) UnmarshalJSON(b []byte) error {
 	var v struct {
 		Insert     json.RawMessage `json:"insert"`
@@ -88,7 +88,7 @@ func (op *Op) UnmarshalJSON(b []byte) error {
 		}
 	}
 	if actions != 1 {
-		return errors.New("an operation needs exactly one of insert, retain and delete")
+		return errors.New("an operation needs exactly 1 of insert, retain and delete")
 	}
 	switch {
 	case v.Insert != nil:
@@ -124,7 +124,7 @@ func parseInsert(raw json.RawMessage) (Op, error) {
 			return Op{}, fmt.Errorf("embed: %w", err)
 		}
 		if len(m) != 1 {
-			return Op{}, errors.New("an embed needs exactly one key")
+			return Op{}, errors.New("an embed needs exactly 1 key")
 		}
 		for k, v := range m {
 			if k == "" {

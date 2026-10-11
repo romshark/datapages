@@ -110,7 +110,7 @@ type Core struct {
 	// stateLiveInstances counts the live per-page-instance states of every state type.
 	// They share the memory and the budget in
 	// [datapages.StateConfig.MaxConcurrentInstances].
-	// Each Core has its own counter. Servers in one process do not share it.
+	// Each Core has its own counter. Servers in 1 process do not share it.
 	stateLiveInstances atomic.Int64
 }
 
@@ -218,7 +218,7 @@ func (c *Core) Build() {
 	if c.datastarJSSrc == "" {
 		c.datastarJSSrc = DefaultDatastarJSSrc
 	}
-	// The two halves are kept apart as well: a page that must install a script
+	// The 2 halves are kept apart as well: a page that must install a script
 	// of its own before Datastar loads writes them around it.
 	c.datastarJSSrcEsc = html.EscapeString(c.datastarJSSrc)
 	if c.buildID != "" {
@@ -291,7 +291,7 @@ func (c *Core) Mux() *http.ServeMux { return c.mux }
 func (c *Core) Logger() *slog.Logger { return c.logger }
 
 // SampledLogger is the logger for a warning the framework emits on every render.
-// It writes one record of each kind per interval and counts what it throttles,
+// It writes 1 record of each kind per interval and counts what it throttles,
 // which [github.com/romshark/datapages.WithLogSampling] configures.
 // Application code writes to [Core.Logger] instead.
 func (c *Core) SampledLogger() *slog.Logger { return c.sampledLogger }
@@ -402,7 +402,7 @@ func (c *Core) HTMLPrefix() string { return c.htmlPrefix }
 func (c *Core) HTMLHead() string { return c.htmlHead }
 
 // HTMLDatastarScript is the Datastar script tag [Core.HTMLHead] stops short of.
-// Writing the two in order produces [Core.HTMLPrefix].
+// Writing the 2 in order produces [Core.HTMLPrefix].
 func (c *Core) HTMLDatastarScript() string { return c.htmlDatastar }
 
 // noStateInstanceLimit reports whether MaxConcurrentInstances disables the limit.
@@ -427,7 +427,7 @@ func (c *Core) ReserveStateInstance() bool {
 	return true
 }
 
-// ReleaseStateInstance gives one instance back to the budget.
+// ReleaseStateInstance gives 1 instance back to the budget.
 // Generated code calls this when a stream drops its state.
 func (c *Core) ReleaseStateInstance() {
 	c.stateLiveInstances.Add(-1)
@@ -483,7 +483,7 @@ func (c *Core) Addr() string {
 }
 
 // tracked records whether any of the response body went out. A body cannot be
-// taken back: an error page appended to a half-written page is two documents.
+// taken back: an error page appended to a half-written page is 2 documents.
 //
 // The status alone does not count. A handler that wrote one and nothing else
 // still has a body to write, which is what the error path writes into.
@@ -539,7 +539,7 @@ func limitFileWrites(w http.ResponseWriter) {
 }
 
 // keepDeadline moves the write deadline of a file being sent to the send
-// timeout from now. It moves it only once an eighth of the timeout has passed,
+// timeout from now. It moves it only once 1/8 of the timeout has passed,
 // which leaves a write at least 7/8 of the timeout and makes a few calls per
 // timeout: on HTTP/2, each is a message to the goroutine of the connection.
 func (t *tracked) keepDeadline() {
@@ -563,7 +563,7 @@ func (t *tracked) keepDeadline() {
 // net/http copies such a source with a new buffer per response
 // and more allocations than Write takes.
 //
-// wroteBody is set before the copy: zero bytes for an empty file is
+// wroteBody is set before the copy: 0 bytes for an empty file is
 // the same case as Write(nil), which sets it too.
 func (t *tracked) ReadFrom(src io.Reader) (int64, error) {
 	t.wroteBody = true
@@ -578,7 +578,7 @@ func (t *tracked) ReadFrom(src io.Reader) (int64, error) {
 	return io.CopyBuffer(writeOnly{t}, src, *buf)
 }
 
-// sendChunk is the most one sendfile call of a file being sent may copy.
+// sendChunk is the most 1 sendfile call of a file being sent may copy.
 // The deadline moves between calls only, which makes a client that reads
 // less than this per 7/8 of the send timeout run out of time.
 const sendChunk = 64 << 10
@@ -642,7 +642,7 @@ func (t *tracked) Flush() {
 }
 
 // FlushError is what [http.ResponseController.Flush] prefers over Flush,
-// and the only one of the two that can report a failed flush.
+// and the only one of the 2 that can report a failed flush.
 func (t *tracked) FlushError() error {
 	if f, ok := t.ResponseWriter.(interface{ FlushError() error }); ok {
 		return f.FlushError()

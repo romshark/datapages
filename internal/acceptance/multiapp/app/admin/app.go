@@ -1,4 +1,4 @@
-// Package admin is the metered application of a module that builds two.
+// Package admin is the metered application of a module that builds 2.
 //
 // Its server is generated with datapages.DisableSessions and datapages.EnablePrometheus,
 // the opposite of frontend in both type arguments.

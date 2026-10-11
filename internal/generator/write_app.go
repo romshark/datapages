@@ -242,7 +242,7 @@ func (p *pageCacheBuf) Header() http.Header {
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
 func (p *pageCacheBuf) WriteHeader(int)             {}
 `)
-	// One cached document serves every visitor, so pageCacheHead uses no session.
+	// 1 cached document serves every visitor, so pageCacheHead uses no session.
 	w.Raw("\nfunc (s *Server) pageCacheHead(r *http.Request) datapages.Head {\n\treturn ")
 	if m.GlobalHeadGenerator == nil {
 		w.Raw("nil\n}\n")
@@ -337,7 +337,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 		if err := c.s.writeHTML(
 			&buf, c.r, http.StatusOK, `)
 	if m.Session != nil {
-		// One cached copy serves every visitor. Render it without a CSRF script.
+		// 1 cached copy serves every visitor. Render it without a CSRF script.
 		w.Raw(`"", `)
 	}
 	if m.GlobalHeadGenerator != nil {
@@ -1078,8 +1078,8 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 	}
 }
 
-// writeEvSubExpr writes one event subscription expression with the user
-// field and every signal field bound. Keeping the bindings in one subject
+// writeEvSubExpr writes 1 event subscription expression with the user
+// field and every signal field bound. Keeping the bindings in 1 subject
 // prevents cross-user matches and duplicate NATS deliveries.
 // The parser refuses a second user field.
 func (w *Writer) writeEvSubExpr(
@@ -1292,7 +1292,7 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 func (w *Writer) writeBrokerSubjectKind(events []*model.Event) {
 	w.Raw(`
 // brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
-// A metric labelled with the raw subject would carry one value per user or per tab.
+// A metric labelled with the raw subject would carry 1 value per user or per tab.
 func brokerSubjectKind(subject string) string {
 	switch {
 `)
@@ -1511,7 +1511,7 @@ func (s *Server) httpErrIntern(
 `)
 		if hasPage {
 			w.Raw(`		if httpserve.ResponseBodyWritten(w) {
-			// An error page after a half-written one sends two documents.
+			// An error page after a half-written one sends 2 documents.
 			return
 		}
 		switch httpserve.ErrStatus(err) {
@@ -2067,9 +2067,9 @@ func (w *Writer) writeMethodCall(
 	}
 }
 
-// writeDispatchers emits one dispatcher value per datapages.Dispatcher parameter
+// writeDispatchers emits 1 dispatcher value per datapages.Dispatcher parameter
 // of the handler. prefix names them apart when a generated function holds the
-// dispatchers of more than one handler, as the stream handler does.
+// dispatchers of more than 1 handler, as the stream handler does.
 // ctxExpr is the context Dispatch publishes with.
 func (w *Writer) writeDispatchers(h *model.Handler, prefix, ctxExpr string) {
 	// A handler method's receiver embeds the server rather than being it.
@@ -2161,7 +2161,7 @@ func (w *Writer) writeDispatcherType(evName, appPkg string) {
 	w.Line(1, "}")
 
 	if ev != nil && ev.HasSubjectFields() {
-		// Every segment carries one value, so the subject is a plain
+		// Every segment carries 1 value, so the subject is a plain
 		// concatenation of the base subject and the fields, in field order.
 		w.Raw("\tsubj := ")
 		w.writeQuoted(ev.Subject + ".")
@@ -2311,7 +2311,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Raw("\t\tw, r, " + status + ", ")
 	if m.Session != nil {
 		// PageOffline omits the CSRF script even if its handler reads a session.
-		// The worker precaches one copy for every visitor.
+		// The worker precaches 1 copy for every visitor.
 		if p.PageSpecialization == model.PageTypeOffline {
 			sessArg = `""`
 		}

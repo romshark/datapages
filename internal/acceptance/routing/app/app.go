@@ -168,7 +168,7 @@ func (PageShop) GET(
 
 // PageMixed is /org/{org}/item/{id}
 //
-// Path and query on one handler, which is where an off-by-one in either
+// Path and query on 1 handler, which is where an off-by-one in either
 // parser shows up as the other one's value.
 type PageMixed struct{ App *App }
 
@@ -189,9 +189,9 @@ func (PageMixed) GET(
 
 // PageConflict is /c/{value}/{s_value}/{s_s_value}
 //
-// The URL writer names its locals after the path variables. These three names
-// are chosen so that a naive naming scheme produces the same local twice and
-// one value lands in two segments.
+// The URL writer names its locals after the path variables. These 3 names
+// are chosen so that a naive naming scheme produces the same local 2 times and
+// 1 value lands in 2 segments.
 type PageConflict struct{ App *App }
 
 func (PageConflict) GET(

@@ -37,7 +37,7 @@ Use `datapages init --prometheus=false` when the first version of the project do
 
 ## Read the scaffold
 
-The initial project has four main parts:
+The initial project has 4 main parts:
 
 ```text
 .
@@ -78,7 +78,7 @@ The application package is the model. Datapages reads its Go types, methods, and
 
 `App` holds long-lived dependencies such as repositories and API clients. Pages render documents. Actions handle browser commands. Events update open pages when data changes elsewhere. Stream hooks manage resources attached to an open page stream.
 
-Start with the generated `PageIndex`. Add one feature at a time and let `datapages gen` report declarations it cannot use. The [source package specification](SPECIFICATION.md#source-package) defines all recognized types, methods, comments, parameters, and return values.
+Start with the generated `PageIndex`. Add 1 feature at a time and let `datapages gen` report declarations it cannot use. The [source package specification](SPECIFICATION.md#source-package) defines all recognized types, methods, comments, parameters, and return values.
 
 As the page model grows, use these reference sections:
 
@@ -160,7 +160,7 @@ The [`Dispatcher`](SPECIFICATION.md#parameter-datapagesdispatchereventxxx) secti
 
 ## Keep temporary state per tab
 
-Use `datapages.State[T]` for ephemeral server-side values owned by one browser tab. Typical examples are an unfinished wizard, a temporary filter, or a selection needed by an event handler.
+Use `datapages.State[T]` for ephemeral server-side values owned by 1 browser tab. Typical examples are an unfinished wizard, a temporary filter, or a selection needed by an event handler.
 
 Keep durable domain data in a repository or another application dependency. Do not use per-tab state as a session store.
 
@@ -214,7 +214,7 @@ The scaffold uses NATS for messaging and sessions. Datapages also provides in-me
 
 The in-memory session manager is suitable for development. A restart removes its sessions. Choose a durable session manager before production.
 
-If the deployment uses per-tab state, follow the multi-server guidance in the [`State[T]` specification](SPECIFICATION.md#parameter-datapagesstatet) when running more than one application server.
+If the deployment uses per-tab state, follow the multi-server guidance in the [`State[T]` specification](SPECIFICATION.md#parameter-datapagesstatet) when running more than 1 application server.
 
 ## Deploy a new version
 
@@ -222,7 +222,7 @@ When you change your application and deploy a new version, open tabs still use t
 
 Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Graceful shutdown resets open SSE streams. Idle tabs then reconnect. If the build ID is unchanged, a tab reconnects without reloading.
 
-The build ID defaults to a hash of the executable and changes with each rebuild. If you set `datapages.WithBuildID`, change its value whenever the browser-server API changes. Use the same value on every replica of one release. During a rolling deployment, route each client to one build. Alternating between builds causes repeated reloads with increasing delays. See [Deployments](SPECIFICATION.md#deployments).
+The build ID defaults to a hash of the executable and changes with each rebuild. If you set `datapages.WithBuildID`, change its value whenever the browser-server API changes. Use the same value on every replica of 1 release. During a rolling deployment, route each client to 1 build. Alternating between builds causes repeated reloads with increasing delays. See [Deployments](SPECIFICATION.md#deployments).
 
 ## Serve static assets
 
@@ -293,7 +293,7 @@ func (p PageItem) GET(
 }
 ```
 
-`Version()` is the cached version of the current request URL, or zero when that URL is absent. An action can cache another URL, but cannot read that URL's current version. `Clear` removes one entry; `ClearAll` removes all page entries. Writes take effect together only after the handler returns without error.
+`Version()` is the cached version of the current request URL, or 0 when that URL is absent. An action can cache another URL, but cannot read that URL's current version. `Clear` removes 1 entry; `ClearAll` removes all page entries. Writes take effect together only after the handler returns without error.
 
 Apply these rules when choosing what to cache:
 
@@ -306,7 +306,7 @@ Apply these rules when choosing what to cache:
 
 Same-origin assets are cached on their first online load unless excluded. `Config.Assets` makes required files available immediately after worker installation. `Config.CrossOriginDestinations` controls which cross-origin asset types may be cached. Use the default `is-offline` class on `<html>` to disable controls that require the network.
 
-Register response compression before `WithOffline`; the offline middleware must edit the unencoded HTML before it is compressed. With a nonce-based CSP, `WithCSPNonce` must return the same nonce for every call with one request. The generated offline option applies that nonce to its inline scripts.
+Register response compression before `WithOffline`; the offline middleware must edit the unencoded HTML before it is compressed. With a nonce-based CSP, `WithCSPNonce` must return the same nonce for every call with 1 request. The generated offline option applies that nonce to its inline scripts.
 
 The [`pageCache` specification](SPECIFICATION.md#parameter-pagecache-datapagespagecachewriter) defines valid handlers and write delivery. [Service Worker](SPECIFICATION.md#service-worker) defines installation, caching, CSP, and response behavior. [`example/offline-cache`](example/offline-cache/) is a complete session-aware application.
 
@@ -348,7 +348,7 @@ offline.WithServiceWorker("", offline.Config{
 
 ## Build multiple applications
 
-One Go module can contain several application packages and entry points. Each `datapages.NewServer` call connects an app package to its generated package. `datapages gen` processes all of them; select one for development with:
+1 Go module can contain several application packages and entry points. Each `datapages.NewServer` call connects an app package to its generated package. `datapages gen` processes all of them; select one for development with:
 
 ```sh
 datapages watch --app frontend
@@ -356,7 +356,7 @@ datapages watch --app frontend
 
 Put an event type in a shared package when applications exchange that event. The specification for [events outside the application package](SPECIFICATION.md#events-declared-outside-the-application-package) defines discovery and subject ownership.
 
-The [`example/counter`](example/counter/) module shows two applications with separate entry points.
+The [`example/counter`](example/counter/) module shows 2 applications with separate entry points.
 
 ## Configure development tooling
 

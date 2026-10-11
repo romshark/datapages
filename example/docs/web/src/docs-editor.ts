@@ -150,7 +150,7 @@ const restoreWait = 30_000;
 // probeEvery is how often the offline page checks whether the server answers.
 const probeEvery = 5_000;
 
-// ImageBatch is the images of one upload. They go to index in their order, whichever
+// ImageBatch is the images of 1 upload. They go to index in their order, whichever
 // the server stores first.
 interface ImageBatch {
   index: number;

@@ -50,7 +50,7 @@ func TestParse_Minimal(t *testing.T) {
 	require.Nil(app.GlobalHeadGenerator)
 }
 
-// TestParse_Basic tests a model with one of each declaration: pages, actions,
+// TestParse_Basic tests a model with 1 of each declaration: pages, actions,
 // events, event handlers, the error pages and the global head. Positions are
 // asserted alongside the values, since the parser errors are reported at them.
 func TestParse_Basic(t *testing.T) {
@@ -451,7 +451,7 @@ func TestParse_StreamHooks(t *testing.T) {
 
 // TestParse_ErrStreamHooks tests every refused stream hook signature: a missing request
 // or stream id, a stream id of the wrong type, a parameter only a request handler
-// may take, a return value other than error, and two dispatchers of one event type.
+// may take, a return value other than error, and 2 dispatchers of 1 event type.
 func TestParse_ErrStreamHooks(t *testing.T) {
 	_, err := parse(t, "err_stream_hooks")
 	require.NotZero(t, err.Error())
@@ -471,7 +471,7 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
 		parser.ErrStreamHookMissingHandle,   // StreamOpen with streamID int
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with an untyped dispatcher
-		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
+		parser.ErrDispatchDuplicate,         // StreamClose with 2 of 1 type
 	)
 }
 
@@ -555,7 +555,7 @@ func TestParse_ErrPageIndexPath(t *testing.T) {
 	)
 }
 
-// TestParse_ErrRouteDuplicatePage tests two pages declaring one path,
+// TestParse_ErrRouteDuplicatePage tests 2 pages declaring the same path,
 // which the router would refuse at startup.
 func TestParse_ErrRouteDuplicatePage(t *testing.T) {
 	require := require.New(t)
@@ -590,7 +590,7 @@ func TestParse_ErrRouteIndexShadowed(t *testing.T) {
 	}
 }
 
-// TestParse_ErrRouteDuplicateAction tests two actions declaring one path.
+// TestParse_ErrRouteDuplicateAction tests 2 actions declaring the same path.
 // The report names each action as declared, HTTP method included.
 func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	require := require.New(t)
@@ -789,7 +789,7 @@ func TestParse_ErrRouteChar(t *testing.T) {
 	// which a report of '%' alone would contradict.
 	_, e := err.Entry(8)
 	require.ErrorContains(t, e,
-		`'%' without two hex digits after it in PagePercent route "/100%"`)
+		`'%' without 2 hex digits after it in PagePercent route "/100%"`)
 }
 
 // TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard
@@ -880,7 +880,7 @@ func TestParse_ErrActionRouteWildcard(t *testing.T) {
 }
 
 // TestParse_ErrEmbedGETInput tests a GET declared on an embedded type that
-// fails to parse. Its parameter is the one error: the page adopts it without
+// fails to parse. Its parameter is the only error: the page adopts it without
 // checking its return values or its path against the page route.
 func TestParse_ErrEmbedGETInput(t *testing.T) {
 	_, err := parse(t, "err_embed_get_input")
@@ -921,7 +921,7 @@ func TestParse_ErrPages(t *testing.T) {
 }
 
 // TestParse_ErrGET tests every refused GET signature: a missing request,
-// two error returns, a parameter of an unsupported type,
+// 2 error returns, a parameter of an unsupported type,
 // a missing body return and a duplicated output.
 func TestParse_ErrGET(t *testing.T) {
 	require := require.New(t)
@@ -944,8 +944,8 @@ func TestParse_ErrGET(t *testing.T) {
 
 // TestParse_ErrEvents tests every way an event declaration or an event handler
 // can be wrong: the doc comment and its subject, the field tags,
-// a handler without an SSE or an event parameter, one with two events,
-// and a duplicate handler for one event.
+// a handler without an SSE or an event parameter, one with 2 events,
+// and a duplicate handler for 1 event.
 func TestParse_ErrEvents(t *testing.T) {
 	_, err := parse(t, "err_events")
 	require.NotZero(t, err.Error())
@@ -960,7 +960,7 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrSignatureEvHandMissingSSE,     // OnFirstDuplicate: no SSE param
 		parser.ErrEvHandDuplicate,               // OnSecondDuplicate
 		parser.ErrSignatureEvHandMissingSSE,     // OnSecondDuplicate: no SSE param
-		parser.ErrSignatureEvHandMultipleEvents, // OnBoth: two event parameters
+		parser.ErrSignatureEvHandMultipleEvents, // OnBoth: 2 event parameters
 		parser.ErrSignatureUnsupportedInput,     // OnBoth: the second event
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldUnexported,
@@ -1055,7 +1055,7 @@ func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
 	)
 }
 
-// TestParse_ErrEventSubjectOverlap tests two events whose subjects claim the same ground.
+// TestParse_ErrEventSubjectOverlap tests 2 events whose subjects claim the same ground.
 // A page subscribed to one would receive the other.
 func TestParse_ErrEventSubjectOverlap(t *testing.T) {
 	_, err := parse(t, "err_event_subject_overlap")
@@ -1067,7 +1067,7 @@ func TestParse_ErrEventSubjectOverlap(t *testing.T) {
 	)
 }
 
-// TestParse_ErrEventSubjectDuplicate tests two events declaring one subject.
+// TestParse_ErrEventSubjectDuplicate tests 2 events declaring the same subject.
 func TestParse_ErrEventSubjectDuplicate(t *testing.T) {
 	_, err := parse(t, "err_event_subject_duplicate")
 	require.NotZero(t, err.Error())
@@ -1121,9 +1121,9 @@ func TestParse_EventSharedAlias(t *testing.T) {
 // one carrying a quote, which no attribute name and no JavaScript identifier can carry,
 // and "-", which encoding/json reads as "leave this field out".
 //
-// The 3rd sits one level down. A nested struct is a nested signal,
+// The 3rd sits 1 level down. A nested struct is a nested signal,
 // which Datastar reads as "form.term" and which the same rules hold for.
-// The 4th writes that path as one key, which no client sends:
+// The 4th writes that path as 1 key, which no client sends:
 // a signals struct writes a path by nesting a struct.
 func TestParse_ErrSignalsName(t *testing.T) {
 	_, err := parse(t, "err_signals_name")
@@ -1148,7 +1148,7 @@ func TestParse_ErrQueryReflectSignal(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrQueryReflectSignalInvalid)
 }
 
-// TestParse_ErrQueryReflectSignalDuplicate tests rejection of two query fields
+// TestParse_ErrQueryReflectSignalDuplicate tests rejection of 2 query fields
 // that reflect the same signal.
 func TestParse_ErrQueryReflectSignalDuplicate(t *testing.T) {
 	_, err := parse(t, "err_query_reflectsignal_duplicate")
@@ -1195,8 +1195,8 @@ func TestParse_ErrEmbedUnexported(t *testing.T) {
 }
 
 // TestParse_ErrEventShared tests the ways an event declared outside the app
-// package is refused: a type name two packages both declare, which generated
-// code has one identifier for, a subject an event of the app package already claims,
+// package is refused: a type name 2 packages both declare, which generated
+// code has 1 identifier for, a subject an event of the app package already claims,
 // and a type carrying no subject comment.
 func TestParse_ErrEventShared(t *testing.T) {
 	_, err := parse(t, "err_event_shared")
@@ -1233,7 +1233,7 @@ func TestParse_ErrEventSharedRules(t *testing.T) {
 	)
 }
 
-// TestParse_ErrEventSubjectDuplicateSignal tests two subject fields bound to one signal,
+// TestParse_ErrEventSubjectDuplicateSignal tests 2 subject fields bound to the same signal,
 // which leaves no way to tell which value fills which field.
 func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
 	_, err := parse(t, "err_event_subj_duplicate_signal")
@@ -1335,9 +1335,9 @@ func TestParse_ErrEventSubjectFieldUnexported(t *testing.T) {
 	)
 }
 
-// TestParse_ErrEventSubjectUserDuplicate tests events with two
-// datapages.SubjectUser fields, on one declaration line and on two.
-// A stream subscribes by one user position, which leaves a user named
+// TestParse_ErrEventSubjectUserDuplicate tests events with 2
+// datapages.SubjectUser fields, on 1 declaration line and on 2.
+// A stream subscribes by 1 user position, which leaves a user named
 // in the second field without the event.
 func TestParse_ErrEventSubjectUserDuplicate(t *testing.T) {
 	_, err := parse(t, "err_event_subject_user_duplicate")
@@ -1402,7 +1402,7 @@ func TestParse_ErrEventSubjectContained(t *testing.T) {
 
 // TestParse_SignalSubjectFields tests subject fields filled from signals:
 // the subscription a page opens is built from what the client sends,
-// one wildcard per field left unbound.
+// 1 wildcard per field left unbound.
 func TestParse_SignalSubjectFields(t *testing.T) {
 	app, errs := parse(t, "signal_subject")
 	require := require.New(t)
@@ -1454,7 +1454,7 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 			isPrivate:      true,
 			isSignalScoped: true,
 		},
-		// Two names on one declaration line are two subject fields.
+		// 2 names on 1 declaration line are 2 subject fields.
 		// Reading only the first drops the rest from the subject.
 		"EventMultiField": {
 			subject: "multi",
@@ -1486,8 +1486,8 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 	}
 }
 
-// TestParse_ErrEmbedDuplicateEventHandler tests a page that inherits one event
-// handler through two embedded structs, which leaves no single handler to call.
+// TestParse_ErrEmbedDuplicateEventHandler tests a page that inherits 1 event
+// handler through 2 embedded structs, which leaves no single handler to call.
 func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	_, err := parse(t, "err_embed_duplicate_event_handler")
 	require.NotZero(t, err.Error())
@@ -1542,7 +1542,7 @@ func TestParse_ErrTypeParams(t *testing.T) {
 }
 
 // TestParse_ErrEmbedConflictingGET tests a page inheriting
-// a GET from two embedded structs.
+// a GET from 2 embedded structs.
 func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	_, err := parse(t, "err_embed_conflicting_get")
 	require.NotZero(t, err.Error())
@@ -1553,8 +1553,8 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
-// TestParse_ErrEmbedAmbiguous tests an action defined by two embedded types and
-// a GET inherited through two embedding paths. Go treats both selectors as ambiguous.
+// TestParse_ErrEmbedAmbiguous tests an action defined by 2 embedded types and
+// a GET inherited through 2 embedding paths. Go treats both selectors as ambiguous.
 // A shallower action may shadow a deeper one.
 func TestParse_ErrEmbedAmbiguous(t *testing.T) {
 	_, err := parse(t, "err_embed_ambiguous")
@@ -1570,7 +1570,7 @@ func TestParse_ErrEmbedAmbiguous(t *testing.T) {
 	}
 }
 
-// TestParse_NameCollisions tests the name pairs that concatenate into one
+// TestParse_NameCollisions tests the name pairs that concatenate into the same
 // identifier when spelled as one. Each pair is accepted:
 // a page name ending in an HTTP verb against another page's action, the same
 // against a stream handler, a page suffix against an action name, an app
@@ -1805,10 +1805,10 @@ func TestParse_Signals(t *testing.T) {
 }
 
 // TestParse_EventShared tests an event declared outside the app package,
-// which is how two applications of one module take part in one event.
+// which is how 2 applications of 1 module take part in 1 event.
 //
 // The subject, the payload and the subject fields are read where the type is written.
-// The application declares one event of its own beside them.
+// The application declares 1 event of its own beside them.
 func TestParse_EventShared(t *testing.T) {
 	app, err := parse(t, "event_shared")
 	require := require.New(t)
@@ -1887,7 +1887,7 @@ func TestParse_Dispatch(t *testing.T) {
 		require.Equal("EventFoo", a.InputDispatches[0].EventTypeName)
 	}
 
-	// POSTMulti - one dispatcher per event type
+	// POSTMulti - 1 dispatcher per event type
 	{
 		a := findAction(p.Actions, "Multi")
 		require.NotNil(a)
@@ -1911,7 +1911,7 @@ func TestParse_Dispatch(t *testing.T) {
 }
 
 // TestParse_ErrDispatch tests a dispatcher of a type that is no event type,
-// a bare func parameter mistaken for one, and two dispatchers of one event.
+// a bare func parameter mistaken for one, and 2 dispatchers of 1 event.
 func TestParse_ErrDispatch(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_dispatch")
@@ -2067,7 +2067,7 @@ func TestParse_SessionCloseOnly(t *testing.T) {
 }
 
 // TestParse_ErrSessionTypeConflict tests handlers naming different session data types.
-// One application has one: the first page by name declares it,
+// An application has 1: the first page by name declares it,
 // and the others conflict with it in every parse.
 func TestParse_ErrSessionTypeConflict(t *testing.T) {
 	// Each parse reads the pages in a new map order.
@@ -2083,8 +2083,8 @@ func TestParse_ErrSessionTypeConflict(t *testing.T) {
 	}
 }
 
-// TestParse_ErrEventSharedFieldOrder tests a field that four events reach
-// through one struct type. Each event reports it at the same position,
+// TestParse_ErrEventSharedFieldOrder tests a field that 4 events reach
+// through 1 struct type. Each event reports it at the same position,
 // and the reports follow the event names in every parse.
 func TestParse_ErrEventSharedFieldOrder(t *testing.T) {
 	// Each parse reads the events in a new map order.
@@ -2887,7 +2887,7 @@ func TestParse_ErrStateParamInvalidType(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateParamInvalidType)
 }
 
-// TestParse_ErrStateDuplicate covers a handler taking two state parameters.
+// TestParse_ErrStateDuplicate covers a handler taking 2 state parameters.
 func TestParse_ErrStateDuplicate(t *testing.T) {
 	_, err := parse(t, "err_state_duplicate")
 	require.NotZero(t, err.Error())
@@ -2974,7 +2974,7 @@ func TestParse_ErrSubjectStateIDWithoutState(t *testing.T) {
 
 // TestParse_ErrSubjectStateIDPageMixed covers a page that handles a
 // SubjectStateID event next to a private or signal-scoped one.
-// A page holds one subscription list, and these kinds name their subjects differently.
+// A page holds 1 subscription list, and these kinds name their subjects differently.
 func TestParse_ErrSubjectStateIDPageMixed(t *testing.T) {
 	_, err := parse(t, "err_state_subject_id_mixed_page")
 	require.NotZero(t, err.Error())
@@ -3131,7 +3131,7 @@ func outputKinds(outputs []*model.Output) []string {
 }
 
 // TestParse_ExampleClassifieds tests the parser against the largest application
-// in this repo, which exercises the declarations in combination rather than one
+// in this repo, which exercises the declarations in combination rather than 1
 // fixture at a time.
 func TestParse_ExampleClassifieds(t *testing.T) {
 	app, errs := parser.Parse(
@@ -3472,7 +3472,7 @@ func TestParse_ErrAssets(t *testing.T) {
 }
 
 // TestParse_ErrAssetsEmbedNotDir tests go:embed patterns that name files
-// rather than one directory. The server would serve the pattern as its root,
+// rather than 1 directory. The server would serve the pattern as its root,
 // a directory that does not exist.
 func TestParse_ErrAssetsEmbedNotDir(t *testing.T) {
 	for name, fixture := range map[string]string{
