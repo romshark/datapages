@@ -264,7 +264,7 @@ func TestCheck_ErrSubpackage(t *testing.T) {
 // TestCheck_ErrContext tests an action or href used in the wrong attribute: an
 // action in href, an href in a data-on expression. It also tests an action expression
 // concatenated with something else, which is reported apart by whether the extra part
-// is a prefix, a suffix or neither, since only the first two can be suggested a fix.
+// is a prefix, a suffix or neither, since only the first 2 can be suggested a fix.
 func TestCheck_ErrContext(t *testing.T) {
 	errs := check(t, "err_templ_context", nil)
 

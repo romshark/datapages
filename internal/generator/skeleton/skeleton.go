@@ -33,7 +33,7 @@ var VSCodeExtensions string
 var ciWorkflowTmpl string
 
 // TemplVersion is the templ release the scaffold generates with.
-// Pinning it keeps two runs of `datapages init` a month apart on the same generator,
+// Pinning it keeps 2 runs of `datapages init` a month apart on the same generator,
 // and keeps the CI of a scaffolded project on the version its committed
 // *_templ.go files were written by. Move it together with toolTempl in magefiles,
 // which is the version this repository generates with.
@@ -166,7 +166,7 @@ func MainGoImportIdents() map[string]string {
 
 // MainGoTaken is every identifier main.go binds before the session data type
 // brings a package of its own along. A package of that name needs an alias,
-// or one identifier would name two packages.
+// or 1 identifier would name 2 packages.
 func MainGoTaken(appPkgName, genPkgName string) map[string]bool {
 	taken := make(map[string]bool, len(mainGoImports)+3)
 	for _, id := range mainGoImports {
@@ -189,7 +189,7 @@ func MainGoAppPkg(appPkgName, genPkgName string) (name string, aliased bool) {
 //
 // The declared name is kept when nothing else in the file binds it, which is
 // the ordinary case. An app package named after one of the imports takes an
-// alias instead: unaliased, one identifier would bind two packages.
+// alias instead: unaliased, 1 identifier would bind 2 packages.
 func mainGoAppPkg(appPkgName, genPkgName string) (name string, aliased bool) {
 	taken := make(map[string]bool, len(mainGoImports)+1)
 	for _, id := range mainGoImports {

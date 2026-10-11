@@ -13,7 +13,7 @@ import (
 
 // TestCompositeKeyRoundTrip tests the key a session is stored under and the
 // token that carries it. CreateSession keeps the key it built,
-// SaveSession recovers it from the token, and both must name one session.
+// SaveSession recovers it from the token, and both must name the same session.
 func TestCompositeKeyRoundTrip(t *testing.T) {
 	block, err := aes.NewCipher(make([]byte, 16))
 	require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestCompositeKeyRoundTrip(t *testing.T) {
 			key := compositeKey(tt.userID, tt.sessionID)
 
 			require.Equal(t, 1, strings.Count(string(key), "."),
-				"a key has one separator: %q", key)
+				"a key has 1 separator: %q", key)
 			require.NotContains(t, string(key), "*")
 			require.NotContains(t, string(key), ">")
 
@@ -57,8 +57,8 @@ func TestCompositeKeyRoundTrip(t *testing.T) {
 
 // TestTokenIsStable tests the token a session key encrypts to. Every call gives
 // the same one, which lets a listed session be compared with its cookie,
-// and two keys get two nonces: GCM leaks its authentication key when one nonce
-// encrypts two plaintexts. A token with a random nonce, the format of the
+// and 2 keys get 2 nonces: GCM leaks its authentication key when 1 nonce
+// encrypts 2 plaintexts. A token with a random nonce, the format of the
 // cookies of earlier releases, still decrypts.
 func TestTokenIsStable(t *testing.T) {
 	block, err := aes.NewCipher(make([]byte, 16))
@@ -71,14 +71,14 @@ func TestTokenIsStable(t *testing.T) {
 
 	require.Equal(t, encrypt(aead, nonceKey, first), encrypt(aead, nonceKey, first))
 
-	// Comparing whole tokens would pass with one nonce for every key:
+	// Comparing whole tokens would pass with 1 nonce for every key:
 	// the ciphertexts differ with the plaintexts.
 	firstRaw, err := base64.RawURLEncoding.DecodeString(encrypt(aead, nonceKey, first))
 	require.NoError(t, err)
 	secondRaw, err := base64.RawURLEncoding.DecodeString(encrypt(aead, nonceKey, second))
 	require.NoError(t, err)
 	n := aead.NonceSize()
-	require.NotEqual(t, firstRaw[:n], secondRaw[:n], "two session keys share a nonce")
+	require.NotEqual(t, firstRaw[:n], secondRaw[:n], "2 session keys share a nonce")
 
 	nonce := make([]byte, aead.NonceSize())
 	_, err = rand.Read(nonce)

@@ -572,7 +572,7 @@ func TestCSRF(t *testing.T) {
 	})
 }
 
-// TestPrivateEvent tests an event addressed to a user. Of two signed-in visitors
+// TestPrivateEvent tests an event addressed to a user. Of 2 signed-in visitors
 // with a stream each, the user it names sees it and the other does not.
 // A later notice to the other user is what shows the first one did not reach them.
 func TestPrivateEvent(t *testing.T) {
@@ -652,7 +652,7 @@ func TestStreamEndsAtSessionExpiry(t *testing.T) {
 		srv := serve(t, broker)
 		alice := srv.Visitor(t)
 
-		// Long enough to open the stream and see one event through it.
+		// Long enough to open the stream and see 1 event through it.
 		expiresAt := time.Now().Add(2 * time.Second)
 		token, err := srv.sessions.CreateSession(t.Context(),
 			sessions.Record[app.SessionData]{UserID: "alice", ExpiresAt: expiresAt})
@@ -852,7 +852,7 @@ func TestAnonymousStream(t *testing.T) {
 		signIn(t, alice, "alice", "")
 		aliceStream := alice.Load(t, "/").Connect(t, nil)
 
-		// The two connections are served by two different handlers.
+		// The 2 connections are served by 2 different handlers.
 		require.Equal(t, "/_$/anon/", anonStream.Path())
 		require.Equal(t, "/_$/", aliceStream.Path())
 

@@ -7,14 +7,14 @@ import (
 	"github.com/romshark/datapages/example/docs/delta"
 )
 
-// line is the text of a document up to and including one "\n".
+// line is the text of a document up to and including 1 "\n".
 type line struct {
 	runs   []run
 	end    int              // Position of the "\n".
 	format delta.Attributes // Line formats, from the "\n".
 }
 
-// run is text or an embed with one set of text formats.
+// run is text or an embed with 1 set of text formats.
 type run struct {
 	at     int
 	text   string

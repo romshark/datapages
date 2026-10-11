@@ -49,7 +49,7 @@ func TestRecoveredActionErrors(t *testing.T) {
 
 // TestRecoveredPanics tests a handler that panics rather than returning an error.
 // It reaches RecoverError as a datapages.PanicError, which keeps a bug
-// in one handler from dropping the visitor's connection without a word.
+// in 1 handler from dropping the visitor's connection without a word.
 func TestRecoveredPanics(t *testing.T) {
 	t.Parallel()
 

@@ -1,6 +1,6 @@
 url: http://localhost:8080
 ---
-# Division by zero shows Error. The next digit starts a new expression.
+# Division by 0 shows Error. The next digit starts a new expression.
 # The flow types 42 because a single digit would match its button label.
 - launchApp
 - tapOn: "5"

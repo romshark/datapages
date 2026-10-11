@@ -112,7 +112,7 @@ func TestDelete(t *testing.T) {
 	require.Empty(t, files)
 }
 
-// TestSubmitConcurrent tests that changes made at one revision are
+// TestSubmitConcurrent tests that changes made at the same revision are
 // transformed against the ones the server applied first.
 func TestSubmitConcurrent(t *testing.T) {
 	s := open(t, t.TempDir())
@@ -283,7 +283,7 @@ func TestRestore(t *testing.T) {
 			want:     ops(ins("Hello! World\n", nil)),
 			wantRev:  3,
 		},
-		"restored twice": {
+		"restored 2 times": {
 			before: func(submit func(string, int, int, delta.Delta)) {
 				submit("b", 1, 0, ops(ins("Hi ", nil)))
 			},

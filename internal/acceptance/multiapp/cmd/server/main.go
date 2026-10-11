@@ -39,7 +39,7 @@ func main() {
 
 	messageBroker := connectNATS()
 
-	// One command, two applications, one of them built per run. Which one runs
+	// 1 command, 2 applications, 1 of them built per run. Which one runs
 	// is decided here. What each is generated as is decided by its own app
 	// package and the calls in serve/admin and serve/frontend.
 	var s datapages.Server

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// The watch command writes one record per module with the PID,
+// The watch command writes 1 record per module with the PID,
 // module directory, and development server host separated by tabs.
 // watchLockTTL must match the writer's timeout.
 //

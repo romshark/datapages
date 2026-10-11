@@ -1,8 +1,8 @@
-// Tests the two servers this module builds.
+// Tests the 2 servers this module builds.
 //
 // The module names one app package with sessions and no metrics, and another
 // with metrics and no sessions. Each app package is generated for what its own
-// calls name: both features are generated, one into each package,
+// calls name: both features are generated, 1 into each package,
 // and neither package carries the other's.
 
 package acceptance_test
@@ -98,7 +98,7 @@ func TestAdminCarriesMetrics(t *testing.T) {
 
 	total := requestsTotal(t)
 	require.GreaterOrEqual(t, total, float64(2),
-		"the request counter stands at %v after two requests", total)
+		"the request counter stands at %v after 2 requests", total)
 }
 
 // requestsTotal sums every sample of the generated request counter in the
@@ -163,7 +163,7 @@ func TestAdminRequiresItsPrometheusConfig(t *testing.T) {
 	require.ErrorContains(t, err, "missing option WithPrometheus")
 }
 
-// TestBothServersRunTogether tests the two applications running side by side.
+// TestBothServersRunTogether tests the 2 applications running side by side.
 // Each serves its own routes and neither serves the other's.
 func TestBothServersRunTogether(t *testing.T) {
 	t.Parallel()
@@ -198,8 +198,8 @@ func TestBothServersRunTogether(t *testing.T) {
 // TestSharedEventReachesBothApps tests the event neither app package declares.
 //
 // Both name the type of the events package,
-// which is what makes the two applications take part in one event.
-// Given one broker, what either dispatches reaches the streams of both.
+// which is what makes the 2 applications take part in 1 event.
+// Given 1 broker, what either dispatches reaches the streams of both.
 func TestSharedEventReachesBothApps(t *testing.T) {
 	t.Parallel()
 	shared := broker()
@@ -228,7 +228,7 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	as.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
 		"the other application did not receive the shared event")
 
-	// An event only one application declares stays with it. The announcement
+	// An event only 1 application declares stays with it. The announcement
 	// the frontend dispatches next is the anchor: a notice that reached the admin
 	// stream would arrive before it, since the broker delivers in publication order.
 	f.Do(t, http.MethodPost, "/notice/", text("private")).WantStatus(t, http.StatusOK)

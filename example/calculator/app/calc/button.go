@@ -40,7 +40,7 @@ func ValidButton(btn CalcButton) bool {
 const MaxInputLen = 100
 
 // ValidInput reports whether input is "Error" or at most [MaxInputLen] runes
-// of digits, decimal points, parentheses and the four operator runes.
+// of digits, decimal points, parentheses and the 4 operator runes.
 // [Press] and [Paste] return an input that passes when given one that passes.
 //
 // The input signal round-trips through the client, which can send anything.

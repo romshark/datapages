@@ -36,7 +36,7 @@ func echoed(t *testing.T, resp *datapagestest.Response) string {
 
 // TestRoundTrip tests the pair the generator writes for every page:
 // the function that builds the URL and the handler that takes it apart.
-// They are generated from one model and are asserted here against each other.
+// They are generated from 1 model and are asserted here against each other.
 // A change of order, name or number format in one of them cannot pass unnoticed.
 func TestRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -461,12 +461,12 @@ func TestTrailingWildcard(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	for name, tt := range map[string]struct{ url, want string }{
-		"one segment":               {"/files/a/", `rest="a"`},
-		"one segment no slash":      {"/files/a", `rest="a"`},
+		"1 segment":                 {"/files/a/", `rest="a"`},
+		"1 segment no slash":        {"/files/a", `rest="a"`},
 		"several segments":          {"/files/a/b/c/", `rest="a/b/c"`},
 		"several segments no slash": {"/files/a/b/c", `rest="a/b/c"`},
 		// A wildcard over several segments hands back a decoded path,
-		// which is one string for a separator the caller encoded and one it did not.
+		// which is the same string for a separator the caller encoded and one it did not.
 		// Values that have to survive belong in a segment of their own,
 		// where {name} keeps them apart.
 		"encoded separator": {"/files/a%2Fb/", `rest="a/b"`},
@@ -495,7 +495,7 @@ func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	for name, want := range map[string]string{
-		"one segment":      "a",
+		"1 segment":        "a",
 		"several segments": "a/b/c",
 		"space":            "x y",
 		"percent":          "100%",
@@ -519,7 +519,7 @@ func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
 // percent-encoded to fit in a URL at all.
 //
 // The server rewrites a path that does not end in a slash before routing it.
-// net/url holds an encoded path twice, once decoded and once raw.
+// net/url holds an encoded path 2 times, once decoded and once raw.
 // A rewrite that updates one and not the other routes the request by
 // one path and reads its variables out of the other.
 func TestEncodedPathSegments(t *testing.T) {
@@ -537,7 +537,7 @@ func TestEncodedPathSegments(t *testing.T) {
 			"/p/a%2Fb/1/2/3.5/true/", `s="a/b" i=1 u=2 f=3.5 b=true`,
 		},
 		// The rewrite has to update both forms of the path. Updating the
-		// decoded one alone routes the request by a path with one more
+		// decoded one alone routes the request by a path with 1 more
 		// segment than the URL has.
 		"encoded slash without the trailing slash": {
 			"/p/a%2Fb/1/2/3.5/true", `s="a/b" i=1 u=2 f=3.5 b=true`,
@@ -582,16 +582,16 @@ func TestUnknownRoutes(t *testing.T) {
 }
 
 // TestHrefLiterals tests the URLs themselves. The round trip above proves the
-// two generated halves agree; these assertions pin down what they agree on,
+// 2 generated halves agree; these assertions pin down what they agree on,
 // because a self-consistent pair can still address the wrong thing.
 func TestHrefLiterals(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct{ got, want string }{
-		"index":           {href.PageIndex(), "/"},
-		"path variables":  {href.PagePath("a", 1, 2, 3.5, false), "/p/a/1/2/3.5/false/"},
-		"empty query":     {href.PageQuery(href.QueryPageQuery{}), "/q/"},
-		"one query param": {href.PageQuery(href.QueryPageQuery{Limit: 5}), "/q/?limit=5"},
-		"two query params": {
+		"index":          {href.PageIndex(), "/"},
+		"path variables": {href.PagePath("a", 1, 2, 3.5, false), "/p/a/1/2/3.5/false/"},
+		"empty query":    {href.PageQuery(href.QueryPageQuery{}), "/q/"},
+		"1 query param":  {href.PageQuery(href.QueryPageQuery{Limit: 5}), "/q/?limit=5"},
+		"2 query params": {
 			href.PageQuery(href.QueryPageQuery{Term: "x", Limit: 5}),
 			"/q/?term=x&limit=5",
 		},

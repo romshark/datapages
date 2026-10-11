@@ -33,7 +33,7 @@ func TestUnlimited(t *testing.T) {
 // the budget says, and that the whole content still arrives.
 func TestRateIsEnforced(t *testing.T) {
 	const rate = 512 << 10 // 512 KiB/s
-	const size = 256 << 10 // half a second of it
+	const size = 256 << 10 // 500ms of it
 
 	want := bytes.Repeat([]byte("datapages"), size/9)
 	src := bytes.NewReader(want)
@@ -45,13 +45,13 @@ func TestRateIsEnforced(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, got, "the throttled reader changed the content")
 
-	// The reader starts with a quarter second of budget, which leaves at
-	// least a quarter second of waiting for half a second of content.
+	// The reader starts with 250ms of budget, which leaves at
+	// least 250ms of waiting for 500ms of content.
 	require.Greater(t, elapsed, 200*time.Millisecond,
 		"%d bytes at %d bytes/s passed in %s", len(want), rate, elapsed)
 }
 
-// TestSharedBudget tests that two transfers on one limiter split its rate
+// TestSharedBudget tests that 2 transfers on 1 limiter split its rate
 // instead of getting it each.
 func TestSharedBudget(t *testing.T) {
 	const rate = 512 << 10
@@ -69,9 +69,9 @@ func TestSharedBudget(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Four transfers of a quarter second of budget each are a second of it.
+	// 4 transfers of 250ms of budget each are a second of it.
 	require.Greater(t, time.Since(start), 500*time.Millisecond,
-		"four transfers of %d bytes each ran faster than %d bytes/s allows",
+		"4 transfers of %d bytes each ran faster than %d bytes/s allows",
 		size, rate)
 }
 
@@ -83,7 +83,7 @@ func TestSetRate(t *testing.T) {
 	src := bytes.NewReader(make([]byte, 1<<20))
 	r := throttle.Reader(context.Background(), src, l)
 
-	// One megabyte at a kilobyte per second would take a quarter of an hour.
+	// 1 megabyte at a kilobyte per second would take 17 minutes.
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		l.SetRate(0)

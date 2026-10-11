@@ -109,7 +109,7 @@ func AssetsFileSystem(
 
 // noModTimeFS reports a zero modification time for every file, which keeps
 // [http.FileServer] from sending Last-Modified and from answering If-Modified-Since.
-// Its whole-second precision answers 304 for a file saved twice within one second.
+// Its whole-second precision answers 304 for a file saved 2 times within 1 second.
 type noModTimeFS struct{ fsys http.FileSystem }
 
 func (f noModTimeFS) Open(name string) (http.File, error) {

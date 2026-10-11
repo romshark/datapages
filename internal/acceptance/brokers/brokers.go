@@ -93,8 +93,8 @@ func NATS(t *testing.T) messaging.Broker {
 
 // natsLock serializes the tests that reach the NATS server.
 //
-// One server serves the whole case and its subject space is shared: two tests
-// publishing one subject at the same time would each read the other's messages.
+// 1 server serves the whole case and its subject space is shared: 2 tests
+// publishing the same subject at the same time would each read the other's messages.
 // The lock is released by a cleanup registered before the test registers its
 // own, hence after the streams and the server it opens are closed.
 var natsLock sync.Mutex

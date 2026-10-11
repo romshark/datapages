@@ -71,7 +71,7 @@ func TestSecondValueReachesTheSameStream(t *testing.T) {
 }
 
 // TestSubjectValueIsEscaped tests a subject field value that cannot stand in
-// a subject as it is. Escaped it names one segment, which the subscription
+// a subject as it is. Escaped it names 1 segment, which the subscription
 // this page opens over every value of the field matches like any other.
 func TestSubjectValueIsEscaped(t *testing.T) {
 	t.Parallel()
@@ -100,7 +100,7 @@ func TestSubjectValueIsEscaped(t *testing.T) {
 	})
 }
 
-// TestSubjectValueMustNotBeEmpty tests the one value escaping cannot save. An empty
+// TestSubjectValueMustNotBeEmpty tests the only value escaping cannot save. An empty
 // value names no segment, which leaves a subject of a shape no subscription matches.
 func TestSubjectValueMustNotBeEmpty(t *testing.T) {
 	t.Parallel()

@@ -17,7 +17,7 @@ import (
 )
 
 // New wraps a Datastar generator as a [datapages.SSE].
-// Every call of the result writes one event on gen.
+// Every call of the result writes 1 event on gen.
 func New(g *datastar.ServerSentEventGenerator) datapages.SSE {
 	return wrapper{g: g}
 }
@@ -149,7 +149,7 @@ func (s wrapper) Prefetch(urls ...string) error {
 
 // speculationRules returns a JSON speculation-rules body that prefetches URLs.
 // It escapes URLs that datastar-go writes raw and keeps percent-encoded URLs on
-// the one-allocation path.
+// the 1-allocation path.
 //
 // https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/speculationrules
 func speculationRules(urls []string) string {
@@ -181,7 +181,7 @@ func speculationRulesLen(urls []string) int {
 
 const hexDigits = "0123456789abcdef"
 
-// writeJSONStringBody writes s inside a JSON string embedded in a one-line <script>.
+// writeJSONStringBody writes s inside a JSON string embedded in a 1-line <script>.
 // It escapes '"' and '\' and encodes controls and '<' as \u00XX,
 // preventing SSE line breaks, </script> and <!--.
 func writeJSONStringBody(b *strings.Builder, s string) {

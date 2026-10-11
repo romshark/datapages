@@ -18,7 +18,7 @@ Datapages template linter.
 
 ## href: links
 
-The generated `href` package has one function for each page, named after its page type. Query structs are named `href.Query<PageType>`. Zero-value fields are omitted from the URL.
+The generated `href` package has 1 function for each page, named after its page type. Query structs are named `href.Query<PageType>`. Zero-value fields are omitted from the URL.
 
 ```templ
 <a href={ href.PageIndex() }>Home</a>
@@ -96,9 +96,9 @@ An action sends signals by default. To send form controls or file data, use `act
 
 Start with local signals and Datastar attributes. A local signal, named with a `_` prefix, holds interaction state such as an open menu or a selected tab, and requests do not carry it. A signal that an action sends, such as a form draft, has no prefix. To reuse markup and its attributes in several templates, make it a Templ component. Write a [Web Component](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) when one of these holds:
 
-- The code uses a library, such as a map or a rich text editor, or a browser API beyond one call, such as IndexedDB.
+- The code uses a library, such as a map or a rich text editor, or a browser API beyond 1 call, such as IndexedDB.
 - The script builds DOM or keeps state that would be impractical in signals, such as text that runs ahead of the server.
-- The logic needs more than one statement per expression. A Web Component also keeps the script in one place when several templates use it.
+- The logic needs more than 1 statement per expression. A Web Component also keeps the script in 1 place when several templates use it.
 
 The element owns its script and the DOM inside it. The page owns the rest. Data goes down as attributes, and output goes up as events:
 
@@ -160,7 +160,7 @@ customElements.define("place-map", PlaceMap);
 - The element never reads or changes DOM outside itself, calls an app route, opens an SSE stream, navigates or reloads the page. It dispatches an event, and a `data-on` attribute of the page acts on it.
 - Render the initial content inside the element in Templ. It shows before the bundle loads, and a plain `GET` stays correct.
 - A morph sets the attributes of the element to those the server rendered and morphs its children, but it does not enter a shadow root. Build the DOM the script owns in a shadow root, and give the element a stable `id`, which lets a morph match it to the element already in the page.
-- Give each attribute one source: the template or `data-attr`. A morph removes an attribute the server's HTML lacks, including one that `data-attr` set, unless `data-preserve-attr` lists it.
+- Give each attribute 1 source: the template or `data-attr`. A morph removes an attribute the server's HTML lacks, including one that `data-attr` set, unless `data-preserve-attr` lists it.
 - Add `data-ignore-morph` only when the script must build light DOM, for example for a library that does not work in a shadow root. A morph then skips the element and its attributes, when the old and the new element both carry `data-ignore-morph`. `data-attr` and `ExecuteScript` remain the ways down.
 - By default, an event that starts a request cancels the active request of the same element. Keep the default when only the latest event matters, such as a viewport. Add `action.WithRequestCancellation(action.RequestCancellationDisabled)` when every event must reach the server, such as an edit.
 - Bundle the scripts with esbuild into the assets directory and load them with `assets.Path`. A `custom-watchers` entry in `datapages.yaml` rebuilds them under `datapages watch`; see `datapages-server`. `datapages init --web-components typescript` scaffolds this setup. `example/webcomponents` and `example/docs` in the Datapages repository bundle their scripts this way.
@@ -177,4 +177,4 @@ customElements.define("place-map", PlaceMap);
 - An apostrophe in an attribute becomes `&#39;`. The browser decodes it before the JavaScript parser reads the expression, which can make the expression invalid. Reword it, use `&quot;` for inner strings or escape it with a backslash.
 - Encode a value interpolated into `data-signals` with `json.Marshal` instead of quoting it yourself. An apostrophe in the value ends the string, and what follows it runs as script.
 
-<!-- written by datapages sha256:d884663e0df94f17 -->
+<!-- written by datapages sha256:f0728ab33edc580e -->

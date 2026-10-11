@@ -33,7 +33,7 @@ var netStateTemplate string
 type Config struct {
 	// WorkerVersion identifies the installed service worker and its cache.
 	// Increasing it makes the browser install the new worker and delete caches
-	// from earlier versions. Zero selects [DefaultWorkerVersion].
+	// from earlier versions. 0 selects [DefaultWorkerVersion].
 	//
 	// Increase WorkerVersion after a Datapages upgrade or a change to
 	// [Config.Assets], [Config.ExcludePaths], [Config.CrossOriginDestinations],
@@ -91,7 +91,7 @@ type Config struct {
 }
 
 // DefaultWorkerVersion is the service worker version used when
-// [Config.WorkerVersion] is zero. Versions start at 1. [Middleware] treats a
+// [Config.WorkerVersion] is 0. Versions start at 1. [Middleware] treats a
 // request without [datapages.HeaderWorkerVersion] as version 0 and adds the
 // registration script.
 const DefaultWorkerVersion uint64 = 1

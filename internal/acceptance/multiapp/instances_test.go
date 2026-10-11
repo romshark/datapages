@@ -1,9 +1,9 @@
-// Tests two instances of each application running in one process.
+// Tests 2 instances of each application running in 1 process.
 //
 // A generated package is imported once and built any number of times. State
 // kept in a package variable would be shared by every server built from it:
 // the first would pass and the second would read what the first left behind.
-// Four servers here, two per app, each with its own broker, its own session
+// 4 servers here, 2 per app, each with its own broker, its own session
 // manager and its own app value.
 
 package acceptance_test
@@ -35,9 +35,9 @@ func instances(t *testing.T) map[string]*datapagestest.Visitor {
 	}
 }
 
-// TestFourInstancesServeTheirOwnApp tests all four answering at once. Two
-// servers of one app must not collide over a route, a subject or a collector.
-func TestFourInstancesServeTheirOwnApp(t *testing.T) {
+// Test4InstancesServeTheirOwnApp tests all 4 answering at once. 2
+// servers of 1 app must not collide over a route, a subject or a collector.
+func Test4InstancesServeTheirOwnApp(t *testing.T) {
 	t.Parallel()
 	all := instances(t)
 
@@ -95,8 +95,8 @@ func TestOneInstanceDoesNotReachAnother(t *testing.T) {
 		"a session issued by one instance showed up in the other")
 }
 
-// TestBothMeteredInstancesCount tests the collectors the two admin servers
-// register on one registry. A second registration that failed or that replaced
+// TestBothMeteredInstancesCount tests the collectors the 2 admin servers
+// register on 1 registry. A second registration that failed or that replaced
 // the first would leave the counter standing still.
 func TestBothMeteredInstancesCount(t *testing.T) {
 	t.Parallel()

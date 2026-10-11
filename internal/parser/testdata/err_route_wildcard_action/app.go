@@ -1,4 +1,4 @@
-// Package app gives a page ending in a wildcard four actions: one past the
+// Package app gives a page ending in a wildcard 4 actions: one past the
 // wildcard, one at the page route, one without a path comment and one
 // adopted from an embedded type.
 //

@@ -1,4 +1,4 @@
-// Drives a state type shared by two pages.
+// Drives a state type shared by 2 pages.
 
 package acceptance_test
 
@@ -37,7 +37,7 @@ func state(text string) datapagestest.Match {
 	return datapagestest.TextContains("state", text)
 }
 
-// TestSharedStateIsPerTab covers two tabs of one page bound to a shared state
+// TestSharedStateIsPerTab covers 2 tabs of 1 page bound to a shared state
 // type. Sharing the type must not share the value.
 func TestSharedStateIsPerTab(t *testing.T) {
 	v := serve(t).Visitor(t)
@@ -60,7 +60,7 @@ func TestSharedStateIsPerTab(t *testing.T) {
 		"the second tab received the first tab's state")
 }
 
-// TestSharedStateIsPerPage covers two different pages bound to the same state
+// TestSharedStateIsPerPage covers 2 different pages bound to the same state
 // type. Their tabs are still separate tabs.
 func TestSharedStateIsPerPage(t *testing.T) {
 	v := serve(t).Visitor(t)
@@ -82,7 +82,7 @@ func TestSharedStateIsPerPage(t *testing.T) {
 	index.Absent(t, datapagestest.Element("state"), state("{Counter:0 Note:anchor}"))
 }
 
-// TestPageActionAndAppActionShareTheState covers the two ways into one tab's
+// TestPageActionAndAppActionShareTheState covers the 2 ways into 1 tab's
 // state: an action of the page and an action of the app.
 func TestPageActionAndAppActionShareTheState(t *testing.T) {
 	tab := serve(t).Visitor(t).Load(t, "/")

@@ -27,7 +27,7 @@ type EventMessageSent struct {
 // PageIndex is /
 //
 // The page subscribes per tab for one event and per user for the other.
-// One subscription list cannot carry both, and the parser rejects this.
+// 1 subscription list cannot carry both, and the parser rejects this.
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(r *http.Request, session Session) (

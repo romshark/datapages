@@ -51,7 +51,7 @@ func implementsUnmarshaler(t *types.Named) bool {
 
 func validateEvents(ctx *parseCtx, errs *Errors) {
 	// A struct type that several events share reports its fields once per event,
-	// all at one position. Their order is the order the events are read in.
+	// all at the same position. Their order is the order the events are read in.
 	for _, name := range slices.Sorted(maps.Keys(ctx.eventTypeNames)) {
 		ts := ctx.typeSpecByName[name]
 		validateEventType(

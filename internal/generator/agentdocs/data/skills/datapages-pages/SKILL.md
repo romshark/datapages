@@ -10,7 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Define one struct, one route doc comment and one `GET` method for each page. `PageIndex` for `/` is required. `App *App` is the only named field a page may declare. Put dependencies on `App`.
+Define 1 struct, 1 route doc comment and 1 `GET` method for each page. `PageIndex` for `/` is required. `App *App` is the only named field a page may declare. Put dependencies on `App`.
 
 ```go
 // PageIndex is /
@@ -21,14 +21,14 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 }
 ```
 
-Routes use `net/http.ServeMux` patterns. `/item/{id}` captures one segment. `/{path...}` captures the remaining path. `/{$}` matches only that path. Datapages serves a page's SSE stream below `_$`. Do not define a route that claims that path. A page whose route ends in `{$}` or `{name...}` serves only `GET`: it cannot have actions or an SSE stream. Leave out `{$}` to give a page actions or a stream: the page keeps its URL.
+Routes use `net/http.ServeMux` patterns. `/item/{id}` captures 1 segment. `/{path...}` captures the remaining path. `/{$}` matches only that path. Datapages serves a page's SSE stream below `_$`. Do not define a route that claims that path. A page whose route ends in `{$}` or `{name...}` serves only `GET`: it cannot have actions or an SSE stream. Leave out `{$}` to give a page actions or a stream: the page keeps its URL.
 
 If a route comment has a description, separate it from the route with a blank `//` line:
 
 ```go
 // PageItem is /item/{id}
 //
-// Shows one item.
+// Shows 1 item.
 ```
 
 ## GET parameters
@@ -91,7 +91,7 @@ It also rejects a JSON type mismatch between a query field and its signal. The c
 ## Special pages
 
 `PageError404`, `PageError500` and `PageOffline` are reserved page names. All
-three are optional. Datapages serves defaults when they are absent.
+3 are optional. Datapages serves defaults when they are absent.
 
 `PageError404` renders with status 404 for a URL that no route matches and for a page load whose handler returns `datapages.ErrNotFound`. `PageError500` renders with status 500 for a page load whose handler panics or returns an error without a sentinel.
 
@@ -124,7 +124,7 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 
 To share a `GET`, stream hook or event handler, define it on a type without the `Page` prefix and embed that type in each page. The embedded type is not a page and has no route. It needs the same `App *App` field. Its handlers use the route of each page that embeds it.
 
-Do not share an action by embedding it. Its doc comment defines one absolute route, so embedding it in a second page causes a route conflict. Put a shared action on `*App`, or define a separate action for each page.
+Do not share an action by embedding it. Its doc comment defines 1 absolute route, so embedding it in a second page causes a route conflict. Put a shared action on `*App`, or define a separate action for each page.
 
 ```go
 type Base struct{ App *App }

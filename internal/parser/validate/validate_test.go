@@ -349,7 +349,7 @@ func TestSignalName(t *testing.T) {
 }
 
 // TestSignalPath tests the reference a reflectsignal tag carries:
-// the names on the way to one signal, separated by periods.
+// the names on the way to 1 signal, separated by periods.
 func TestSignalPath(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()

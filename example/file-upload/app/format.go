@@ -41,7 +41,7 @@ const dupSeparate = "separate"
 
 // heldBy reports whether tab is the one sending f. An empty tab holds nothing:
 // GET renders before the stream that would give it state exists, and a file whose
-// sender is gone has no owner either. Comparing the two directly would make them match.
+// sender is gone has no owner either. Comparing the 2 directly would make them match.
 func heldBy(f store.File, tab string) bool { return tab != "" && f.Owner == tab }
 
 // transferState is where a transfer stands as the file list shows it.
@@ -61,7 +61,7 @@ const (
 // An owner before a status: a file nobody holds the missing bytes of cannot go
 // on whatever the store still expects of it, and the row offers to take it
 // over rather than to resume it. Reading the status first would badge a file
-// paused in a tab that has since gone as merely paused, which is the one state
+// paused in a tab that has since gone as merely paused, which is the only state
 // its owner could undo.
 func transferStateOf(f store.File) transferState {
 	switch {
@@ -97,7 +97,7 @@ func transferExplanation(f store.File, tab string) string {
 }
 
 // stagedMeta is what the upload dialog says about a file besides its name.
-// It is one string because Templ puts a space between the parts it renders.
+// It is 1 string because Templ puts a space between the parts it renders.
 func stagedMeta(f PendingFile) string {
 	if f.ContentType == "" {
 		return humanSize(f.Size)
@@ -133,7 +133,7 @@ func errorMessage(err error) string {
 
 // attrs merges attribute sets so that a Morpheus helper such as
 // [neo.DialogClose] can be spread alongside the app's own attributes,
-// which the components take one set at a time. A later set wins.
+// which the components take 1 set at a time. A later set wins.
 func attrs(sets ...templ.Attributes) templ.Attributes {
 	out := templ.Attributes{}
 	for _, s := range sets {

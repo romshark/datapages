@@ -58,7 +58,7 @@ type EventThreeField struct {
 
 // EventMultiField is "multi"
 //
-// Two subject fields share one declaration line.
+// 2 subject fields share 1 declaration line.
 type EventMultiField struct {
 	Recipient   datapages.SubjectUser
 	Room, Topic datapages.Subject

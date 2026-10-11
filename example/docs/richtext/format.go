@@ -15,7 +15,7 @@ import (
 // ErrInvalid wraps every error for a rejected change or document.
 var ErrInvalid = errors.New("invalid")
 
-// format is one format the editor offers.
+// format is 1 format the editor offers.
 type format struct {
 	// block formats apply to a "\n" and format its line, image formats to images only.
 	// Others apply to text and images.
@@ -46,7 +46,7 @@ var formats = map[string]format{
 }
 
 // lineTypes are the block formats that change the element of a line.
-// Quill keeps one per line. A repair keeps the first in this order if the
+// Quill keeps 1 per line. A repair keeps the first in this order if the
 // change that caused the conflict set none.
 var lineTypes = []string{"header", "list", "blockquote", "code-block"}
 
@@ -153,7 +153,7 @@ func validateEmbed(e delta.Embed) error {
 
 // ValidateChange checks that change holds only what the editor produces:
 // known formats with valid values, images the server stores, no text format
-// on a line break, no line format on text or images and at most one line type
+// on a line break, no line format on text or images and at most 1 line type
 // per operation.
 //
 // [delta.Delta.Compose] and [CheckDocument] check that it fits its document.
@@ -209,7 +209,7 @@ func validateOp(op delta.Op) error {
 		}
 	}
 	if types > 1 {
-		return errors.New("more than one line type")
+		return errors.New("more than 1 line type")
 	}
 	return nil
 }

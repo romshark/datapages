@@ -62,7 +62,7 @@ func TestAssetPath(t *testing.T) {
 
 // TestAssetsAreServed tests the files the app embeds. The prefix comes from
 // the configuration and reaches both the URL builder and the route.
-// The two must agree on it.
+// The 2 must agree on it.
 func TestAssetsAreServed(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
@@ -148,7 +148,7 @@ func TestAssetsBrowsable(t *testing.T) {
 	require.Contains(t, resp.Body, "style.css")
 }
 
-// TestAssetURLs tests the two generated ways to name an asset.
+// TestAssetURLs tests the 2 generated ways to name an asset.
 // Both are used in templates and both must produce the configured prefix.
 func TestAssetURLs(t *testing.T) {
 	t.Parallel()
@@ -227,7 +227,7 @@ func TestDevModeServesFromDisk(t *testing.T) {
 	require.Equal(t, "no-cache", resp.Header.Get("Cache-Control"),
 		"the browser may reuse an asset without asking in dev mode")
 	require.Empty(t, resp.Header.Get("Last-Modified"),
-		"a file saved twice within one second could get a 304 for its first version")
+		"a file saved 2 times within 1 second could get a 304 for its first version")
 }
 
 // TestHalfWrittenBodyGetsNoErrorStatus tests an action that fails after
@@ -266,7 +266,7 @@ func TestMetrics(t *testing.T) {
 		total += m.GetCounter().GetValue()
 	}
 	require.GreaterOrEqual(t, total, float64(2),
-		"the request counter stands at %v after two requests", total)
+		"the request counter stands at %v after 2 requests", total)
 
 	require.Contains(t, byName, "datapages_http_request_duration_seconds",
 		"the request duration histogram was not registered")

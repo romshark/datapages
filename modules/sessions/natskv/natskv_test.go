@@ -209,7 +209,7 @@ func TestSaveSession(t *testing.T) {
 
 // TestSaveSessionUserIDMismatch tests a record naming a different user than
 // the key it would be stored under. Accepting it made ReadSessionFromCookie,
-// Session and UserSessions report three different answers about who is signed in.
+// Session and UserSessions report 3 different answers about who is signed in.
 func TestSaveSessionUserIDMismatch(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -427,7 +427,7 @@ func (*fakeError) Error() string { return "fake error" }
 
 // TestSession tests the payload read by token. A token that names no session,
 // whether closed, malformed or encrypted under a key the manager does not hold,
-// matches sessions.ErrSessionNotFound: the one check that works on every store.
+// matches sessions.ErrSessionNotFound: the only check that works on every store.
 func TestSession(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -903,7 +903,7 @@ func TestUserSessionsConnectionClosed(t *testing.T) {
 //
 // UserSessions is left out. Its timer waits for the watcher's mutex, and a reader
 // that does not block between keys lets nats.go deliver the rest of the replay first:
-// with one CPU, the replay completes. The calls here make a NATS round trip per key,
+// with 1 CPU, the replay completes. The calls here make a NATS round trip per key,
 // and UserSessions reads through the same [natskv] replay function.
 func TestReplayStall(t *testing.T) {
 	conn := setupNATS(t)
@@ -951,7 +951,7 @@ func TestReplayStall(t *testing.T) {
 	}
 }
 
-// TestUserSessions tests the iterator a settings page reads: one entry per live
+// TestUserSessions tests the iterator a settings page reads: 1 entry per live
 // session of the user, and nothing for an unknown or empty user ID.
 func TestUserSessions(t *testing.T) {
 	conn := setupNATS(t)
@@ -1137,7 +1137,7 @@ func TestUserSessionsBreakEarly(t *testing.T) {
 }
 
 // TestUserSessionsBadJSON tests a corrupted entry among a user's sessions.
-// The iterator skips it and yields the rest: one bad key must not hide the whole
+// The iterator skips it and yields the rest: 1 bad key must not hide the whole
 // listing from the settings page.
 func TestUserSessionsBadJSON(t *testing.T) {
 	conn := setupNATS(t)
@@ -1425,7 +1425,7 @@ func (g *unsafeGen) Generate() (string, error) {
 }
 
 // TestUnsafeSessionIDIsRevocable tests a session ID carrying the syntax the
-// KV key is built from. A revocation watches "{user}.*", which matches one token,
+// KV key is built from. A revocation watches "{user}.*", which matches 1 token,
 // and an unencoded separator would hide the session from it.
 func TestUnsafeSessionIDIsRevocable(t *testing.T) {
 	conn := setupNATS(t)
@@ -1470,7 +1470,7 @@ func TestUnsafeSessionIDIsRevocable(t *testing.T) {
 	}
 }
 
-// TestEmptySessionIDRefused tests the one session ID encoding cannot save.
+// TestEmptySessionIDRefused tests the only session ID encoding cannot save.
 // An empty ID names no key.
 func TestEmptySessionIDRefused(t *testing.T) {
 	conn := setupNATS(t)
@@ -1490,7 +1490,7 @@ type emptyGen struct{}
 
 func (emptyGen) Generate() (string, error) { return "", nil }
 
-// TestDeleteExpired tests the sweep. NATS expires keys at one age for the whole bucket,
+// TestDeleteExpired tests the sweep. NATS expires keys at the same age for the whole bucket,
 // which is not the ExpiresAt a session carries.
 func TestDeleteExpired(t *testing.T) {
 	conn := setupNATS(t)

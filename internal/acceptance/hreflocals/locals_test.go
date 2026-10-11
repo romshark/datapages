@@ -169,7 +169,7 @@ func TestBuiltinNameIsFree(t *testing.T) {
 }
 
 // TestImportNameIsStillEscaped tests that the renamed parameter is the one escaped.
-// A path value belongs to one segment, which is what url.PathEscape
+// A path value belongs to 1 segment, which is what url.PathEscape
 // under a parameter named "url" is for.
 func TestImportNameIsStillEscaped(t *testing.T) {
 	t.Parallel()

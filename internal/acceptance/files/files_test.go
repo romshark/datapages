@@ -64,7 +64,7 @@ func TestFile(t *testing.T) {
 }
 
 // TestFileEscapedName tests a path value that needs escaping.
-// The href builder escapes it into one segment and the handler reads it back whole.
+// The href builder escapes it into 1 segment and the handler reads it back whole.
 func TestFileEscapedName(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)

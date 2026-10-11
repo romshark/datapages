@@ -1,8 +1,8 @@
-// Tests the servers the three constructors of this module build.
+// Tests the servers the 3 constructors of this module build.
 //
-// A module may build one application from any number of packages.
+// A module may build 1 application from any number of packages.
 // The app package is parsed once and generated once,
-// whichever call asked for the server, hence all three servers serve the same routes.
+// whichever call asked for the server, hence all 3 servers serve the same routes.
 
 package acceptance_test
 
@@ -25,7 +25,7 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-// constructors are the ways this module builds its one server:
+// constructors are the ways this module builds its only server:
 // the call in the test package, the one in serve and the one in internal/boot.
 var constructors = map[string]func(*testing.T) datapages.Server{
 	"test package": func(t *testing.T) datapages.Server {
@@ -70,10 +70,10 @@ func TestEveryConstructorServesTheSameApp(t *testing.T) {
 	}
 }
 
-// TestActionsAreOneSetOfRoutes tests the generated action expressions against
-// each server. One app package is generated once, hence the routes a caller
+// TestActionsAre1SetOfRoutes tests the generated action expressions against
+// each server. 1 app package is generated once, hence the routes a caller
 // reaches do not depend on which call built the server.
-func TestActionsAreOneSetOfRoutes(t *testing.T) {
+func TestActionsAre1SetOfRoutes(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "@post('/tick/')", action.PageIndex.Tick.POST())
 

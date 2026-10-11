@@ -9,7 +9,7 @@ import (
 	"github.com/romshark/datapages/example/file-upload/store"
 )
 
-// UploadJob tells the uploader where the bytes of one file go,
+// UploadJob tells the uploader where the bytes of 1 file go,
 // which byte comes next and how many to send at a time.
 // It travels to the browser as the argument of a script.
 type UploadJob struct {
@@ -48,7 +48,7 @@ func callScript(fn string, arg any) (string, error) {
 
 // chunkURL is the chunk endpoint of id with an empty offset parameter,
 // to which the uploader appends the offset of each chunk.
-// The 1 is rendered and cut off again because a zero renders no parameter at all.
+// The 1 is rendered and cut off again because a 0 renders no parameter at all.
 func chunkURL(id string) string {
 	return strings.TrimSuffix(actionURL(
 		action.PageIndex.Chunk.PUT(id, action.PageIndex.Chunk.PUTQuery(1)),
@@ -59,9 +59,9 @@ func chunkURL(id string) string {
 //
 // The uploader sends chunks with fetch, which needs a plain URL,
 // and no generated package renders one. Cutting it out of the expression keeps
-// the route declared in one place: the doc comment of its handler.
+// the route declared in 1 place: the doc comment of its handler.
 //
-// url.PathEscape percent-encodes an apostrophe: the first two apostrophes of
+// url.PathEscape percent-encodes an apostrophe: the first 2 apostrophes of
 // an expression without options delimit the whole URL.
 func actionURL(expr string) string {
 	open := strings.IndexByte(expr, '\'')

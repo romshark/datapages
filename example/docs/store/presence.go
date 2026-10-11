@@ -21,7 +21,7 @@ type Collaborator struct {
 	Cursor *Cursor
 }
 
-// Cursor is a selection, or a caret when Length is zero.
+// Cursor is a selection, or a caret when Length is 0.
 type Cursor struct {
 	Index  int `json:"index"`
 	Length int `json:"length"`

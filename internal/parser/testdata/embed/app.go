@@ -142,7 +142,7 @@ type PageMulti struct {
 	AbstractLevel3
 }
 
-// Saver defines the action suffix Save for two HTTP methods.
+// Saver defines the action suffix Save for 2 HTTP methods.
 type Saver struct{ App *App }
 
 // POSTSave is /verbs/save
@@ -167,7 +167,7 @@ func (PageVerbs) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTSave is /verbs/save
 func (PageVerbs) POSTSave(r *http.Request) error { return nil }
 
-// Archiver defines the action suffix Archive for two HTTP methods.
+// Archiver defines the action suffix Archive for 2 HTTP methods.
 type Archiver struct{ App *App }
 
 // POSTArchive is /archive/archive

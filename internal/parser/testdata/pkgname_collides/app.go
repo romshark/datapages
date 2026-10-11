@@ -2,7 +2,7 @@
 
 // Package stream is named after a package app_gen.go imports.
 // Unaliased, the app import and github.com/romshark/datapages/runtime/stream
-// would bind one identifier and the generated package would not compile.
+// would bind the same identifier and the generated package would not compile.
 package stream
 
 import (

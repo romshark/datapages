@@ -79,7 +79,7 @@ func (s *Server) writeHTML(
 		SessionToken: sessionToken,
 		HeadGeneric:  headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
-			// The id authorizes access to one tab's state. The fetch wrapper keeps
+			// The id authorizes access to 1 tab's state. The fetch wrapper keeps
 			// it in a closure. Removing the script node prevents later DOM readers,
 			// including replay and error-reporting tools, from recording it.
 			// Cache-Control: no-store prevents caches from retaining the response body.
@@ -362,7 +362,7 @@ func evSubjPageUser(userID string) []string {
 }
 
 // brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
-// A metric labelled with the raw subject would carry one value per user or per tab.
+// A metric labelled with the raw subject would carry 1 value per user or per tab.
 func brokerSubjectKind(subject string) string {
 	switch {
 	case strings.HasPrefix(subject, EvPrefixMessagingRead):
@@ -488,7 +488,7 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	return true
 }
 
-// stateSlotStateMessages belongs to one stream and is never reused.
+// stateSlotStateMessages belongs to 1 stream and is never reused.
 // A reconnect allocates a new slot and state value.
 type stateSlotStateMessages struct {
 	state *dpapp.StateMessages
@@ -656,7 +656,7 @@ func (s *Server) httpErrIntern(
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
 		if httpserve.ResponseBodyWritten(w) {
-			// An error page after a half-written one sends two documents.
+			// An error page after a half-written one sends 2 documents.
 			return
 		}
 		switch httpserve.ErrStatus(err) {

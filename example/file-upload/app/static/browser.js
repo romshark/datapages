@@ -9,7 +9,7 @@
 (() => {
 	const defaultChunkSize = 1 << 20;
 
-	// 250ms doubling to a cap of 8s, which outlasts about half a minute of failures.
+	// 250ms doubling to a cap of 8s, which outlasts about 30s of failures.
 	// A longer outage is picked up by the online event instead.
 	const retries = 8;
 
@@ -137,7 +137,7 @@
 			picked = [];
 		},
 
-		// go sends the bytes of one job, or does nothing when
+		// go sends the bytes of 1 job, or does nothing when
 		// this tab holds no File for it.
 		go(job) {
 			const t = transfers.get(job.id);

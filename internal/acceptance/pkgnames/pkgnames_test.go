@@ -73,7 +73,7 @@ func TestFieldTypePackage(t *testing.T) {
 }
 
 // TestFieldTypePackageInAction tests the same types in an action, which reads a path,
-// a query and the signals of the request in one handler.
+// a query and the signals of the request in 1 handler.
 func TestFieldTypePackageInAction(t *testing.T) {
 	t.Parallel()
 	tab := serve(t).Visitor(t).Load(t, href.PageItem("seven", href.QueryPageItem{}))
@@ -91,7 +91,7 @@ func TestFieldTypePackageInAction(t *testing.T) {
 		datapagestest.Text(evs[0].ElementByID(t, "echo")))
 }
 
-// TestStreamCarriesTheFieldTypePackage tests the two generated handlers the
+// TestStreamCarriesTheFieldTypePackage tests the 2 generated handlers the
 // page tests above do not reach: the stream handler, which reads a session of
 // the aliased data type before it subscribes, and the dispatcher,
 // which marshals an event whose field is of the aliased field type.

@@ -21,10 +21,10 @@ type LimitSignals struct {
 
 // LimitKiB is a rate as a number field reports it.
 //
-// The bound field sends a JSON number and an emptied one sends zero.
+// The bound field sends a JSON number and an emptied one sends 0.
 // A quoted rate and an empty string are read too: Datastar binds a web
 // component by its value property, which is a string, so a field that becomes
-// one still reports a rate. A rate of nothing is not a rate: it becomes zero,
+// one still reports a rate. A rate of nothing is not a rate: it becomes 0,
 // which [clampLimit] answers with the minimum. Refusing it would leave the
 // field holding a value the server never took.
 type LimitKiB int64
@@ -102,7 +102,7 @@ func (p PageIndex) OnLimitsChanged(
 //
 // Snapping rather than adding, so that the rates a visitor lands on are round.
 // Adding would inherit the rule of a native number field, whose steps count from min:
-// with a minimum of 1 the field offers 1, 65, 129, and one step down
+// with a minimum of 1 the field offers 1, 65, 129, and 1 step down
 // from 64 to the floor leaves every later step off the round grid.
 func limitStepExpr(rate string, up bool) string {
 	step, n := strconv.Itoa(LimitStepKiB), "-1"

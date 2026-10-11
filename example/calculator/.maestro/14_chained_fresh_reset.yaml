@@ -1,6 +1,6 @@
 url: http://localhost:8080
 ---
-# After two consecutive calculations, pressing a digit must still
+# After 2 consecutive calculations, pressing a digit must still
 # start a fresh expression (not append to the second result).
 - launchApp
 - tapOn: "3"

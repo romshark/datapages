@@ -140,7 +140,7 @@ func Suggest(err error) string {
 		return "fix: Add a parameter of an EventXXX type"
 
 	case errors.Is(err, parser.ErrSignatureEvHandMultipleEvents):
-		return "fix: Keep one parameter of an EventXXX type and remove the rest"
+		return "fix: Keep 1 parameter of an EventXXX type and remove the rest"
 
 	case errors.Is(err, parser.ErrSignatureEvHandEventPointer):
 		var d *parser.SignatureEvHandEventPointerError
@@ -414,7 +414,7 @@ func Suggest(err error) string {
 			" is always bound to the authenticated user's ID"
 
 	case errors.Is(err, parser.ErrEventSubjectUserDuplicate):
-		return "fix: Keep one datapages.SubjectUser field " +
+		return "fix: Keep 1 datapages.SubjectUser field " +
 			"and dispatch the event once per user."
 
 	case errors.Is(err, parser.ErrEventSubjectPrefixedField):
@@ -621,10 +621,10 @@ func Suggest(err error) string {
 			"StreamOpen or StreamClose"
 
 	case errors.Is(err, parser.ErrStateDuplicate):
-		return "fix: Keep one datapages.State[T] parameter and remove the rest"
+		return "fix: Keep 1 datapages.State[T] parameter and remove the rest"
 
 	case errors.Is(err, parser.ErrStateConflict):
-		return "fix: Reference one state type from every handler of the page, " +
+		return "fix: Reference 1 state type from every handler of the page, " +
 			"the handlers of embedded abstract pages included"
 
 	case errors.Is(err, parser.ErrStateAppActionUnbound):
@@ -632,7 +632,7 @@ func Suggest(err error) string {
 			"or drop the state parameter from the App action"
 
 	case errors.Is(err, parser.ErrStateIDDuplicate):
-		return "fix: Keep one stateID parameter and remove the rest"
+		return "fix: Keep 1 stateID parameter and remove the rest"
 
 	case errors.Is(err, parser.ErrStateIDParamNotString):
 		return "fix: Declare the parameter as `stateID string`"

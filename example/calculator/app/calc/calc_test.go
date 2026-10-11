@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEvaluate tests the expression grammar the calculator accepts: the four operators
+// TestEvaluate tests the expression grammar the calculator accepts: the 4 operators
 // including their Unicode spellings, precedence, parentheses and unary minus.
-// Anything it cannot parse, and division by zero, yield "Error" rather than a Go error,
+// Anything it cannot parse, and division by 0, yield "Error" rather than a Go error,
 // since the result goes straight into the display.
 func TestEvaluate(t *testing.T) {
 	for name, tt := range map[string]struct {
@@ -57,7 +57,7 @@ func TestFormatDisplay(t *testing.T) {
 		want  string
 	}{
 		"empty":       {input: "", want: "0"},
-		"zero":        {input: "0", want: "0"},
+		"0":           {input: "0", want: "0"},
 		"small":       {input: "999", want: "999"},
 		"thousands":   {input: "1000", want: "1,000"},
 		"millions":    {input: "1234567", want: "1,234,567"},
@@ -145,7 +145,7 @@ func TestPress(t *testing.T) {
 			input: full, fresh: true, btn: CalcButton7,
 			wantInput: "7",
 		},
-		// 1÷3 has 16 decimal places, the product of seven of them 112.
+		// 1÷3 has 16 decimal places, the product of 7 of them 112.
 		"result_over_limit": {
 			input: strings.Repeat("(1÷3)", 7), btn: CalcButtonEq,
 			wantInput: "Error", wantFresh: true,

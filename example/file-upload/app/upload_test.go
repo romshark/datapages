@@ -32,7 +32,7 @@ import (
 // contents is what the test uploads, in chunks the test chooses.
 const contents = "0123456789abcdefghij"
 
-// tab holds what one browser tab has: the page load that minted its instance
+// tab holds what 1 browser tab has: the page load that minted its instance
 // identifier and the stream that keeps its per-tab state alive. The other fields
 // are shared by every tab of the server.
 type tab struct {
@@ -96,7 +96,7 @@ func (tb *tab) load(t *testing.T) {
 	tb.stream = tb.Connect(t, tb.Page().PublicSignals(t))
 }
 
-// chunk sends one chunk the way the uploader does, as a plain fetch. Without the
+// chunk sends 1 chunk the way the uploader does, as a plain fetch. Without the
 // Datastar-Request header a refusal arrives as a status code rather than as a
 // message RecoverError renders.
 func (tb *tab) chunk(t *testing.T, id string, offset int64, data string) int {
@@ -159,7 +159,7 @@ func resumed(t *testing.T, resp *datapagestest.Response) job {
 	return j
 }
 
-// TestUpload covers one file from the dialog to the download,
+// TestUpload covers 1 file from the dialog to the download,
 // interrupted by a pause and resumed, then deleted.
 func TestUpload(t *testing.T) {
 	tb := newTab(t)
@@ -175,7 +175,7 @@ func TestUpload(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 	f, err = tb.files.Get(id)
 	require.NoError(t, err)
-	require.Equal(t, int64(10), f.Received, "half the file did not arrive")
+	require.Equal(t, int64(10), f.Received, "1/2 of the file did not arrive")
 	require.Equal(t, 50, f.Percent())
 
 	// A paused file refuses bytes, which is what stops an uploader that did
@@ -234,7 +234,7 @@ func TestChunkStatus(t *testing.T) {
 
 	f, err := tb.files.Get(id)
 	require.NoError(t, err)
-	require.Equal(t, int64(10), f.Received, "a repeated chunk was written twice")
+	require.Equal(t, int64(10), f.Received, "a repeated chunk was written 2 times")
 
 	require.Equal(t, http.StatusNotFound, tb.chunk(t, "nosuchfile", 0, "x"))
 
@@ -471,7 +471,7 @@ func TestOrphanedFileOffersTakeOver(t *testing.T) {
 	require.NotNil(t, find(list, class("status-interrupted")))
 }
 
-// stage opens the upload dialog on one file and returns the dialog it rendered.
+// stage opens the upload dialog on 1 file and returns the dialog it rendered.
 func (tb *tab) stage(t *testing.T, name, contentType string, size int) *html.Node {
 	t.Helper()
 	resp := tb.Do(t, http.MethodPost, "/stage/", picked(name, contentType, size))
@@ -538,7 +538,7 @@ func TestPickingAnUnfinishedFileAgainSeparately(t *testing.T) {
 }
 
 // TestSeparateUploadKeepsNamesApart tests that confirming the dialog unchanged
-// for a second copy does not produce two rows a visitor cannot tell apart.
+// for a second copy does not produce 2 rows a visitor cannot tell apart.
 func TestSeparateUploadKeepsNamesApart(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
@@ -662,7 +662,7 @@ func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
 	}
 }
 
-// TestStartRefusesTheWholeDialog tests that a dialog with one name the store
+// TestStartRefusesTheWholeDialog tests that a dialog with 1 name the store
 // refuses starts none of its files, not even those listed before that name.
 func TestStartRefusesTheWholeDialog(t *testing.T) {
 	tb := newTab(t)
@@ -765,14 +765,14 @@ func TestLimitsAreClamped(t *testing.T) {
 	require.JSONEq(t, strconv.Itoa(app.MaxLimitKiB), string(signals["limitDown"]))
 }
 
-// TestRateBelowTheMinimumResets tests that every way of reaching zero answers
+// TestRateBelowTheMinimumResets tests that every way of reaching 0 answers
 // with the minimum rather than an error. An emptied number field reports an
 // empty string, and refusing it would leave the field holding
 // a rate the server never took.
 func TestRateBelowTheMinimumResets(t *testing.T) {
 	for name, rate := range map[string]string{
-		"zero":            "0",
-		"quoted zero":     `"0"`,
+		"0":               "0",
+		"quoted 0":        `"0"`,
 		"empty":           `""`,
 		"blank":           `"  "`,
 		"null":            "null",
@@ -847,7 +847,7 @@ func TestLimitStepExprSnapsToTheGrid(t *testing.T) {
 }
 
 // stepped mirrors limitStepExpr, the expression the arrow keys evaluate in the
-// browser. The server never runs it, and what keeps the two honest is this
+// browser. The server never runs it, and what keeps the 2 honest is this
 // test asserting the rate the server ends up holding.
 func stepped(from string, up bool) string {
 	v, err := strconv.Atoi(from)
@@ -953,7 +953,7 @@ func fileList(what string, match func(*html.Node) bool) datapagestest.Match {
 }
 
 // TestRowCarriesAnActionsMenu tests that every row also renders its controls
-// as one menu, which is what a phone shows in place of the row of buttons.
+// as 1 menu, which is what a phone shows in place of the row of buttons.
 func TestRowCarriesAnActionsMenu(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
@@ -1100,10 +1100,10 @@ func TestChunkSizeFollowsTheLimit(t *testing.T) {
 		unlimited bool
 		want      int64
 	}{
-		"unlimited sends the largest chunk":  {unlimited: true, want: 1 << 20},
-		"a high limit is capped":             {limitKiB: 1 << 20, want: 1 << 20},
-		"a slow limit sends a small chunk":   {limitKiB: 8, want: 8 * 1024 * 10},
-		"the slowest limit stays above zero": {limitKiB: 1, want: 16 << 10},
+		"unlimited sends the largest chunk": {unlimited: true, want: 1 << 20},
+		"a high limit is capped":            {limitKiB: 1 << 20, want: 1 << 20},
+		"a slow limit sends a small chunk":  {limitKiB: 8, want: 8 * 1024 * 10},
+		"the slowest limit stays above 0":   {limitKiB: 1, want: 16 << 10},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tb := newTab(t)

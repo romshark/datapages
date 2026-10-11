@@ -323,7 +323,7 @@ func TestCSPNonceReachesEveryScript(t *testing.T) {
 
 			tags := regexp.MustCompile(`<script[^>]*>`).FindAllString(resp.Body, -1)
 			require.Len(t, tags, 5,
-				"expected one build, one Datastar, two offline, and one cache-write script")
+				"expected 1 build, 1 Datastar, 2 offline, and 1 cache-write script")
 			for _, tag := range tags {
 				require.Contains(t, tag, `nonce="`+nonce+`"`,
 					"inline script requires the request nonce")

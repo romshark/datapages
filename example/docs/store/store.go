@@ -53,7 +53,7 @@ const (
 	keepLogged = 100
 )
 
-// Store holds the documents of one directory.
+// Store holds the documents of 1 directory.
 type Store struct {
 	dir string
 
@@ -70,7 +70,7 @@ type Summary struct {
 	Preview string
 }
 
-// Snapshot is a document at one revision.
+// Snapshot is a document at a given revision.
 type Snapshot struct {
 	ID      string
 	Title   string

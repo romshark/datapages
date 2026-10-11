@@ -99,7 +99,7 @@ The parameter is optional on `GET` methods and on page or `*App` actions.
 | `Version()` | the version the client holds for **this request's URL**, 0 if none |
 | `Set(url, body, version)` | cache `body` for `url`, served only while offline |
 | `SetShim(url, body, version)` | cache `body` for `url`, served online too |
-| `Clear(url)` | remove one entry |
+| `Clear(url)` | remove 1 entry |
 | `ClearAll()` | remove every page cache entry |
 
 `url` comes from the generated `href` package. Writes remain queued until the handler returns without error. The worker then applies them together, with `ClearAll` first.
@@ -171,7 +171,7 @@ A shim is also shown online. It must not make an offline-only claim. If the live
   }
   ```
 - **Use `!=`, not `<`, for an unordered version key** such as a hash. `<` re-caches only on an increase and silently keeps a stale entry.
-- **Use `ClearAll()` when one change invalidates many pages.** Examples include locale, permission and session changes. Entries return only after a handler calls `Set` again. Call `ClearAll()` during sign-in and sign-out.
+- **Use `ClearAll()` when 1 change invalidates many pages.** Examples include locale, permission and session changes. Entries return only after a handler calls `Set` again. Call `ClearAll()` during sign-in and sign-out.
 - **Update invalidated entries.** A page cached by its `GET` updates on the next online visit. An action that changes another cached page should call `Set` for that page.
 
 ## What may be cached

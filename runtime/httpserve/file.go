@@ -49,7 +49,7 @@ var (
 )
 
 // fileHeaders are the headers [ServeFile] and [http.ServeContent] write,
-// by canonical name. A field of [datapages.File] is the one way to set each.
+// by canonical name. A field of [datapages.File] is the only way to set each.
 var fileHeaders = [...]string{
 	"Accept-Ranges",
 	"Cache-Control",
@@ -249,7 +249,7 @@ func passFileThrough(w http.ResponseWriter) {
 // for it, except Set-Cookie and Vary, whose values add to the ones set before.
 // Vary lists the request headers the response depends on, each added by what
 // made it depend on one, such as Cookie for a handler that takes the session.
-// Keys that spell one name differently are joined in sorted order,
+// Keys that spell the same name differently are joined in sorted order,
 // which writes the same values on every request.
 func addHeader(h, extra http.Header) {
 	replaced := make(map[string]bool, len(extra))
@@ -340,7 +340,7 @@ func (g *guardedBody) Close() error {
 // each other, such as Private next to NoStore.
 //
 // A value without max-age, no-cache or no-store gets no-cache. A browser reuses
-// a response without an explicit freshness lifetime for a tenth of the time since
+// a response without an explicit freshness lifetime for 1/10 of the time since
 // its Last-Modified without asking, as RFC 9111 section 4.2.2 permits.
 func cacheControl(c datapages.FileCache) (string, error) {
 	invalid := func(reason string) (string, error) {

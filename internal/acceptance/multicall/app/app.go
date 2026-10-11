@@ -1,8 +1,8 @@
-// Package app is the one application of a module whose datapages.NewServer
+// Package app is the only application of a module whose datapages.NewServer
 // calls are spread over several packages: the command, a library package
 // beside it and one nested below the module root.
 //
-// Every call names this app and the same four type arguments. The case exists
+// Every call names this app and the same 4 type arguments. The case exists
 // to check that the scan reads all of them and generates this package once.
 package app
 

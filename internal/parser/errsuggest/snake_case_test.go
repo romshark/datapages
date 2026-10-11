@@ -7,7 +7,7 @@ import (
 )
 
 // TestToSnakeCase tests the naming the suggestions spell identifiers with.
-// A run of capitals is one word: "UserID" is "user_id", not "user_i_d".
+// A run of capitals is 1 word: "UserID" is "user_id", not "user_i_d".
 func TestToSnakeCase(t *testing.T) {
 	for input, want := range map[string]string{
 		"Page":         "page",

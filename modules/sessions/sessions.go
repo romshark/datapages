@@ -9,7 +9,7 @@ import (
 
 var (
 	// ErrSessionNotFound reports that no session exists for a token.
-	// It is declared here rather than per store so that one errors.Is check
+	// It is declared here rather than per store so that 1 errors.Is check
 	// works against every implementation.
 	ErrSessionNotFound = errors.New("session not found")
 
@@ -80,7 +80,7 @@ type Closer interface {
 	CloseSession(ctx context.Context, token string) error
 }
 
-// UserSessionIterator iterates the live sessions of one user.
+// UserSessionIterator iterates the live sessions of 1 user.
 //
 // Optional: a store need not implement it, and an application that lists
 // sessions needs it. It's declared here so that the built-in stores agree on the API,
@@ -100,7 +100,7 @@ type UserSessionIterator[Data any] interface {
 	) (iter.Seq2[string, Record[Data]], error)
 }
 
-// UserSessionCloser closes every live session of one user.
+// UserSessionCloser closes every live session of 1 user.
 //
 // Optional in the same way as [UserSessionIterator]:
 // a store that cannot look sessions up by user cannot implement it.

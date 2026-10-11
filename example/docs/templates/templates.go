@@ -89,7 +89,7 @@ func parse(name string) (Template, error) {
 		return Template{}, err
 	}
 	t := Template{ID: strings.TrimSuffix(name, ".json"), Name: f.Title, Title: f.Title}
-	// The files keep one insert per line for reading. [delta.Delta.Push]
+	// The files keep 1 insert per line for reading. [delta.Delta.Push]
 	// merges them as quill-delta does.
 	for _, op := range f.Content.Ops {
 		if op.Embed.Type == "image" {

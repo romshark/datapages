@@ -46,7 +46,7 @@ type caseOptions struct {
 
 // TestAcceptance runs every case module: it regenerates the case,
 // diffs the result against the committed output and runs the case's own tests over HTTP.
-// One subtest per directory holding a go.mod.
+// 1 subtest per directory holding a go.mod.
 func TestAcceptance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a module per case")
@@ -115,7 +115,7 @@ func readCaseOptions(t *testing.T, name string) caseOptions {
 }
 
 // requireGeneratedIsCurrent regenerates the case beside its committed code and
-// compares the two. What the suite runs is then what the generator writes.
+// compares the 2. What the suite runs is then what the generator writes.
 func requireGeneratedIsCurrent(t *testing.T, name string) []serverscan.App {
 	t.Helper()
 	dst := t.TempDir()
@@ -129,7 +129,7 @@ func requireGeneratedIsCurrent(t *testing.T, name string) []serverscan.App {
 // generateInto parses the app packages of the case and generates them into dst,
 // the way "datapages gen" does, and returns the apps the scan found.
 //
-// How many applications a case builds is not fixed. Most build one; multiapp builds two.
+// How many applications a case builds is not fixed. Most build 1; multiapp builds 2.
 // Each is generated on its own, from its own app package.
 func generateInto(t *testing.T, name, dst string) []serverscan.App {
 	t.Helper()
@@ -178,7 +178,7 @@ func modulePath(name string) string {
 	return "github.com/romshark/datapages/internal/acceptance/" + name
 }
 
-// compareTrees fails when the two directories differ in file names or content.
+// compareTrees fails when the 2 directories differ in file names or content.
 func compareTrees(t *testing.T, got, want string) {
 	t.Helper()
 	gotFiles := readTree(t, got)
@@ -225,7 +225,7 @@ func readTree(t *testing.T, dir string) map[string]string {
 	return files
 }
 
-// coverage accumulates one coverage profile per acceptance case.
+// coverage accumulates 1 coverage profile per acceptance case.
 var coverage coverageSet
 
 type coverageSet struct {
@@ -233,7 +233,7 @@ type coverageSet struct {
 	cases map[string][]coverageBlock
 }
 
-// coverageBlock is one block of a Go coverage profile:
+// coverageBlock is 1 block of a Go coverage profile:
 // a source range, the number of statements in it, and how often it ran.
 type coverageBlock struct {
 	Location string // "<case>/<file>:startLine.col,endLine.col"
@@ -257,7 +257,7 @@ func (c *coverageSet) add(t *testing.T, name, profile string) {
 // parseCoverProfile reads a profile written by "go test -coverprofile" and
 // keys every block by the case it came from.
 //
-// "go test ./..." runs one test binary per package and each of them reports
+// "go test ./..." runs 1 test binary per package and each of them reports
 // every block of every package named by -coverpkg. The same block therefore
 // appears once per binary. Blocks are merged by location the way
 // "go tool cover" merges them. Counts add up and statements are counted once.
@@ -353,7 +353,7 @@ func percent(covered, total int) float64 {
 	return float64(covered) / float64(total) * 100
 }
 
-// writeMerged writes every case's blocks as one profile. The file names carry
+// writeMerged writes every case's blocks as 1 profile. The file names carry
 // the case as their first path element, which keeps the blocks distinct.
 func (c *coverageSet) writeMerged(dst string) error {
 	c.mu.Lock()

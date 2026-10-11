@@ -5,9 +5,9 @@ import "github.com/romshark/datapages/example/docs/delta"
 // Repair returns the change that removes from doc what Quill cannot show,
 // empty if nothing. last is the change that produced doc.
 //
-// Two concurrent changes, each valid alone, can leave:
+// 2 concurrent changes, each valid alone, can leave:
 //
-//   - Two line types on one line. One editor makes it a heading, another a
+//   - 2 line types on 1 line. One editor makes it a heading, another a
 //     list item. Quill shows one, picked by the order the editor applied the
 //     changes in, which differs between editors. Repair sets the last-set
 //     type again, and every editor shows it.

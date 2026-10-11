@@ -1,4 +1,4 @@
-// Package app gives a page ending in {$} four actions: one below its route,
+// Package app gives a page ending in {$} 4 actions: one below its route,
 // one at it, one without a path comment and one adopted from an embedded type.
 //
 // The parser is expected to report each of them once.

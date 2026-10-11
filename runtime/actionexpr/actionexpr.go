@@ -27,7 +27,7 @@ type Metrics interface {
 type metricsHolder struct{ m Metrics }
 
 // Reporter is where an option value the expression cannot carry is reported.
-// The generated action package holds one per application and passes it in.
+// The generated action package holds 1 per application and passes it in.
 // A variable of this package would be shared by every server of the process:
 // the last one to install a logger would own the logger of all of them.
 //
@@ -65,7 +65,7 @@ func (r *Reporter) getMetrics() Metrics {
 	return nil
 }
 
-// Option is one entry of an action expression. It is either an option of
+// Option is 1 entry of an action expression. It is either an option of
 // the call or JavaScript that runs before or after it.
 type Option struct {
 	key   string
@@ -261,7 +261,7 @@ func WithRetry(r *Reporter, retry Retry) Option {
 }
 
 // WithRetryInterval creates an action option for the retry interval in milliseconds.
-// Defaults to 1000 (one second). A negative interval is dropped and warn-logged.
+// Defaults to 1000 (1 second). A negative interval is dropped and warn-logged.
 func WithRetryInterval(r *Reporter, ms int) Option {
 	if ms < 0 {
 		r.warnDropped("WithRetryInterval", strconv.Itoa(ms))
@@ -363,7 +363,7 @@ var jsStringEscaper = strings.NewReplacer(
 // The option is left out, which runs the action on the Datastar default.
 //
 // An option is built on every render, so the logger the server installs
-// throttles the warning to one per interval.
+// throttles the warning to 1 per interval.
 func (r *Reporter) warnDropped(fn, value string) {
 	if m := r.getMetrics(); m != nil {
 		m.OptionDropped(fn)

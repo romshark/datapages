@@ -89,7 +89,7 @@ func TestSuggest(t *testing.T) {
 
 		"ErrSignatureEvHandMultipleEvents": {
 			err:  parser.ErrSignatureEvHandMultipleEvents,
-			want: "fix: Keep one parameter of an EventXXX type and remove the rest",
+			want: "fix: Keep 1 parameter of an EventXXX type and remove the rest",
 		},
 		"ErrSignatureEvHandMissingEvent": {
 			err:  parser.ErrSignatureEvHandMissingEvent,
@@ -463,7 +463,7 @@ func TestSuggest(t *testing.T) {
 		"ErrEventSubjectUserDuplicate": {
 			err: fmt.Errorf("%w: EventDM.Cc next to EventDM.To",
 				parser.ErrEventSubjectUserDuplicate),
-			want: "fix: Keep one datapages.SubjectUser field " +
+			want: "fix: Keep 1 datapages.SubjectUser field " +
 				"and dispatch the event once per user.",
 		},
 
@@ -648,12 +648,12 @@ func TestSuggest(t *testing.T) {
 
 		"ErrStateDuplicate": {
 			err:  parser.ErrStateDuplicate,
-			want: "fix: Keep one datapages.State[T] parameter and remove the rest",
+			want: "fix: Keep 1 datapages.State[T] parameter and remove the rest",
 		},
 
 		"ErrStateConflict": {
 			err: parser.ErrStateConflict,
-			want: "fix: Reference one state type from every handler of the " +
+			want: "fix: Reference 1 state type from every handler of the " +
 				"page, the handlers of embedded abstract pages included",
 		},
 
@@ -665,7 +665,7 @@ func TestSuggest(t *testing.T) {
 
 		"ErrStateIDDuplicate": {
 			err:  parser.ErrStateIDDuplicate,
-			want: "fix: Keep one stateID parameter and remove the rest",
+			want: "fix: Keep 1 stateID parameter and remove the rest",
 		},
 
 		"ErrStateIDParamNotString": {

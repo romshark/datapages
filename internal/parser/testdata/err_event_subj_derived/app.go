@@ -26,7 +26,7 @@ type UserID datapages.SubjectUser
 // Room is declared from a value segment type.
 type Room datapages.Subject
 
-// RoomTag is declared from Room, two declarations away from the framework type.
+// RoomTag is declared from Room, 2 declarations away from the framework type.
 type RoomTag Room
 
 // RoomAlias resolves to the framework type and stays a subject segment.
@@ -46,7 +46,7 @@ type EventDerivedUser struct {
 }
 
 /* ErrEventSubjectDerivedType: the value segment type, reached through a chain
-   of two declarations */
+   of 2 declarations */
 
 // EventDerivedValue is "derived_value"
 type EventDerivedValue struct {

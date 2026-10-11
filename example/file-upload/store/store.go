@@ -1,7 +1,7 @@
 // Package store keeps uploaded files on disk and tracks how much of each file
 // has arrived, which is what makes an interrupted upload resumable.
 //
-// Every file owns three paths under the store directory: "<id>.json" holds the
+// Every file owns 3 paths under the store directory: "<id>.json" holds the
 // metadata, "<id>.part" the bytes of an incomplete upload and "<id>.bin" the
 // bytes of a complete one. How many bytes arrived is never written to the
 // metadata: the size of the part file cannot disagree with the data,
@@ -54,7 +54,7 @@ const (
 	StatusComplete  Status = "complete"
 )
 
-// File is one uploaded file.
+// File is 1 uploaded file.
 type File struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -91,7 +91,7 @@ func (f File) Percent() int {
 // Complete reports whether every announced byte arrived.
 func (f File) Complete() bool { return f.Status == StatusComplete }
 
-// entry is one file and two locks. They are two because a chunk can take a long time,
+// entry is 1 file and 2 locks. They are 2 because a chunk can take a long time,
 // at the speed of the client and of whatever limit the server puts on it:
 // listing the files must not wait for that, and the bytes of a chunk
 // have to show up while they arrive rather than when the request ends.
@@ -152,7 +152,7 @@ type Store struct {
 
 // New opens the store in dir, creating the directory when it is missing,
 // and reads back the files of an earlier run. An incomplete upload whose
-// blob disappeared resumes from zero; a complete one is forgotten.
+// blob disappeared resumes from 0; a complete one is forgotten.
 func New(dir string) (*Store, error) {
 	// Absolute from here on: the process may change its working directory,
 	// and a relative path would then name somewhere else.
@@ -325,7 +325,7 @@ func (s *Store) Rename(id, name string) (File, error) {
 }
 
 // uniqueNameLocked counts a name up until no other file carries it,
-// so that the list never shows two rows a visitor cannot tell apart.
+// so that the list never shows 2 rows a visitor cannot tell apart.
 // except is the file that may keep the name it already has.
 //
 // The caller assigns the name before it releases the store lock. Otherwise a
@@ -391,7 +391,7 @@ func (s *Store) Append(id string, offset int64, r io.Reader) (File, error) {
 		return File{}, fmt.Errorf("opening blob: %w", err)
 	}
 	// O_APPEND writes where the received bytes end: no seek, and no chance of
-	// two chunks landing on the same offset.
+	// 2 chunks landing on the same offset.
 	_, copyErr := io.Copy(
 		&blobWriter{blob: blob, entry: e},
 		io.LimitReader(r, f.Size-f.Received),
@@ -545,7 +545,7 @@ func (s *Store) mutate(id string, change func(f *File) error) (File, error) {
 
 // snapshotEntries is every entry registered at this moment. The store lock is
 // released before the caller reads any of them, so that a chunk holding the
-// lock of one entry blocks nothing else.
+// lock of 1 entry blocks nothing else.
 func (s *Store) snapshotEntries() []*entry {
 	s.lock.Lock()
 	defer s.lock.Unlock()

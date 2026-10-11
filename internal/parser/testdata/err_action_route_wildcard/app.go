@@ -1,4 +1,4 @@
-// Package app gives three actions a route ending in a wildcard: one on App,
+// Package app gives 3 actions a route ending in a wildcard: one on App,
 // one adopted from an embedded type and one on a page.
 //
 // The parser is expected to report each of them once.

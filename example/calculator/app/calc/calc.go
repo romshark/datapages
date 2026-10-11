@@ -120,7 +120,7 @@ func (p *parser) parseTerm() (decimal.Decimal, error) {
 				left = left.Mul(right)
 			} else {
 				if right.IsZero() {
-					return decimal.Decimal{}, fmt.Errorf("division by zero")
+					return decimal.Decimal{}, fmt.Errorf("division by 0")
 				}
 				left = left.Div(right)
 			}

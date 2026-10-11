@@ -48,7 +48,7 @@ function text(n) {
 
 const maybe = (p, v) => (random() < p ? v : undefined);
 
-// insertRandom inserts up to maxLen random characters, or one time in five
+// insertRandom inserts up to maxLen random characters, or 1 time in 5
 // an image, formatted with probability p.
 function insertRandom(d, maxLen, p) {
   const format = maybe(p, pick(formats));

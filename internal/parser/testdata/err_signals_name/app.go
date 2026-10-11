@@ -45,7 +45,7 @@ func (PageIndex) POSTNested(
 // POSTDotted is /dotted
 //
 // A period stands between the steps of a signal path. A signals struct writes a
-// path by nesting a struct, which leaves this one key carrying a period that
+// path by nesting a struct, which leaves this single key carrying a period that
 // no client sends.
 func (PageIndex) POSTDotted(
 	r *http.Request,

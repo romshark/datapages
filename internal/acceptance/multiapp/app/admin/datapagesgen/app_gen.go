@@ -204,7 +204,7 @@ var evSubjPageIndex = []string{
 }
 
 // brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
-// A metric labelled with the raw subject would carry one value per user or per tab.
+// A metric labelled with the raw subject would carry 1 value per user or per tab.
 func brokerSubjectKind(subject string) string {
 	switch {
 	case subject == EvSubjReport:

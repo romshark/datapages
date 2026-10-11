@@ -248,8 +248,8 @@ func TestHandlersWithoutSessionWriteCSRFScript(t *testing.T) {
 // TestUnclaimedPathReadsTheSessionOnce tests the store reads a 404 costs.
 //
 // The index handler serves every path no page claims. It read the session
-// before the path check and render404 read it again, which is two store round
-// trips and, with a stale cookie, two clearing Set-Cookie headers.
+// before the path check and render404 read it again, which is 2 store round
+// trips and, with a stale cookie, 2 clearing Set-Cookie headers.
 func TestUnclaimedPathReadsTheSessionOnce(t *testing.T) {
 	t.Parallel()
 	store := &countingSessions{Manager: newSessions()}

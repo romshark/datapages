@@ -1,5 +1,5 @@
 // Package frontend is the session-carrying application of a module that builds
-// two of them.
+// 2 of them.
 //
 // Its server is generated with SessionData and datapages.DisablePrometheus.
 // Admin is generated with the opposite of both. Neither type argument is a

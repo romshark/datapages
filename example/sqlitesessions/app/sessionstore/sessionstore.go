@@ -112,11 +112,11 @@ func New(
 	}, nil
 }
 
-// ReadSessionFromCookie resolves a session cookie in one round trip:
+// ReadSessionFromCookie resolves a session cookie in 1 round trip:
 // the JOIN between sessions and users returns the persisted session fields and the
 // current display fields together.
 //
-// The result has three forms:
+// The result has 3 forms:
 //
 //   - (zero, "", false, nil): the cookie is missing, the row is gone,
 //     or the row was expired and just got cleaned up.
@@ -294,10 +294,10 @@ func (s *Store) DeleteExpired(_ context.Context) (int, error) {
 }
 
 // NotifyClosed registers fn to run when the session of token is closed.
-// It is what tears down the SSE streams of a session: signing out on one tab
+// It is what tears down the SSE streams of a session: signing out on 1 tab
 // ends every streaming response keyed to it.
 //
-// The contract of [sessions.CloseNotifier] resolves to three cases:
+// The contract of [sessions.CloseNotifier] resolves to 3 cases:
 //
 //   - The session no longer exists: fn runs immediately and nothing is registered,
 //     which settles the race with an already-closed session.

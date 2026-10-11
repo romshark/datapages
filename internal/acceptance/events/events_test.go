@@ -81,7 +81,7 @@ func TestPublicEventReachesEveryStream(t *testing.T) {
 	})
 }
 
-// TestStreamHooks tests the two hooks that bracket a stream's life.
+// TestStreamHooks tests the 2 hooks that bracket a stream's life.
 // Both must run and both must see the same stream id.
 // An application uses that id to pair up what it allocated with what it releases.
 func TestStreamHooks(t *testing.T) {
@@ -114,7 +114,7 @@ func TestStreamCloseRunsAfterTheEventHandlers(t *testing.T) {
 		s := index.Connect(t, nil)
 		id := openedID(t, srv, v)
 
-		// Hold the first tick in its handler and queue three behind it.
+		// Hold the first tick in its handler and queue 3 behind it.
 		// Unheld, the stream drains each tick before the next arrives.
 		index.Do(t, http.MethodPost, "/hold/", nil).WantStatus(t, http.StatusOK)
 		for n := range 4 {
@@ -172,10 +172,10 @@ func TestEmbeddedHandler(t *testing.T) {
 	})
 }
 
-// TestTwoDispatchers tests an action that declares one dispatcher per event type.
+// Test2Dispatchers tests an action that declares 1 dispatcher per event type.
 // Both events must reach the stream, since each dispatcher publishes on
 // its own and neither depends on the other.
-func TestTwoDispatchers(t *testing.T) {
+func Test2Dispatchers(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		v := serve(t, broker).Visitor(t)
@@ -337,7 +337,7 @@ func (b *ctxBroker) Publish(
 }
 
 // TestSubjectScoping tests an event whose subject carries a value the stream
-// chose when it connected. Two streams of one page, two values, one dispatch:
+// chose when it connected. 2 streams of 1 page, 2 values, 1 dispatch:
 // only the addressed stream may see it. The later dispatch to the other value
 // is what shows the first one did not reach it.
 func TestSubjectScoping(t *testing.T) {
@@ -396,11 +396,11 @@ func TestNestedSignalScoping(t *testing.T) {
 	})
 }
 
-// TestOneCopyPerStream tests how many messages a subscription receives.
-// A page subscribes to one subject per event it handles, and the room page handles two,
+// Test1CopyPerStream tests how many messages a subscription receives.
+// A page subscribes to 1 subject per event it handles, and the room page handles 2,
 // which a broker that delivers per matching subscription can turn into more copies
 // than the page asked for. A second copy would arrive before the next dispatch.
-func TestOneCopyPerStream(t *testing.T) {
+func Test1CopyPerStream(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		v := serve(t, broker).Visitor(t)
@@ -421,7 +421,7 @@ func TestOneCopyPerStream(t *testing.T) {
 }
 
 // TestSubjectFanout tests the plural form of a subject field.
-// One dispatch carrying two values is published to both subjects.
+// 1 dispatch carrying 2 values is published to both subjects.
 // Both streams see it and a third one does not.
 func TestSubjectFanout(t *testing.T) {
 	t.Parallel()
@@ -537,7 +537,7 @@ func TestMissingSubjectSignal(t *testing.T) {
 }
 
 // TestSubjectSignalEscaped tests the value a client puts in the signal that
-// scopes its subscription. Escaped it names one segment,
+// scopes its subscription. Escaped it names 1 segment,
 // which keeps a client sending a wildcard subscribed to that value alone.
 func TestSubjectSignalEscaped(t *testing.T) {
 	t.Parallel()
@@ -562,7 +562,7 @@ func TestSubjectSignalEscaped(t *testing.T) {
 	})
 }
 
-// TestEmptySubjectSignalRefused tests the one value escaping cannot save.
+// TestEmptySubjectSignalRefused tests the only value escaping cannot save.
 // An empty signal names no segment, which leaves a subject no subscription matches.
 func TestEmptySubjectSignalRefused(t *testing.T) {
 	t.Parallel()

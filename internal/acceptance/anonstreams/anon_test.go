@@ -152,7 +152,7 @@ func TestAnonStreamHoldsPerTabState(t *testing.T) {
 		b := bTab.Connect(t, nil)
 
 		require.NotEqual(t, aTab.Instance(), bTab.Instance(),
-			"two page loads share one instance id")
+			"2 page loads share 1 instance id")
 
 		for range 2 {
 			aTab.Do(t, http.MethodPost, "/tabs/bump/", nil).WantStatus(t, http.StatusOK)
