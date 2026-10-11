@@ -75,7 +75,10 @@ func (a *App) GETImage(
 	// a.images opens through an os.Root: the name is unescaped
 	// and can hold "/" and "..".
 	f, contentType, err := a.images.Open(path.Values.Name)
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return datapages.File{}, datapages.ErrNotFound
+	case err != nil:
 		return datapages.File{}, err
 	}
 	return datapages.File{Type: contentType, Body: f}, nil
@@ -148,4 +151,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:abe988073ee13ae8 -->
+<!-- written by datapages sha256:a696d0c21c4bfe67 -->

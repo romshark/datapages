@@ -75,7 +75,10 @@ func (a *App) GETImage(
 	// a.images opens through an os.Root: the name is unescaped
 	// and can hold "/" and "..".
 	f, contentType, err := a.images.Open(path.Values.Name)
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return datapages.File{}, datapages.ErrNotFound
+	case err != nil:
 		return datapages.File{}, err
 	}
 	return datapages.File{Type: contentType, Body: f}, nil
