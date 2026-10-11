@@ -37,6 +37,7 @@ Run `datapages gen` to apply these.
 - Read an exported method on `App` named `QUERY` followed by an uppercase letter, such as `QUERYStats`, as an action. Such a method is rejected when it's a helper rather than an action: rename it.
 - Read an exported method on `App` named `GET` followed by an uppercase letter, such as `GETStats`, as a GET action. Such a method is rejected when it's a helper rather than an action: rename it.
 - Reject page and action routes below the static-files URL prefix. `net/http` treats them as more specific, so matching asset requests reach the handler instead of the file server. Move the route outside the prefix.
+- Skip type-checking the function bodies of the standard library and of downloaded modules when loading the app package. `datapages lint` on `example/classifieds` takes 277ms instead of 406ms, and `datapages watch` regenerates sooner after each change to a Go file.
 
 #### Generated code
 
@@ -147,6 +148,7 @@ Run `datapages gen` to apply these.
 
 - Pass the app's `embed.FS` assets variable to `datapages.WithAssets` when creating a missing `cmd/server/main.go`. Generated asset URLs previously returned 404. An existing `main.go` is not rewritten; add `datapages.WithAssets(app.StaticFS, false)` manually.
 - Shut down gracefully on SIGTERM in the `cmd/server/main.go` it writes. Docker, Kubernetes and systemd stop a process with SIGTERM, which previously ended the server without waiting for requests, SSE streams and `StreamClose` hooks. It does not rewrite an existing `main.go`: add `syscall.SIGTERM` to its `signal.NotifyContext` call.
+- Check out the repository before installing Go in `.github/workflows/ci.yml`, which lets `actions/setup-go` restore its cache. In a project scaffolded earlier, move the `Checkout repository` step above `Install Go`.
 
 ### Security
 

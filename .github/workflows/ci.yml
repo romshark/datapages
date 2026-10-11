@@ -15,6 +15,28 @@ permissions:
   contents: read
 
 jobs:
+  # checkFmt and checkMod cover every module from the repository root.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Install Go 1.27.2
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+          check-latest: true
+          cache-dependency-path: "**/go.sum"
+
+      - name: Install mage
+        run: go install github.com/magefile/mage@latest
+
+      - name: Check formatting (gofumpt)
+        run: mage checkFmt
+
+      - name: Check go.mod tidy
+        run: mage checkMod
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -46,22 +68,20 @@ jobs:
           - path: "example/docs"
             name: "docs"
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      # The cache key hashes the module's go.sum, which needs the checkout.
+      # A shared key would make the first job to finish save the cache for all.
       - name: Install Go 1.27.2
         uses: actions/setup-go@v7
         with:
           go-version: "1.27.2"
           check-latest: true
-      - name: Checkout repository
-        uses: actions/checkout@v7
+          cache-dependency-path: ${{ matrix.project.path }}/go.sum
 
       - name: Install mage
+        if: matrix.project.name == 'root'
         run: go install github.com/magefile/mage@latest
-
-      - name: Check formatting (gofumpt)
-        run: mage checkFmt
-
-      - name: Check go.mod tidy
-        run: mage checkMod
 
       # Runs every generator and fails if a file changes: templ everywhere,
       # the datapages code of every example and acceptance case, the AI agent
@@ -126,13 +146,15 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      # Shares the cache key of the root entry of test.
       - name: Install Go 1.27.2
         uses: actions/setup-go@v7
         with:
           go-version: "1.27.2"
           check-latest: true
-      - name: Checkout repository
-        uses: actions/checkout@v7
+          cache-dependency-path: go.sum
 
       - name: Install mage
         run: go install github.com/magefile/mage@latest
