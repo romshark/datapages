@@ -138,6 +138,7 @@ Run `datapages gen` to apply these.
 
 - Pass the app's `embed.FS` assets variable to `datapages.WithAssets` when creating a missing `cmd/server/main.go`. Generated asset URLs previously returned 404. An existing `main.go` is not rewritten; add `datapages.WithAssets(app.StaticFS, false)` manually.
 - Shut down gracefully on SIGTERM in the `cmd/server/main.go` it writes. Docker, Kubernetes and systemd stop a process with SIGTERM, which previously ended the server without waiting for requests, SSE streams and `StreamClose` hooks. It does not rewrite an existing `main.go`: add `syscall.SIGTERM` to its `signal.NotifyContext` call.
+- Check out the repository before installing Go in `.github/workflows/ci.yml`, which lets `actions/setup-go` restore its cache. In a project scaffolded earlier, move the `Checkout repository` step above `Install Go`.
 
 ### Security
 

@@ -8,13 +8,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - name: Install Go
         uses: actions/setup-go@v7
         with:
           go-version: stable
-
-      - name: Checkout repository
-        uses: actions/checkout@v7
 
       - name: Install templ
         run: go install {{.TemplCmd}}

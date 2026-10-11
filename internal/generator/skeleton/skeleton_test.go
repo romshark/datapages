@@ -42,6 +42,21 @@ func TestCIWorkflowInstallsPinnedTools(t *testing.T) {
 	}
 }
 
+// TestCIWorkflowChecksOutBeforeSetupGo tests that the scaffolded workflow
+// checks out the repository before installing Go. setup-go computes its cache
+// key from go.mod and restores no cache when the file is not there yet.
+func TestCIWorkflowChecksOutBeforeSetupGo(t *testing.T) {
+	t.Parallel()
+
+	got, err := skeleton.CIWorkflow("v1.2.3")
+	require.NoError(t, err)
+	checkout := strings.Index(got, "uses: actions/checkout@")
+	setupGo := strings.Index(got, "uses: actions/setup-go@")
+	require.NotEqual(t, -1, checkout, "no checkout step")
+	require.NotEqual(t, -1, setupGo, "no setup-go step")
+	require.Less(t, checkout, setupGo, "checkout must come before setup-go")
+}
+
 // TestMainGoAppImportAlias tests the identifier the scaffolded main.go refers
 // to the app package by. It keeps the declared name, which is what a developer
 // reads, unless one of the imports already binds it: unaliased, an app package
