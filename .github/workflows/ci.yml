@@ -31,6 +31,8 @@ jobs:
             name: "tailwindcss"
           - path: "example/webcomponents"
             name: "webcomponents"
+          - path: "example/realtime-charts"
+            name: "realtime-charts"
           - path: "example/sqlitesessions"
             name: "sqlitesessions"
           - path: "example/calculator"
@@ -45,44 +47,6 @@ jobs:
             name: "file-upload"
           - path: "example/docs"
             name: "docs"
-          - path: "example/realtime-charts"
-            name: "realtime-charts"
-        deps: [locked, latest]
-        exclude:
-          # Only run latest-deps for the root module.
-          - project:
-              name: "classifieds"
-            deps: latest
-          - project:
-              name: "tailwindcss"
-            deps: latest
-          - project:
-              name: "webcomponents"
-            deps: latest
-          - project:
-              name: "sqlitesessions"
-            deps: latest
-          - project:
-              name: "calculator"
-            deps: latest
-          - project:
-              name: "todolist"
-            deps: latest
-          - project:
-              name: "offline-cache"
-            deps: latest
-          - project:
-              name: "fast-shim"
-            deps: latest
-          - project:
-              name: "file-upload"
-            deps: latest
-          - project:
-              name: "docs"
-            deps: latest
-          - project:
-              name: "realtime-charts"
-            deps: latest
     steps:
       - name: Install Go 1.27.2
         uses: actions/setup-go@v7
@@ -96,11 +60,9 @@ jobs:
         run: go install github.com/magefile/mage@latest
 
       - name: Check formatting (gofumpt)
-        if: matrix.deps == 'locked'
         run: mage checkFmt
 
       - name: Check go.mod tidy
-        if: matrix.deps == 'locked'
         run: mage checkMod
 
       # Runs every generator and fails if a file changes: templ everywhere,
@@ -108,21 +70,8 @@ jobs:
       # instructions of every example, docs/style.css.
       # Needs a clean tree, hence it runs before the tests write coverage.out.
       - name: Check generated code is current
-        if: matrix.project.name == 'root' && matrix.deps == 'locked'
+        if: matrix.project.name == 'root'
         run: mage checkGen
-
-      - name: Update to latest deps
-        if: matrix.deps == 'latest'
-        working-directory: ${{ matrix.project.path }}
-        run: go get -u -t ./...
-
-      # Every sub-module replaces the root module.
-      # Upgrading root's requirements changes what those sub-modules select.
-      # Without a tidy their go.sum files lack the newly selected versions and
-      # the root tests that parse them fail to load their packages.
-      - name: Tidy sub-modules against the upgraded root
-        if: matrix.project.name == 'root' && matrix.deps == 'latest'
-        run: mage modTidy
 
       - name: Install Wails system dependencies
         if: matrix.project.name == 'calculator'
@@ -144,19 +93,18 @@ jobs:
       # The editor of example/docs merges concurrent changes in the browser.
       # Node runs its TypeScript tests without a build step from version 24.
       - name: Install Node.js
-        if: matrix.project.name == 'docs' && matrix.deps == 'locked'
+        if: matrix.project.name == 'docs'
         uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: Test the editor of example/docs
-        if: matrix.project.name == 'docs' && matrix.deps == 'locked'
+        if: matrix.project.name == 'docs'
         working-directory: example/docs/web
         run: |
           npm ci
           npm test
 
       - name: Upload coverage to Coveralls
-        if: matrix.deps == 'locked'
         uses: coverallsapp/github-action@v2.3.8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -165,12 +113,52 @@ jobs:
           parallel: true
 
       - name: Lint datapages examples
-        if: matrix.project.name == 'root' && matrix.deps == 'locked'
+        if: matrix.project.name == 'root'
         run: mage lintDatapages
 
       # Try compile
       - name: Compile
         working-directory: ${{ matrix.project.path }}
+        run: go build -o /dev/null ./...
+
+  # Tests the root module against the newest release of every dependency.
+  # The result depends on upstream releases, not on the commit, which is why
+  # it runs daily and not on push or pull request.
+  test-latest:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go 1.27.2
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+          check-latest: true
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install mage
+        run: go install github.com/magefile/mage@latest
+
+      - name: Update to latest deps
+        run: go get -u -t ./...
+
+      # Every sub-module replaces the root module.
+      # Upgrading root's requirements changes what those sub-modules select.
+      # Without a tidy their go.sum files lack the newly selected versions and
+      # the root tests that parse them fail to load their packages.
+      - name: Tidy sub-modules against the upgraded root
+        run: mage modTidy
+
+      # internal/cmd TestWatch starts the templier engine, which runs templ as
+      # a command. mage itself only ever `go run`s it, which puts nothing on
+      # PATH. Pinned to the version toolTempl in magefiles generates with.
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
+
+      - name: Run tests
+        run: go test -timeout 15m ./...
+
+      - name: Compile
         run: go build -o /dev/null ./...
 
   finish:
