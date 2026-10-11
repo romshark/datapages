@@ -40,6 +40,9 @@ func (r *recorder) Write(b []byte) (int, error) {
 func (r *recorder) WriteHeader(int) {}
 func (r *recorder) Flush()          { r.flushes++ }
 
+// compression is the default compression of a server.
+var compression = sse.NewCompression(nil)
+
 func streamRequest() *http.Request {
 	return httptest.NewRequest(http.MethodGet, "/_$/", nil)
 }
@@ -81,7 +84,7 @@ func decode(t *testing.T, coding string, b []byte) string {
 func frame(t testing.TB, fn func(s *sse.Stream) error) string {
 	t.Helper()
 	w := &recorder{h: make(http.Header)}
-	s := sse.Open(w, streamRequest())
+	s := sse.Open(w, streamRequest(), compression)
 	require.NoError(t, fn(s))
 	s.Close()
 	require.NoError(t, s.Err())
@@ -142,7 +145,7 @@ func TestOpen(t *testing.T) {
 				r.Header.Set("Accept-Encoding", tc.acceptEncoding)
 			}
 			w := &recorder{h: make(http.Header)}
-			s := sse.Open(w, r)
+			s := sse.Open(w, r, compression)
 			require.NoError(t, s.Err())
 			require.Equal(t, 1, w.flushes, "the head is not flushed")
 			require.Equal(t, "text/event-stream", w.h.Get("Content-Type"))
@@ -160,7 +163,7 @@ func TestOpenWithoutFlushPanics(t *testing.T) {
 	t.Parallel()
 
 	require.Panics(t, func() {
-		sse.Open(struct{ http.ResponseWriter }{httptest.NewRecorder()}, streamRequest())
+		sse.Open(struct{ http.ResponseWriter }{httptest.NewRecorder()}, streamRequest(), compression)
 	})
 }
 
@@ -363,7 +366,7 @@ func TestCarriageReturnInContent(t *testing.T) {
 	}
 }
 
-// chunks renders in two writes to cover a CRLF split across writes.
+// chunks renders in 2 writes to cover a CRLF split across writes.
 func chunks(s string, i int) templ.Component {
 	return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
 		if _, err := w.Write([]byte(s[:i])); err != nil {
@@ -374,8 +377,8 @@ func chunks(s string, i int) templ.Component {
 	})
 }
 
-// FuzzContentLineBreaks tests that arbitrary content stays within one element
-// field and normalizes each line break to LF.
+// FuzzContentLineBreaks tests that arbitrary content stays within a single
+// element field and normalizes each line break to LF.
 func FuzzContentLineBreaks(f *testing.F) {
 	for _, seed := range []struct {
 		s     string
@@ -574,7 +577,7 @@ func TestClose(t *testing.T) {
 	t.Parallel()
 
 	w := &recorder{h: make(http.Header)}
-	s := sse.Open(w, streamRequest())
+	s := sse.Open(w, streamRequest(), compression)
 	s.Close()
 	require.Error(t, s.PatchElement(element))
 	s.Close()
@@ -592,7 +595,7 @@ func TestWriteFails(t *testing.T) {
 			r := codingRequest(coding)
 			errGone := errors.New("client gone")
 			w := &recorder{h: make(http.Header)}
-			s := sse.Open(w, r)
+			s := sse.Open(w, r, compression)
 			w.err = errGone
 			require.ErrorIs(t, s.PatchElement(element), errGone)
 			require.ErrorIs(t, s.PatchElement(element), errGone)
@@ -609,7 +612,7 @@ func TestCanceledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	w := &recorder{h: make(http.Header)}
-	s := sse.Open(w, streamRequest().WithContext(ctx))
+	s := sse.Open(w, streamRequest().WithContext(ctx), compression)
 	cancel()
 	require.ErrorIs(t, s.PatchElement(element), context.Canceled)
 	s.Close()
@@ -630,7 +633,7 @@ func TestCompressed(t *testing.T) {
 		t.Run(coding, func(t *testing.T) {
 			t.Parallel()
 			w := &recorder{h: make(http.Header)}
-			s := sse.Open(w, codingRequest(coding))
+			s := sse.Open(w, codingRequest(coding), compression)
 			require.Equal(t, coding, w.h.Get("Content-Encoding"))
 
 			require.NoError(t, s.PatchElement(element))
@@ -655,13 +658,106 @@ func TestCompressedWithoutEvents(t *testing.T) {
 		t.Run(coding, func(t *testing.T) {
 			t.Parallel()
 			w := &recorder{h: make(http.Header)}
-			s := sse.Open(w, codingRequest(coding))
+			s := sse.Open(w, codingRequest(coding), compression)
 			s.Close()
 			require.NoError(t, s.Err())
 			require.NotZero(t, w.buf.Len())
 			require.Empty(t, decode(t, coding, w.buf.Bytes()))
 		})
 	}
+}
+
+// TestCompressionConfig tests streams of a server configured with
+// [datapages.WithSSECompression]: the coding each request gets, and the
+// stream it decodes from at each setting.
+func TestCompressionConfig(t *testing.T) {
+	t.Parallel()
+
+	const browser = "gzip, deflate, br, zstd"
+	for name, tc := range map[string]struct {
+		conf           datapages.SSECompressionConfig
+		acceptEncoding string
+		want           string // "" for no compression.
+	}{
+		"disabled": {
+			conf:           datapages.SSECompressionConfig{Disabled: true},
+			acceptEncoding: browser,
+		},
+		"gzip preferred": {
+			conf: datapages.SSECompressionConfig{Codings: []datapages.SSECoding{
+				datapages.SSECodingGzip, datapages.SSECodingZstd,
+			}},
+			acceptEncoding: browser, want: "gzip",
+		},
+		"zstd only, client without zstd": {
+			conf: datapages.SSECompressionConfig{Codings: []datapages.SSECoding{
+				datapages.SSECodingZstd,
+			}},
+			acceptEncoding: "gzip, br",
+		},
+		"zstd smallest window": {
+			conf:           datapages.SSECompressionConfig{ZstdLevel: 22, ZstdWindow: 1 << 10},
+			acceptEncoding: "zstd", want: "zstd",
+		},
+		"zstd largest window": {
+			conf:           datapages.SSECompressionConfig{ZstdLevel: 1, ZstdWindow: 8 << 20},
+			acceptEncoding: "zstd", want: "zstd",
+		},
+		"brotli smallest window": {
+			conf:           datapages.SSECompressionConfig{BrotliQuality: 11, BrotliWindow: 1 << 10},
+			acceptEncoding: "br", want: "br",
+		},
+		"brotli largest window": {
+			conf:           datapages.SSECompressionConfig{BrotliQuality: 1, BrotliWindow: 16 << 20},
+			acceptEncoding: "br", want: "br",
+		},
+		"gzip best": {
+			conf:           datapages.SSECompressionConfig{GzipLevel: 9},
+			acceptEncoding: "gzip", want: "gzip",
+		},
+		"gzip fastest": {
+			conf:           datapages.SSECompressionConfig{GzipLevel: 1},
+			acceptEncoding: "gzip", want: "gzip",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			opt := datapages.WithSSECompression(tc.conf)
+			var cfg datapages.ServerConfig
+			require.NoError(t, opt(&cfg))
+
+			el := templ.Raw(`<ul id="l">` + strings.Repeat("\n<li>item</li>", 300) + "\n</ul>")
+			want := frame(t, func(s *sse.Stream) error { return s.PatchElement(el) })
+			w := &recorder{h: make(http.Header)}
+			s := sse.Open(w, codingRequest(tc.acceptEncoding), sse.NewCompression(cfg.SSECompression))
+			require.NoError(t, s.PatchElement(el))
+			require.NoError(t, s.PatchElement(el))
+			s.Close()
+			require.NoError(t, s.Err())
+
+			require.Equal(t, tc.want, w.h.Get("Content-Encoding"))
+			if tc.want == "" {
+				require.Equal(t, want+want, w.buf.String())
+				return
+			}
+			require.Equal(t, want+want, decode(t, tc.want, w.buf.Bytes()))
+		})
+	}
+}
+
+// TestOpenWithoutCompression tests a stream of a server that compresses
+// nothing. Its response does not vary with Accept-Encoding.
+func TestOpenWithoutCompression(t *testing.T) {
+	t.Parallel()
+
+	w := &recorder{h: make(http.Header)}
+	s := sse.Open(w, codingRequest("gzip, deflate, br, zstd"), nil)
+	require.NoError(t, s.PatchElement(element))
+	s.Close()
+	require.Empty(t, w.h.Get("Content-Encoding"))
+	require.Empty(t, w.h.Values("Vary"))
+	require.Equal(t, "event: datastar-patch-elements\n"+
+		`data: elements <div id="out">x</div>`+"\n\n", w.buf.String())
 }
 
 // TestReadSignals tests query and body signal sources.
@@ -751,7 +847,7 @@ func TestPatchElementAllocs(t *testing.T) {
 			el := templ.Raw(`<ul id="l">` +
 				strings.Repeat("\n<li>item</li>", 200) +
 				"\n</ul>")
-			s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding))
+			s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding), compression)
 			defer s.Close()
 			require.NoError(t, s.PatchElement(el))
 			require.Zero(t, testing.AllocsPerRun(100, func() {
@@ -855,7 +951,7 @@ func (d *discard) Write(b []byte) (int, error) { return len(b), nil }
 func (d *discard) WriteHeader(int)             {}
 func (d *discard) Flush()                      {}
 
-// BenchmarkPatchElement measures two element sizes with every coding.
+// BenchmarkPatchElement measures 2 element sizes with every coding.
 func BenchmarkPatchElement(b *testing.B) {
 	for _, size := range []struct {
 		name string
@@ -866,7 +962,7 @@ func BenchmarkPatchElement(b *testing.B) {
 			`</ul>`)
 		for _, coding := range append([]string{"identity"}, codings...) {
 			b.Run(size.name+"/"+coding, func(b *testing.B) {
-				s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding))
+				s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding), compression)
 				defer s.Close()
 				b.ReportAllocs()
 				for b.Loop() {
@@ -881,7 +977,7 @@ func BenchmarkPatchElement(b *testing.B) {
 
 // BenchmarkPrefetch measures the href-generated URL case.
 func BenchmarkPrefetch(b *testing.B) {
-	s := sse.Open(&discard{h: make(http.Header)}, streamRequest())
+	s := sse.Open(&discard{h: make(http.Header)}, streamRequest(), compression)
 	urls := []string{"/listing/42/", "/listing/43/", "/search/?q=bike&page=2"}
 	b.ReportAllocs()
 	for b.Loop() {

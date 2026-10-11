@@ -492,7 +492,7 @@ func (s pageFormHandlers) POSTGoStream(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageForm.GoStream")
 	p := dpapp.PageForm{
@@ -526,7 +526,7 @@ func (s pageFormHandlers) POSTPatch(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageForm.Patch")
 	p := dpapp.PageForm{
@@ -555,7 +555,7 @@ func (s pageFormHandlers) POSTPatchAt(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageForm.PatchAt")
 	p := dpapp.PageForm{
@@ -575,7 +575,7 @@ func (s pageFormHandlers) POSTSignalsRaw(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageForm.SignalsRaw")
 	p := dpapp.PageForm{
@@ -595,7 +595,7 @@ func (s pageFormHandlers) POSTSignalsMissing(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageForm.SignalsMissing")
 	p := dpapp.PageForm{
@@ -615,7 +615,7 @@ func (s pageFormHandlers) POSTSignalsBad(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageForm.SignalsBad")
 	p := dpapp.PageForm{
@@ -635,7 +635,7 @@ func (s pageFormHandlers) POSTRemove(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageForm.Remove")
 	p := dpapp.PageForm{

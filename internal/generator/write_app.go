@@ -392,7 +392,7 @@ func (c *pageCacheWriter) flush() error {
 // out with its headers, and a panic in a rendered body still gets a status.
 func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
 	payload, err := c.payload()
-	sse := dpsse.Open(w, c.r)
+	sse := c.s.OpenSSE(w, c.r)
 	defer sse.Close()
 	if err != nil || payload == "" {
 		return err
@@ -1541,8 +1541,8 @@ func (s *Server) httpErrIntern(
 	}
 	if hasRecover {
 		w.Raw(`	if sse == nil {
-		// [dpsse.Open] commits HTTP 200 before recovery runs.
-		sse = dpsse.Open(w, r)
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
 	errRecover := s.app.RecoverError(`)
@@ -1577,7 +1577,7 @@ func (s *Server) httpErrIntern(
 		slog.Any("err", errRecover))
 `)
 	} else {
-		// ResponseBodyWritten cannot see the headers sent by dpsse.Open.
+		// ResponseBodyWritten cannot see the headers sent by OpenSSE.
 		w.Raw(`	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -1909,7 +1909,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
-	// Claim state before dpsse.Open commits the response.
+	// Claim state before OpenSSE commits the response.
 	if h.InputState != nil {
 		w.writeLockSlotOrReject(h)
 	}

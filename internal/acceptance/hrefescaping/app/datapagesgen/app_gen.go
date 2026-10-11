@@ -370,7 +370,7 @@ func (s pageItemHandlers) POSTRename(
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageItem.Rename")
 	p := dpapp.PageItem{
@@ -472,7 +472,7 @@ func (s pageQuotedHandlers) POSTPing(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuoted.Ping")
 	p := dpapp.PageQuoted{
@@ -497,7 +497,7 @@ func (s pageQuotedHandlers) POSTFind(
 	}]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "term")
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuoted.Find")
 	p := dpapp.PageQuoted{
@@ -617,7 +617,7 @@ func (s pageQuotedItemHandlers) POSTRename(
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuotedItem.Rename")
 	p := dpapp.PageQuotedItem{
@@ -647,7 +647,7 @@ func (s pageQuotedItemHandlers) POSTMove(
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuotedItem.Move")
 	p := dpapp.PageQuotedItem{

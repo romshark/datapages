@@ -15,6 +15,12 @@ Releases up to v0.10.0 have their notes on
 - Accept `QUERYXXX` actions for the `QUERY` method of RFC 10008, which Datastar 1.0.4 sends with `@query`. Declare one on a page or on `App`, as in `// QUERYSearch is /search`, and build its expression with the `action` package, as in `action.PageIndex.Search.QUERY()`. Datastar sends the signals in the request body.
 - Serve files from generated handlers with `datapages.File`. Any action may return one; a read-only `GETXXX` action also gets a generated `href` builder. Applications previously needed custom middleware or a separate `net/http` handler and had to maintain its route and URL by hand.
 
+#### Generated code
+
+Run `datapages gen` to apply these.
+
+- Add `datapages.WithSSECompression` to set the codings of SSE responses, their order, levels and windows, or to turn compression off behind a proxy that compresses responses.
+
 #### Runtime and modules
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of one release. A `Content-Security-Policy` must allow the inline build script.
@@ -114,7 +120,7 @@ Run `datapages gen` to apply these.
 - Answer with the error status when an action that takes `datapages.PageCacheWriter` and returns neither a redirect nor a body fails or panics. The response was 200, with the error status written as text into the event stream.
 - Read a subject field bound to a nested signal, as `signal:"chat.room"`, from the object Datastar sends, `{"chat":{"room":"lobby"}}`. The stream of a page handling such an event answered 400 on every connect.
 - Send the whole of a `json.RawMessage` passed to `SSE.PatchSignals` or `SSE.PatchSignalsIfMissing` when a carriage return without a following line feed separates its tokens. The Datastar client ended the line at the CR and dropped the rest of it, which broke the signals patch.
-- Hold about 1.5 MB for an SSE stream that a browser receives with zstd, from its first event to its end, instead of up to 10 MB with brotli for its whole life. Every SSE response built a brotli, a zstd, a gzip and a deflate encoder, 6.7 MB, before its first byte, and kept the brotli one: 500 open tabs held about 5 GB. A stream now compresses with zstd, and with brotli or gzip for a client without zstd, such as Safari before 26.3. It takes the encoder from a pool on its first event. A compressed event takes a fifth to a tenth of the time. A compressed stream also ends its zstd, brotli or gzip data, which the SDK never did.
+- Hold about 1.5 MB for an SSE stream that a browser receives with zstd, from its first event to its end, instead of up to 10 MB with brotli for its whole life. Every SSE response built a brotli, a zstd, a gzip and a deflate encoder, 6.7 MB, before its first byte, and kept the brotli one: 500 open tabs held about 5 GB. A stream now compresses with zstd, and with brotli or gzip for a client without zstd, such as Safari before 26.3. It takes the encoder from a pool on its first event. A compressed event takes 1/5 to 1/10 of the time. A compressed stream also ends its zstd, brotli or gzip data, which the SDK never did.
 
 #### Runtime and modules
 

@@ -482,8 +482,8 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [dpsse.Open] commits HTTP 200 before recovery runs.
-		sse = dpsse.Open(w, r)
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
 	errRecover := s.app.RecoverError(err, sse)
@@ -771,7 +771,7 @@ func (s pageIndexHandlers) POSTStage(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Stage")
 	p := dpapp.PageIndex{
@@ -810,7 +810,7 @@ func (s pageIndexHandlers) POSTCancel(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Cancel")
 	p := dpapp.PageIndex{
@@ -980,7 +980,7 @@ func (s pageIndexHandlers) POSTResume(
 
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Resume")
 	p := dpapp.PageIndex{
@@ -1032,7 +1032,7 @@ func (s pageIndexHandlers) POSTReattach(
 
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Reattach")
 	p := dpapp.PageIndex{

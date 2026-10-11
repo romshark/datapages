@@ -245,7 +245,7 @@ func (s pageIndexHandlers) QUERYInput(
 		}
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Input")
 	p := dpapp.PageIndex{

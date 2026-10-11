@@ -137,7 +137,7 @@ func (h *Handler) Handle(
 		}
 	}()
 
-	sse := dpsse.Open(w, r)
+	sse := h.core.OpenSSE(w, r)
 	defer sse.Close()
 	if sse.Err() != nil {
 		// The client left before the response headers were flushed.
@@ -238,7 +238,7 @@ func (h *Handler) Handle(
 func (h *Handler) Reload(w http.ResponseWriter, r *http.Request) {
 	h.core.Logger().Debug("stream request from a page whose session ended",
 		slog.String("path", r.URL.Path))
-	sse := dpsse.Open(w, r)
+	sse := h.core.OpenSSE(w, r)
 	defer sse.Close()
 	_ = sse.ExecuteScriptRetry(reloadScript, reconnectDelay)
 }

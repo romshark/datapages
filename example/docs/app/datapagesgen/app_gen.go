@@ -523,8 +523,8 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [dpsse.Open] commits HTTP 200 before recovery runs.
-		sse = dpsse.Open(w, r)
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
 	errRecover := s.app.RecoverError(err, sse)
@@ -785,7 +785,7 @@ func (s pageDocHandlers) POSTSubmit(
 
 	dispatchListChanged := dispatcherEventListChanged{s: s.Server, ctx: r.Context()}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageDoc.Submit")
 	p := dpapp.PageDoc{
@@ -828,7 +828,7 @@ func (s pageDocHandlers) POSTRestore(
 
 	dispatchListChanged := dispatcherEventListChanged{s: s.Server, ctx: r.Context()}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageDoc.Restore")
 	p := dpapp.PageDoc{
@@ -932,7 +932,7 @@ func (s pageDocHandlers) POSTImage(
 	}]
 	path.Values.ID = r.PathValue("id")
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageDoc.Image")
 	p := dpapp.PageDoc{

@@ -248,7 +248,7 @@ func (c *pageCacheWriter) flush() error {
 // out with its headers, and a panic in a rendered body still gets a status.
 func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
 	payload, err := c.payload()
-	sse := dpsse.Open(w, c.r)
+	sse := c.s.OpenSSE(w, c.r)
 	defer sse.Close()
 	if err != nil || payload == "" {
 		return err
@@ -652,7 +652,7 @@ func (s pageIndexHandlers) POSTStream(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Stream")
 	pageCache := newPageCache(w, s.Server, r, sse)
@@ -695,7 +695,7 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.StreamRedirect")
 	pageCache := newPageCache(w, s.Server, r, sse)

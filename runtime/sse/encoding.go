@@ -1,13 +1,17 @@
 package sse
 
 import (
+	"cmp"
 	"compress/gzip"
 	"io"
+	"math/bits"
 	"strings"
 	"sync"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+
+	"github.com/romshark/datapages"
 )
 
 // encoder is the common API of the supported compressors.
@@ -21,63 +25,119 @@ type encoder interface {
 	Reset(w io.Writer)
 }
 
-// coding pools encoders. A stream takes one only when it sends its first event.
-type coding struct {
-	name  string // The Content-Encoding token.
-	empty []byte // The coding of no data, for a stream without events.
-	pool  sync.Pool
+// Compression holds the codings a server compresses its streams with,
+// in the order it prefers them. A nil Compression compresses nothing.
+type Compression struct {
+	codings []*coding
 }
 
-// A 1 MiB window covers repeated fragment renders. For 20 100 KB renders with
-// one changed item, zstd, brotli and gzip output 0.9%, 0.7% and 12.3% of the input.
-// zstd takes 13% to 20% of gzip's time. At these levels, zstd retains
-// about 1.5 MB per stream and brotli retains 3 to 4 MB.
+// NewCompression returns the compression conf configures, nil when conf disables it.
+// A nil conf selects the defaults of [datapages.SSECompressionConfig].
+// conf must have passed [datapages.WithSSECompression].
+func NewCompression(conf *datapages.SSECompressionConfig) *Compression {
+	var c datapages.SSECompressionConfig
+	if conf != nil {
+		c = *conf
+	}
+	if c.Disabled {
+		return nil
+	}
+	names := c.Codings
+	if len(names) == 0 {
+		names = []datapages.SSECoding{
+			datapages.SSECodingZstd, datapages.SSECodingBrotli, datapages.SSECodingGzip,
+		}
+	}
+	comp := new(Compression)
+	for _, name := range names {
+		switch name {
+		case datapages.SSECodingZstd:
+			comp.codings = append(comp.codings, newZstdCoding(
+				cmp.Or(c.ZstdLevel, datapages.DefaultSSEZstdLevel),
+				cmp.Or(c.ZstdWindow, datapages.DefaultSSEZstdWindow),
+			))
+		case datapages.SSECodingBrotli:
+			comp.codings = append(comp.codings, newBrotliCoding(
+				cmp.Or(c.BrotliQuality, datapages.DefaultSSEBrotliQuality),
+				cmp.Or(c.BrotliWindow, datapages.DefaultSSEBrotliWindow),
+			))
+		case datapages.SSECodingGzip:
+			comp.codings = append(comp.codings, newGzipCoding(
+				cmp.Or(c.GzipLevel, datapages.DefaultSSEGzipLevel),
+			))
+		}
+	}
+	return comp
+}
+
+// coding pools encoders. A stream takes one only when it sends its first event.
+type coding struct {
+	name   string // The Content-Encoding token.
+	accept int    // Its index in the result of [accepted].
+	empty  []byte // The coding of no data, for a stream without events.
+	pool   sync.Pool
+}
+
 var (
-	zstdCoding = coding{
-		name: "zstd",
-		// A single-segment frame of content size 0 and an empty last raw block.
-		empty: []byte{0x28, 0xb5, 0x2f, 0xfd, 0x20, 0, 1, 0, 0},
+	// A single-segment frame of content size 0 and an empty last raw block.
+	emptyZstd = []byte{0x28, 0xb5, 0x2f, 0xfd, 0x20, 0, 1, 0, 0}
+	// WBITS 16, then a meta-block with ISLAST and ISLASTEMPTY set.
+	emptyBrotli = []byte{0x06}
+	emptyGzip   = []byte{
+		0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, // Deflate, no flags, no time, unknown OS.
+		3, 0, // A final block with only its end code.
+		0, 0, 0, 0, 0, 0, 0, 0, // The CRC-32 and the size.
+	}
+)
+
+func newZstdCoding(level, window int) *coding {
+	return &coding{
+		name: "zstd", accept: acceptZstd, empty: emptyZstd,
 		pool: sync.Pool{New: func() any {
 			return newPooledEncoder(func(w io.Writer) encoder {
 				e, err := zstd.NewWriter(w,
-					zstd.WithEncoderLevel(zstd.SpeedFastest),
-					zstd.WithWindowSize(1<<20),
+					zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(level)),
+					zstd.WithWindowSize(window),
 					zstd.WithLowerEncoderMem(true),
 					// Avoid the buffers used by concurrent encoding.
 					zstd.WithEncoderConcurrency(1))
 				if err != nil {
-					panic(err) // The options are constant.
+					panic(err) // WithSSECompression checks the window.
 				}
 				return e
 			})
 		}},
 	}
-	brotliCoding = coding{
-		name: "br",
-		// WBITS 16, then a meta-block with ISLAST and ISLASTEMPTY set.
-		empty: []byte{0x06},
+}
+
+func newBrotliCoding(quality, window int) *coding {
+	return &coding{
+		name: "br", accept: acceptBrotli, empty: emptyBrotli,
 		pool: sync.Pool{New: func() any {
 			return newPooledEncoder(func(w io.Writer) encoder {
 				return brotli.NewWriterOptions(w, brotli.WriterOptions{
-					Quality: 4, LGWin: 20,
+					Quality: quality,
+					LGWin:   bits.Len(uint(window)) - 1,
 				})
 			})
 		}},
 	}
-	gzipCoding = coding{
-		name: "gzip",
-		empty: []byte{
-			0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, // Deflate, no flags, no time, unknown OS.
-			3, 0, // A final block with only its end code.
-			0, 0, 0, 0, 0, 0, 0, 0, // The CRC-32 and the size.
-		},
+}
+
+func newGzipCoding(level int) *coding {
+	return &coding{
+		name: "gzip", accept: acceptGzip, empty: emptyGzip,
 		pool: sync.Pool{New: func() any {
 			return newPooledEncoder(func(w io.Writer) encoder {
-				return gzip.NewWriter(w)
+				e, err := gzip.NewWriterLevel(w, level)
+				if err != nil {
+					panic(err) // WithSSECompression checks the level.
+				}
+				return e
 			})
 		}},
 	}
-)
+}
 
 // pooledEncoder clears sink to release the response without another reset.
 type pooledEncoder struct {
@@ -108,19 +168,43 @@ func (c *coding) put(e *pooledEncoder) {
 	c.pool.Put(e)
 }
 
-// negotiate returns the first accepted coding in this order: zstd, br, gzip.
-// A wildcard enables gzip only. See [RFC 9110, section 12.5.3].
+// negotiate returns the first coding of c that the Accept-Encoding values
+// accept, nil for none. A wildcard enables gzip only.
+func (c *Compression) negotiate(values []string) *coding {
+	if c == nil {
+		return nil
+	}
+	acc := accepted(values)
+	for _, cd := range c.codings {
+		if acc[cd.accept] > 0 {
+			return cd
+		}
+	}
+	if acc[acceptGzip] == 0 && acc[acceptStar] > 0 {
+		for _, cd := range c.codings {
+			if cd.accept == acceptGzip {
+				return cd
+			}
+		}
+	}
+	return nil
+}
+
+// The indexes of the result of [accepted].
+const (
+	acceptZstd = iota
+	acceptBrotli
+	acceptGzip
+	acceptStar
+)
+
+// accepted reads the values of an Accept-Encoding header, see
+// [RFC 9110, section 12.5.3]. For each of zstd, br, gzip and *, it returns 0
+// when the values do not mention it, 1 when they accept it and -1 when they
+// refuse it. The first mention counts.
 //
 // [RFC 9110, section 12.5.3]: https://www.rfc-editor.org/rfc/rfc9110#section-12.5.3
-func negotiate(values []string) *coding {
-	const (
-		iZstd = iota
-		iBrotli
-		iGzip
-		iStar
-	)
-	// 0 means absent, 1 accepted and -1 refused. The first mention wins.
-	var acc [4]int8
+func accepted(values []string) (acc [4]int8) {
 	for _, v := range values {
 		for v != "" {
 			var c string
@@ -129,13 +213,13 @@ func negotiate(values []string) *coding {
 			i := -1
 			switch name = strings.TrimSpace(name); {
 			case strings.EqualFold(name, "zstd"):
-				i = iZstd
+				i = acceptZstd
 			case strings.EqualFold(name, "br"):
-				i = iBrotli
+				i = acceptBrotli
 			case strings.EqualFold(name, "gzip"), strings.EqualFold(name, "x-gzip"):
-				i = iGzip
+				i = acceptGzip
 			case name == "*":
-				i = iStar
+				i = acceptStar
 			}
 			if i < 0 || acc[i] != 0 {
 				continue
@@ -146,15 +230,7 @@ func negotiate(values []string) *coding {
 			}
 		}
 	}
-	switch {
-	case acc[iZstd] > 0:
-		return &zstdCoding
-	case acc[iBrotli] > 0:
-		return &brotliCoding
-	case acc[iGzip] > 0, acc[iGzip] == 0 && acc[iStar] > 0:
-		return &gzipCoding
-	}
-	return nil
+	return acc
 }
 
 // zeroQuality reports whether q explicitly refuses the coding.

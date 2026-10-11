@@ -670,8 +670,8 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [dpsse.Open] commits HTTP 200 before recovery runs.
-		sse = dpsse.Open(w, r)
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
 	errRecover := s.app.RecoverError(err, sse)
@@ -1444,7 +1444,7 @@ func (s pageMessagesHandlers) POSTSendMessage(
 
 	dispatchMessagingSent := dispatcherEventMessagingSent{s: s.Server, ctx: r.Context()}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageMessages.SendMessage")
 	p := dpapp.PageMessages{
@@ -1709,7 +1709,7 @@ func (s pagePostHandlers) POSTSendMessage(
 
 	dispatchMessagingSent := dispatcherEventMessagingSent{s: s.Server, ctx: r.Context()}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PagePost.SendMessage")
 	p := dpapp.PagePost{
@@ -1901,7 +1901,7 @@ func (s pageSearchHandlers) QUERYParamChange(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageSearch.ParamChange")
 	p := dpapp.PageSearch{

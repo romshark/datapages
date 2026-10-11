@@ -36,7 +36,7 @@ Rate impact as if the cause ran in production:
 - Low: unusual input or configuration causes a defect; a diagnostic or log is wrong; code is slow outside a hot path.
 - Info: no defect. Use for hardening, test gaps, and unclear documentation.
 
-Lower impact one level for development reach and two for repository reach, but not below Low. Remote code execution through `datapages watch` from a page the developer visits is High. XSS in an example template is Medium.
+Lower impact by 1 level for development reach and by 2 for repository reach, but not below Low. Remote code execution through `datapages watch` from a page the developer visits is High. XSS in an example template is Medium.
 
 # Report
 

@@ -251,7 +251,7 @@ func (c *pageCacheWriter) flush() error {
 // out with its headers, and a panic in a rendered body still gets a status.
 func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
 	payload, err := c.payload()
-	sse := dpsse.Open(w, c.r)
+	sse := c.s.OpenSSE(w, c.r)
 	defer sse.Close()
 	if err != nil || payload == "" {
 		return err
@@ -560,8 +560,8 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [dpsse.Open] commits HTTP 200 before recovery runs.
-		sse = dpsse.Open(w, r)
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
 	errRecover := s.app.RecoverError(err, sse)
@@ -757,7 +757,7 @@ func (s pageIndexHandlers) QUERYSearch(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Search")
 	p := dpapp.PageIndex{

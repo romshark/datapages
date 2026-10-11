@@ -25,7 +25,7 @@
 
 Do not run `templ generate` or any target that wraps it (`genTempl`, `genDocs`, `gen`, `checkGen`, `all`) while `datapages watch` is running. Watch mode serves application template strings from temporary files. A separate generation deletes those files when it exits, which prevents the server from rendering until the next `.templ` change.
 
-`datapages watch` stores one lock file per module in the system temporary directory under `datapages-watch` and refreshes it every 2s. `genTempl` and `genDocs` run `mage checkWatch` before generating. SIGKILL prevents lock cleanup, but a stale lock expires 10s after its last write. `TestWatch` skips while a lock is held. See the `datapages` skill for recovery instructions.
+`datapages watch` stores 1 lock file per module in the system temporary directory under `datapages-watch` and refreshes it every 2s. `genTempl` and `genDocs` run `mage checkWatch` before generating. SIGKILL prevents lock cleanup, but a stale lock expires 10s after its last write. `TestWatch` skips while a lock is held. See the `datapages` skill for recovery instructions.
 
 # Project Structure
 
@@ -36,9 +36,9 @@ Internal, used by the CLI and build tooling:
   - `validate/` - naming convention validation.
   - `errsuggest/` - "did you mean" suggestions for parser errors.
   - `internal/` - method kinds, parameter validation, struct inspection, templ linting, type predicates, URL paths.
-  - `testdata/` - one self-contained module per fixture. Prefix `err_` for expected-error cases.
+  - `testdata/` - 1 self-contained module per fixture. Prefix `err_` for expected-error cases.
 - `internal/generator/` - code generation from the parsed model. `internal/generator/README.md` explains its tests.
-- `internal/acceptance/` - one module per case: the application, its committed generated code and tests asserting behaviour over HTTP. `internal/acceptance/README.md` explains how they run and how to record a defect the framework has not fixed yet.
+- `internal/acceptance/` - 1 module per case: the application, its committed generated code and tests asserting behaviour over HTTP. `internal/acceptance/README.md` explains how they run and how to record a defect the framework has not fixed yet.
 - `internal/gotypes/` - go/types predicates and renderings that know nothing about Datapages. Shared by the parser and the generator.
 - `internal/logsample/` - the throttling `slog.Handler` behind `datapages.WithLogSampling`.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.
@@ -70,10 +70,10 @@ Public, imported by application or generated code:
   - `hrefcheck` - imported by generated `href` packages.
   - `actionexpr` - builds the Datastar action expression: the call, its options and the JavaScript around it. The generated `action` package forwards to it.
 
-Examples, one module each:
+Examples, 1 module each:
 
 - `example/calculator/` - server-side evaluation.
-- `example/counter/` - the same counter twice in one module, `app/simple` and `app/fancy`, one entry point each. The multi-application example.
+- `example/counter/` - the same counter 2 times in 1 module, `app/simple` and `app/fancy`, 1 entry point each. The multi-application example.
 - `example/todolist/` - collaborative todo list with per-tab server-side state registered in `StreamOpen` and read by the event handlers.
 - `example/classifieds/` - the full application.
 - `example/tailwindcss/` - static page with Tailwind CSS.
@@ -135,11 +135,11 @@ Styles:
 - BLUF (bottom line up front), US military staff writing.
 - Inverted pyramid, newswire reporting.
 - Plain English: Gowers' `Plain Words`, Cutts' `Oxford Guide to Plain English`.
-- Orwell's six rules from `Politics and the English Language`.
+- Orwell's 6 rules from `Politics and the English Language`.
 - Strunk & White: omit needless words, use the active voice.
 - IMRaD Results sections: every claim carries a measurement or a citation.
 - SRE postmortems: timeline, root cause, action items, no blame, no drama.
-- Aviation and maritime logs: one fact per line, interpretation kept separate.
+- Aviation and maritime logs: 1 fact per line, interpretation kept separate.
 - Unix man pages and RFCs: terse, imperative, everything named exactly.
 
 Rules:
@@ -147,11 +147,12 @@ Rules:
 - Prefer simple (near primitive) technical English.
 - Lead with the conclusion, then the facts that support it.
 - Name concrete things: files, lines, symbols, values, error codes. Write `internal/parser/parser.go:142`, not "the place where the parser reads it".
+- Write numbers as digits, counts, multiples and fractions included: `8 instances`, `2 times`, `1/5 of the time`, not `eight instances`, `twice`, `a fifth of the time`. This applies to code comments, docs, test names and error messages as well.
 - End with what to do about it, or say plainly that nothing needs doing.
 - Don't paraphrase code changes, the diff already shows them. Name the file and what it does now. Prose is for the non-obvious what the diff can't show: why, what was left out, what could break.
 - Say what was verified and how: "`mage test` passes", "not run". Never imply a check that didn't happen.
 - Report failures, dead ends and skipped work as plainly as successes.
-- Answer at the length the question needs. "Is `Cache.Get` safe for concurrent use?" is answered by "No, it writes `c.entries` without holding `c.mu`." and nothing else. Don't pad a short answer out to look thorough, and don't compress a real explanation into three bullets.
+- Answer at the length the question needs. "Is `Cache.Get` safe for concurrent use?" is answered by "No, it writes `c.entries` without holding `c.mu`." and nothing else. Don't pad a short answer out to look thorough, and don't compress a real explanation into 3 bullets.
 - Stop when the information is delivered. No preamble, no restating the request, no closing summary of what was just said.
 
 Avoid:
@@ -166,7 +167,7 @@ Avoid:
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth noting that", "as we can see".
 - Praise of the user or of the question: "great question", "you're absolutely right".
-- Typographic drama: spaced-out words, all-caps emphasis, exclamation marks, emoji, bold scattered over half the sentences.
+- Typographic drama: spaced-out words, all-caps emphasis, exclamation marks, emoji, bold scattered over 1/2 of the sentences.
 - Em-dashes and ", so ..." clauses. Use a full stop, "which ...", or a colon after a complete sentence.
 - Non-ASCII characters where ASCII exists: curly quotes, ellipsis, arrows, non-breaking spaces. Write `'`, `"`, `...`, `->` and a plain space.
 - Stating what did not change, stayed, or was already correct.
@@ -179,7 +180,7 @@ Bad:
 
 Good:
 
-> The sync pipeline's retry logic has three bugs. `syncQueue.ts:142` swallows `ETIMEDOUT` instead of re-queuing the job. `backoff.ts:31` caps the delay at 2s, under the 8s p99 LTE reconnect time in `bench/network.json`. `dedupe.ts:77` puts a timestamp in the key, which means retries never deduplicate. All three reproduce in `syncQueue_test.ts` against the network stub. Fix: re-throw the timeout, raise the cap to 30s and strip the timestamp from the key.
+> The sync pipeline's retry logic has 3 bugs. `syncQueue.ts:142` swallows `ETIMEDOUT` instead of re-queuing the job. `backoff.ts:31` caps the delay at 2s, under the 8s p99 LTE reconnect time in `bench/network.json`. `dedupe.ts:77` puts a timestamp in the key, which means retries never deduplicate. All 3 reproduce in `syncQueue_test.ts` against the network stub. Fix: re-throw the timeout, raise the cap to 30s and strip the timestamp from the key.
 
 ## Code comments
 
@@ -209,7 +210,7 @@ Form:
 
 - Respect [writing](#writing).
 - Plain sentences, present tense, within the line limit.
-- Go doc comments on exported names start with the name. This is the one place where repeating the name is required.
+- Go doc comments on exported names start with the name. This is the only place where repeating the name is required.
 - Put the comment above the code, not after it. Comments after the code are for short notes on struct fields, enum values and table-test rows.
 - Reference other code with Go doc links in square brackets: `[Scan]`, `[Parser.Parse]`, `[github.com/romshark/datapages.Subject]`.
 - A doc comment on a symbol says what the symbol does: `// Close ends the open requests and is safe to call repeatedly.`

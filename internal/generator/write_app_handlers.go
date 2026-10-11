@@ -1749,7 +1749,7 @@ func (w *Writer) writePageActionHandler(
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
-	// Claim state before dpsse.Open commits the response.
+	// Claim state before OpenSSE commits the response.
 	if h.InputState != nil {
 		w.writeLockSlotOrReject(h)
 	}
@@ -1762,7 +1762,7 @@ func (w *Writer) writePageActionHandler(
 	// A redirect or HTML body sends its offline writes in that response.
 	if h.InputSSE != nil {
 		w.Line(0, "")
-		w.Line(1, "sse := dpsse.Open(w, r)")
+		w.Line(1, "sse := s.OpenSSE(w, r)")
 		w.Line(1, "defer sse.Close()")
 	}
 

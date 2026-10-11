@@ -25,6 +25,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/logsample"
 	"github.com/romshark/datapages/runtime/prom"
+	"github.com/romshark/datapages/runtime/sse"
 )
 
 const (
@@ -89,6 +90,7 @@ type Core struct {
 	bodySizeLimit    int64
 	shutdownTimeout  time.Duration
 	fileSendTimeout  time.Duration
+	sseCompression   *sse.Compression
 
 	// An empty buildID disables build checks.
 	buildID       string
@@ -134,6 +136,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		bodySizeLimit:   cfg.BodySizeLimit,
 		shutdownTimeout: cfg.ShutdownTimeout,
 		fileSendTimeout: cfg.FileSendTimeout,
+		sseCompression:  sse.NewCompression(cfg.SSECompression),
 	}
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
 	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
@@ -449,6 +452,12 @@ func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 // BodySizeLimit is how much of the request body of
 // an action that declares Signals is read.
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
+
+// OpenSSE starts the event stream of a response, compressed as
+// [datapages.WithSSECompression] configures, see [sse.Open].
+func (c *Core) OpenSSE(w http.ResponseWriter, r *http.Request) *sse.Stream {
+	return sse.Open(w, r, c.sseCompression)
+}
 
 // ShutdownTimeout returns the grace period used by [Core.ListenAndServe].
 // [Core.Shutdown] uses the deadline of its context instead.

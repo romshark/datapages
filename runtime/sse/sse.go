@@ -43,12 +43,12 @@ type Stream struct {
 	closed bool
 }
 
-// Open starts and flushes an event stream. It selects the first accepted
-// compression from zstd, brotli and gzip. The caller must call [Stream.Close].
+// Open starts and flushes an event stream. It selects the first coding of c
+// that r accepts, and none when c is nil. The caller must call [Stream.Close].
 //
 // Open panics if w does not support flushing because events would wait for the
 // handler to return. [Stream.Err] and later events report other flush failures.
-func Open(w http.ResponseWriter, r *http.Request) *Stream {
+func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 	s := &Stream{ctx: r.Context(), w: w, rc: http.NewResponseController(w)}
 	h := w.Header()
 	h.Set("Cache-Control", "no-cache")
@@ -56,10 +56,12 @@ func Open(w http.ResponseWriter, r *http.Request) *Stream {
 	if r.ProtoMajor == 1 {
 		h.Set("Connection", "keep-alive")
 	}
-	h.Add("Vary", "Accept-Encoding")
-	if c := negotiate(r.Header["Accept-Encoding"]); c != nil {
-		h.Set("Content-Encoding", c.name)
-		s.coding = c
+	if c != nil {
+		h.Add("Vary", "Accept-Encoding")
+	}
+	if cd := c.negotiate(r.Header["Accept-Encoding"]); cd != nil {
+		h.Set("Content-Encoding", cd.name)
+		s.coding = cd
 	}
 	if err := s.rc.Flush(); err != nil {
 		if errors.Is(err, http.ErrNotSupported) {
@@ -341,7 +343,7 @@ func speculationRulesLen(urls []string) int {
 
 const hexDigits = "0123456789abcdef"
 
-// writeJSONStringBody writes s inside a JSON string in a one-line script. It
+// writeJSONStringBody writes s inside a JSON string in a single-line script. It
 // escapes JSON syntax, controls and '<' to prevent line breaks, </script> and <!--.
 func writeJSONStringBody(b *strings.Builder, s string) {
 	last := 0

@@ -447,7 +447,7 @@ func (s pageItemHandlers) POSTSave(
 	}]
 	path.Values.ID = dpStrings.Code(r.PathValue("id"))
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageItem.Save")
 	p := dpapp.PageItem{

@@ -9,15 +9,17 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages"
 )
 
 // TestEmptyStreams tests that each coding's empty stream decodes to no data.
 func TestEmptyStreams(t *testing.T) {
 	for name, tc := range map[string]struct {
-		c      *coding
+		empty  []byte
 		decode func(io.Reader) (io.Reader, error)
 	}{
-		"zstd": {&zstdCoding, func(r io.Reader) (io.Reader, error) {
+		"zstd": {emptyZstd, func(r io.Reader) (io.Reader, error) {
 			d, err := zstd.NewReader(r)
 			if err != nil {
 				return nil, err
@@ -25,15 +27,15 @@ func TestEmptyStreams(t *testing.T) {
 			t.Cleanup(d.Close)
 			return d, nil
 		}},
-		"br": {&brotliCoding, func(r io.Reader) (io.Reader, error) {
+		"br": {emptyBrotli, func(r io.Reader) (io.Reader, error) {
 			return brotli.NewReader(r), nil
 		}},
-		"gzip": {&gzipCoding, func(r io.Reader) (io.Reader, error) {
+		"gzip": {emptyGzip, func(r io.Reader) (io.Reader, error) {
 			return gzip.NewReader(r)
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r, err := tc.decode(bytes.NewReader(tc.c.empty))
+			r, err := tc.decode(bytes.NewReader(tc.empty))
 			require.NoError(t, err)
 			out, err := io.ReadAll(r)
 			require.NoError(t, err)
@@ -47,10 +49,10 @@ func TestEmptyGzip(t *testing.T) {
 	var b bytes.Buffer
 	zw := gzip.NewWriter(&b)
 	require.NoError(t, zw.Close())
-	require.Equal(t, b.Bytes(), gzipCoding.empty)
+	require.Equal(t, b.Bytes(), emptyGzip)
 }
 
-// TestNegotiate tests Accept-Encoding selection.
+// TestNegotiate tests Accept-Encoding selection with the default codings.
 func TestNegotiate(t *testing.T) {
 	for name, tc := range map[string]struct {
 		values []string
@@ -71,7 +73,7 @@ func TestNegotiate(t *testing.T) {
 		"all refused":               {[]string{"zstd;q=0, br;q=0, gzip;q=0"}, ""},
 		"quality zero decimals":     {[]string{"zstd; q=0.000, gzip"}, "gzip"},
 		"quality zero dot":          {[]string{"zstd;q=0., gzip"}, "gzip"},
-		"quality one thousandth":    {[]string{"zstd;q=0.001"}, "zstd"},
+		"quality 0.001":             {[]string{"zstd;q=0.001"}, "zstd"},
 		"quality with spaces":       {[]string{"zstd ; Q = 0 , gzip"}, "gzip"},
 		"other parameter":           {[]string{"zstd;level=0"}, "zstd"},
 		"first mention counts":      {[]string{"zstd;q=0, zstd"}, ""},
@@ -83,10 +85,83 @@ func TestNegotiate(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := ""
-			if c := negotiate(tc.values); c != nil {
+			if c := NewCompression(nil).negotiate(tc.values); c != nil {
 				got = c.name
 			}
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestNegotiateCodings tests Accept-Encoding selection with the codings of
+// [datapages.SSECompressionConfig.Codings], in their order.
+func TestNegotiateCodings(t *testing.T) {
+	const (
+		zstd   = datapages.SSECodingZstd
+		brotli = datapages.SSECodingBrotli
+		gzip   = datapages.SSECodingGzip
+	)
+	for name, tc := range map[string]struct {
+		codings []datapages.SSECoding
+		values  []string
+		want    string // "" for no compression.
+	}{
+		"gzip first": {
+			[]datapages.SSECoding{gzip, zstd, brotli},
+			[]string{"zstd, br, gzip"},
+			"gzip",
+		},
+		"brotli first": {
+			[]datapages.SSECoding{brotli, zstd},
+			[]string{"zstd, br"},
+			"br",
+		},
+		"first coding refused": {
+			[]datapages.SSECoding{gzip, zstd},
+			[]string{"gzip;q=0, zstd"},
+			"zstd",
+		},
+		"none accepted": {
+			[]datapages.SSECoding{zstd},
+			[]string{"gzip, br"},
+			"",
+		},
+		"star with gzip": {
+			[]datapages.SSECoding{zstd, gzip},
+			[]string{"*"},
+			"gzip",
+		},
+		"star without gzip": {
+			[]datapages.SSECoding{zstd, brotli},
+			[]string{"*"},
+			"",
+		},
+		"star after listed": {
+			[]datapages.SSECoding{brotli, gzip},
+			[]string{"br;q=0, *"},
+			"gzip",
+		},
+		"gzip refused by star": {
+			[]datapages.SSECoding{gzip},
+			[]string{"gzip;q=0, *"},
+			"",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := NewCompression(&datapages.SSECompressionConfig{Codings: tc.codings})
+			got := ""
+			if cd := c.negotiate(tc.values); cd != nil {
+				got = cd.name
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestNewCompressionDisabled tests that a disabled configuration compresses
+// nothing.
+func TestNewCompressionDisabled(t *testing.T) {
+	c := NewCompression(&datapages.SSECompressionConfig{Disabled: true})
+	require.Nil(t, c)
+	require.Nil(t, c.negotiate([]string{"gzip, deflate, br, zstd"}))
 }

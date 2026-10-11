@@ -49,11 +49,12 @@ opts = append(opts,
 	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
 	datapages.WithBodySizeLimit(1<<20),
 	datapages.WithLogSampling(datapages.LogSamplingConfig{Interval: time.Minute}),
+	datapages.WithSSECompression(datapages.SSECompressionConfig{}),
 	datapages.WithPrometheus(datapages.PrometheusConfig{Host: ":9091"}),
 )
 ```
 
-`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends the response of a `datapages.File` or a static asset whose client accepts no more of it for the time, a minute by default.
+`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends the response of a `datapages.File` or a static asset whose client accepts no more of it for the time, a minute by default. `WithSSECompression` sets the codings of SSE responses, their order, levels and windows. By default a response uses the first of zstd, brotli and gzip that the request accepts. Set `Codings` to a subset in the order to prefer, such as `[]datapages.SSECoding{datapages.SSECodingGzip}` for gzip only. A client that accepts none of the listed codings gets an uncompressed stream. Set `Disabled` behind a proxy that compresses responses and forwards each event as it arrives.
 
 `WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
@@ -115,4 +116,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:aa15420b303df3be -->
+<!-- written by datapages sha256:0af594b62f094724 -->

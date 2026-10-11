@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// event formats one event and returns to events through [event.free].
+// event formats an event and returns to events through [event.free].
 type event struct {
 	b     []byte
 	key   string // The key of the data lines Write adds, such as "elements ".
@@ -49,7 +49,7 @@ func (e *event) retry(d time.Duration) {
 	e.b = append(e.b, '\n')
 }
 
-// field appends one data line. value must not contain CR or LF.
+// field appends a data line. value must not contain CR or LF.
 func (e *event) field(key, value string) {
 	e.b = append(e.b, "data: "...)
 	e.b = append(e.b, key...)

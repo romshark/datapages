@@ -507,6 +507,8 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 `PatchElementAt` and `RemoveElement` reject selectors containing `\r` or `\n` with `datapages.ErrSelectorLineBreak`.
 
+An SSE response is compressed with the first of zstd, brotli and gzip that the request accepts, zstd and brotli with a 1 MiB window. A stream takes an encoder on its first event and holds it until the stream ends, about 1.5 MiB with zstd. `datapages.WithSSECompression` sets the codings, their order, levels and windows, or turns compression off behind a proxy that compresses responses. `Codings: []datapages.SSECoding{datapages.SSECodingGzip}` compresses with gzip only, and `{datapages.SSECodingZstd, datapages.SSECodingBrotli}` with zstd, else brotli. A client that accepts none of the listed codings gets an uncompressed stream. `Disabled: true` sends uncompressed streams to a proxy that compresses them, which must forward each event as it arrives.
+
 See [datapages.go](datapages.go) for method definitions.
 
 #### Parameter: `pageCache datapages.PageCacheWriter`

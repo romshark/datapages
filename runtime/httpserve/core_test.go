@@ -867,3 +867,45 @@ func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
 	t.Fatalf("no metric named %s", name)
 	return 0
 }
+
+// TestOpenSSECompression tests that the compression a server is configured
+// with decides the coding of its streams.
+func TestOpenSSECompression(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		opts []datapages.ServerOption
+		want string // "" for no compression.
+	}{
+		"default": {want: "zstd"},
+		"disabled": {opts: []datapages.ServerOption{datapages.WithSSECompression(
+			datapages.SSECompressionConfig{Disabled: true},
+		)}},
+		"gzip only": {
+			opts: []datapages.ServerOption{datapages.WithSSECompression(
+				datapages.SSECompressionConfig{
+					Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+				},
+			)},
+			want: "gzip",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var cfg datapages.ServerConfig
+			for _, opt := range tc.opts {
+				require.NoError(t, opt(&cfg))
+			}
+			core, err := httpserve.NewCore(cfg, "")
+			require.NoError(t, err)
+
+			r := httptest.NewRequest(http.MethodGet, "/_$/", nil)
+			r.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+			w := httptest.NewRecorder()
+			s := core.OpenSSE(w, r)
+			s.Close()
+			require.NoError(t, s.Err())
+			require.Equal(t, tc.want, w.Header().Get("Content-Encoding"))
+		})
+	}
+}

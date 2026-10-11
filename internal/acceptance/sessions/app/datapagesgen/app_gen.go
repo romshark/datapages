@@ -238,7 +238,7 @@ func (c *pageCacheWriter) flush() error {
 // out with its headers, and a panic in a rendered body still gets a status.
 func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
 	payload, err := c.payload()
-	sse := dpsse.Open(w, c.r)
+	sse := c.s.OpenSSE(w, c.r)
 	defer sse.Close()
 	if err != nil || payload == "" {
 		return err

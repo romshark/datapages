@@ -807,7 +807,7 @@ func (s pageIndexHandlers) POSTFilter(
 		return
 	}
 
-	sse := dpsse.Open(w, r)
+	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Filter")
 	p := dpapp.PageIndex{
