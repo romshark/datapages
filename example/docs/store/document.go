@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages/example/docs/richtext"
 )
 
-// doc is one document. mu guards every field but dir and id.
+// doc is 1 document. mu guards every field but dir and id.
 type doc struct {
 	dir, id string
 
@@ -49,14 +49,14 @@ type doc struct {
 	presence, cursors int
 }
 
-// Change is one revision of a document.
+// Change is 1 revision of a document.
 type Change struct {
 	Rev   int         `json:"rev"`
 	Delta delta.Delta `json:"delta"`
 	// Client is the editor that sent the change, empty for a repair by the
 	// store.
 	Client string `json:"client,omitempty"`
-	// Seq numbers the changes of one editor. A retry repeats it.
+	// Seq numbers the changes of 1 editor. A retry repeats it.
 	Seq int       `json:"seq,omitempty"`
 	At  time.Time `json:"at"`
 }
@@ -178,7 +178,7 @@ func (d *doc) appendLog(changes ...Change) error {
 	return nil
 }
 
-// encodeLog encodes changes into logBuf, one line each.
+// encodeLog encodes changes into logBuf, 1 line each.
 func (d *doc) encodeLog(changes []Change) error {
 	if d.logEnc == nil {
 		d.logEnc = json.NewEncoder(&d.logBuf)

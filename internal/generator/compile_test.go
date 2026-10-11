@@ -27,11 +27,11 @@ import (
 //
 // The app package sits in a directory named "pages" while the package itself
 // is named "app". The directory is whatever the datapages.NewServer call points
-// at and the package name is whatever the source declares. The two need not match.
+// at and the package name is whatever the source declares. The 2 need not match.
 // A generator that assumes they match compiles only in the examples.
 func TestCompileFixtures(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds one module per fixture")
+		t.Skip("builds 1 module per fixture")
 	}
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestCompileFixtures(t *testing.T) {
 				generator.Options{GenImport: modPath + "/datapagesgen"},
 			))
 
-			// The entry point is generated from the same model and is the one
+			// The entry point is generated from the same model and is the only
 			// file a user never edits before their first build.
 			require.NoError(t, generator.GenerateCmd(
 				filepath.Join(mod, "cmd", "server"),
@@ -117,7 +117,7 @@ func writeCompileModule(t *testing.T, mod, src, repoRoot string) string {
 			// A directory of Go files is a sibling package the app package
 			// imports as <module>/<name>, hence it goes to the module root.
 			// Anything else is embedded, which only works from inside the app package:
-			// the assets directory is the one such fixture.
+			// the assets directory is the only such fixture.
 			dst := pages
 			if isGoPkgDir(t, from) {
 				dst = mod

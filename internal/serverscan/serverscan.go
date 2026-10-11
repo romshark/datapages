@@ -43,7 +43,7 @@ const buildConstraintLimit = 64 << 10
 const DefaultAppDir = "app"
 
 // GenSubdir is the package an app package is generated into.
-// It always sits directly under the app package, which is what lets one
+// It always sits directly under the app package, which is what lets 1
 // module build any number of applications.
 const GenSubdir = "datapagesgen"
 
@@ -60,7 +60,7 @@ const (
 	DisablePrometheus = "DisablePrometheus"
 )
 
-// TypeArg is one type argument of a NewServer call.
+// TypeArg is 1 type argument of a NewServer call.
 type TypeArg struct {
 	// Src is the argument as written, for example "app.App".
 	Src string
@@ -76,7 +76,7 @@ type TypeArg struct {
 // same reports whether a and b name the same type.
 //
 // Comparing what is written would make an import alias a type of its own,
-// and a file importing two packages of the same name has to alias one of them.
+// and a file importing 2 packages of the same name has to alias one of them.
 // A type declared in the calling package resolves to no import and is compared
 // as written: there is no import path to compare it by.
 func (a TypeArg) same(b TypeArg) bool {
@@ -86,7 +86,7 @@ func (a TypeArg) same(b TypeArg) bool {
 	return a.Import == b.Import && a.Name == b.Name
 }
 
-// Call is one datapages.NewServer call.
+// Call is 1 datapages.NewServer call.
 type Call struct {
 	// Pos is where the call is written.
 	Pos token.Position
@@ -119,7 +119,7 @@ type Call struct {
 	Prometheus bool
 }
 
-// App is one app package of the module, with the calls that build a server
+// App is 1 app package of the module, with the calls that build a server
 // for it and the package they generate into.
 type App struct {
 	// Name is the last element of Dir, which is what names the app on the
@@ -157,7 +157,7 @@ type App struct {
 
 // Result is what a module was found to contain.
 type Result struct {
-	// Apps holds one entry per app package, ordered by directory.
+	// Apps holds 1 entry per app package, ordered by directory.
 	Apps []App
 
 	// Fallback reports that the module holds no NewServer call and Apps holds
@@ -168,7 +168,7 @@ type Result struct {
 // Scan reads the NewServer calls of the module rooted at moduleDir, whose
 // module path is modulePath, and reports what to generate and where.
 //
-// One module may build any number of applications. Calls are grouped by the
+// 1 module may build any number of applications. Calls are grouped by the
 // app package their App type argument names, and each group generates into
 // the datapagesgen package of that app.
 //
@@ -277,9 +277,9 @@ func defaultApp(modulePath string) App {
 	}
 }
 
-// checkDestinationArg holds the S type argument to the one package the app
+// checkDestinationArg holds the S type argument to the only package the app
 // generates into. Where generated code goes is not a choice: it follows the app
-// package, which is what lets one module build any number of applications.
+// package, which is what lets 1 module build any number of applications.
 func checkDestinationArg(a *App, c Call, errs *Errors) {
 	if c.Server.Import == a.GenImport && c.Server.Name == ServerTypeName {
 		return
@@ -290,9 +290,9 @@ func checkDestinationArg(a *App, c Call, errs *Errors) {
 	errs.hint("fix: name " + a.GenImport + "." + ServerTypeName)
 }
 
-// checkAgreement holds every call naming one app to the same session data type
-// and the same metrics mode. Two calls disagreeing would mean two servers
-// generated from one model.
+// checkAgreement holds every call naming the same app to the same session data type
+// and the same metrics mode. 2 calls disagreeing would mean 2 servers
+// generated from 1 model.
 func checkAgreement(moduleDir string, a *App, c Call, errs *Errors) {
 	if len(a.Calls) == 0 {
 		return
@@ -303,14 +303,14 @@ func checkAgreement(moduleDir string, a *App, c Call, errs *Errors) {
 			"datapages.NewServer names SessionData %s for %s, "+
 				"but the call at %s names %s",
 			c.SessionData.Src, a.Dir, first, a.SessionData.Src)
-		errs.hint("every call naming one app package must name one session type")
+		errs.hint("every call naming the same app package must name the same session type")
 	}
 	if !c.Metrics.same(a.Metrics) {
 		errs.addf(c.Pos,
 			"datapages.NewServer names Metrics %s for %s, "+
 				"but the call at %s names %s",
 			c.Metrics.Src, a.Dir, first, a.Metrics.Src)
-		errs.hint("every call naming one app package must name one metrics mode")
+		errs.hint("every call naming the same app package must name the same metrics mode")
 	}
 }
 
@@ -438,7 +438,7 @@ func skipDir(path, name string) bool {
 	return err == nil
 }
 
-// scanPackage reads the Go files of one directory, without recursing.
+// scanPackage reads the Go files of 1 directory, without recursing.
 func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -540,7 +540,7 @@ func neverBuilt(path string) bool {
 	return false
 }
 
-// scanFile reads the NewServer calls of one file. root is the module root,
+// scanFile reads the NewServer calls of 1 file. root is the module root,
 // which positions are relative to. pkgName returns the name of the package
 // at an import path, which an unaliased import binds.
 func scanFile(
@@ -627,7 +627,7 @@ func typeArgsOf(fun ast.Expr, pkg, name string) ([]ast.Expr, bool) {
 	return targs, true
 }
 
-// typeArg renders one type argument and resolves its qualifier to an import path.
+// typeArg renders 1 type argument and resolves its qualifier to an import path.
 func typeArg(f *ast.File, e ast.Expr, pkgName func(path string) string) TypeArg {
 	switch t := e.(type) {
 	case *ast.Ident:

@@ -559,7 +559,7 @@ var keyEncoding = base64.RawURLEncoding
 // {base64url(userID)}.{base64url(sessionID)}.
 //
 // It returns the bytes it built. [encrypt] reads them and the KV store wants a string,
-// which is one conversion either way.
+// which is 1 conversion either way.
 func compositeKey(userID, sessionID string) []byte {
 	b := make([]byte, 0, keyEncoding.EncodedLen(len(userID))+
 		len(".")+keyEncoding.EncodedLen(len(sessionID)))
@@ -595,10 +595,10 @@ const nonceKeyInfo = "datapages natskv token nonce"
 // encrypt encrypts plaintext using AES-128-GCM and returns a base64url-encoded string.
 //
 // The nonce is an HMAC of plaintext under nonceKey, which makes the token of a
-// session key the same on every call. GCM forbids one nonce for two plaintexts,
-// which here takes two session keys whose HMACs share their first 96 bits.
+// session key the same on every call. GCM forbids 1 nonce for 2 plaintexts,
+// which here takes 2 session keys whose HMACs share their first 96 bits.
 // Like random nonces, these stay within the limit of NIST SP 800-38D,
-// section 8.3, for up to 2^32 sessions under one [Config.EncryptionKey].
+// section 8.3, for up to 2^32 sessions under 1 [Config.EncryptionKey].
 func encrypt(aead cipher.AEAD, nonceKey, plaintext []byte) string {
 	mac := hmac.New(sha256.New, nonceKey)
 	mac.Write(plaintext)
@@ -633,7 +633,7 @@ func decrypt(aeads []cipher.AEAD, encrypted string) (string, error) {
 
 // DeleteExpired deletes every session whose ExpiresAt has passed.
 // It reads the bucket key by key: the expiry is inside each record,
-// and a bucket TTL would be one age for every key.
+// and a bucket TTL would be the same age for every key.
 func (s *SessionManager[Data]) DeleteExpired(ctx context.Context) (int, error) {
 	watcher, err := s.kv.WatchAll(nats.IgnoreDeletes(), nats.Context(ctx))
 	if err != nil {

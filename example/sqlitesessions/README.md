@@ -4,7 +4,7 @@ A minimal auth demo that implements [`sessions.Manager`](../../modules/sessions/
 
 https://github.com/user-attachments/assets/d34b57f5-e24b-4274-8357-e4122b32d541
 
-The interface implementation lives in [`app/sessionstore/sessionstore.go`](./app/sessionstore/sessionstore.go). It implements the five `sessions.Manager` methods: `ReadSessionFromCookie`, `CreateSession`, `CloseSession`, `NotifyClosed` and `DeleteExpired`. The application schedules `DeleteExpired` in [`cmd/server/main.go`](./cmd/server/main.go); the framework does not call it.
+The interface implementation lives in [`app/sessionstore/sessionstore.go`](./app/sessionstore/sessionstore.go). It implements the 5 `sessions.Manager` methods: `ReadSessionFromCookie`, `CreateSession`, `CloseSession`, `NotifyClosed` and `DeleteExpired`. The application schedules `DeleteExpired` in [`cmd/server/main.go`](./cmd/server/main.go); the framework does not call it.
 
 ## Run
 
@@ -12,4 +12,4 @@ The interface implementation lives in [`app/sessionstore/sessionstore.go`](./app
 datapages watch # or: make dev
 ```
 
-Then open <http://localhost:7331>. Three demo users are seeded on first launch (`alice@example.com` / `bob@example.com` / `carol@example.com`, all with password `password123`).
+Then open <http://localhost:7331>. 3 demo users are seeded on first launch (`alice@example.com` / `bob@example.com` / `carol@example.com`, all with password `password123`).

@@ -1,6 +1,6 @@
 // Package throttle limits how fast bytes move through a reader.
 //
-// One [Limiter] is one budget, and every transfer sharing it competes for the
+// 1 [Limiter] is 1 budget, and every transfer sharing it competes for the
 // same bytes per second. Slowing a read is what enforces a limit on an upload:
 // the body is taken from the socket more slowly, its buffers fill and TCP
 // stops the sender, which a client cannot opt out of.
@@ -26,12 +26,12 @@ const (
 // It's safe for concurrent use.
 type Limiter struct {
 	mu     sync.Mutex
-	rate   int64 // bytes per second, zero is unlimited
+	rate   int64 // bytes per second, 0 is unlimited
 	tokens float64
 	last   time.Time
 }
 
-// NewLimiter returns a limiter of bytesPerSecond, zero for unlimited.
+// NewLimiter returns a limiter of bytesPerSecond, 0 for unlimited.
 func NewLimiter(bytesPerSecond int64) *Limiter {
 	l := &Limiter{}
 	l.SetRate(bytesPerSecond)
@@ -42,7 +42,7 @@ func NewLimiter(bytesPerSecond int64) *Limiter {
 	return l
 }
 
-// Rate is the current budget in bytes per second, zero for unlimited.
+// Rate is the current budget in bytes per second, 0 for unlimited.
 func (l *Limiter) Rate() int64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -111,7 +111,7 @@ func (l *Limiter) burstLocked() float64 {
 	return float64(l.rate) * burst.Seconds()
 }
 
-// window is how many bytes one read may take. It bounds how long a single read pauses,
+// window is how many bytes 1 read may take. It bounds how long a single read pauses,
 // which is what lets a changed limit reach a running transfer instead
 // of being waited out at the old one.
 func (l *Limiter) window() int {

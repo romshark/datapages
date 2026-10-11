@@ -29,7 +29,7 @@ func parseFiles(t *testing.T, src map[string]string) *packages.Package {
 
 // TestResolvePkgMatchers tests the local name the generated href and action
 // packages are called under, resolved per file rather than per package:
-// two files  of one package may import it under different aliases,
+// 2 files  of 1 package may import it under different aliases,
 // and a blank import means no calls at all.
 func TestResolvePkgMatchers(t *testing.T) {
 	t.Parallel()
@@ -51,9 +51,9 @@ func TestResolvePkgMatchers(t *testing.T) {
 			},
 			want: map[string]string{"app.templ": "myhref"},
 		},
-		// Two files of one package importing it under different names.
-		// One matcher for the package recognized the calls of one file only.
-		"one alias per file": {
+		// 2 files of 1 package importing it under different names.
+		// 1 matcher for the package recognized the calls of 1 file only.
+		"1 alias per file": {
 			files: map[string]string{
 				"a_templ.go": "package app\nimport \"" + href + "\"\n",
 				"b_templ.go": "package app\nimport h \"" + href + "\"\n",

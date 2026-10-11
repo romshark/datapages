@@ -18,7 +18,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
-/* ErrEventSubjectDuplicateSignal: two subject fields with the same signal tag */
+/* ErrEventSubjectDuplicateSignal: 2 subject fields with the same signal tag */
 
 // EventBad is "bad"
 type EventBad struct {

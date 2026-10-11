@@ -1,9 +1,9 @@
 # Acceptance cases
 
-Each directory here with a `go.mod` is one case: an application,
+Each directory here with a `go.mod` is 1 case: an application,
 the code generated from it, and the tests that send it requests over HTTP.
 
-Reading generated code as text checks one version of it. These cases send
+Reading generated code as text checks 1 version of it. These cases send
 requests and read responses, which checks the behaviour every version must provide.
 
 A case is a module of its own, which keeps it out of `go build ./...` and
@@ -29,7 +29,7 @@ Per case it:
 2. runs `go test -race -count=1 -coverpkg=<generated packages> ./...` inside the
    module and merges the coverage profile.
 
-`go test ./internal/acceptance/ -run 'TestAcceptance/routing'` runs one case.
+`go test ./internal/acceptance/ -run 'TestAcceptance/routing'` runs 1 case.
 `-short` skips all of them.
 
 Don't pass `-race` to the runner. It only shells out `go test` per case, and each
@@ -39,11 +39,11 @@ the wall time of the run and covers no shipped code.
 
 The flag `-parallel` bounds how many cases run in parallel. It defaults to `GOMAXPROCS`.
 
-Two rules a new test has to keep:
+2 rules a new test has to keep:
 
 - Anything reaching the NATS server has to go through `brokers.Conn`,
   which serializes it against the other tests of the case.
-  One server serves the whole case and its subject space is shared.
+  1 server serves the whole case and its subject space is shared.
 - Building a server sets the package-level logger of the generated `href` package.
   `contract.Run` runs its `ExternalHref` test before it starts the parallel ones,
   and the `TestContract` of a case therefore does not call `t.Parallel`.
@@ -66,7 +66,7 @@ Copy an existing case for the layout, rewrite `go.mod`, then run
 generated once and committed; every run compiles it.
 
 `mustNewServer` in `newserver_test.go` wraps `datapages.NewServer` with the
-case's four type arguments and fails the test on a configuration error, which
+case's 4 type arguments and fails the test on a configuration error, which
 no test can carry on from.
 
 ## The client
@@ -82,27 +82,27 @@ an action, a stream and a cookie jar.
 Responses are compressed by default. The client asks for
 `Accept-Encoding: identity`, which makes what a test reads the bytes the
 handler wrote. The in-memory broker matches subjects the way NATS does: `*`
-covers one token, `>` covers the rest. See `wildcardsubjects`.
+covers 1 token, `>` covers the rest. See `wildcardsubjects`.
 
 ## Where the calls live
 
-A case usually keeps one `datapages.NewServer` call in `cmd/server/main.go` and
-one in `newserver_test.go`. A module is not held to that:
+A case usually keeps 1 `datapages.NewServer` call in `cmd/server/main.go` and
+1 in `newserver_test.go`. A module is not held to that:
 
-- `multicall` builds one application from four packages: the command, a library
+- `multicall` builds 1 application from 4 packages: the command, a library
   package beside it, one under `internal/`, and the test package. Every call
-  names the same app and the same four type arguments, which every call naming
-  one app package has to do. The case builds a server from each constructor and
+  names the same app and the same 4 type arguments, which every call naming
+  the same app package has to do. The case builds a server from each constructor and
   asserts they serve the same routes.
-- `multiapp` builds two applications whose type arguments are the opposite of
+- `multiapp` builds 2 applications whose type arguments are the opposite of
   each other: `app/frontend` names a session type and
   `datapages.DisablePrometheus`, `app/admin` names `datapages.DisableSessions`
-  and `datapages.EnablePrometheus`. Neither is a property of the module. One run
+  and `datapages.EnablePrometheus`. Neither is a property of the module. 1 run
   generates the session handling into one package and the metrics
   instrumentation into the other, and each generated server refuses the option
   it was not generated for. Both `NewServer` calls sit in `serve/` subpackages;
-  the command picks one at startup. `instances_test.go` then runs four servers
-  at once, two per app, which is where package-level state in generated code
+  the command picks one at startup. `instances_test.go` then runs 4 servers
+  at once, 2 per app, which is where package-level state in generated code
   would show.
 
 Neither case asserts what the scan read. A call the scan misses generates
@@ -117,7 +117,7 @@ which `serverscan.Scan` reads, and the assets come from the `embed.FS` the app p
 declares. No case carries a `datapages.yaml`.
 
 The runner reads an optional `acceptance.json` next to the `go.mod`
-(`readCaseOptions` in `acceptance_test.go`) with one field, `no_race`, which
+(`readCaseOptions` in `acceptance_test.go`) with 1 field, `no_race`, which
 drops the race detector for that case. Add the file only when a case is too
 slow or too noisy under `-race`, and say in the case why.
 
@@ -131,7 +131,7 @@ an action arriving on it, per-tab state released when its stream closes,
 and every URL `href` and `action` build addressing a real route.
 
 The server is generated per model. The same assertion therefore runs against
-different code in each case. A case joins with one `TestContract` that fills in
+different code in each case. A case joins with 1 `TestContract` that fills in
 a `contract.Case`; every `contract_case_test.go` here is an example. See
 [`minimal`](minimal/contract_case_test.go).
 

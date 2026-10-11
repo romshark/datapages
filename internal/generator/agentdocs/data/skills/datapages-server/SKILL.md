@@ -24,13 +24,13 @@ s, err := datapages.NewServer[
 ](&a, broker, opts...) // the app is passed by pointer
 ```
 
-Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. One module can contain several apps. Run one with `datapages watch --app frontend`.
+Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. 1 module can contain several apps. Run one with `datapages watch --app frontend`.
 
 `datapages.EnablePrometheus` requires `WithPrometheus`, `DisablePrometheus` rejects it.
 
 ## Broker
 
-A broker is always required. It sends events between server instances and to SSE subscribers. Use `modules/messaging/natscore` for multiple instances. Use `modules/messaging/inmem` only for one instance. The generated server uses NATS. Start it with `make up` before starting the server.
+A broker is always required. It sends events between server instances and to SSE subscribers. Use `modules/messaging/natscore` for multiple instances. Use `modules/messaging/inmem` only for 1 instance. The generated server uses NATS. Start it with `make up` before starting the server.
 
 ## Options
 
@@ -53,11 +53,11 @@ opts = append(opts,
 )
 ```
 
-`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends the response of a `datapages.File` or a static asset whose client accepts no more of it for the time, a minute by default.
+`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at 0 because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends the response of a `datapages.File` or a static asset whose client accepts no more of it for the time, a minute by default.
 
 `WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
-Deployments need no application code. Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Shutdown resets open SSE streams. Datastar then reconnects to the next process. The ID defaults to a hash of the executable. Set `WithBuildID` when replicas use different binaries for one release. During a rolling deployment, route each client to one build.
+Deployments need no application code. Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Shutdown resets open SSE streams. Datastar then reconnects to the next process. The ID defaults to a hash of the executable. Set `WithBuildID` when replicas use different binaries for 1 release. During a rolling deployment, route each client to 1 build.
 
 The session cookie uses the `Secure` attribute. Set `DisableSecureCookie` only when the complete deployment uses plain HTTP, where the browser would reject the secure cookie. `datapages.IsDevMode()` reports whether the dev server is active. `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable development behavior. Log at `slog.LevelDebug` when you need to inspect that behavior.
 
@@ -84,7 +84,7 @@ An `embed.FS` in the app package enables file serving. Its doc comment defines t
 var StaticFS embed.FS
 ```
 
-Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. It may contain only ASCII letters, digits, `-`, `.`, `_`, `~` and `/`: the server matches it against the decoded request path, which a percent-encoded prefix never matches. The directive must name exactly one directory inside the app package. No page or action route may start with the URL prefix: every path below it belongs to the files.
+Declare at most 1 such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. It may contain only ASCII letters, digits, `-`, `.`, `_`, `~` and `/`: the server matches it against the decoded request path, which a percent-encoded prefix never matches. The directive must name exactly 1 directory inside the app package. No page or action route may start with the URL prefix: every path below it belongs to the files.
 
 `datapages.WithAssets(app.StaticFS, false)` supplies the filesystem and the directory-browsing setting. Generated code supplies the URL prefix, source directory and development disk path. In development mode, Datapages reads files from disk and disables caching. Asset changes then need no rebuild. The server rejects `WithAssets` when the app declares no assets.
 

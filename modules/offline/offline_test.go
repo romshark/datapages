@@ -132,7 +132,7 @@ func TestMiddlewareInjectsBeforeHead(t *testing.T) {
 			head: "<!DOCTYPE html><html><head><title>300K</title>",
 			tail: "</head><body><h1>x</h1></body></html>",
 		},
-		// Lowercasing replaces each invalid byte with the three-byte U+FFFD encoding.
+		// Lowercasing replaces each invalid byte with the 3-byte U+FFFD encoding.
 		"invalid utf-8": {
 			head: "<!DOCTYPE html><html><head><title>" +
 				strings.Repeat("\xff", 20) + "</title>",
@@ -154,7 +154,7 @@ func TestMiddlewareInjectsBeforeHead(t *testing.T) {
 }
 
 // TestMiddlewareInjectsBeforeHeadAfterDenseTags tests every </head> offset
-// across the first two chunks of the dense-candidate fallback.
+// across the first 2 chunks of the dense-candidate fallback.
 func TestMiddlewareInjectsBeforeHeadAfterDenseTags(t *testing.T) {
 	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
 	script := injectedScript(mw)

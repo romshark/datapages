@@ -96,8 +96,8 @@ h2 {
 	font-size: 0.875rem;
 }
 
-/* Each limit fills the line it is on: an equal half while both fit, the whole
-   width once they wrap. A flex basis of zero and no width of their own leaves
+/* Each limit fills the line it is on: 1/2 of it while both fit, the whole
+   width once they wrap. A flex basis of 0 and no width of their own leaves
    the wrapping to the contents, which is what decides it, rather than to a
    screen size the contents know nothing about. */
 
@@ -110,7 +110,7 @@ h2 {
 	justify-content: space-between;
 }
 
-/* The two faces of the switch are "Limited" and "Unlimited", and the hidden
+/* The 2 faces of the switch are "Limited" and "Unlimited", and the hidden
    one is display:none: the control would resize as it is pressed and shift
    everything after it. Wide enough for the longer label; the host centres it. */
 
@@ -118,9 +118,9 @@ h2 {
 	inline-size: 12ch;
 }
 
-/* The widest rate the field accepts is MaxLimitKiB, seven digits, and the
+/* The widest rate the field accepts is MaxLimitKiB, 7 digits, and the
    number spinners take about another rem beside them. A fixed width at all
-   because the kit gives the field flex: 1 1 auto, which would size the two
+   because the kit gives the field flex: 1 1 auto, which would size the 2
    groups by whatever their rates happen to be and leave the rows unaligned. */
 
 .limits neo-input-group > input {
@@ -172,7 +172,7 @@ h2 {
 }
 
 /* A row of controls per file needs more width than a phone has, which collapses
-   it into one menu there. Both are rendered and CSS picks: an element cannot
+   it into 1 menu there. Both are rendered and CSS picks: an element cannot
    move between parents. The menu owns the dialog it opens, hence hiding it
    rather than the neo-dialog around it. */
 

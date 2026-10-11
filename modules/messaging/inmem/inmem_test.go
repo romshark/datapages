@@ -44,7 +44,7 @@ func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
 }
 
 // TestMatches tests the wildcard rules this broker reimplements: "*" stands for
-// exactly one token and ">" for one or more. Getting either wrong makes a page
+// exactly 1 token and ">" for 1 or more. Getting either wrong makes a page
 // receive events it never subscribed to, or miss the ones it did.
 func TestMatches(t *testing.T) {
 	tests := map[string]struct {
@@ -52,19 +52,19 @@ func TestMatches(t *testing.T) {
 		subject string
 		want    bool
 	}{
-		"literal":                   {"a.b", "a.b", true},
-		"literal mismatch":          {"a.b", "a.c", false},
-		"star matches one token":    {"a.*", "a.b", true},
-		"star matches any value":    {"a.*", "a.zzz", true},
-		"star is exactly one token": {"a.*", "a.b.c", false},
-		"star in the middle":        {"a.*.c", "a.b.c", true},
-		"star needs a token":        {"a.*", "a", false},
-		"gt matches the rest":       {"a.>", "a.b.c", true},
-		"gt matches one token":      {"a.>", "a.b", true},
-		"gt needs a token":          {"a.>", "a", false},
-		"pattern longer":            {"a.b.c", "a.b", false},
-		"subject longer":            {"a.b", "a.b.c", false},
-		"star and gt":               {"a.*.>", "a.b.c.d", true},
+		"literal":                 {"a.b", "a.b", true},
+		"literal mismatch":        {"a.b", "a.c", false},
+		"star matches 1 token":    {"a.*", "a.b", true},
+		"star matches any value":  {"a.*", "a.zzz", true},
+		"star is exactly 1 token": {"a.*", "a.b.c", false},
+		"star in the middle":      {"a.*.c", "a.b.c", true},
+		"star needs a token":      {"a.*", "a", false},
+		"gt matches the rest":     {"a.>", "a.b.c", true},
+		"gt matches 1 token":      {"a.>", "a.b", true},
+		"gt needs a token":        {"a.>", "a", false},
+		"pattern longer":          {"a.b.c", "a.b", false},
+		"subject longer":          {"a.b", "a.b.c", false},
+		"star and gt":             {"a.*.>", "a.b.c.d", true},
 	}
 
 	for name, tt := range tests {
@@ -112,7 +112,7 @@ func TestPublishIsCountedWithoutSubscribers(t *testing.T) {
 }
 
 // TestPublishIsCountedOnce tests a publish that reaches subscribers:
-// it is one publish however many of them there are.
+// it is 1 publish however many of them there are.
 func TestPublishIsCountedOnce(t *testing.T) {
 	ctx := context.Background()
 	b := inmem.New(messaging.DefaultBrokerChanBuffer)
@@ -207,12 +207,12 @@ func TestLiteralSubscriptionIsUnaffected(t *testing.T) {
 	}
 }
 
-// TestOneMessagePerSubscription tests subscriptions with several subjects that
+// Test1MessagePerSubscription tests subscriptions with several subjects that
 // match the published one. Each receives the message once, whichever other
 // subscriptions share its subjects.
-func TestOneMessagePerSubscription(t *testing.T) {
+func Test1MessagePerSubscription(t *testing.T) {
 	for name, subscriptions := range map[string][][]string{
-		"two patterns":        {{"note.*", "note.>"}},
+		"2 patterns":          {{"note.*", "note.>"}},
 		"literal and pattern": {{"note.one", "note.*"}},
 		"shared subjects": {
 			{"note.*"},

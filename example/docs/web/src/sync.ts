@@ -1,7 +1,7 @@
 // The client side of operational transformation with a central server, as in
-// ot.js (https://github.com/Operational-Transformation/ot.js): one pending
+// ot.js (https://github.com/Operational-Transformation/ot.js): 1 pending
 // change at a time, and a buffer for what the user changes meanwhile.
-// The server applies changes in one order and sends each to every editor,
+// The server applies changes in 1 order and sends each to every editor,
 // its author included. That copy acknowledges the change.
 import Delta from "quill-delta";
 

@@ -1,6 +1,6 @@
 // Package app exercises per-tab state:
 // a page whose handlers hold a value per browser tab,
-// and an event addressed at one tab.
+// and an event addressed at 1 tab.
 package app
 
 import (

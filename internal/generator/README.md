@@ -1,7 +1,7 @@
 # Generator tests
 
-Three tests answer the questions below. Each of the other tests in this package
-pins one rule of the generator.
+3 tests answer the questions below. Each of the other tests in this package
+pins 1 rule of the generator.
 
 | test | question |
 | ---- | -------- |
@@ -14,7 +14,7 @@ answered outside this package, by the acceptance cases under
 [../acceptance](../acceptance). Each is an application with its generated code
 committed next to it, tested over HTTP.
 
-Three tests read generated source. `TestExamplesAreUpToDate` reads it because the
+3 tests read generated source. `TestExamplesAreUpToDate` reads it because the
 committed files are the artifact. `TestError500PageReportsWithoutRenderingItself`
 and `TestError404PageReportsWithoutRenderingItself` read it because running the
 code they check overflows the stack and takes the rest of the test binary with it.
@@ -24,7 +24,7 @@ or a value the application recorded while a generated handler ran.
 ## TestCompileFixtures
 
 Every acceptance case builds its module too. This looks redundant. It is not,
-for three reasons:
+for 3 reasons:
 
 - A fixture whose generated code does not compile cannot be an acceptance case.
   A module that does not build never reaches an assertion. This test accepts no
@@ -33,7 +33,7 @@ for three reasons:
   fixture added by parser work is covered the day it lands.
 - It builds the app package in a directory named `pages` while the package is
   named `app`. The directory is whatever the `datapages.NewServer` call points
-  at and the package name is whatever the source declares, so the two need not match.
+  at and the package name is whatever the source declares, so the 2 need not match.
   No acceptance case uses that combination.
 
 ## TestGeneratePartialModels

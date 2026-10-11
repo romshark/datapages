@@ -1,4 +1,4 @@
-// Package app embeds its assets with a glob that matches files, not one directory.
+// Package app embeds its assets with a glob that matches files, not 1 directory.
 package app
 
 import (

@@ -34,7 +34,7 @@ type App struct {
 
 	// States are all state types the source package declares, keyed by type name.
 	// Pages reference them directly or through embedded abstract pages.
-	// Several pages may share one state type.
+	// Several pages may share 1 state type.
 	States map[string]*StateType
 }
 
@@ -161,7 +161,7 @@ type Handler struct {
 	InputState    *InputState // datapages.State[T]; nullable.
 	InputStateID  *Input      // stateID string; nullable.
 	// InputDispatches are the datapages.Dispatcher[EventXXX] parameters,
-	// in user-defined order. One dispatcher publishes one event type.
+	// in user-defined order. 1 dispatcher publishes 1 event type.
 	InputDispatches []*InputDispatch
 	InputPageCache  *Input   // datapages.PageCacheWriter handle.
 	OrderedInputs   []*Input // Inputs in user-defined order.
@@ -329,7 +329,7 @@ type Event struct {
 	Type types.Type
 	// PkgPath is the package the event is declared in.
 	// It differs from [App.PkgPath] for an event this application takes part in
-	// without declaring, which is how two applications share one event.
+	// without declaring, which is how 2 applications share 1 event.
 	PkgPath string
 
 	SubjectFields []SubjectField
@@ -376,7 +376,7 @@ func (e *Event) HasSignalSubjectFields() bool {
 }
 
 // IsSignalScoped reports whether the event uses signal-based
-// subject routing (has at least one signal-tagged subject field).
+// subject routing (has at least 1 signal-tagged subject field).
 func (e *Event) IsSignalScoped() bool { return e.HasSignalSubjectFields() }
 
 // IsStateIDScoped reports whether the event uses state-id-based

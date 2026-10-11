@@ -104,7 +104,7 @@ templ footer() {
 	</footer>
 }
 
-// limitStep binds one arrow key to a step of the rate signal.
+// limitStep binds 1 arrow key to a step of the rate signal.
 // in-input is required because a number field counts as a text entry context,
 // where neo-keys suppresses a chord carrying no modifier.
 // It's disabled along with the field, which stops a switched-off limit from stepping.
@@ -121,7 +121,7 @@ templ limitStep(rate, unlimited, key string, up bool) {
 	})
 }
 
-// limits renders the two controls. They say what the limits should
+// limits renders the 2 controls. They say what the limits should
 // be and nothing else: the pacing is on the server.
 templ limits() {
 	<neo-layout class="limits" row wrap align-items="center" gap="md">
@@ -135,8 +135,8 @@ templ limits() {
 	</neo-layout>
 }
 
-// limitField is one direction. The rate and the switch sit in one group,
-// so that the control reads as one thing: neo-input-group puts what follows the
+// limitField is 1 direction. The rate and the switch sit in 1 group,
+// so that the control reads as 1 thing: neo-input-group puts what follows the
 // field on its trailing edge and wires a neo-toggle there as a control.
 //
 // The rate signal keeps its number while the switch says unlimited,
@@ -154,7 +154,7 @@ templ limitField(label, rate, unlimited string) {
 				// attribute while its inner field has focus, which dropped every
 				// step the arrow keys made in the focused field.
 				//
-				// step is one, not [LimitStepKiB]: a native field counts its
+				// step is 1, not [LimitStepKiB]: a native field counts its
 				// steps from min, and a step of 64 from a minimum of 1 would
 				// mark every round rate the arrows produce as invalid.
 				<input
@@ -338,7 +338,7 @@ templ statusBadge(f store.File, tab string) {
 	}
 }
 
-// statusIcon says where a transfer stands. It is the one icon that carries
+// statusIcon says where a transfer stands. It is the only icon that carries
 // meaning of its own, hence the only one with a name of its own.
 // Only an upload somebody is sending moves.
 templ statusIcon(f store.File) {
@@ -606,7 +606,7 @@ templ uploadDialog(pending []PendingFile) {
 	</div>
 }
 
-// deleteDialog is the Delete control of one row together with the
+// deleteDialog is the Delete control of 1 row together with the
 // confirmation it opens. The dialog sits in the row because it names that
 // row's file, and the browser opens it rather than the server: a Morpheus
 // dialog binds to a trigger among its own children.
@@ -746,7 +746,7 @@ templ toaster() {
 	}, templ.Attributes{"id": "toast"})
 }
 
-// errorToast is one message for the stack. neo-toast renders its own markup in
+// errorToast is 1 message for the stack. neo-toast renders its own markup in
 // a shadow root that projects the named slots only: a bare text child lands in
 // no slot and the toast shows an icon and nothing else.
 templ errorToast(err error) {

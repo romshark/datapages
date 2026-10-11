@@ -224,7 +224,7 @@ func TestPatchSignals(t *testing.T) {
 	})
 }
 
-// TestScriptAndRedirect tests the three events that carry a payload straight to
+// TestScriptAndRedirect tests the 3 events that carry a payload straight to
 // the browser: a script, a redirect target and prefetch hints.
 func TestScriptAndRedirect(t *testing.T) {
 	t.Parallel()

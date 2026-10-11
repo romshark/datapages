@@ -8,7 +8,7 @@ import (
 	"github.com/romshark/datapages/internal/subject"
 )
 
-// TestIsToken tests what may stand as one subject token: anything without a separator,
+// TestIsToken tests what may stand as 1 subject token: anything without a separator,
 // a wildcard or whitespace, Unicode included. An empty value is no token either.
 func TestIsToken(t *testing.T) {
 	t.Parallel()
@@ -42,9 +42,9 @@ func TestPrefix(t *testing.T) {
 	require.Equal(t, "messaging.sent.", subject.Prefix("messaging.sent"))
 }
 
-// TestClaimOverlaps tests which two event declarations claim the same subjects.
+// TestClaimOverlaps tests which 2 event declarations claim the same subjects.
 // A claim with subject fields stands for every subject under its prefix,
-// which makes it overlap anything nested below it, while two plain claims overlap only
+// which makes it overlap anything nested below it, while 2 plain claims overlap only
 // when equal. A shared textual prefix without a separator between them is no overlap.
 // Every case is asserted both ways round, since the relation is symmetric.
 func TestClaimOverlaps(t *testing.T) {
@@ -78,9 +78,9 @@ func TestClaimOverlaps(t *testing.T) {
 	}
 }
 
-// TestCheckAcrossApps tests the subject rule between the applications of one module.
-// Two of them claiming one subject deliver each other's events,
-// while two events of one application are left to the check the parser runs.
+// TestCheckAcrossApps tests the subject rule between the applications of 1 module.
+// 2 of them claiming the same subject deliver each other's events,
+// while 2 events of 1 application are left to the check the parser runs.
 func TestCheckAcrossApps(t *testing.T) {
 	t.Parallel()
 	// Every application declares its event itself unless a case says otherwise.
@@ -90,7 +90,7 @@ func TestCheckAcrossApps(t *testing.T) {
 			Subject: subj,
 		}
 	}
-	// shared is one declaration two applications take part in.
+	// shared is 1 declaration 2 applications take part in.
 	shared := func(app, typeName, subj string) subject.AppEvent {
 		e := ev(app, typeName, subj)
 		e.Decl = "events." + typeName
@@ -106,14 +106,14 @@ func TestCheckAcrossApps(t *testing.T) {
 		events  []subject.AppEvent
 		wantErr bool
 	}{
-		"equal subjects in two apps": {
+		"equal subjects in 2 apps": {
 			events: []subject.AppEvent{
 				ev("app/alpha", "EventPing", "ping"),
 				ev("app/beta", "EventPing", "ping"),
 			},
 			wantErr: true,
 		},
-		"equal subjects in one app": {
+		"equal subjects in 1 app": {
 			// The parser refuses this one; here it must stay silent.
 			events: []subject.AppEvent{
 				ev("app/alpha", "EventPing", "ping"),
@@ -139,7 +139,7 @@ func TestCheckAcrossApps(t *testing.T) {
 				ev("app/beta", "EventPinger", "pinger"),
 			},
 		},
-		"one declaration in two apps": {
+		"1 declaration in 2 apps": {
 			events: []subject.AppEvent{
 				shared("app/alpha", "EventPing", "ping"),
 				shared("app/beta", "EventPing", "ping"),

@@ -5,13 +5,13 @@ import "strings"
 const (
 	// Separator stands between the tokens of a subject.
 	Separator = "."
-	// Wildcards match one token ("*") and everything below (">").
+	// Wildcards match 1 token ("*") and everything below (">").
 	Wildcards = "*>"
 	// Reserved are the characters a subject token must not contain.
 	Reserved = Separator + Wildcards + " \t\r\n"
 )
 
-// Escape introduces the two hex digits an escaped byte is written as.
+// Escape introduces the 2 hex digits an escaped byte is written as.
 const Escape = '%'
 
 const hexDigits = "0123456789ABCDEF"
@@ -51,7 +51,7 @@ func EncodedLen(v string) int {
 	return n
 }
 
-// Encode writes subject as one subject token, escaping any byte that would end the
+// Encode writes subject as 1 subject token, escaping any byte that would end the
 // token or match more than itself. Only ASCII bytes are escaped, which leaves
 // multi-byte UTF-8 whole, and a value that needs none comes back unchanged.
 //
@@ -71,9 +71,9 @@ func Encode(subject string) string {
 		}
 		b.WriteByte(Escape)
 
-		// c as two hex digits
-		b.WriteByte(hexDigits[c>>4])  // first the top four bits.
-		b.WriteByte(hexDigits[c&0xF]) // now the bottom four.
+		// c as 2 hex digits
+		b.WriteByte(hexDigits[c>>4])  // first the top 4 bits.
+		b.WriteByte(hexDigits[c&0xF]) // now the bottom 4.
 	}
 	return b.String()
 }

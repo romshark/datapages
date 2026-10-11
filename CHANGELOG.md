@@ -17,7 +17,7 @@ Releases up to v0.10.0 have their notes on
 
 #### Runtime and modules
 
-- Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of one release. A `Content-Security-Policy` must allow the inline build script.
+- Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of 1 release. A `Content-Security-Policy` must allow the inline build script.
 
 #### `datapages init`
 
@@ -60,15 +60,15 @@ Run `datapages gen` to apply these.
 
 #### `datapages lint` and `datapages gen`
 
-- Reject a page that embeds two types declaring one action at the same depth, or that reaches one abstract page through two embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which shadows the embedded ones.
-- Reject an `OnXXX` handler that takes a second `datapages.SSE`, session or `datapages.StreamID` parameter, as every other handler does. A field with two names, such as `sse, sse2 datapages.SSE`, declares two parameters: they were read as one, and the generated call did not compile.
+- Reject a page that embeds 2 types declaring the same action at the same depth, or that reaches the same abstract page through 2 embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which shadows the embedded ones.
+- Reject an `OnXXX` handler that takes a second `datapages.SSE`, session or `datapages.StreamID` parameter, as every other handler does. A field with 2 names, such as `sse, sse2 datapages.SSE`, declares 2 parameters: they were read as one, and the generated call did not compile.
 - Reject an `OnXXX` handler that takes its event by pointer, as in `event *EventPing`. The generated code for it did not compile. Take the event by value.
 - Reject a route containing `"` or `\`. For such a route, `datapages gen` failed with a Go syntax error, or the generated server matched a different path when the backslash formed a Go escape such as `\u00e9`. Write the characters as `%22` and `%5C`, which `net/http` decodes before matching the route.
 - Reject a route containing a backtick. On a page with a stream or a query field that reflects a signal, `datapages gen` failed with a Go syntax error. Write it as `%60`, which `net/http` decodes before matching the route.
 - Reject an unexported defined type as the type argument of `datapages.Path`, `datapages.Query` or `datapages.Signals`, including one behind an exported alias. The generated code for such a handler did not compile. Export the type.
-- Reject a route containing `?`, `#` or a `%` without two hex digits after it. The generated links, action expressions and stream URL carried the route as written, where the browser read `?` as the start of the query and `#` as the fragment, and `net/http` answered 400 to the `%`: none of them reached the page. Write the characters as `%3F`, `%23` and `%25`, which `net/http` decodes before matching the route.
-- Reject an event with more than one `datapages.SubjectUser` field, such as `To, Cc datapages.SubjectUser`. Only the first field routed the event: a user named in a later field never received it, and the user in the first field received it whatever the others held. Keep one `SubjectUser` field and dispatch the event once per user.
-- Reject an error-prone event field that holds a subject type, such as `Recipients []datapages.SubjectUser`. It looks like a list of recipients, but it was a payload field, and the event went to every stream of the pages handling it. Declare one `datapages.SubjectUser` field and dispatch once per user.
+- Reject a route containing `?`, `#` or a `%` without 2 hex digits after it. The generated links, action expressions and stream URL carried the route as written, where the browser read `?` as the start of the query and `#` as the fragment, and `net/http` answered 400 to the `%`: none of them reached the page. Write the characters as `%3F`, `%23` and `%25`, which `net/http` decodes before matching the route.
+- Reject an event with more than 1 `datapages.SubjectUser` field, such as `To, Cc datapages.SubjectUser`. Only the first field routed the event: a user named in a later field never received it, and the user in the first field received it whatever the others held. Keep 1 `SubjectUser` field and dispatch the event once per user.
+- Reject an error-prone event field that holds a subject type, such as `Recipients []datapages.SubjectUser`. It looks like a list of recipients, but it was a payload field, and the event went to every stream of the pages handling it. Declare 1 `datapages.SubjectUser` field and dispatch once per user.
 - Reject a page other than `PageIndex` at `/`, as in `// PageHome is /`. The router sent every request for `/` to that page, and `PageIndex` never rendered. Give the page another route, or move its handlers to `PageIndex`.
 - Report an action of a page whose route ends in a `{name...}` wildcard, as in `// PageFiles is /files/{rest...}`, with an error saying that such a page cannot have actions. The report was a route conflict about a pattern the app does not declare, or a missing path comment with a suggested route that failed the same way. Remove the wildcard from the page route to add actions.
 - Report the same conflicts on every run when handlers take `datapages.Session` with different data types. The data type of whichever page was read first won, which changed from run to run which handlers were reported. The first page by name now declares the type.
@@ -80,7 +80,7 @@ Run `datapages gen` to apply these.
 - Accept in an assets URL prefix the characters its error message lists, ASCII letters, digits, `-`, `.`, `_`, `~` and `/`, and no others. Quotes and other punctuation the message did not list were accepted, and a segment starting with a dot, such as `/.well-known/`, was refused.
 - Reject a `//go:embed` pattern on the assets variable that is a glob or names a single file, as in `//go:embed static/*.css` or `//go:embed static/app.css`. The server used the pattern as the directory to serve and answered 404 for every asset. Embed the directory, as in `//go:embed static` or `//go:embed static/*`.
 - Stop reporting a valid `href={ LoginURL }` as relative on some runs when a function also declares a local `LoginURL` constant.
-- Report each mismatch between the route and the `datapages.Path` struct of an action on `App` as its own error, at the path parameter or the field,, as for a page. They were joined into one error at the method name.
+- Report each mismatch between the route and the `datapages.Path` struct of an action on `App` as its own error, at the path parameter or the field,, as for a page. They were joined into 1 error at the method name.
 - Accept a `datapages.NewServer` call with its fifth type argument written out, as in `datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server, *gen.Server]`. It was refused with "datapages.NewServer needs four type arguments, got 5".
 - Accept an app package whose name differs from its directory, as `package app` in `go-app/`, when the file calling `datapages.NewServer` imports it without an alias. The app type was refused with "must live in its own package".
 - Report a problem in a `datapages.NewServer` call with a path relative to the module root, as every other error is. A wrong number of type arguments, a wrong `Metrics` type argument and a file that does not parse were reported with an absolute path.
@@ -89,7 +89,7 @@ Run `datapages gen` to apply these.
 - Show the line number of a Go build error that comes without a column. Before, it showed line 0, and on Windows the drive letter as the file name.
 - Check the `.templ` files of the packages that the app package imports from its module, such as `app/template`. Before, only the app package's own templates were checked. A wrong `href`, a form `action`, a hardcoded action URL or another page's action in those templates went unreported.
 - Reject an action that takes `datapages.SSE` and returns a body. Its HTML went into the open event stream as broken events, and with compression the browser could not read the stream at all. Send the body with `sse.PatchElement` instead.
-- Reject a page whose events need one signal both as a value and as an object, such as an event field tagged `signal:"chat"` and another tagged `signal:"chat.room"`. `$chat.room` exists only when `$chat` is an object, and the stream of such a page never opened. Bind one of the fields to another signal.
+- Reject a page whose events need the same signal both as a value and as an object, such as an event field tagged `signal:"chat"` and another tagged `signal:"chat.room"`. `$chat.room` exists only when `$chat` is an object, and the stream of such a page never opened. Bind one of the fields to another signal.
 
 #### Generated code
 
@@ -118,7 +118,7 @@ Run `datapages gen` to apply these.
 - Percent-encode the characters a URL path cannot carry, such as `#`, `?` and `%`, in the file names that `assets.Path` and `href.Asset` turn into URLs. `assets.Path("a#b.css")` returned `/static/a#b.css`, which a browser requests as `/static/a`, and a `%` in a file name made the server answer 400.
 - Label the HTTP metrics with the route when a middleware added with `datapages.WithMiddleware` passes on a new request, as `r.WithContext` returns when storing a CSP nonce. The request counter and the latency histogram labelled every request through such a middleware `<unmatched>`.
 - Accept `&` and `'` in the URL passed to `datapages.WithDatastarJS`, as in `https://cdn.example.com/datastar.js?v=1&min=1`. RFC 3986 allows both, and the page writes the URL escaped. Such a URL was refused.
-- Deliver events through the `natscore` broker in the order they were dispatched, as `inmem` does. Two events of different types dispatched one after the other often arrived in reverse order.
+- Deliver events through the `natscore` broker in the order they were dispatched, as `inmem` does. 2 events of different types dispatched one after the other often arrived in reverse order.
 - End the SSE streams subscribed through the `natscore` broker when its NATS connection closes, which nats.go does after the last failed reconnect attempt: 60 attempts 2s apart with the defaults of `nats.Connect`. Open pages kept their streams and received no more events, without an error. They now reconnect, and the server logs each reconnect that fails on the closed connection.
 - Return from `natskv.SessionManager.UserSessions` and `CloseAllUserSessions` the token the session's cookie carries, as `inmem` does. In v0.10.0 and v0.10.1, each call returned a new token for the same session, and an application that compares a listed token with `Session.Token()` to find the current session never found it. A session created before the upgrade, or under one of the `PreviousEncryptionKeys`, keeps a cookie that differs from its listed token until the user signs in again.
 - Return from `natskv.SessionManager.UserSessions` an iterator that yields the sessions on every range, as `inmem` does. A second range yielded nothing, and an iterator never ranged kept a KV watcher subscribed until the context passed to `UserSessions` ended.
@@ -143,7 +143,7 @@ Run `datapages gen` to apply these.
 
 #### Runtime and modules
 
-- Prevent `natskv.SessionManager.CloseAllUserSessions` from returning nil while sessions of the user stay signed in. When its context ended during the call, as a request context does when the client disconnects, it closed only the sessions read by then. Whoever held a cookie of the others, such as an attacker the user meant to sign out, stayed signed in. A NATS stall of 5s during the call and a closed connection did the same. The end of the context no longer stops the call, and the other two return an error. Applications calling `CloseAllUserSessions` are affected in v0.1.0 through v0.10.1. Upgrade and redeploy. Until then, pass it `context.WithoutCancel(r.Context())`, which covers the client that disconnects.
+- Prevent `natskv.SessionManager.CloseAllUserSessions` from returning nil while sessions of the user stay signed in. When its context ended during the call, as a request context does when the client disconnects, it closed only the sessions read by then. Whoever held a cookie of the others, such as an attacker the user meant to sign out, stayed signed in. A NATS stall of 5s during the call and a closed connection did the same. The end of the context no longer stops the call, and the other 2 return an error. Applications calling `CloseAllUserSessions` are affected in v0.1.0 through v0.10.1. Upgrade and redeploy. Until then, pass it `context.WithoutCancel(r.Context())`, which covers the client that disconnects.
 
 ## [0.10.1] - 2026-09-26
 

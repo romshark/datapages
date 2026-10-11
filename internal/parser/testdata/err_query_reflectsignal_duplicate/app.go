@@ -1,4 +1,4 @@
-// Package app declares two query fields that reflect the same signal.
+// Package app declares 2 query fields that reflect the same signal.
 package app
 
 import (

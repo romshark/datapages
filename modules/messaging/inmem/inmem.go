@@ -119,8 +119,8 @@ func inAny(sets []map[*memSub]struct{}, sub *memSub) bool {
 
 // Matches reports whether a NATS subject pattern matches a subject.
 //
-// Tokens are separated by ".". A "*" matches exactly one token and a ">"
-// matches every remaining token, of which there must be at least one.
+// Tokens are separated by ".". A "*" matches exactly 1 token and a ">"
+// matches every remaining token, of which there must be at least 1.
 // A pattern with neither is matched literally.
 //
 // The generated code subscribes with patterns — an event with a subject field

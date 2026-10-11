@@ -1,7 +1,7 @@
 // Package serve builds the server of this module.
 //
 // The datapages.NewServer call lives here rather than in the command,
-// which is what a module does when more than one entry point needs the same server.
+// which is what a module does when more than 1 entry point needs the same server.
 package serve
 
 import (

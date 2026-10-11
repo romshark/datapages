@@ -114,7 +114,7 @@ func (PageTags) POSTSelect(
 
 // POSTStore is /mix/{l}/{n}/{pageStr}/store
 //
-// A path and a query in one action:
+// A path and a query in 1 action:
 // the writer names its builder and lengths beside the path parameters.
 func (PageMix) POSTStore(
 	_ *http.Request,

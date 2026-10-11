@@ -31,7 +31,7 @@ func TestGenerateValidate(t *testing.T) {
 	require.True(t, tokens.ValidateToken(sessionToken, token))
 }
 
-// TestGenerateMasksEveryToken tests the per-render mask. Two tokens for one
+// TestGenerateMasksEveryToken tests the per-render mask. 2 tokens for 1
 // session differ on the wire and both validate, which is what keeps a BREACH
 // attacker from learning the token from compressed responses.
 func TestGenerateMasksEveryToken(t *testing.T) {

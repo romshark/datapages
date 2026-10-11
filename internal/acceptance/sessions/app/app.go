@@ -55,7 +55,7 @@ type EventNotice struct {
 
 // EventBroadcast is "broadcast"
 //
-// A public event on the same page as a private one. The page then serves two
+// A public event on the same page as a private one. The page then serves 2
 // kinds of stream: one for signed-in visitors, which also carries the private event,
 // and an anonymous one, which must not.
 type EventBroadcast struct {
@@ -226,7 +226,7 @@ func (p PageLogin) POSTSubmitCached(
 
 // POSTNotify is /login/notify
 //
-// Dispatches a private event to one user.
+// Dispatches a private event to 1 user.
 func (p PageLogin) POSTNotify(
 	_ *http.Request,
 	signals datapages.Signals[struct {
@@ -295,7 +295,7 @@ func (memBody) Close() error { return nil }
 
 // GETAvatar is /me/avatar
 //
-// A file that depends on the session: one URL, a different file per user.
+// A file that depends on the session: 1 URL, a different file per user.
 func (*App) GETAvatar(_ *http.Request, session Session) (datapages.File, error) {
 	if session.IsGuest() {
 		return datapages.File{}, datapages.ErrForbidden

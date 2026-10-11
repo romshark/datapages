@@ -70,7 +70,7 @@ func (PageShadowA) POSTSave(
 
 // PageShadowB is /b/{fmt}/{encoding}/{actionexpr}
 //
-// No path value is written through these three. They are bound all the same:
+// No path value is written through these 3. They are bound all the same:
 // "fmt" and "encoding" by goimports for textOf, "actionexpr" by the action
 // writers around every call they build.
 type PageShadowB struct{ App *App }

@@ -37,7 +37,7 @@ func (PageIndex) OnPing(
 // POSTPing is /ping
 //
 // The smallest thing that puts an event on a stream:
-// one action, one dispatch, one handler.
+// 1 action, 1 dispatch, 1 handler.
 func (PageIndex) POSTPing(
 	_ *http.Request,
 	signals datapages.Signals[struct {

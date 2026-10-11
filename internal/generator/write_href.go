@@ -187,8 +187,8 @@ func hasPageHref(p *model.Page) bool {
 //
 // The builder of a GET action is a method of its owner: href.PageDoc.Export
 // for PageDoc.GETExport, the way action.PageDoc.Export.POST is the helper of
-// PageDoc.POSTExport. Two model names never concatenate, which
-// PageDoc.GETExportPDF and PageDocExport.GETPDF would spell as one.
+// PageDoc.POSTExport. 2 model names never concatenate, which
+// PageDoc.GETExportPDF and PageDocExport.GETPDF would spell the same way.
 // A page with GET actions is a variable of a func type,
 // which keeps href.PageDoc(id) a call.
 func (w *Writer) writeHrefOwner(owner string, p *model.Page, actions []*model.Handler) {
@@ -317,7 +317,7 @@ func (w *Writer) writeHrefBuilder(head string, b *hrefBuilder) {
 }
 
 // hrefLengthTerms returns the terms that add up to the length of the path:
-// one per literal and one per path parameter. A GET action route that ends
+// 1 per literal and 1 per path parameter. A GET action route that ends
 // in a path parameter leaves an empty last literal, which has no term.
 func hrefLengthTerms(b *hrefBuilder) []string {
 	terms := make([]string, 0, len(b.literals)+len(b.params))
@@ -601,7 +601,7 @@ type pathParamInfo struct {
 // A wildcard named "url" leaves url.PathEscape(url) reading its own parameter,
 // and one named "len" leaves len(s) calling a string.
 //
-// One set covers href_gen.go and action_gen.go, and it lists every name either
+// 1 set covers href_gen.go and action_gen.go, and it lists every name either
 // file can bind rather than the ones a given build imports. "encoding" and
 // "fmt" are in neither import block: goimports adds them for textOf.
 // Reserving a name the function does not resolve costs
@@ -626,8 +626,8 @@ var pathParamReserved = map[string]bool{
 // reads as a path parameter and url_ reads as a typo.
 // See [pathParamReserved].
 //
-// taken holds the parameters already named. Two wildcards of one route never
-// share a name: only a prefix can make two parameters meet.
+// taken holds the parameters already named. 2 wildcards of 1 route never
+// share a name: only a prefix can make 2 parameters meet.
 func pathParamName(routeVar string, taken map[string]bool) string {
 	name := routeVar
 	if pathParamReserved[name] {
@@ -694,7 +694,7 @@ func pathVarStrExpr(p pathParamInfo) string {
 // Each name is therefore moved out of the way of whatever the route brought.
 //
 // The base names below are what internal/acceptance/hreflocals writes its
-// routes with, one page per group. Renaming one here leaves that case passing
+// routes with, 1 page per group. Renaming one here leaves that case passing
 // while it covers a name nothing generates any more. No test catches that:
 // unlike [pathParamReserved] these are literals in [newHrefLocals] rather
 // than a list a fixture can be checked against.
@@ -759,7 +759,7 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 	return lo
 }
 
-// typedParams renders one "name type" fragment per path parameter,
+// typedParams renders 1 "name type" fragment per path parameter,
 // in route order, for [Writer.writeParamList].
 func typedParams(params []pathParamInfo) []string {
 	out := make([]string, len(params))
@@ -772,9 +772,9 @@ func typedParams(params []pathParamInfo) []string {
 // writeParamList writes the parameter list of a generated function,
 // with the parentheses and without the return type.
 //
-// A list of more than one parameter goes one per line. The builders of a route
+// A list of more than 1 parameter goes 1 per line. The builders of a route
 // with several wildcards carry a path value each, a query struct and the
-// option variadic, which as one line runs past anything a reader scans and
+// option variadic, which as 1 line runs past anything a reader scans and
 // past what gofmt would ever break up: it breaks no line it did not have to.
 func (w *Writer) writeParamList(params []string) {
 	if len(params) < 2 {
@@ -795,7 +795,7 @@ func (w *Writer) writeParamList(params []string) {
 // writePathPreConvert emits the local that holds each path parameter's URL form:
 // a number formatted, a string escaped.
 //
-// A path value belongs to one segment. Escaping is what keeps it there:
+// A path value belongs to 1 segment. Escaping is what keeps it there:
 // PageItem("a/b") addresses /item/a%2Fb/, which the router hands back whole,
 // rather than /item/a/b/, which it does not route at all.
 func (w *Writer) writePathPreConvert(params []pathParamInfo) {

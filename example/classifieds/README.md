@@ -45,7 +45,7 @@ LOAD_ENV=./.env.stage make load-smoke-search
 
 ### Tuning
 
-- `VUS` — number of **virtual users**. Each VU is an independent worker that runs the scenario in a loop (one request, wait, next request). `VUS=50` means 50 such loops running in parallel, so up to 50 requests can be in flight at once. This is the main knob for how much load the server sees. Default is `10`.
+- `VUS` — number of **virtual users**. Each VU is an independent worker that runs the scenario in a loop (1 request, wait, next request). `VUS=50` means 50 such loops running in parallel, so up to 50 requests can be in flight at once. This is the main knob for how much load the server sees. Default is `10`.
 - `DURATION` — how long to run (`30s`, `2m`, `1h`). Default is `1m`.
 
 ```sh

@@ -1,6 +1,6 @@
 // Package events holds events that are not declared in an app package.
 //
-// Two applications of one module take part in one event by
+// 2 applications of 1 module take part in 1 event by
 // naming the type declared here. The subject, the payload and the
 // subject fields are read where the type is written.
 package events

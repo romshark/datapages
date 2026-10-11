@@ -357,7 +357,7 @@ func footer() templ.Component {
 	})
 }
 
-// limitStep binds one arrow key to a step of the rate signal.
+// limitStep binds 1 arrow key to a step of the rate signal.
 // in-input is required because a number field counts as a text entry context,
 // where neo-keys suppresses a chord carrying no modifier.
 // It's disabled along with the field, which stops a switched-off limit from stepping.
@@ -399,7 +399,7 @@ func limitStep(rate, unlimited, key string, up bool) templ.Component {
 	})
 }
 
-// limits renders the two controls. They say what the limits should
+// limits renders the 2 controls. They say what the limits should
 // be and nothing else: the pacing is on the server.
 func limits() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -442,8 +442,8 @@ func limits() templ.Component {
 	})
 }
 
-// limitField is one direction. The rate and the switch sit in one group,
-// so that the control reads as one thing: neo-input-group puts what follows the
+// limitField is 1 direction. The rate and the switch sit in 1 group,
+// so that the control reads as 1 thing: neo-input-group puts what follows the
 // field on its trailing edge and wires a neo-toggle there as a control.
 //
 // The rate signal keeps its number while the switch says unlimited,
@@ -1158,7 +1158,7 @@ func statusBadge(f store.File, tab string) templ.Component {
 	})
 }
 
-// statusIcon says where a transfer stands. It is the one icon that carries
+// statusIcon says where a transfer stands. It is the only icon that carries
 // meaning of its own, hence the only one with a name of its own.
 // Only an upload somebody is sending moves.
 func statusIcon(f store.File) templ.Component {
@@ -1811,7 +1811,7 @@ func uploadDialog(pending []PendingFile) templ.Component {
 	})
 }
 
-// deleteDialog is the Delete control of one row together with the
+// deleteDialog is the Delete control of 1 row together with the
 // confirmation it opens. The dialog sits in the row because it names that
 // row's file, and the browser opens it rather than the server: a Morpheus
 // dialog binds to a trigger among its own children.
@@ -2371,7 +2371,7 @@ func toaster() templ.Component {
 	})
 }
 
-// errorToast is one message for the stack. neo-toast renders its own markup in
+// errorToast is 1 message for the stack. neo-toast renders its own markup in
 // a shadow root that projects the named slots only: a bare text child lands in
 // no slot and the toast shows an icon and nothing else.
 func errorToast(err error) templ.Component {

@@ -6,7 +6,7 @@ import type Delta from "quill-delta";
 
 type Ops = Delta["ops"];
 
-// TabRecord is the state of the editor of one tab.
+// TabRecord is the state of the editor of 1 tab.
 export interface TabRecord {
   client: string;
   // url is the path of the document page.

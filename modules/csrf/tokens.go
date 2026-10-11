@@ -20,8 +20,8 @@ var (
 // message and is what the derived value rests on.
 //
 // Keying HMAC by a fixed value rather than by the session token is what lets
-// one keyed state serve every session, hence the pool. HMAC extends to no
-// other message, which a bare hash over the same two inputs would.
+// 1 keyed state serve every session, hence the pool. HMAC extends to no
+// other message, which a bare hash over the same 2 inputs would.
 var derivationKey = []byte("github.com/romshark/datapages csrf token v1")
 
 // baseLen is the length of the derived value and of the mask hiding it.
@@ -32,7 +32,7 @@ const baseLen = sha256.Size
 // [base64.Encoding.EncodedLen] computes for unpadded base64.
 const tokenLen = (2*baseLen*8 + 5) / 6
 
-// derivation is the pooled state one token derivation runs on.
+// derivation is the pooled state 1 token derivation runs on.
 type derivation struct {
 	hmac hash.Hash
 	// buf receives the string parameters. Converting them at the call site

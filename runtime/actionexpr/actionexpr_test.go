@@ -103,7 +103,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			},
 			logged: "value=-5",
 		},
-		"retry interval zero": {
+		"retry interval 0": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryInterval(r, 0)
 			},
@@ -121,7 +121,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			},
 			logged: "WithRetryMaxCount",
 		},
-		"retry max count zero": {
+		"retry max count 0": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryMaxCount(r, 0)
 			},
@@ -206,8 +206,8 @@ func TestDroppedOptionIsCounted(t *testing.T) {
 	}, m.dropped)
 }
 
-// TestReportersAreIndependent tests that one reporter per application keeps
-// two servers of one process from logging into each other's logger.
+// TestReportersAreIndependent tests that 1 reporter per application keeps
+// 2 servers of 1 process from logging into each other's logger.
 func TestReportersAreIndependent(t *testing.T) {
 	t.Parallel()
 
@@ -222,7 +222,7 @@ func TestReportersAreIndependent(t *testing.T) {
 	require.Empty(t, bufB.String())
 }
 
-// TestWithHeadersIsStable tests that one call renders one string.
+// TestWithHeadersIsStable tests that 1 call renders 1 string.
 // Go randomizes map iteration, and a single render matches
 // sorted order often enough to pass by chance.
 func TestWithHeadersIsStable(t *testing.T) {
@@ -257,7 +257,7 @@ func TestWriteOptions(t *testing.T) {
 			[]actionexpr.Option{actionexpr.WithHeaders(nil)},
 			"",
 		},
-		"one": {
+		"1": {
 			[]actionexpr.Option{actionexpr.WithRetry(nil, actionexpr.RetryNever)},
 			", {retry: 'never'}",
 		},
@@ -305,7 +305,7 @@ func TestWriteOptions(t *testing.T) {
 			})},
 			", {headers: {'X-A': '1', 'X-B': '2', 'X-C': '3'}}",
 		},
-		"two": {
+		"2": {
 			[]actionexpr.Option{
 				actionexpr.WithRetryInterval(nil, 500),
 				actionexpr.WithContentType(nil, actionexpr.ContentTypeForm),

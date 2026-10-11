@@ -245,7 +245,7 @@ func TestScanKeepsTestFiles(t *testing.T) {
 	require.True(t, res.Apps[0].Prometheus)
 }
 
-// TestScanMultipleApps tests a module that builds more than one application.
+// TestScanMultipleApps tests a module that builds more than 1 application.
 func TestScanMultipleApps(t *testing.T) {
 	root := write(t, map[string]string{
 		"app/admin/app.go":                     "package admin\n",
@@ -354,7 +354,7 @@ func main() {
 			msg: "names Metrics app.Metrics, which is neither " +
 				"datapages.EnablePrometheus nor datapages.DisablePrometheus",
 		},
-		"one app with two metrics modes": {
+		"1 app with 2 metrics modes": {
 			files: map[string]string{
 				"app/app.go":                  "package app\n",
 				"app/datapagesgen/app_gen.go": genPkg(true),
@@ -365,7 +365,7 @@ func main() {
 			},
 			msg: "names Metrics",
 		},
-		"one app with two session types": {
+		"1 app with 2 session types": {
 			files: map[string]string{
 				"app/app.go":                  "package app\n",
 				"app/datapagesgen/app_gen.go": genPkg(true),
@@ -598,8 +598,8 @@ func main() {
 	}
 }
 
-// TestScanPrometheusPerApp tests two applications in one module,
-// only one of which uses metrics.
+// TestScanPrometheusPerApp tests 2 applications in 1 module,
+// only 1 of which uses metrics.
 func TestScanPrometheusPerApp(t *testing.T) {
 	root := write(t, map[string]string{
 		"app/admin/app.go":                     "package admin\n",
@@ -626,11 +626,11 @@ func TestScanPrometheusPerApp(t *testing.T) {
 	require.Equal(t, "datapages.DisablePrometheus", front.Metrics.Src)
 }
 
-// TestScanAliasedTypeArgs tests two calls naming one app package under
+// TestScanAliasedTypeArgs tests 2 calls naming the same app package under
 // different import names.
 //
-// A file importing two packages of the same name has to alias one of them.
-// Comparing type arguments as written would then read one session type as two
+// A file importing 2 packages of the same name has to alias one of them.
+// Comparing type arguments as written would then read 1 session type as 2
 // and refuse the module.
 func TestScanAliasedTypeArgs(t *testing.T) {
 	root := write(t, map[string]string{
@@ -662,7 +662,7 @@ func New() {
 	require.True(t, r.Apps[0].HasSession)
 }
 
-// TestScanLocalTypeArgsDisagree tests two calls naming session types that
+// TestScanLocalTypeArgsDisagree tests 2 calls naming session types that
 // resolve to no import. There is no import path to compare them by,
 // hence they are compared as written.
 func TestScanLocalTypeArgsDisagree(t *testing.T) {

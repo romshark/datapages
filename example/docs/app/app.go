@@ -23,7 +23,7 @@ var StaticFS embed.FS
 // EventDocChanged is "doc.changed"
 //
 // It reports a change to the content, title, collaborators or a cursor of
-// one document. Pages with the document open read the changes from the store.
+// 1 document. Pages with the document open read the changes from the store.
 type EventDocChanged struct {
 	Doc datapages.Subject `json:"doc" signal:"docId"`
 }
@@ -33,7 +33,7 @@ type EventDocChanged struct {
 // It reports that a document was created, renamed, edited or deleted.
 type EventListChanged struct{}
 
-// StateDoc is what one tab of [PageDoc] got last, to tell what to send next.
+// StateDoc is what 1 tab of [PageDoc] got last, to tell what to send next.
 type StateDoc struct {
 	DocID string
 	// Client identifies the editor of the tab and authorizes its changes.

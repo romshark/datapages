@@ -1,6 +1,6 @@
 // Package app demonstrates instant page loads backed by the service worker.
 //
-// Two pages cache a layout with placeholders for slow content. A later visit
+// 2 pages cache a layout with placeholders for slow content. A later visit
 // displays the placeholder while the worker requests the live page. Datastar
 // then replaces the head and body. The other pages wait for the server.
 package app

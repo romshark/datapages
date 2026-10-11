@@ -221,7 +221,7 @@ func TestWithSessionManagerErr(t *testing.T) {
 			},
 			"applying server option: WithSessionManager: nil session manager",
 		},
-		"twice": {
+		"2 times": {
 			[]datapages.ServerOption{
 				datapages.WithSessionManager(new(testSessionManager)),
 				datapages.WithSessionManager(new(testSessionManager)),

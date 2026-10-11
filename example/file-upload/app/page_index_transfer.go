@@ -23,7 +23,7 @@ const (
 // PUTChunk is /upload/{id}
 //
 // The request body is the chunk and offset says where it belongs. It's the
-// one handler the uploader calls with fetch instead of a Datastar action,
+// only handler the uploader calls with fetch instead of a Datastar action,
 // since a File is sliced and streamed by the browser and never passes through
 // a signal. Its status codes are the protocol the uploader reacts to:
 //

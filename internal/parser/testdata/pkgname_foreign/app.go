@@ -1,8 +1,8 @@
 //nolint:all
 
 // Package app takes its types from packages named after ones app_gen.go imports
-// and after locals its handlers declare. Unaliased, one identifier in the
-// generated file would name two things and the type would resolve to nothing.
+// and after locals its handlers declare. Unaliased, 1 identifier in the
+// generated file would name 2 things and the type would resolve to nothing.
 //
 // The app package itself is covered by pkgname_collides. This is every other
 // package the model reaches: the session data type, an event type,

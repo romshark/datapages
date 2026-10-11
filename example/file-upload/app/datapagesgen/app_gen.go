@@ -63,7 +63,7 @@ func (s *Server) writeHTML(
 		Status:      status,
 		HeadGeneric: headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
-			// The id authorizes access to one tab's state. The fetch wrapper keeps
+			// The id authorizes access to 1 tab's state. The fetch wrapper keeps
 			// it in a closure. Removing the script node prevents later DOM readers,
 			// including replay and error-reporting tools, from recording it.
 			// Cache-Control: no-store prevents caches from retaining the response body.
@@ -392,7 +392,7 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	return true
 }
 
-// stateSlotStateIndex belongs to one stream and is never reused.
+// stateSlotStateIndex belongs to 1 stream and is never reused.
 // A reconnect allocates a new slot and state value.
 type stateSlotStateIndex struct {
 	state *dpapp.StateIndex

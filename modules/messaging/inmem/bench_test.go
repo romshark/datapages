@@ -9,7 +9,7 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-// BenchmarkPublish measures a publish to the open streams of one page.
+// BenchmarkPublish measures a publish to the open streams of 1 page.
 // Every stream subscribes to the same subjects, as the generated code does,
 // and nothing reads them: after the first few publishes, each delivery is a drop.
 func BenchmarkPublish(b *testing.B) {

@@ -24,7 +24,7 @@ var (
 )
 
 // RouteVarName validates a route wildcard name as a name generated code can
-// give a function parameter. The generated href and action builders take one
+// give a function parameter. The generated href and action builders take 1
 // parameter per wildcard, named by the route.
 //
 // net/http accepts more than Go does: "{type}" is a keyword and "{_}" is the
@@ -219,7 +219,7 @@ func CutEventIsPrefix(line, typeName string) (rest string, ok bool) {
 	if !ok || len(s) == 0 {
 		return "", false
 	}
-	// Must have at least one whitespace after the type name.
+	// Must have at least 1 whitespace after the type name.
 	if s[0] != ' ' && s[0] != '\t' {
 		return "", false
 	}
@@ -228,19 +228,19 @@ func CutEventIsPrefix(line, typeName string) (rest string, ok bool) {
 	if !ok || len(s) == 0 {
 		return "", false
 	}
-	// Must have at least one whitespace after "is".
+	// Must have at least 1 whitespace after "is".
 	if s[0] != ' ' && s[0] != '\t' {
 		return "", false
 	}
 	return strings.TrimLeft(s, " \t"), true
 }
 
-// SignalTagName validates a signal:"..." tag value, which references one client
+// SignalTagName validates a signal:"..." tag value, which references 1 client
 // signal by the steps on the way to it.
 //
 // It's the rule [SignalPath] carries: the stream reads the signal out of what
 // the client sends, under the name the client declared it by, which makes the
-// two the same rule. A camel case name reaches this tag as it's written,
+// 2 the same rule. A camel case name reaches this tag as it's written,
 // since the value of an attribute keeps its case where the name of one does not.
 func SignalTagName(name string) error {
 	if SignalPath(name) != nil {
@@ -249,7 +249,7 @@ func SignalTagName(name string) error {
 	return nil
 }
 
-// SignalName validates the name of one Datastar signal, which is what a
+// SignalName validates the name of 1 Datastar signal, which is what a
 // json:"..." tag of a signals struct declares.
 //
 // The name is written into a data-signals attribute name and read back as
@@ -271,7 +271,7 @@ func SignalTagName(name string) error {
 //
 // A period is refused here. It stands between the steps of a signal path,
 // and a signals struct writes a path by nesting a struct: {"foo":{"bar":1}} is
-// the signal foo.bar, while json:"foo.bar" is one key that happens to carry
+// the signal foo.bar, while json:"foo.bar" is 1 key that happens to carry
 // a period and that no client sends. See [SignalPath].
 func SignalName(name string) error {
 	if name == "" {
@@ -293,7 +293,7 @@ func SignalName(name string) error {
 	return nil
 }
 
-// SignalPath validates a reference to one signal, which is what a
+// SignalPath validates a reference to 1 signal, which is what a
 // reflectsignal:"..." tag carries. A nested signal is referenced by the steps
 // on the way to it, separated by periods: "foo.bar" is the signal bar of the
 // signals struct nested under foo.

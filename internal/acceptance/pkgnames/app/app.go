@@ -1,9 +1,9 @@
 // Package app takes its types from packages named after ones app_gen.go imports.
-// Unaliased, one identifier in the generated file would name two packages
+// Unaliased, 1 identifier in the generated file would name 2 packages
 // and every type built from them would resolve to nothing.
 //
 // The app package carrying such a name is a different case: it needs a package
-// clause this module cannot have twice, and the parser fixture
+// clause this module cannot have 2 times, and the parser fixture
 // pkgname_collides covers it. Everything else the model reaches is here:
 // the session data type, and the path, query and signal field types.
 //

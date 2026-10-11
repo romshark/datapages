@@ -36,7 +36,7 @@ var (
 		"event handler must have a parameter of an event type",
 	)
 	ErrSignatureEvHandMultipleEvents = errors.New(
-		"event handler must have exactly one parameter of an event type",
+		"event handler must have exactly 1 parameter of an event type",
 	)
 	ErrSignatureEvHandEventPointer = errors.New(
 		"event handler must take its event by value",
@@ -52,7 +52,7 @@ var (
 	)
 
 	ErrAppHeadMustTakeRequest = errors.New(
-		"head must accept exactly one *http.Request parameter",
+		"head must accept exactly 1 *http.Request parameter",
 	)
 	ErrAppHeadMustReturnHead = errors.New(
 		"head must return exactly datapages.Head",
@@ -181,7 +181,7 @@ var (
 	)
 	ErrSessionOutputErrorPage = errors.New(
 		"session output cannot be used in the GET of PageError404 or PageError500:" +
-			" one method answers both the page's own route and a failed request",
+			" 1 method answers both the page's own route and a failed request",
 	)
 
 	ErrGETActionInput = errors.New(
@@ -258,7 +258,7 @@ var (
 	)
 
 	ErrEventSubjectUserDuplicate = errors.New(
-		"event must not have more than one datapages.SubjectUser field",
+		"event must not have more than 1 datapages.SubjectUser field",
 	)
 
 	ErrEventSubjectJSONExcluded = errors.New(`subject field must not be tagged json:"-"`)
@@ -267,7 +267,7 @@ var (
 		"multiple dispatchers for the same event type",
 	)
 
-	ErrEventTypeNameConflict = errors.New("two events of the same type name")
+	ErrEventTypeNameConflict = errors.New("2 events of the same type name")
 
 	ErrEventDeclUnreadable = errors.New("event declaration cannot be read")
 
@@ -503,7 +503,7 @@ func sortErrors(e *Errors) {
 			}
 			return 1
 		}
-		// Two errors at one position keep the order they were reported in.
+		// 2 errors at the same position keep the order they were reported in.
 		if a.seq < b.seq {
 			return -1
 		}
@@ -826,7 +826,7 @@ func (e *RouteCharInvalidError) Error() string {
 	char := strconv.QuoteRune(e.Char)
 	if e.Char == '%' {
 		// The same route may hold a percent-encoding, which is accepted.
-		char += " without two hex digits after it"
+		char += " without 2 hex digits after it"
 	}
 	return fmt.Sprintf("%v: %s in %s route %q",
 		ErrRouteCharInvalid, char, e.Owner, e.Route)
@@ -834,9 +834,9 @@ func (e *RouteCharInvalidError) Error() string {
 
 func (e *RouteCharInvalidError) Unwrap() error { return ErrRouteCharInvalid }
 
-// EventSubjectDuplicateError is [ErrEventSubjectDuplicate] with the two types
+// EventSubjectDuplicateError is [ErrEventSubjectDuplicate] with the 2 types
 // that share the subject. A subject is the case an inbound event is matched by,
-// which two events cannot share.
+// which 2 events cannot share.
 type EventSubjectDuplicateError struct {
 	Subject       string
 	TypeName      string
@@ -850,7 +850,7 @@ func (e *EventSubjectDuplicateError) Error() string {
 
 func (e *EventSubjectDuplicateError) Unwrap() error { return ErrEventSubjectDuplicate }
 
-// EventSubjectOverlapError is [ErrEventSubjectOverlap] with the two types whose
+// EventSubjectOverlapError is [ErrEventSubjectOverlap] with the 2 types whose
 // subjects cover a common subject. An event with subject fields occupies
 // everything below its own, which leaves no subject there for another event.
 type EventSubjectOverlapError struct {
@@ -1054,8 +1054,8 @@ func (e *SignatureEvHandEventPointerError) Unwrap() error {
 }
 
 // EventTypeNameConflictError is [ErrEventTypeNameConflict] with context.
-// Generated code names an event by its type name alone, which is why one
-// application cannot take part in two events of one name.
+// Generated code names an event by its type name alone, which is why 1
+// application cannot take part in 2 events of 1 name.
 type EventTypeNameConflictError struct {
 	TypeName     string // e.g. "EventUpdated"
 	PkgPath      string // The package of the event named second.

@@ -50,7 +50,7 @@ type Show struct {
 	Available   int   // Tickets remaining.
 }
 
-// Ticket describes one user's admission to a show.
+// Ticket describes 1 user's admission to a show.
 type Ticket struct {
 	Code         string
 	ShowID       string
@@ -93,7 +93,7 @@ type ticket struct {
 }
 
 // ticketKey uniquely identifies a user's ticket for a given show.
-// A user may hold at most one ticket per show.
+// A user may hold at most 1 ticket per show.
 type ticketKey struct{ userName, showID string }
 
 // Repository stores the demo's users, shows and tickets in memory.
@@ -271,7 +271,7 @@ func (r *Repository) ShowBySlug(_ context.Context, slug string) (Show, error) {
 	return convertShow(s), nil
 }
 
-// BuyTicket purchases one ticket for the user and show. It fails with
+// BuyTicket purchases 1 ticket for the user and show. It fails with
 // ErrTicketExists if the user already holds a ticket for the show and with
 // ErrShowSoldOut when no tickets remain.
 func (r *Repository) BuyTicket(

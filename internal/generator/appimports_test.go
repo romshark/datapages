@@ -110,7 +110,7 @@ func TestNewGenImportsAliasesATakenName(t *testing.T) {
 				{Path: "example.com/m/dpapp", Ident: "dpDpapp", Aliased: true},
 			},
 		},
-		"two packages of one name are numbered": {
+		"2 packages of 1 name are numbered": {
 			pkgs: []fakePkg{
 				{path: "example.com/m/a/stream", name: "stream"},
 				{path: "example.com/m/b/stream", name: "stream"},

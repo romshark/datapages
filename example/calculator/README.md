@@ -6,7 +6,7 @@ The calculator evaluates expressions on the server. It uses [`shopspring/decimal
 
 ## How it works
 
-`GET /` renders the calculator with three Datastar signals: `input`, `fresh` and `num`. A button press sends the signals to `QUERY /input/` with the button in the `btn` query parameter. A paste sets `num` to the pasted number and sends the signals to `QUERY /input/?paste=true`. `PageIndex.QUERYInput` calculates the next values and returns an SSE patch. The patch updates the calculator and its signals.
+`GET /` renders the calculator with 3 Datastar signals: `input`, `fresh` and `num`. A button press sends the signals to `QUERY /input/` with the button in the `btn` query parameter. A paste sets `num` to the pasted number and sends the signals to `QUERY /input/?paste=true`. `PageIndex.QUERYInput` calculates the next values and returns an SSE patch. The patch updates the calculator and its signals.
 
 The server stores no calculator state between requests. Each tab sends its own signals. The QUERY response uses `datapages.SSE`, but the page has no persistent SSE stream or event handler. See [the todo list](../todolist) for server-side per-tab state and events.
 

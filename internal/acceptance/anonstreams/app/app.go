@@ -1,7 +1,7 @@
 // Package app exercises the stream a page serves to a visitor with no session:
-// one page that scopes its events by a signal, and one that holds per-tab state.
+// a page that scopes its events by a signal, and one that holds per-tab state.
 //
-// A page whose events are partly private serves two streams. The one for
+// A page whose events are partly private serves 2 streams. The one for
 // signed-in visitors carries both kinds; the anonymous one carries what is public,
 // and has to subscribe by the same signal values and
 // hold the same per-tab state as the other.
@@ -67,7 +67,7 @@ type EventNoticed struct {
 
 // EventRoomPosted is "room.posted"
 //
-// One subject field bound to a signal. A stream supplies the value when it
+// 1 subject field bound to a signal. A stream supplies the value when it
 // connects and receives only what is published for it.
 type EventRoomPosted struct {
 	Room datapages.Subject `signal:"room"`
@@ -97,7 +97,7 @@ func (PageIndex) GET(_ *http.Request, session Session) (
 
 // PageRooms is /rooms
 //
-// Its events are one private and one signal-scoped, so an anonymous visitor
+// Its events are 1 private and 1 signal-scoped, so an anonymous visitor
 // gets a stream of its own that subscribes by the room signal.
 type PageRooms struct{ App *App }
 
@@ -159,7 +159,7 @@ type StateTab struct{ Count int }
 
 // PageTabs is /tabs
 //
-// Stateful, and with one private and one public event,
+// Stateful, and with 1 private and 1 public event,
 // so an anonymous visitor holds per-tab state on a stream of its own.
 type PageTabs struct{ App *App }
 

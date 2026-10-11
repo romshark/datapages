@@ -1,4 +1,4 @@
-// Package app has pages that inherit handlers through more than one embedded
+// Package app has pages that inherit handlers through more than 1 embedded
 // field at the same depth. Go treats these selectors as ambiguous.
 package app
 
@@ -29,7 +29,7 @@ func (SaverB) POSTSave(r *http.Request) error { return nil }
 
 // PageTwo is /two
 //
-// Two embedded types at one depth define the same action.
+// 2 embedded types at the same depth define the same action.
 type PageTwo struct { /* ErrPageAmbiguousEmbed */
 	App *App
 	SaverA
@@ -58,7 +58,7 @@ type Right struct {
 
 // PageDiamond is /diamond
 //
-// One embedded type is reached through two paths at one depth.
+// 1 embedded type is reached through 2 paths at the same depth.
 type PageDiamond struct { /* ErrPageAmbiguousEmbed */
 	App *App
 	Left

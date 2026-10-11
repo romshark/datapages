@@ -39,7 +39,7 @@ var examples = []string{
 // TestExamplesAreUpToDate regenerates each example and
 // compares the result with what is committed.
 //
-// This is the one test that reads generated code as text, and it reads it for
+// This is the only test that reads generated code as text, and it reads it for
 // a reason text is the right medium for: the committed files are the artifact.
 // What the generated code does is covered by the acceptance suites.
 //
@@ -58,7 +58,7 @@ func TestExamplesAreUpToDate(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, scan.Apps)
 
-			// An example may build more than one application, in which case
+			// An example may build more than 1 application, in which case
 			// every one of them is committed and every one is compared.
 			for _, a := range scan.Apps {
 				app, errs := parser.Parse(filepath.Join(dir, a.Dir))

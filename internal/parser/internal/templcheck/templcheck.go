@@ -112,7 +112,7 @@ type parsedTempl struct {
 	c        checker
 }
 
-// checker holds resolved state shared across all checks of one package.
+// checker holds resolved state shared across all checks of 1 package.
 // hrefPkg, actionPkg and imports belong to the file being checked,
 // set by [checker.forFile].
 type checker struct {
@@ -128,8 +128,8 @@ type checker struct {
 	imports      templImports
 }
 
-// forFile returns a copy of c matching the imports of one .templ file.
-// Imports are per file: two files of one package may import the generated
+// forFile returns a copy of c matching the imports of 1 .templ file.
+// Imports are per file: 2 files of 1 package may import the generated
 // package under different local names, or one of them not at all.
 func (c *checker) forFile(filename string) checker {
 	fc := *c
@@ -293,7 +293,7 @@ func templFilesFromPackage(pkg *packages.Package) []string {
 }
 
 // resolvePkgMatchers scans the _templ.go files in pkg for an import whose path
-// ends with suffix and belongs to the same Go module. It returns one pkgMatcher
+// ends with suffix and belongs to the same Go module. It returns 1 pkgMatcher
 // per .templ file that imports it, keyed by the .templ filename.
 // defaultName is the fallback when no explicit alias is present.
 func resolvePkgMatchers(
@@ -314,7 +314,7 @@ func resolvePkgMatchers(
 	return out
 }
 
-// templImports are the imports of one .templ file a templ call can name a
+// templImports are the imports of 1 .templ file a templ call can name a
 // component through: the path by the name a call qualifies it with,
 // and the paths imported with a dot.
 type templImports struct {
@@ -351,7 +351,7 @@ func resolveTemplImports(pkg *packages.Package) map[string]templImports {
 	return out
 }
 
-// fileMatcher returns the matcher for the import of one file, nil when the
+// fileMatcher returns the matcher for the import of 1 file, nil when the
 // file imports no such package or imports it in a way that admits no call.
 func fileMatcher(
 	pkg *packages.Package, f *ast.File, suffix, defaultName string,
@@ -606,7 +606,7 @@ func extractHardcodedActionURLs(value string) []string {
 
 // checkActionEmbedding verifies that an action call is the entire expression.
 // If the expression is a binary add (string concatenation) with the action call
-// on one side, it reports ErrActionUnverifiableWithPrefix or
+// on 1 side, it reports ErrActionUnverifiableWithPrefix or
 // ErrActionUnverifiableWithSuffix to guide the user towards WithBefore/WithAfter.
 // For any other compound expression it reports the generic ErrActionUnverifiable.
 func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST ast.Expr) {
@@ -627,7 +627,7 @@ func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST 
 		if xIsCall {
 			xFuncName, xIsAction = c.actionPkg.isCall(callX)
 		}
-		// Only report prefix/suffix when exactly one side is an action call.
+		// Only report prefix/suffix when exactly 1 side is an action call.
 		if yIsAction && !xIsAction {
 			c.errFn(pos, &ActionUnverifiableWithPrefixError{
 				Expr:       expr,
@@ -756,7 +756,7 @@ type hrefExprInfo struct {
 	hasCall       bool   // expression contains a non-href function call
 	hasUnresolved bool   // expression contains an identifier not in constValues
 	disallowedURL string // first disallowed URL from a literal or constant
-	hasAllowed    bool   // at least one allowed literal or constant
+	hasAllowed    bool   // at least 1 allowed literal or constant
 }
 
 // analyzeHrefExpr walks a parsed Go expression and populates hrefExprInfo.

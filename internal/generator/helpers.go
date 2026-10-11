@@ -28,7 +28,7 @@ func dispatcherTypeName(eventTypeName string) string {
 }
 
 // dispatchVarName is the generated variable name of a dispatcher.
-// The prefix keeps the closures of different handlers apart inside one
+// The prefix keeps the closures of different handlers apart inside 1
 // generated function; the event name keeps a handler's own closures apart.
 //
 //	("dispatch", "EventTodoUpdated") -> "dispatchTodoUpdated"
@@ -46,7 +46,7 @@ func eventConstName(typeName string) string {
 // "EventMessagingSent" -> "EvSubjMessagingSent"
 //
 // Neither this prefix nor [evSubjPrefConst]'s is a prefix of the other, which
-// is what keeps the two sets apart. An event suffix always starts with an
+// is what keeps the 2 sets apart. An event suffix always starts with an
 // uppercase letter: "EvSubj"+X and "EvPrefix"+Y differ at the third byte
 // whatever the events are named. A prefix that extended this one would not:
 // "EvSubjPref"+Foo is "EvSubj"+PrefFoo, and EventPrefFoo is a valid name.
@@ -60,7 +60,7 @@ func evSubjConst(e *model.Event) string {
 // True for private (SubjectUser), signal-scoped and state-id-scoped events.
 func evUsesPrefixMatch(e *model.Event) bool {
 	// Any subject field makes the subscription a pattern: the constant carries
-	// one "*" per field. A received subject carries the values instead,
+	// 1 "*" per field. A received subject carries the values instead,
 	// so it is matched by the prefix in front of them rather than by equality.
 	return e.HasSubjectFields()
 }
@@ -105,7 +105,7 @@ func evSubjPrefValue(e *model.Event) string {
 //
 // A method per owner keeps the owner name and the handler name in separate identifiers.
 // Concatenated, a page name ending in a verb and another page's
-// action spell one method: PageAPOSTB.GET and PageA.POSTBGET.
+// action spell the same method: PageAPOSTB.GET and PageA.POSTBGET.
 func handlerRecvType(owner string) string {
 	return strings.ToLower(owner[:1]) + owner[1:] + "Handlers"
 }
@@ -250,8 +250,8 @@ func renderTypeIn(qual func(*types.Package) string, t model.Type) string {
 }
 
 // eventTypeRef renders the event type the way the generated file names it.
-// An event declared outside the app package, which is how two applications
-// share one event, is qualified by the import [genImports] gave that package.
+// An event declared outside the app package, which is how 2 applications
+// share 1 event, is qualified by the import [genImports] gave that package.
 // typeName carries the fallback for a model that holds no event of that name.
 func (w *Writer) eventTypeRef(ev *model.Event, appPkg, typeName string) string {
 	if ev != nil && ev.Type != nil {
@@ -668,8 +668,8 @@ func (w *Writer) writeCallExpr(receiver, method string, args []string) {
 	w.Byte(')')
 }
 
-// writeMultilineCallExpr writes one argument per line. ind is the indentation
-// of the call expression; arguments are indented one level further.
+// writeMultilineCallExpr writes 1 argument per line. ind is the indentation
+// of the call expression; arguments are indented 1 level further.
 func (w *Writer) writeMultilineCallExpr(
 	receiver, method string, args []string, ind int,
 ) {
@@ -734,7 +734,7 @@ const appPkgQual = "dpapp"
 // subject fields, derived from their signal names. They name both the fields of
 // the subjSignals struct the stream handler reads and the parameters of the
 // page's evSubj function. The signal name is the key because that's what the
-// fields are deduplicated by: two events can bind the same signal through
+// fields are deduplicated by: 2 events can bind the same signal through
 // differently named fields.
 //
 //	"instance_id" -> "InstanceID", "form.calc_id" -> "FormCalcID"
@@ -756,9 +756,9 @@ func signalIdents(fields []model.SubjectField) []string {
 // subjectSignalStruct returns the struct type the subject signals of a page
 // decode into and the selector of each field's value in it, in fields order.
 //
-// A signal path gets one nested struct per step. Datastar sends the signal
+// A signal path gets 1 nested struct per step. Datastar sends the signal
 // chat.room as {"chat":{"room":"lobby"}}, which a json:"chat.room" key never matches.
-// The parser refuses a page whose paths would make one step both
+// The parser refuses a page whose paths would make 1 step both
 // a value and a struct, such as chat and chat.room.
 func subjectSignalStruct(fields []model.SubjectField) (typ string, selectors []string) {
 	var root []*signalStep
@@ -782,7 +782,7 @@ func subjectSignalStruct(fields []model.SubjectField) (typ string, selectors []s
 	return b.String(), selectors
 }
 
-// signalStep is one step of the subject signal paths of a page.
+// signalStep is 1 step of the subject signal paths of a page.
 type signalStep struct {
 	key   string        // the JSON key
 	ident string        // the Go field name, unique among the steps beside it

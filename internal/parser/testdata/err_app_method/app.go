@@ -1,4 +1,4 @@
-// Package app carries the three page methods on App, where none of them runs.
+// Package app carries the 3 page methods on App, where none of them runs.
 package app
 
 import (

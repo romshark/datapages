@@ -57,7 +57,7 @@ func main() {
 {{- end}}
 {{- if .DatastarJS}}
 	// The components import rocket from the same URL,
-	// which keeps one copy of Datastar in the page.
+	// which keeps 1 copy of Datastar in the page.
 	opts = append(opts, datapages.WithDatastarJS({{printf "%q" .DatastarJS}}))
 {{- end}}
 

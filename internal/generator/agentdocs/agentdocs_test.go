@@ -133,7 +133,7 @@ func TestSkillsDiffer(t *testing.T) {
 				}
 			},
 		},
-		"one copy removed": {
+		"1 copy removed": {
 			setup: func(t *testing.T, dir string) {
 				write(t, dir)
 				require.NoError(t, os.RemoveAll(

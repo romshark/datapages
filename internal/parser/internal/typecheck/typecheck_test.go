@@ -52,7 +52,7 @@ func TestTypeDeclOf(t *testing.T) {
 // EventDeep is "deep"
 type EventDeep struct{ Text string }
 
-// Grouped holds two types under one doc comment.
+// Grouped holds 2 types under 1 doc comment.
 type (
 	Grouped struct{ N int }
 )
@@ -117,7 +117,7 @@ type Own struct{}
 		require.True(t, ok)
 		require.Equal(t, "Grouped", ts.Name.Name)
 		require.NotNil(t, doc)
-		require.Contains(t, doc.Text(), "Grouped holds two types")
+		require.Contains(t, doc.Text(), "Grouped holds 2 types")
 	})
 
 	t.Run("out of reach", func(t *testing.T) {

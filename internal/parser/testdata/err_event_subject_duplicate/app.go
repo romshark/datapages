@@ -1,4 +1,4 @@
-// Package app declares two events with the same subject.
+// Package app declares 2 events with the same subject.
 package app
 
 import (

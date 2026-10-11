@@ -17,7 +17,7 @@ type CSRFScriptWriter interface {
 // HTMLDocument is the page [Core.WriteHTML] writes. Every field may be zero.
 type HTMLDocument struct {
 	// Status is the status code [Core.WriteHTML] writes after the headers it sets.
-	// Zero leaves it to the first write, which sends 200.
+	// 0 leaves it to the first write, which sends 200.
 	Status int
 
 	// CSRF writes the CSRF script into the head.
@@ -39,7 +39,7 @@ type HTMLDocument struct {
 	// Datastar script tag. It is the seam for a script that has to run before
 	// Datastar does, which a deferred module script cannot: the stateful-page
 	// fetch wrapper installs itself here so no request on the page escapes it.
-	// Nil when nothing needs that seam, which writes the head in one piece.
+	// Nil when nothing needs that seam, which writes the head in a single piece.
 	WriteHeadPrologue func(w io.Writer) error
 
 	Body            datapages.Component
@@ -50,8 +50,8 @@ type HTMLDocument struct {
 // WriteHTML writes doc as a complete HTML document.
 //
 // The attribute writers of doc open with their own separating space, which is
-// why the body and the template tag are written without one. Two attributes
-// written next to each other would otherwise be one HTML parse error,
+// why the body and the template tag are written without one. 2 attributes
+// written next to each other would otherwise be 1 HTML parse error,
 // recovered from by every browser and refused by every validator.
 func (c *Core) WriteHTML(
 	w http.ResponseWriter, r *http.Request, doc HTMLDocument,

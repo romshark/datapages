@@ -10,7 +10,7 @@ import (
 
 // Submission is a change an editor sends.
 type Submission struct {
-	// Client identifies the editor: one load of the document in one tab.
+	// Client identifies the editor: 1 load of the document in 1 tab.
 	Client string
 	// Seq numbers the changes of Client from 1.
 	Seq int

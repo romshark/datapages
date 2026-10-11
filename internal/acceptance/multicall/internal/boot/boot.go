@@ -1,4 +1,4 @@
-// Package boot builds the same server as serve, two directories below the
+// Package boot builds the same server as serve, 2 directories below the
 // module root and under internal.
 //
 // The scan walks every package of the module. Neither the depth of a package

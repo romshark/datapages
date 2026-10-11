@@ -20,7 +20,7 @@ description: Write Datapages commit messages, including the breaking-change mark
   refactor: Use funcFoo everywhere <- drop
   test: Add benchmark to test funcFoo against funcBar <- drop
   ```
-- A breaking change ends with a `BREAKING:` block. It is the migration instruction: name every removed or renamed symbol as `old -> new`, and say what the caller has to do, one step per line. A caller must be able to migrate from this block alone, without reading the diff. Say plainly when a step is automatic (`datapages gen` regenerates it) and when it is manual. Every line is a step the caller takes. Never list what did not change: `href is unchanged` is a step to do nothing. When a step could be read as reaching further than it does, narrow the step instead of adding a line: write `EvSubjPref<Event> -> EvPrefix<Event>, the prefix constants only`, not `... unchanged` on a line of its own.
+- A breaking change ends with a `BREAKING:` block. It is the migration instruction: name every removed or renamed symbol as `old -> new`, and say what the caller has to do, 1 step per line. A caller must be able to migrate from this block alone, without reading the diff. Say plainly when a step is automatic (`datapages gen` regenerates it) and when it is manual. Every line is a step the caller takes. Never list what did not change: `href is unchanged` is a step to do nothing. When a step could be read as reaching further than it does, narrow the step instead of adding a line: write `EvSubjPref<Event> -> EvPrefix<Event>, the prefix constants only`, not `... unchanged` on a line of its own.
 - A `perf:` commit quotes the measurement as `before -> after`.
 - No tool attribution or `Co-Authored-By` trailers.
 
@@ -62,5 +62,5 @@ BREAKING:
 - `datapages.CoreConfig` -> `runtime/httpserve.Config`.
 - Generated code: run `datapages gen`, no hand edits needed.
 - Hand-written callers: import `github.com/romshark/datapages/runtime/httpserve`
-  and update the two names above.
+  and update the 2 names above.
 ```

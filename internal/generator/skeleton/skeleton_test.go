@@ -45,7 +45,7 @@ func TestCIWorkflowInstallsPinnedTools(t *testing.T) {
 // TestMainGoAppImportAlias tests the identifier the scaffolded main.go refers
 // to the app package by. It keeps the declared name, which is what a developer
 // reads, unless one of the imports already binds it: unaliased, an app package
-// named "sessions" or "http" would bind one identifier to two packages and the
+// named "sessions" or "http" would bind 1 identifier to 2 packages and the
 // file the scaffold just wrote would not compile.
 func TestMainGoAppImportAlias(t *testing.T) {
 	t.Parallel()
