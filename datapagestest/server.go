@@ -1,7 +1,9 @@
 package datapagestest
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,53 +17,39 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/modules/csrf"
 )
 
-// DefaultTimeout bounds each wait of a [Server] created without [WithTimeout].
+// DefaultTimeout applies to requests and waits when [WithTimeout] is unset.
 const DefaultTimeout = 5 * time.Second
 
-// pollInterval is how often a wait checks its condition again.
 const pollInterval = 5 * time.Millisecond
 
 type config struct {
 	timeout    time.Duration
 	cookie     string
-	tokens     csrf.TokenWriter
 	httpServer func(*http.Server)
 }
 
 // Option configures a [Server].
 type Option func(*config)
 
-// WithTimeout sets how long the waits of [Stream] and [Server.WaitFor] last before
-// they fail the test.
+// WithTimeout sets the request and wait timeout.
 func WithTimeout(d time.Duration) Option {
 	return func(c *config) { c.timeout = d }
 }
 
-// WithSessionCookie names the session cookie of a server whose
-// [github.com/romshark/datapages.SessionsConfig] renames it.
-// The CSRF token derives from that cookie's value.
+// WithSessionCookie sets the cookie name used by [Visitor.SetSessionToken].
 func WithSessionCookie(name string) Option {
 	return func(c *config) { c.cookie = name }
 }
 
-// WithCSRFTokens derives CSRF tokens with w, for a server whose
-// [github.com/romshark/datapages.CSRFConfig] replaces the default [csrf.Tokens].
-func WithCSRFTokens(w csrf.TokenWriter) Option {
-	return func(c *config) { c.tokens = w }
-}
-
-// WithHTTPServer calls configure with the net/http server that serves the handler
-// before it starts, such as to set the ReadTimeout a deployment passes to
-// [github.com/romshark/datapages.WithHTTPServer]. The in-memory connections honor
-// the deadlines its timeouts set. New overwrites the Handler field.
+// WithHTTPServer configures the HTTP server before it starts. Its timeouts apply to
+// the in-memory connections. [New] replaces its Handler.
 func WithHTTPServer(configure func(*http.Server)) Option {
 	return func(c *config) { c.httpServer = configure }
 }
 
-// Server is a Datapages server that its visitors reach over in-memory connections.
+// Server serves a Datapages handler over in-memory connections.
 type Server struct {
 	srv       *httptest.Server
 	transport *http.Transport
@@ -69,17 +57,17 @@ type Server struct {
 	conf      config
 }
 
-// New serves h on in-memory connections and closes it when the test ends.
-// h is the server [github.com/romshark/datapages.NewServer] returned.
+// New serves h over in-memory connections and closes it during test cleanup.
+// Pass the handler returned by [datapages.NewServer].
 //
-// The net/http server serves the connections as it serves a socket, and no socket
-// is opened, which lets a test run in a testing/synctest bubble.
+// In-memory connections support testing/synctest. Cleanup waits for all connections;
+// net/http may retain one for 500ms after rejecting a body or
+// leaving at least 256 KiB unread.
 func New(t testing.TB, h http.Handler, opts ...Option) *Server {
 	t.Helper()
 	conf := config{
 		timeout: DefaultTimeout,
 		cookie:  datapages.DefaultSessionCookieName,
-		tokens:  csrf.Tokens{},
 	}
 	for _, opt := range opts {
 		opt(&conf)
@@ -102,8 +90,8 @@ func New(t testing.TB, h http.Handler, opts ...Option) *Server {
 	return &Server{srv: srv, transport: transport, base: base, conf: conf}
 }
 
-// WaitFor polls cond until it holds and fails the test when the timeout passes first.
-// It is for effects no stream carries, such as a store update from StreamClose.
+// WaitFor polls cond until it succeeds or times out. Use it for effects no stream
+// carries, such as a store update from StreamClose.
 func (s *Server) WaitFor(t testing.TB, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(s.conf.timeout)
@@ -115,7 +103,7 @@ func (s *Server) WaitFor(t testing.TB, what string, cond func() bool) {
 	}
 }
 
-// Visitor is one browser: a cookie jar its tabs share.
+// Visitor represents a browser whose tabs share a cookie jar.
 type Visitor struct {
 	srv    *Server
 	jar    http.CookieJar
@@ -142,8 +130,7 @@ func (s *Server) Visitor(t testing.TB) *Visitor {
 	return &Visitor{srv: s, jar: jar, client: &client, stream: &stream}
 }
 
-// followAnonymousStream follows the 303 that the stream of a page with public and
-// user-addressed events answers a signed-out visitor with.
+// followAnonymousStream permits only the redirect to an anonymous stream.
 func followAnonymousStream(req *http.Request, via []*http.Request) error {
 	if len(via) == 1 && strings.HasSuffix(req.URL.Path, "/_$/anon/") {
 		return nil
@@ -151,7 +138,7 @@ func followAnonymousStream(req *http.Request, via []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
-// Cookie returns the visitor's cookie named name, or nil when it holds none.
+// Cookie returns the named visitor cookie, or nil if absent.
 func (v *Visitor) Cookie(name string) *http.Cookie {
 	for _, c := range v.jar.Cookies(v.srv.base) {
 		if c.Name == name {
@@ -161,40 +148,61 @@ func (v *Visitor) Cookie(name string) *http.Cookie {
 	return nil
 }
 
-// SetSessionToken stores token as the visitor's session cookie. It signs the visitor
-// in with a session the test created through the session manager, for an app whose
-// sign-in a test cannot send, such as one that goes through an identity provider.
+// SetSessionToken stores token as the cookie for a session created directly by a test.
+// Pages loaded afterward receive its CSRF token.
 func (v *Visitor) SetSessionToken(token string) {
 	v.jar.SetCookies(v.srv.base, []*http.Cookie{
 		{Name: v.srv.conf.cookie, Value: token, Path: "/"},
 	})
 }
 
-// Get loads path the way a browser navigation does, without following a redirect.
+// Get loads path as a browser navigation without following redirects. Its Sec-Fetch
+// headers make errors from file-returning GET actions render as pages. Use
+// [Visitor.NewRequest] for a fetch.
 func (v *Visitor) Get(t testing.TB, path string) *Response {
 	t.Helper()
-	return v.Send(t, v.NewRequest(t, http.MethodGet, path, nil))
+	req := v.NewRequest(t, http.MethodGet, path, nil)
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	return v.Send(t, req)
 }
 
-// Load loads the page at path and returns it as a tab.
-// It fails the test unless the page answers 200.
+// Load loads path as a tab and requires status 200.
 func (v *Visitor) Load(t testing.TB, path string) *Tab {
 	t.Helper()
-	page := v.Get(t, path)
-	if page.Status != http.StatusOK {
-		t.Fatalf("%s: %d, want 200%s", page.desc, page.Status, redirectHint(page))
-	}
+	page := v.Get(t, path).WantStatus(t, http.StatusOK)
 	u, err := url.Parse(path)
 	if err != nil {
 		t.Fatalf("parsing %q: %v", path, err)
 	}
-	// The server appends a slash to a path without one. The stream route is that
-	// path followed by "_$/".
+	// The server canonicalizes page paths with a slash; stream routes add "_$/".
 	p := u.EscapedPath()
 	if !strings.HasSuffix(p, "/") {
 		p += "/"
 	}
-	return &Tab{v: v, page: page, path: p, instance: page.Instance()}
+	return &Tab{
+		v:        v,
+		page:     page,
+		path:     p,
+		instance: page.Instance(),
+		csrf:     csrfToken(page.Body),
+	}
+}
+
+// csrfMark begins the token in a server-generated CSRF script.
+const csrfMark = `h.set("X-CSRF-Token",'`
+
+// csrfToken extracts the page's CSRF token. Tokens contain no quote.
+func csrfToken(page string) string {
+	_, rest, ok := strings.Cut(page, csrfMark)
+	if !ok {
+		return ""
+	}
+	token, _, ok := strings.Cut(rest, "'")
+	if !ok {
+		return ""
+	}
+	return token
 }
 
 func redirectHint(r *Response) string {
@@ -204,8 +212,7 @@ func redirectHint(r *Response) string {
 	return ""
 }
 
-// NewRequest builds a request for path on the visitor's server, without the headers
-// of a Datastar request. [Visitor.Send] sends it.
+// NewRequest builds a request without Datastar headers. Send it with [Visitor.Send].
 func (v *Visitor) NewRequest(
 	t testing.TB, method, path string, body io.Reader,
 ) *http.Request {
@@ -217,24 +224,37 @@ func (v *Visitor) NewRequest(
 	return req
 }
 
-// Send sends req with the visitor's cookies and reads the whole response.
-// It follows no redirect. A request without an Accept-Encoding header asks for
-// identity: Go's client would otherwise ask for gzip and decode it, and reading a
-// finished SSE response to its end would then fail with io.ErrUnexpectedEOF.
+// Send sends req with the visitor's cookies, follows no redirects and reads
+// the whole response. It fails on timeout. Use [Tab.Connect] for streams
+// or [Visitor.Client] for partial reads.
+//
+// A request without Accept-Encoding uses identity. This prevents compression
+// middleware from choosing an encoding the visitor does not decode
+// ([RFC 9110 section 12.5.3]).
+//
+// [RFC 9110 section 12.5.3]: https://www.rfc-editor.org/rfc/rfc9110#section-12.5.3
 func (v *Visitor) Send(t testing.TB, req *http.Request) *Response {
 	t.Helper()
 	if req.Header.Get("Accept-Encoding") == "" {
 		req.Header.Set("Accept-Encoding", "identity")
 	}
 	desc := req.Method + " " + req.URL.RequestURI()
-	resp, err := v.client.Do(req)
-	if err != nil {
-		t.Fatalf("%s: %v", desc, err)
+	timeout := v.srv.conf.timeout
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	resp, err := v.client.Do(req.WithContext(ctx))
+	var b []byte
+	if err == nil {
+		b, err = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 	}
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("%s: reading the response: %v", desc, err)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			t.Fatalf("%s: no complete response within %v; open a stream with "+
+				"Tab.Connect, read a response in part through Visitor.Client",
+				desc, timeout)
+		}
+		t.Fatalf("%s: %v", desc, err)
 	}
 	return &Response{
 		Status: resp.StatusCode,
@@ -244,37 +264,23 @@ func (v *Visitor) Send(t testing.TB, req *http.Request) *Response {
 	}
 }
 
-// Client returns an HTTP client with the visitor's in-memory transport and cookie jar
-// that follows no redirect. It sends the requests the other methods don't model,
-// such as a stream whose status a test checks or a response it reads in part.
-// The caller closes each response body. Changing the client doesn't change the visitor's.
+// Client returns a copy of the visitor's no-redirect HTTP client with
+// its shared cookie jar. Use it for unmodeled requests or partial reads,
+// and close each response body. Changes to the copy do not affect the visitor.
 func (v *Visitor) Client() *http.Client {
 	c := *v.client
 	return &c
 }
 
-// csrfToken derives the token the server expects from the visitor's session cookie,
-// "" for a visitor without one.
-func (v *Visitor) csrfToken(t testing.TB) string {
-	t.Helper()
-	c := v.Cookie(v.srv.conf.cookie)
-	if c == nil || c.Value == "" {
-		return ""
-	}
-	var b strings.Builder
-	if _, err := v.srv.conf.tokens.WriteToken(&b, c.Value); err != nil {
-		t.Fatalf("deriving the CSRF token: %v", err)
-	}
-	return b.String()
-}
-
-// Tab is one page load in a browser tab. It holds the page and the Datapages-Instance
-// header of the page load, and sends the tab's actions and opens its stream.
+// Tab represents one page load. It retains the response,
+// Datapages instance and CSRF token, and can send actions or open a stream.
+// Reload a guest tab after sign-in unless an action response supplies a token.
 type Tab struct {
 	v        *Visitor
 	page     *Response
 	path     string // the page's path with a trailing slash and no query
 	instance string
+	csrf     string
 }
 
 // Page is the response the tab was loaded with.
@@ -284,10 +290,9 @@ func (tb *Tab) Page() *Response { return tb.page }
 // per-tab state.
 func (tb *Tab) Instance() string { return tb.instance }
 
-// NewRequest builds a Datastar request of this tab: with Datastar-Request, the tab's
-// Datapages-Instance and, for a signed-in visitor, the X-CSRF-Token that the page's
-// script adds to every method but GET, HEAD, OPTIONS and QUERY.
-// Change it and send it with [Visitor.Send], such as to leave out the CSRF token.
+// NewRequest builds a Datastar request with the tab's instance and CSRF token.
+// It omits the token for GET, HEAD, OPTIONS and QUERY. Modify the request
+// and send it with [Visitor.Send] to test other headers.
 func (tb *Tab) NewRequest(
 	t testing.TB, method, path string, body io.Reader,
 ) *http.Request {
@@ -300,43 +305,50 @@ func (tb *Tab) NewRequest(
 	switch method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions, "QUERY":
 	default:
-		if token := tb.v.csrfToken(t); token != "" {
-			req.Header.Set("X-CSRF-Token", token)
+		if tb.csrf != "" {
+			req.Header.Set("X-CSRF-Token", tb.csrf)
 		}
 	}
 	return req
 }
 
-// Do sends an action the way Datastar sends one from this tab. The signals, marshaled
-// to JSON, go in the body of a POST, PUT, PATCH or QUERY and in the datastar query
-// parameter of a GET or DELETE. A nil signals sends "{}", which is what Datastar sends
-// for a page without signals. A [json.RawMessage] is sent as it is.
+// Do sends a Datastar action. JSON signals go in the datastar query parameter for GET
+// and DELETE, and in the body otherwise. Nil sends "{}"; [json.RawMessage] is unchanged.
 func (tb *Tab) Do(t testing.TB, method, path string, signals any) *Response {
 	t.Helper()
 	enc := encodeSignals(t, signals)
 	if queryCarries(method) {
-		req := tb.NewRequest(t, method, withQuery(t, path, url.Values{"datastar": {enc}}), nil)
-		return tb.v.Send(t, req)
+		req := tb.NewRequest(t, method,
+			withQuery(t, path, url.Values{"datastar": {enc}}), nil)
+		return tb.send(t, req)
 	}
 	req := tb.NewRequest(t, method, path, strings.NewReader(enc))
 	req.Header.Set("Content-Type", "application/json")
-	return tb.v.Send(t, req)
+	return tb.send(t, req)
 }
 
-// DoForm sends an action the way Datastar sends one with contentType 'form': the
-// fields go in a urlencoded body, and in the query of a GET or DELETE.
+// DoForm sends a form action. Fields go in the query for GET and DELETE,
+// and in a URL-encoded body otherwise.
 func (tb *Tab) DoForm(t testing.TB, method, path string, form url.Values) *Response {
 	t.Helper()
 	if queryCarries(method) {
-		return tb.v.Send(t, tb.NewRequest(t, method, withQuery(t, path, form), nil))
+		return tb.send(t, tb.NewRequest(t, method, withQuery(t, path, form), nil))
 	}
 	req := tb.NewRequest(t, method, path, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return tb.v.Send(t, req)
+	return tb.send(t, req)
 }
 
-// queryCarries reports whether Datastar puts the payload of a request with method in
-// the query instead of the body.
+// send records any CSRF token returned by the action.
+func (tb *Tab) send(t testing.TB, req *http.Request) *Response {
+	t.Helper()
+	resp := tb.v.Send(t, req)
+	if token := csrfToken(resp.Body); token != "" {
+		tb.csrf = token
+	}
+	return resp
+}
+
 func queryCarries(method string) bool {
 	return method == http.MethodGet || method == http.MethodDelete
 }
@@ -356,7 +368,6 @@ func encodeSignals(t testing.TB, signals any) string {
 	return string(b)
 }
 
-// withQuery adds params to the query of path.
 func withQuery(t testing.TB, path string, params url.Values) string {
 	t.Helper()
 	u, err := url.Parse(path)
@@ -373,7 +384,7 @@ func withQuery(t testing.TB, path string, params url.Values) string {
 	return u.String()
 }
 
-// Response is what the server answered a request with.
+// Response records an HTTP response.
 type Response struct {
 	Status int
 	Header http.Header
@@ -383,16 +394,24 @@ type Response struct {
 	doc  *html.Node
 }
 
+// WantStatus requires status and returns r for chaining.
+func (r *Response) WantStatus(t testing.TB, status int) *Response {
+	t.Helper()
+	if r.Status != status {
+		t.Fatalf("%s: %d, want %d%s:\n%s",
+			r.desc, r.Status, status, redirectHint(r), excerpt(r.Body))
+	}
+	return r
+}
+
 // Instance is the Datapages-Instance header, "" when there is none.
 func (r *Response) Instance() string { return r.Header.Get("Datapages-Instance") }
 
-// Retry is the Datapages-Retry header. It is "reconnect" when the server refused a
-// stateful request because the tab holds no state, "" when there is none.
+// Retry returns the Datapages-Retry header. "reconnect" means the tab lacks state.
 func (r *Response) Retry() string { return r.Header.Get("Datapages-Retry") }
 
-// Cookies parses the cookies the response's Set-Cookie headers set, with their
-// attributes, as [http.Response.Cookies] does. [Visitor.Cookie] reads the visitor's
-// cookie jar, which keeps the name and value of a cookie only.
+// Cookies parses Set-Cookie headers with their attributes.
+// [Visitor.Cookie] reads the visitor's stored cookie instead.
 func (r *Response) Cookies() []*http.Cookie {
 	return (&http.Response{Header: r.Header}).Cookies()
 }
@@ -405,8 +424,7 @@ func (r *Response) Document() *html.Node {
 	return r.doc
 }
 
-// ElementByID returns the element with id in the body and fails the test when there
-// is none.
+// ElementByID returns the body element with id or fails the test.
 func (r *Response) ElementByID(t testing.TB, id string) *html.Node {
 	t.Helper()
 	n := ElementByID(r.Document(), id)
@@ -416,8 +434,7 @@ func (r *Response) ElementByID(t testing.TB, id string) *html.Node {
 	return n
 }
 
-// Events parses the body of an SSE response, such as that of an action with an sse
-// parameter. It fails the test unless the response is text/event-stream.
+// Events parses an SSE response body and requires Content-Type text/event-stream.
 func (r *Response) Events(t testing.TB) []Event {
 	t.Helper()
 	if !isEventStream(r.Header.Get("Content-Type")) {
@@ -427,10 +444,21 @@ func (r *Response) Events(t testing.TB) []Event {
 	return parseEvents(r.Body)
 }
 
-// Redirect returns the target of the redirect the response carries, in whichever
-// form the request received it: the Location of an HTTP redirect, the script a
-// Datastar request receives before SSE starts, or the script event of an SSE
-// response. It fails the test when the response carries no redirect.
+// Event returns the first SSE event matching m or fails the test.
+func (r *Response) Event(t testing.TB, m Match) Event {
+	t.Helper()
+	for _, ev := range r.Events(t) {
+		if m.f(ev) {
+			return ev
+		}
+	}
+	t.Fatalf("%s: %s is not among the events:\n%s", r.desc, m, excerpt(r.Body))
+	return Event{}
+}
+
+// Redirect returns a target from an HTTP Location,
+// JavaScript response or SSE script event.
+// It fails if the response carries no redirect.
 func (r *Response) Redirect(t testing.TB) string {
 	t.Helper()
 	ct := r.Header.Get("Content-Type")
@@ -455,7 +483,6 @@ func (r *Response) Redirect(t testing.TB) string {
 	return ""
 }
 
-// excerpt shortens a body for a failure message.
 func excerpt(s string) string {
 	const limit = 4 << 10
 	if len(s) <= limit {

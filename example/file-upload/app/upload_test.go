@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -92,7 +93,7 @@ func (tb *tab) load(t *testing.T) {
 	t.Helper()
 	tb.Tab = tb.visitor.Load(t, href.PageIndex())
 	require.NotEmpty(t, tb.Instance(), "GET / minted no instance id")
-	tb.stream = tb.Connect(t, tb.Page().Signals(t))
+	tb.stream = tb.Connect(t, tb.Page().PublicSignals(t))
 }
 
 // chunk sends one chunk the way the uploader does, as a plain fetch. Without the
@@ -153,12 +154,8 @@ func (tb *tab) waitForStart(t *testing.T) job {
 // uploader to go on with.
 func resumed(t *testing.T, resp *datapagestest.Response) job {
 	t.Helper()
-	evs := resp.Events(t)
-	i := slices.IndexFunc(evs, calls("dpUpload.go").Matches)
-	require.GreaterOrEqual(t, i, 0,
-		"the response tells the uploader nothing:\n%s", resp.Body)
 	var j job
-	decodeCall(t, evs[i], "dpUpload.go", &j)
+	decodeCall(t, resp.Event(t, calls("dpUpload.go")), "dpUpload.go", &j)
 	return j
 }
 
@@ -312,16 +309,15 @@ func TestReattach(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			resp := tb.Do(t, http.MethodPost, "/reattach/", tc.payload)
 			require.Equal(t, http.StatusOK, resp.Status)
-			evs := resp.Events(t)
-			i := slices.IndexFunc(evs, func(ev datapagestest.Event) bool {
-				return strings.Contains(datapagestest.Text(ev.Root()), tc.want)
-			})
-			require.GreaterOrEqual(t, i, 0, "no event says %q:\n%s", tc.want, resp.Body)
-			require.Equal(t, "#toast", evs[i].Data["selector"],
+			ev := resp.Event(t, datapagestest.Func("an event saying "+strconv.Quote(tc.want),
+				func(ev datapagestest.Event) bool {
+					return strings.Contains(datapagestest.Text(ev.Root()), tc.want)
+				}))
+			require.Equal(t, "#toast", ev.Data["selector"],
 				"the message did not reach the toaster")
-			require.Equal(t, "append", evs[i].Data["mode"],
+			require.Equal(t, "append", ev.Data["mode"],
 				"the message replaces the stack instead of joining it")
-			require.Contains(t, toastTitle(evs[i]), tc.want,
+			require.Contains(t, toastTitle(ev), tc.want,
 				"the message is in no slot and neo-toast projects none of it")
 		})
 	}
@@ -485,10 +481,8 @@ func (tb *tab) stage(t *testing.T, name, contentType string, size int) *html.Nod
 // dialogOf returns the upload dialog that resp patches into the page.
 func dialogOf(t *testing.T, resp *datapagestest.Response) *html.Node {
 	t.Helper()
-	evs := resp.Events(t)
-	i := slices.IndexFunc(evs, datapagestest.Element("upload-dialog").Matches)
-	require.GreaterOrEqual(t, i, 0, "no upload dialog in the response:\n%s", resp.Body)
-	return evs[i].ElementByID(t, "upload-dialog")
+	return resp.Event(t, datapagestest.Element("upload-dialog")).
+		ElementByID(t, "upload-dialog")
 }
 
 // TestPickingAnUnfinishedFileAgain tests that a file already half uploaded is
@@ -688,33 +682,36 @@ func TestStartRefusesTheWholeDialog(t *testing.T) {
 // TestSlowChunkOutlivesTheReadTimeout tests that a chunk slower than the read
 // timeout of the server still arrives whole. A server times a whole request,
 // which an upload held back by a limit outlives: the deadline has to follow
-// the bytes instead.
+// the bytes instead. The 3s the bytes take pass at once on the clock of a
+// testing/synctest bubble.
 func TestSlowChunkOutlivesTheReadTimeout(t *testing.T) {
-	const idle = 400 * time.Millisecond
-	tb := newTabWith(t, idle, 200*time.Millisecond)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
+	synctest.Test(t, func(t *testing.T) {
+		const idle = 400 * time.Millisecond
+		tb := newTabWith(t, idle, 200*time.Millisecond)
+		id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
-	// Five pieces, each within the idle deadline, together well past both it
-	// and the read timeout of the server.
-	pr, pw := io.Pipe()
-	go func() {
-		for _, b := range []byte(contents) {
-			time.Sleep(150 * time.Millisecond)
-			if _, err := pw.Write([]byte{b}); err != nil {
-				break
+		// The bytes arrive one at a time, 150ms apart: each within the idle deadline,
+		// together well past both it and the read timeout of the server.
+		pr, pw := io.Pipe()
+		go func() {
+			for _, b := range []byte(contents) {
+				time.Sleep(150 * time.Millisecond)
+				if _, err := pw.Write([]byte{b}); err != nil {
+					break
+				}
 			}
-		}
-		_ = pw.Close()
-	}()
+			_ = pw.Close()
+		}()
 
-	req := tb.visitor.NewRequest(t, http.MethodPut, "/upload/"+id+"/?offset=0", pr)
-	require.Equal(t, http.StatusOK, tb.visitor.Send(t, req).Status,
-		"a slow chunk was cut off")
+		req := tb.visitor.NewRequest(t, http.MethodPut, "/upload/"+id+"/?offset=0", pr)
+		require.Equal(t, http.StatusOK, tb.visitor.Send(t, req).Status,
+			"a slow chunk was cut off")
 
-	f, err := tb.files.Get(id)
-	require.NoError(t, err)
-	require.Equal(t, store.StatusComplete, f.Status,
-		"the slow chunk did not arrive whole")
+		f, err := tb.files.Get(id)
+		require.NoError(t, err)
+		require.Equal(t, store.StatusComplete, f.Status,
+			"the slow chunk did not arrive whole")
+	})
 }
 
 // waitForLimits waits for the patch that writes the limits that took effect back
@@ -726,32 +723,34 @@ func (tb *tab) waitForLimits(t *testing.T) map[string]json.RawMessage {
 
 // TestLimits tests that the numbers the inputs send reach both transfer
 // directions and come back to every tab as the values that took effect.
+// The limiter waits on the clock of a testing/synctest bubble.
 func TestLimits(t *testing.T) {
-	payload := strings.Repeat("x", 32<<10)
-	tb := newTab(t)
+	synctest.Test(t, func(t *testing.T) {
+		payload := strings.Repeat("x", 32<<10)
+		tb := newTab(t)
 
-	resp := tb.Do(t, http.MethodPost, "/limits/",
-		json.RawMessage(`{"limitUp":32,"limitDown":32}`))
-	require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
-	signals := tb.waitForLimits(t)
-	require.JSONEq(t, "32", string(signals["limitUp"]))
-	require.JSONEq(t, "32", string(signals["limitDown"]))
+		resp := tb.Do(t, http.MethodPost, "/limits/",
+			json.RawMessage(`{"limitUp":32,"limitDown":32}`))
+		require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
+		signals := tb.waitForLimits(t)
+		require.JSONEq(t, "32", string(signals["limitUp"]))
+		require.JSONEq(t, "32", string(signals["limitDown"]))
 
-	id := tb.start(t, "big.bin", "big.bin", "application/octet-stream", len(payload)).ID
+		id := tb.start(t, "big.bin", "big.bin", "application/octet-stream", len(payload)).ID
 
-	// 32 KiB at 32 KiB/s is a second of transfer, less the burst the limiter
-	// starts with. The bound is loose: a busy machine may take much longer,
-	// and only being faster than the limit would be a failure.
-	start := time.Now()
-	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, payload))
-	require.Greater(t, time.Since(start), 300*time.Millisecond,
-		"the upload limit did not slow the chunk down")
+		// 32 KiB at 32 KiB/s is a second of transfer, less the burst the limiter
+		// starts with. Only being faster than the limit would be a failure.
+		start := time.Now()
+		require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, payload))
+		require.Greater(t, time.Since(start), 300*time.Millisecond,
+			"the upload limit did not slow the chunk down")
 
-	start = time.Now()
-	download := tb.visitor.Get(t, href.App.File(id))
-	require.Greater(t, time.Since(start), 300*time.Millisecond,
-		"the download limit did not slow the response down")
-	require.Equal(t, payload, download.Body, "the limit changed the content")
+		start = time.Now()
+		download := tb.visitor.Get(t, href.App.File(id))
+		require.Greater(t, time.Since(start), 300*time.Millisecond,
+			"the download limit did not slow the response down")
+		require.Equal(t, payload, download.Body, "the limit changed the content")
+	})
 }
 
 // TestLimitsAreClamped tests that a number the inputs cannot produce is
@@ -1147,11 +1146,11 @@ func calls(fn string) datapagestest.Match {
 // argOf returns the argument of the call of fn in the script ev appends, and false
 // when ev appends no such script.
 func argOf(ev datapagestest.Event, fn string) (string, bool) {
-	script := find(ev.Root(), element("script"))
-	if script == nil || script.FirstChild == nil {
+	script, ok := ev.Script()
+	if !ok {
 		return "", false
 	}
-	arg, ok := strings.CutPrefix(script.FirstChild.Data, fn+"(")
+	arg, ok := strings.CutPrefix(script, fn+"(")
 	if !ok {
 		return "", false
 	}

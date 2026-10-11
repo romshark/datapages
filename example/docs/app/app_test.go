@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -91,7 +90,7 @@ func (s *server) open(t *testing.T, doc string) *tab {
 	t.Helper()
 	page := s.browser.Load(t, href.PageDoc(doc))
 	require.NotEmpty(t, page.Instance(), "the page sets no Datapages-Instance")
-	signals := publicSignals(page.Page().Signals(t))
+	signals := page.Page().PublicSignals(t)
 	client, _ := signals["client"].(string)
 	require.NotEmpty(t, client, "the page sets no client signal")
 	require.Contains(t, signals, "rev", "the page sets no rev signal")
@@ -102,18 +101,9 @@ func (s *server) open(t *testing.T, doc string) *tab {
 // reports in the rev signal.
 func (tb *tab) reconnect(t *testing.T, rev int) {
 	t.Helper()
-	signals := publicSignals(tb.Page().Signals(t))
+	signals := tb.Page().PublicSignals(t)
 	signals["rev"] = rev
 	tb.stream = tb.Connect(t, signals)
-}
-
-// publicSignals deletes the signals whose names start with an underscore, which
-// Datastar leaves out of requests, and returns the rest.
-func publicSignals(signals map[string]any) map[string]any {
-	maps.DeleteFunc(signals, func(name string, _ any) bool {
-		return strings.HasPrefix(name, "_")
-	})
-	return signals
 }
 
 // ops returns the delta of the operations in the JSON array list.
@@ -148,22 +138,20 @@ func (tb *tab) restore(
 // editorCall returns the argument that the script of ev passes to method of the
 // editor element, and false when ev calls no such method.
 func editorCall(ev datapagestest.Event, method string) (json.RawMessage, bool) {
-	for n := range ev.Root().Descendants() {
-		if n.Type != html.ElementNode || n.Data != "script" || n.FirstChild == nil {
-			continue
-		}
-		_, arg, ok := strings.Cut(n.FirstChild.Data,
-			`document.getElementById("editor").`+method+"(")
-		if !ok {
-			continue
-		}
-		// The parentheses after the argument close the call and the then( of
-		// customElements.whenDefined around it.
-		if arg, ok = strings.CutSuffix(arg, "))"); ok {
-			return json.RawMessage(arg), true
-		}
+	script, ok := ev.Script()
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	_, arg, ok := strings.Cut(script, `document.getElementById("editor").`+method+"(")
+	if !ok {
+		return nil, false
+	}
+	// The app wraps the call in customElements.whenDefined(...).then(...). The
+	// last two parentheses close the call of method and the call of then.
+	if arg, ok = strings.CutSuffix(arg, "))"); !ok {
+		return nil, false
+	}
+	return json.RawMessage(arg), true
 }
 
 // calls matches the script that calls method of the editor.
@@ -179,13 +167,8 @@ func calls(method string) datapagestest.Match {
 // events of resp and fails the test when none calls it.
 func callArg(t *testing.T, resp *datapagestest.Response, method string) json.RawMessage {
 	t.Helper()
-	for _, ev := range resp.Events(t) {
-		if arg, ok := editorCall(ev, method); ok {
-			return arg
-		}
-	}
-	t.Fatalf("no event calls %s of the editor:\n%s", method, resp.Body)
-	return nil
+	arg, _ := editorCall(resp.Event(t, calls(method)), method)
+	return arg
 }
 
 // update is the argument of receive of the editor. Changes keeps each change in
@@ -302,9 +285,7 @@ func TestRejectedChange(t *testing.T) {
 		"embed":          `[{"insert":{"image":"x.png"}}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := a.submit(t, 1, 0, change)
-			require.True(t, slices.ContainsFunc(resp.Events(t), calls("stop").Matches),
-				"the editor was not stopped:\n%s", resp.Body)
+			a.submit(t, 1, 0, change).Event(t, calls("stop"))
 		})
 	}
 	require.Equal(t, "\n", s.text(t, doc))
@@ -443,8 +424,7 @@ func TestRestoreCopy(t *testing.T) {
 
 	resp := b.restore(t, store.NewClient(), 1, 0,
 		`[{"insert":"Mine"}]`, `[]`, `[{"insert":"Mine\n"}]`)
-	evs := resp.Events(t)
-	require.True(t, slices.ContainsFunc(evs, calls("restored").Matches), resp.Body)
+	resp.Event(t, calls("restored"))
 	var copied store.Summary
 	for _, d := range s.docs.List() {
 		if d.ID != doc {
@@ -453,9 +433,7 @@ func TestRestoreCopy(t *testing.T) {
 	}
 	require.Equal(t, "Notes (offline copy)", copied.Title)
 	require.Equal(t, "Mine\n", s.text(t, copied.ID))
-	i := slices.IndexFunc(evs, datapagestest.Element("error").Matches)
-	require.NotEqual(t, -1, i, "no toast:\n%s", resp.Body)
-	toast := evs[i].ElementByID(t, "error")
+	toast := resp.Event(t, datapagestest.Element("error")).ElementByID(t, "error")
 	require.Equal(t, []string{href.PageDoc(copied.ID)}, links(toast))
 	require.Equal(t, 1001, len(s.text(t, doc))-1)
 }
@@ -487,8 +465,7 @@ func TestCreateUnknownTemplate(t *testing.T) {
 	index := s.browser.Load(t, href.PageIndex())
 	resp := index.Do(t, http.MethodPost, "/create/missing", nil)
 	require.Equal(t, http.StatusOK, resp.Status)
-	toast := datapagestest.TextContains("error", "Something went wrong")
-	require.True(t, slices.ContainsFunc(resp.Events(t), toast.Matches), resp.Body)
+	resp.Event(t, datapagestest.TextContains("error", "Something went wrong"))
 	require.Empty(t, s.docs.List())
 }
 
@@ -535,8 +512,7 @@ func TestImageRejected(t *testing.T) {
 		"upload": 3, "data": base64.StdEncoding.EncodeToString([]byte("not an image")),
 	})
 	require.Equal(t, http.StatusOK, resp.Status)
-	toast := datapagestest.TextContains("error", "not a PNG, JPEG, GIF or WebP image")
-	require.True(t, slices.ContainsFunc(resp.Events(t), toast.Matches), resp.Body)
+	resp.Event(t, datapagestest.TextContains("error", "not a PNG, JPEG, GIF or WebP image"))
 	require.JSONEq(t, `{"upload":3,"src":""}`, string(callArg(t, resp, "insertImage")))
 }
 

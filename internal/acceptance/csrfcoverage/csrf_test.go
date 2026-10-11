@@ -75,7 +75,7 @@ func signIn(t *testing.T, v *datapagestest.Visitor) *datapagestest.Tab {
 }
 
 // sendWithoutToken sends a Datastar request of tab with the JSON signals and
-// without the CSRF token the visitor derives from its session cookie.
+// without a CSRF token, whether or not the page of tab carries one.
 func sendWithoutToken(
 	t *testing.T, v *datapagestest.Visitor, tab *datapagestest.Tab,
 	method, path, signals string,
@@ -88,7 +88,7 @@ func sendWithoutToken(
 }
 
 // postWithToken sends a POST of tab without a body, with token as its CSRF token
-// in place of the one the visitor derives.
+// in place of the one the page of tab carries.
 func postWithToken(
 	t *testing.T, v *datapagestest.Visitor, tab *datapagestest.Tab, path, token string,
 ) *datapagestest.Response {

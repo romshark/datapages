@@ -7,8 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestParseEvents tests the SSE framing the Datastar SDK writes and the parts of the
-// SSE format a server may add.
+// TestParseEvents tests Datastar framing and standard SSE fields.
 func TestParseEvents(t *testing.T) {
 	tests := map[string]struct {
 		body string
@@ -19,8 +18,14 @@ func TestParseEvents(t *testing.T) {
 			body: "event: datastar-patch-elements\ndata: elements <p id=\"a\">1</p>\n\n\n" +
 				"event: datastar-patch-signals\ndata: signals {\"n\":1}\n\n\n",
 			want: []Event{
-				{Type: PatchElements, Data: map[string]string{"elements": `<p id="a">1</p>`}},
-				{Type: PatchSignals, Data: map[string]string{"signals": `{"n":1}`}},
+				{
+					Type: PatchElements,
+					Data: map[string]string{"elements": `<p id="a">1</p>`},
+				},
+				{
+					Type: PatchSignals,
+					Data: map[string]string{"signals": `{"n":1}`},
+				},
 			},
 		},
 		"repeated field": {
@@ -60,7 +65,7 @@ func TestParseEvents(t *testing.T) {
 	}
 }
 
-// TestScriptRedirect tests reading the target of each script Datapages redirects with.
+// TestScriptRedirect tests each redirect script Datapages emits.
 func TestScriptRedirect(t *testing.T) {
 	tests := map[string]struct {
 		script string
@@ -78,7 +83,7 @@ func TestScriptRedirect(t *testing.T) {
 				`setTimeout(() => window.location.href = "/y/<z>")</script>`,
 			"/y/<z>",
 		},
-		"json escapes": {`window.location.href = "/é "`, "/é "},
+		"json escapes": {`window.location.href = "/\u00e9\u2028"`, "/\u00e9\u2028"},
 		"none":         {`console.log("window.location")`, ""},
 	}
 	for name, tt := range tests {
@@ -90,8 +95,7 @@ func TestScriptRedirect(t *testing.T) {
 	}
 }
 
-// TestLiteral tests decoding the data-signals values the generator and templates
-// write, and refusing the expressions only a browser can evaluate.
+// TestLiteral tests supported literals and browser-only expressions.
 func TestLiteral(t *testing.T) {
 	tests := map[string]struct {
 		expr    string
@@ -100,8 +104,8 @@ func TestLiteral(t *testing.T) {
 	}{
 		"single quoted":       {expr: `'all'`, want: "all"},
 		"single quoted empty": {expr: `''`, want: ""},
-		"escapes":             {expr: `'it\'s\\\né'`, want: "it's\\\né"},
-		"surrogate pair":      {expr: `'😀'`, want: "\U0001F600"},
+		"escapes":             {expr: `'it\'s\\\n\ré'`, want: "it's\\\n\ré"},
+		"non-ascii":           {expr: `'😀'`, want: "\U0001F600"},
 		"json string":         {expr: `"x \"y\""`, want: `x "y"`},
 		"number":              {expr: `42`, want: float64(42)},
 		"bool":                {expr: ` false `, want: false},
@@ -109,7 +113,9 @@ func TestLiteral(t *testing.T) {
 		"json array":          {expr: `[1, "a"]`, want: []any{float64(1), "a"}},
 		"concatenation":       {expr: `'a' + 'b'`, wantErr: true},
 		"signal reference":    {expr: `$other`, wantErr: true},
-		"unknown escape":      {expr: `'\x41'`, wantErr: true},
+		"unicode escape":      {expr: `'\` + `u0041'`, wantErr: true},
+		"tab escape":          {expr: `'\t'`, wantErr: true},
+		"trailing backslash":  {expr: `'a\'`, wantErr: true},
 		"object literal":      {expr: `{a: 1}`, wantErr: true},
 	}
 	for name, tt := range tests {
@@ -121,6 +127,26 @@ func TestLiteral(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestCSRFTokenOfPage tests extracting a token from a page's CSRF script.
+func TestCSRFTokenOfPage(t *testing.T) {
+	tests := map[string]struct {
+		page string
+		want string
+	}{
+		"script": {
+			page: `<script type="module">h.set("X-CSRF-Token",'abc-1')</script>`,
+			want: "abc-1",
+		},
+		"none":         {page: `<p>guest</p>`},
+		"unterminated": {page: `h.set("X-CSRF-Token",'abc`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, csrfToken(tt.page))
 		})
 	}
 }

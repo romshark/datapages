@@ -11,8 +11,13 @@ A case is a module of its own, which keeps it out of `go build ./...` and
 and a case runs by hand:
 
 ```sh
-(cd internal/acceptance/routing && go test -race ./...)
+(cd internal/acceptance/routing && GORACE=atexit_sleep_ms=0 go test -race ./...)
 ```
+
+A binary built with `-race` sleeps 1s before it exits, which lets a goroutine still
+running report a race. `GORACE=atexit_sleep_ms=0` drops the sleep, which halves the
+run of a small case. The cleanup of `datapagestest` waits for the server's
+connections to close, which leaves few goroutines running at exit.
 
 `mage genDatapages` regenerates every case and every example.
 
@@ -87,9 +92,9 @@ deliver in publication order, which makes the anchor arrive after anything
 published before it. See [`events`](events/events_test.go). A fixed wait passes
 when the event arrives after it, and slows every run by its length.
 
-Responses are compressed by default. `Visitor.Send` asks for
-`Accept-Encoding: identity` unless the request names an encoding, which makes
-what a test reads the bytes the handler wrote. The in-memory broker matches
+An event stream is compressed when the request names an encoding.
+`Visitor.Send` asks for `Accept-Encoding: identity` unless the request names one,
+which makes what a test reads the bytes the handler wrote. The in-memory broker matches
 subjects the way NATS does: `*` covers one token, `>` covers the rest. See
 `wildcardsubjects`.
 

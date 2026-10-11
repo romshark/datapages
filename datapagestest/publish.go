@@ -9,13 +9,10 @@ import (
 	"github.com/romshark/datapages/runtime/subject"
 )
 
-// Subject returns the subject a dispatcher publishes an event with subject fields on:
-// prefix, the event's generated EvPrefix constant, followed by values in the order of
-// the subject fields, each escaped the way the dispatcher escapes it.
+// Subject appends escaped subject-field values to a generated EvPrefix.
 //
-// An event without subject fields is published on its generated EvSubj constant.
-// An event with a SubjectStateID field has no subject a test can build: dispatch it
-// from a handler.
+// Use EvSubj directly for events without fields.
+// Events with SubjectStateID must be dispatched from a handler.
 func Subject(prefix string, values ...string) string {
 	var b strings.Builder
 	b.WriteString(prefix)
@@ -28,9 +25,8 @@ func Subject(prefix string, values ...string) string {
 	return b.String()
 }
 
-// Publish publishes event on subj as JSON through p, the broker the server was
-// built with, the way a dispatcher does. It tests the pages that receive an event some
-// code outside a handler publishes. To test that code, run it against p instead.
+// Publish sends event as JSON on subj through p.
+// Use it to test pages receiving an external event; test the publisher itself against p.
 func Publish(t testing.TB, p messaging.Publisher, subj string, event any) {
 	t.Helper()
 	b, err := json.Marshal(event)

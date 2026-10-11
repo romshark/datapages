@@ -119,7 +119,7 @@ func TestActionClosesTheSession(t *testing.T) {
 	index := v.Load(t, "/")
 	require.Equal(t, "term= page=0 user=alice", echo(t, index.Page()))
 
-	// The visitor derives the CSRF token from the cookie /enter/ set.
+	// The page loaded after /enter/ carries the CSRF token of the session it set.
 	require.Equal(t, http.StatusOK, index.Do(t, http.MethodPost, "/leave/", nil).Status)
 
 	require.Equal(t, "term= page=0 user=", echo(t, v.Get(t, "/")),

@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,14 +39,10 @@ func TestPurchaseSoldOut(t *testing.T) {
 	resp := winnerTab.Do(t, http.MethodPost, confirm, nil)
 	require.Equal(t, http.StatusOK, resp.Status, "winner: %s", resp.Body)
 
-	resp = loserTab.Do(t, http.MethodPost, confirm, nil)
-	require.Equal(t, http.StatusOK, resp.Status, "loser: %s", resp.Body)
-	evs := resp.Events(t)
-	require.True(t, slices.ContainsFunc(evs, soldOutToast.Matches),
-		"no sold-out toast in:\n%s", resp.Body)
-	i := slices.IndexFunc(evs, datapagestest.Signal("_buying").Matches)
-	require.NotEqual(t, -1, i, "no patch of $_buying in:\n%s", resp.Body)
-	require.JSONEq(t, `{"_buying":false}`, evs[i].Data["signals"])
+	resp = loserTab.Do(t, http.MethodPost, confirm, nil).WantStatus(t, http.StatusOK)
+	resp.Event(t, soldOutToast)
+	require.JSONEq(t, `{"_buying":false}`,
+		resp.Event(t, datapagestest.Signal("_buying")).Data["signals"])
 }
 
 // soldOutToast matches the toast that RecoverError appends to #toaster for a

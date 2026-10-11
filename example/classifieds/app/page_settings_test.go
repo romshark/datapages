@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,7 +75,7 @@ func TestPageSettingsPOSTSave(t *testing.T) {
 			phone := srv.Visitor(t)
 			phone.SetSessionToken(phoneToken)
 			phoneTab := phone.Load(t, href.PageSettings())
-			phoneStream := phoneTab.Connect(t, phoneTab.Page().Signals(t))
+			phoneStream := phoneTab.Connect(t, phoneTab.Page().PublicSignals(t))
 
 			laptop := srv.Visitor(t)
 			laptop.SetSessionToken(laptopToken)
@@ -104,9 +103,7 @@ func TestPageSettingsPOSTSave(t *testing.T) {
 
 			if !tc.wantClosed {
 				if tc.wantToast != "" {
-					require.True(t,
-						slices.ContainsFunc(resp.Events(t), toast(tc.wantToast).Matches),
-						"no toast %q in:\n%s", tc.wantToast, resp.Body)
+					resp.Event(t, toast(tc.wantToast))
 				} else {
 					require.Empty(t, resp.Body,
 						"the save answered with a redirect or a patch")
@@ -164,7 +161,7 @@ var leaveSession = datapagestest.Func(
 		if target, ok := e.Redirect(); ok {
 			return target == href.PageLogin()
 		}
-		return strings.Contains(e.Data["elements"], "location.reload()")
+		return datapagestest.Reload().Matches(e)
 	})
 
 var anyEvent = datapagestest.Func("an event", func(datapagestest.Event) bool {

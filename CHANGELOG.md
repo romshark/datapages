@@ -18,7 +18,7 @@ Releases up to v0.10.0 have their notes on
 #### Runtime and modules
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of one release. A `Content-Security-Policy` must allow the inline build script.
-- Add the `datapagestest` package for testing an app over HTTP the way a browser running Datastar uses it. A visitor keeps its own cookie jar and sends the CSRF token of its session. A tab keeps the `Datapages-Instance` of its page load and sends actions with their signals in the body, or in the query of a GET or DELETE. A stream waits for a matching event, proves an event's absence with a later anchor and waits for the server to end it. `Response.Redirect` reads the target of each redirect form. The server runs on in-memory connections, which lets a test run inside a `testing/synctest` bubble.
+- Add `datapagestest`, an HTTP test client for Datapages apps. It models cookie-sharing visitors and stateful tabs, sends Datastar actions with CSRF tokens, matches or rules out SSE events and parses redirects. Requests and waits have configurable timeouts; in-memory connections support `testing/synctest`.
 
 #### `datapages init`
 

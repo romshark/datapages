@@ -3,7 +3,6 @@ package acceptance_test
 import (
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
@@ -30,8 +29,7 @@ func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 		inmem.New(messaging.DefaultBrokerChanBuffer), opts...))
 }
 
-// post sends the action at path from the index page of a new server, without
-// signals.
+// post sends the action at path from the index page of a new server, without signals.
 func post(t *testing.T, path string) *datapagestest.Response {
 	t.Helper()
 	return serve(t).Visitor(t).Load(t, "/").Do(t, http.MethodPost, path, nil)
@@ -85,9 +83,8 @@ func TestActionFlushesOverItsStream(t *testing.T) {
 	require.Contains(t, resp.Body, applyType,
 		"an action with a stream delivers over it")
 	require.Contains(t, resp.Body, `"version":2`)
-	require.True(t, slices.ContainsFunc(resp.Events(t),
-		datapagestest.TextContains("out", "done").Matches),
-		"the action's own patch is sent too")
+	// The action's own patch is sent too.
+	resp.Event(t, datapagestest.TextContains("out", "done"))
 }
 
 func TestRedirectCarriesWritesBeforeNavigating(t *testing.T) {

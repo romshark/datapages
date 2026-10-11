@@ -34,14 +34,6 @@ func serve(t *testing.T, broker messaging.Broker) *datapagestest.Server {
 	return datapagestest.New(t, mustNewServer(t, &app.App{}, broker, newSessions()))
 }
 
-// postOK sends an action and requires the server to accept it.
-// What the test is after is on the stream, not in this response.
-func postOK(t *testing.T, tab *datapagestest.Tab, path string, signals any) {
-	t.Helper()
-	resp := tab.Do(t, http.MethodPost, path, signals)
-	require.Equal(t, http.StatusOK, resp.Status, "POST %s: %s", path, resp.Body)
-}
-
 func room(name string) map[string]string { return map[string]string{"room": name} }
 
 func post(room, text string) map[string]string {
@@ -64,12 +56,14 @@ func TestAnonStreamSubscribesBySignal(t *testing.T) {
 		one := oneTab.Connect(t, room("one"))
 		two := v.Load(t, "/rooms/").Connect(t, room("two"))
 
-		postOK(t, oneTab, "/rooms/post/", post("one", "hello"))
+		oneTab.Do(t, http.MethodPost, "/rooms/post/", post("one", "hello")).
+			WantStatus(t, http.StatusOK)
 		one.WaitFor(t, datapagestest.TextContains("out", "room one: hello"))
 
 		// The later post to room two is the anchor: the post to room one would reach
 		// the stream before it.
-		postOK(t, oneTab, "/rooms/post/", post("two", "after"))
+		oneTab.Do(t, http.MethodPost, "/rooms/post/", post("two", "after")).
+			WantStatus(t, http.StatusOK)
 		two.Absent(t,
 			datapagestest.TextContains("out", "hello"),
 			datapagestest.TextContains("out", "room two: after"))
@@ -118,12 +112,14 @@ func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 		tab := serve(t, broker).Visitor(t).Load(t, "/rooms/")
 		st := tab.Connect(t, room("one"))
 
-		postOK(t, tab, "/rooms/notice/",
-			map[string]string{"user": "alice", "text": "for alice"})
+		tab.Do(t, http.MethodPost, "/rooms/notice/",
+			map[string]string{"user": "alice", "text": "for alice"}).
+			WantStatus(t, http.StatusOK)
 
 		// A post to the stream's room is the anchor: the private event would reach the
 		// stream before it.
-		postOK(t, tab, "/rooms/post/", post("one", "after"))
+		tab.Do(t, http.MethodPost, "/rooms/post/", post("one", "after")).
+			WantStatus(t, http.StatusOK)
 		st.Absent(t,
 			datapagestest.TextContains("out", "for alice"),
 			datapagestest.TextContains("out", "room one: after"))
@@ -159,7 +155,7 @@ func TestAnonStreamHoldsPerTabState(t *testing.T) {
 			"two page loads share one instance id")
 
 		for range 2 {
-			postOK(t, aTab, "/tabs/bump/", nil)
+			aTab.Do(t, http.MethodPost, "/tabs/bump/", nil).WantStatus(t, http.StatusOK)
 		}
 
 		// The event is public. Both tabs render, each from its own state.
@@ -168,7 +164,7 @@ func TestAnonStreamHoldsPerTabState(t *testing.T) {
 
 		// The other tab's own bump is the anchor. It renders count 1 from that tab's
 		// state, and the count of the first tab would arrive before it.
-		postOK(t, bTab, "/tabs/bump/", nil)
+		bTab.Do(t, http.MethodPost, "/tabs/bump/", nil).WantStatus(t, http.StatusOK)
 		b.Absent(t, count(2), count(1), "one tab sees the count of another")
 	})
 }
@@ -232,7 +228,7 @@ func TestAnonStreamRecoversHandlerPanic(t *testing.T) {
 		tab := srv.Visitor(t).Load(t, "/panic/")
 		st := tab.Connect(t, nil)
 		require.Equal(t, "/panic/_$/anon/", st.Path())
-		postOK(t, tab, "/panic/fault/", nil)
+		tab.Do(t, http.MethodPost, "/panic/fault/", nil).WantStatus(t, http.StatusOK)
 
 		st.WaitFor(t, datapagestest.TextContains("out",
 			"recovered: panic: the faulted handler panicked"))

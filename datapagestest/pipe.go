@@ -6,11 +6,8 @@ import (
 	"sync"
 )
 
-// pipeListener hands the server one end of a [net.Pipe] for each connection a client
-// dials. The net/http server serves a pipe the way it serves a socket: it discards an
-// unread request body once the response headers are flushed and cancels the request
-// context when the client closes the connection. Unlike a goroutine blocked on a
-// socket, one blocked on a pipe lets a testing/synctest bubble go idle.
+// pipeListener connects clients and the server with [net.Pipe]. net/http still handles
+// body disposal and cancellation, while blocked pipes let testing/synctest detect idle.
 type pipeListener struct {
 	conns     chan net.Conn
 	closed    chan struct{}
@@ -37,8 +34,7 @@ func (l *pipeListener) Close() error {
 
 func (l *pipeListener) Addr() net.Addr { return pipeAddr }
 
-// dial connects a client to the listener. It is the DialContext of the visitors'
-// transport, which ignores the address it is asked for.
+// dial ignores the requested address and connects to the listener.
 func (l *pipeListener) dial(ctx context.Context, _, _ string) (net.Conn, error) {
 	server, client := net.Pipe()
 	select {
@@ -51,12 +47,10 @@ func (l *pipeListener) dial(ctx context.Context, _, _ string) (net.Conn, error) 
 	}
 }
 
-// pipeAddr is the address the server reports and its URL names. The cookie jar sends
-// a Secure cookie, which the session cookie is, to a loopback host over plain HTTP.
+// Loopback lets the cookie jar send Secure session cookies over plain HTTP.
 var pipeAddr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80}
 
-// loopbackConn reports loopback addresses instead of the "pipe" of a net.Pipe, which
-// makes the request's RemoteAddr the host and port a socket gives it.
+// loopbackConn gives requests a socket-like RemoteAddr.
 type loopbackConn struct{ net.Conn }
 
 func (loopbackConn) LocalAddr() net.Addr  { return pipeAddr }

@@ -85,8 +85,9 @@ func TestMethods(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			v := serve(t).Visitor(t)
-			url := urlOf(t, tt.expr)
-			resp := v.Load(t, "/form/").Do(t, tt.method, url, tt.signals)
+			method, url := datapagestest.ParseAction(t, tt.expr)
+			require.Equal(t, tt.method, method, "the method of %s", tt.expr)
+			resp := v.Load(t, "/form/").Do(t, method, url, tt.signals)
 			require.Equal(t, http.StatusOK, resp.Status,
 				"%s %s\n%s", tt.method, url, resp.Body)
 			require.Equal(t, tt.want, logOf(t, v))
@@ -99,7 +100,8 @@ func TestParameters(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
 
-	url := urlOf(t, action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)))
+	_, url := datapagestest.ParseAction(t,
+		action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)))
 	resp := v.Load(t, "/form/").Do(t, http.MethodPost, url, nil)
 	require.Equal(t, http.StatusOK, resp.Status, "POST %s\n%s", url, resp.Body)
 	require.Equal(t, "bump id=7 by=3", logOf(t, v))
@@ -111,7 +113,7 @@ func TestSignalsAreRequired(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
 
-	url := urlOf(t, action.PageForm.Submit.POST())
+	_, url := datapagestest.ParseAction(t, action.PageForm.Submit.POST())
 	resp := v.Load(t, "/form/").Do(t, http.MethodPost, url,
 		map[string]string{"age": "not a number"})
 	require.Equal(t, http.StatusBadRequest, resp.Status)
@@ -132,7 +134,8 @@ func TestBodySizeLimit(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			v := serve(t).Visitor(t)
-			resp := v.Load(t, "/form/").Do(t, http.MethodPost, urlOf(t, expr), signals)
+			_, url := datapagestest.ParseAction(t, expr)
+			resp := v.Load(t, "/form/").Do(t, http.MethodPost, url, signals)
 			require.Equal(t, http.StatusBadRequest, resp.Status)
 			require.Empty(t, logOf(t, v), "the handler ran on an oversized body")
 		})
@@ -149,7 +152,7 @@ func TestBodySizeLimitOption(t *testing.T) {
 	pad := func(n int) map[string]any {
 		return map[string]any{"count": 1, "pad": strings.Repeat("a", n)}
 	}
-	url := urlOf(t, action.PageForm.Submit.POST())
+	_, url := datapagestest.ParseAction(t, action.PageForm.Submit.POST())
 
 	resp := form.Do(t, http.MethodPost, url, pad(limit/2))
 	require.Equal(t, http.StatusOK, resp.Status, "a body under the limit")
@@ -606,14 +609,4 @@ func requireContentType(t *testing.T, resp *datapagestest.Response, want string)
 	got := resp.Header.Get("Content-Type")
 	require.True(t, strings.HasPrefix(got, want),
 		"Content-Type = %q, want prefix %q", got, want)
-}
-
-// urlOf takes the URL out of a Datastar action expression such as
-// "@post('/form/submit/')". That is the form a template carries.
-func urlOf(t *testing.T, expr string) string {
-	t.Helper()
-	i := strings.Index(expr, "('")
-	j := strings.LastIndex(expr, "')")
-	require.False(t, i < 0 || j < i, "not an action expression: %s", expr)
-	return expr[i+2 : j]
 }

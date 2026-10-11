@@ -24,10 +24,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/romshark/datapages/datapagestest"
@@ -445,7 +445,7 @@ func (c Case) testGeneratedActionsAreRouted(t *testing.T) {
 	unrouted := map[string]string{}
 	for _, expr := range c.Actions {
 		t.Run(expr, func(t *testing.T) {
-			method, target := parseAction(t, expr)
+			method, target := datapagestest.ParseAction(t, expr)
 			if _, ok := unrouted[method]; !ok {
 				unrouted[method] = unroutedBody(t, v, tab, method)
 			}
@@ -474,7 +474,7 @@ func (c Case) testMalformedSignals(t *testing.T) {
 
 	for _, expr := range c.SignalActions {
 		t.Run(expr, func(t *testing.T) {
-			method, target := parseAction(t, expr)
+			method, target := datapagestest.ParseAction(t, expr)
 			resp := tab.Do(t, method, target, json.RawMessage(`{"broken": `))
 			if resp.Status < 400 {
 				t.Errorf("%s %s: status = %d on a body that is not signals",
@@ -487,42 +487,6 @@ func (c Case) testMalformedSignals(t *testing.T) {
 	if resp := v.Get(t, c.index()); resp.Status != http.StatusOK {
 		t.Errorf("the server stopped serving pages: status = %d", resp.Status)
 	}
-}
-
-// parseAction takes the method and URL out of an expression such as
-// "@post('/form/submit/')". That is the form a template carries.
-func parseAction(t *testing.T, expr string) (method, target string) {
-	t.Helper()
-	at := strings.Index(expr, "@")
-	open := strings.Index(expr, "('")
-	closing := strings.LastIndex(expr, "')")
-	if at < 0 || open < at || closing < open {
-		t.Fatalf("not an action expression: %s", expr)
-	}
-	switch verb := expr[at+1 : open]; verb {
-	case "post":
-		method = http.MethodPost
-	case "put":
-		method = http.MethodPut
-	case "patch":
-		method = http.MethodPatch
-	case "delete":
-		method = http.MethodDelete
-	case "query":
-		method = "QUERY"
-	case "get":
-		method = http.MethodGet
-	default:
-		t.Fatalf("unknown action verb %q in %s", verb, expr)
-	}
-	target = expr[open+2 : closing]
-	if i := strings.Index(target, "'"); i >= 0 {
-		target = target[:i] // the expression carries options after the URL
-	}
-	if _, err := url.Parse(target); err != nil {
-		t.Fatalf("action %s builds an unparsable URL: %v", expr, err)
-	}
-	return method, target
 }
 
 // signals turns a Case body into the signals of [datapagestest.Tab.Do]: the JSON as
@@ -543,24 +507,31 @@ func (c Case) testStream(t *testing.T) {
 	if c.StreamPath == "" {
 		t.Skip("the app has no page with a stream")
 	}
-	v := c.visit(t)
+	// The bubble's clock lets an hour pass at once. t.Run panics inside a bubble,
+	// which keeps both rounds in one test.
+	synctest.Test(t, func(t *testing.T) {
+		v := c.visit(t)
 
-	for _, round := range []string{"first", "after a reload"} {
-		t.Run(round, func(t *testing.T) {
-			st := v.Load(t, c.index()).Connect(t, nil)
+		var st *datapagestest.Stream
+		for _, round := range []string{"first", "after a reload"} {
+			// A reload closes the stream of the page it leaves.
+			if st != nil {
+				st.Close()
+			}
+			st = v.Load(t, c.index()).Connect(t, nil)
 
 			// The connection stays open rather than ending.
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(time.Hour)
 			if st.Ended() {
-				t.Error("the stream ended by itself")
+				t.Errorf("%s: the stream ended by itself", round)
 			}
-		})
-	}
+		}
 
-	// The page keeps serving while a stream of it is open.
-	if resp := v.Get(t, c.index()); resp.Status != http.StatusOK {
-		t.Errorf("GET %s: status = %d while a stream is open", c.index(), resp.Status)
-	}
+		// The page keeps serving while a stream of it is open.
+		if resp := v.Get(t, c.index()); resp.Status != http.StatusOK {
+			t.Errorf("GET %s: status = %d while a stream is open", c.index(), resp.Status)
+		}
+	})
 }
 
 // testTrailingSlash tests a URL typed without its trailing slash.
@@ -649,7 +620,7 @@ func (c Case) testDispatchReachesTheStream(t *testing.T) {
 	tab := c.visit(t).Load(t, c.index())
 	st := tab.Connect(t, nil)
 
-	method, target := parseAction(t, c.DispatchAction)
+	method, target := datapagestest.ParseAction(t, c.DispatchAction)
 	resp := tab.Do(t, method, target, signals(c.DispatchBody))
 	if resp.Status != http.StatusOK {
 		t.Fatalf("%s %s: status = %d", method, target, resp.Status)
@@ -675,7 +646,7 @@ func (c Case) testStateIsReleased(t *testing.T) {
 	}
 	st := tab.Connect(t, nil)
 
-	method, target := parseAction(t, c.StateAction)
+	method, target := datapagestest.ParseAction(t, c.StateAction)
 	act := func() *datapagestest.Response {
 		return tab.Do(t, method, target, signals(c.StateActionBody))
 	}
@@ -882,7 +853,7 @@ func (c Case) testBuildCheck(t *testing.T) {
 		routes = append(routes, [2]string{http.MethodGet, c.StreamPath})
 	}
 	for _, expr := range c.Actions {
-		method, target := parseAction(t, expr)
+		method, target := datapagestest.ParseAction(t, expr)
 		routes = append(routes, [2]string{method, target})
 	}
 	for _, route := range routes {

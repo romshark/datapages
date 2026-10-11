@@ -3,24 +3,19 @@ package datapagestest
 import (
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"testing"
-	"unicode/utf16"
-	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
 
-// parseHTML parses markup as a document. html.Parse fails only on a read error,
-// which a strings.Reader never returns.
+// parseHTML ignores the impossible read error from strings.Reader.
 func parseHTML(markup string) *html.Node {
 	doc, _ := html.Parse(strings.NewReader(markup))
 	return doc
 }
 
-// ElementByID returns the first element with id in the tree under root, root
-// included, or nil when there is none.
+// ElementByID returns the first element with id under root, including root itself.
 func ElementByID(root *html.Node, id string) *html.Node {
 	if hasID(root, id) {
 		return root
@@ -41,8 +36,7 @@ func hasID(n *html.Node, id string) bool {
 	return ok && v == id
 }
 
-// Text returns the text content of n with each run of whitespace collapsed to one
-// space and none at either end.
+// Text returns n's text with whitespace collapsed and trimmed.
 func Text(n *html.Node) string {
 	var b strings.Builder
 	if n.Type == html.TextNode {
@@ -67,14 +61,11 @@ func Attr(n *html.Node, key string) (string, bool) {
 	return "", false
 }
 
-// Signals returns the signals the page's data-signals attributes declare, named the
-// way Datastar names them: data-signals:new-title sets newTitle, a dot nests, the
-// __case modifier changes the conversion and __ifmissing keeps a value set before.
-// Later attributes override earlier ones.
+// Signals decodes the page's data-signals attributes using Datastar's dot nesting,
+// __case and __ifmissing rules. Later attributes override earlier ones.
 //
-// It decodes literal values only: JSON, and the single-quoted JavaScript strings the
-// generator writes. It fails the test on any other expression, whose value only
-// Datastar in a browser can compute.
+// It accepts JSON and generator-written single-quoted strings.
+// Expressions requiring a browser fail the test.
 func (r *Response) Signals(t testing.TB) map[string]any {
 	t.Helper()
 	out := map[string]any{}
@@ -92,7 +83,8 @@ func (r *Response) Signals(t testing.TB) map[string]any {
 			if name == "" {
 				var m map[string]any
 				if err := json.Unmarshal([]byte(a.Val), &m); err != nil {
-					t.Fatalf("%s: %s=%q is not a JSON object: %v", r.desc, a.Key, a.Val, err)
+					t.Fatalf("%s: %s=%q is not a JSON object: %v",
+						r.desc, a.Key, a.Val, err)
 				}
 				mergeSignals(out, m, ifMissing)
 				continue
@@ -107,8 +99,31 @@ func (r *Response) Signals(t testing.TB) map[string]any {
 	return out
 }
 
-// splitModifiers splits an attribute key such as "new-title__case.kebab" into its name
-// and its modifiers with their tags, the way Datastar does.
+// PublicSignals filters [Response.Signals] as Datastar does by default. It removes
+// paths containing an underscore-prefixed name and objects left empty by filtering.
+func (r *Response) PublicSignals(t testing.TB) map[string]any {
+	t.Helper()
+	return publicSignals(r.Signals(t))
+}
+
+func publicSignals(m map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		if obj, ok := v.(map[string]any); ok {
+			if obj = publicSignals(obj); len(obj) == 0 {
+				continue
+			}
+			v = obj
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// splitModifiers separates a Datastar attribute name from its modifiers and tags.
 func splitModifiers(key string) (string, map[string][]string) {
 	parts := strings.Split(key, "__")
 	mods := map[string][]string{}
@@ -119,9 +134,7 @@ func splitModifiers(key string) (string, map[string][]string) {
 	return parts[0], mods
 }
 
-// convertCase converts an attribute key to a signal name. Datastar applies each tag of
-// __case in turn, camel when there is none, and leaves the key as it is for a tag it
-// doesn't know, such as kebab.
+// convertCase applies __case tags in order, defaults to camel and ignores unknown tags.
 func convertCase(name string, tags []string) string {
 	if len(tags) == 0 {
 		tags = []string{"camel"}
@@ -155,7 +168,7 @@ func camel(s string) string {
 	return b.String()
 }
 
-// setSignal sets the signal at a dotted path, creating the objects it nests in.
+// setSignal creates parent maps for a dotted path.
 func setSignal(out map[string]any, path string, v any, ifMissing bool) {
 	keys := strings.Split(path, ".")
 	for _, k := range keys[:len(keys)-1] {
@@ -173,7 +186,7 @@ func setSignal(out map[string]any, path string, v any, ifMissing bool) {
 	out[last] = v
 }
 
-// mergeSignals merges the signals of a data-signals object into out, object by object.
+// mergeSignals recursively merges a data-signals object.
 func mergeSignals(out, m map[string]any, ifMissing bool) {
 	for k, v := range m {
 		if vm, ok := v.(map[string]any); ok {
@@ -190,10 +203,11 @@ func mergeSignals(out, m map[string]any, ifMissing bool) {
 }
 
 var errNotLiteral = errors.New(
-	"not a literal; datapagestest decodes JSON and single-quoted strings only",
+	"not a literal; datapagestest decodes only JSON and the single-quoted strings " +
+		"the generator writes",
 )
 
-// literal decodes a data-signals value that is a literal.
+// literal decodes a literal data-signals value.
 func literal(expr string) (any, error) {
 	s := strings.TrimSpace(expr)
 	var v any
@@ -206,8 +220,9 @@ func literal(expr string) (any, error) {
 	return nil, errNotLiteral
 }
 
-// singleQuoted decodes a JavaScript string literal in single quotes.
-// An unescaped quote inside means the value is an expression, such as 'a' + 'b'.
+// singleQuoted decodes the single-quoted strings written by
+// [github.com/romshark/datapages/runtime/htmlattr.SignalString].
+// It rejects other escapes and expressions.
 func singleQuoted(s string) (string, bool) {
 	if len(s) < 2 || s[0] != '\'' || s[len(s)-1] != '\'' {
 		return "", false
@@ -215,65 +230,27 @@ func singleQuoted(s string) (string, bool) {
 	s = s[1 : len(s)-1]
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
+		switch c := s[i]; c {
 		case '\'':
 			return "", false
 		case '\\':
-		default:
-			b.WriteByte(c)
-			continue
-		}
-		i++
-		if i == len(s) {
-			return "", false
-		}
-		switch s[i] {
-		case '\'', '"', '\\', '/':
-			b.WriteByte(s[i])
-		case 'n':
-			b.WriteByte('\n')
-		case 'r':
-			b.WriteByte('\r')
-		case 't':
-			b.WriteByte('\t')
-		case 'u':
-			r, n, ok := unicodeEscape(s[i+1:])
-			if !ok {
+			i++
+			if i == len(s) {
 				return "", false
 			}
-			b.WriteRune(r)
-			i += n
+			switch s[i] {
+			case '\\', '\'':
+				b.WriteByte(s[i])
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			default:
+				return "", false
+			}
 		default:
-			return "", false
+			b.WriteByte(c)
 		}
 	}
 	return b.String(), true
-}
-
-// unicodeEscape decodes the hex digits after \u, joining a surrogate pair written as
-// two escapes. It returns the rune and how many bytes of s it read.
-func unicodeEscape(s string) (rune, int, bool) {
-	hex4 := func(s string) (rune, bool) {
-		if len(s) < 4 {
-			return 0, false
-		}
-		v, err := strconv.ParseUint(s[:4], 16, 16)
-		return rune(v), err == nil
-	}
-	r, ok := hex4(s)
-	if !ok {
-		return 0, 0, false
-	}
-	if !utf16.IsSurrogate(r) {
-		return r, 4, true
-	}
-	if len(s) < 10 || s[4:6] != `\u` {
-		return utf8.RuneError, 4, true
-	}
-	lo, ok := hex4(s[6:])
-	if !ok {
-		return 0, 0, false
-	}
-	return utf16.DecodeRune(r, lo), 10, true
 }

@@ -17,18 +17,15 @@ import (
 	"time"
 )
 
-// Connect opens the tab's stream the way the page's data-init does, with signals as
-// the connection's signals. Datastar sends every public signal of the page, such as
-// those [Response.Signals] reads, with the visitor's changes. A nil signals sends "{}".
-// The stream closes when the test ends.
-//
-// A signed-out visitor on a page that also serves an anonymous stream
-// is redirected to it, which Connect follows.
+// Connect opens the tab's SSE stream with signals. Pass [Response.PublicSignals] to
+// send the page defaults; nil sends "{}". Connect follows an anonymous-stream redirect,
+// times out while waiting for response headers and closes the stream during cleanup.
 func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
 	t.Helper()
 	enc := encodeSignals(t, signals)
 	desc := "GET " + tb.path + "_$/"
 	target := tb.v.srv.srv.URL + tb.path + "_$/?datastar=" + url.QueryEscape(enc)
+	timeout := tb.v.srv.conf.timeout
 	ctx, cancel := context.WithCancel(t.Context())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
@@ -40,7 +37,15 @@ func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
 	if tb.instance != "" {
 		req.Header.Set("Datapages-Instance", tb.instance)
 	}
+	// A context deadline would also close the live stream; limit only the handshake.
+	timer := time.AfterFunc(timeout, cancel)
 	resp, err := tb.v.stream.Do(req)
+	if !timer.Stop() {
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		t.Fatalf("%s: no response header within %v", desc, timeout)
+	}
 	if err != nil {
 		cancel()
 		t.Fatalf("%s: %v", desc, err)
@@ -49,7 +54,7 @@ func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
 		desc += " -> " + p
 	}
 	desc += signalsDesc(enc)
-	// A path that misses the stream route can reach a page, which answers 200 with HTML.
+	// A missing stream route can return a 200 HTML page.
 	if ct := resp.Header.Get("Content-Type"); resp.StatusCode != http.StatusOK ||
 		!isEventStream(ct) {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
@@ -61,17 +66,17 @@ func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
 	s := &Stream{
 		desc:    desc,
 		path:    resp.Request.URL.Path,
-		timeout: tb.v.srv.conf.timeout,
+		timeout: timeout,
 		cancel:  cancel,
 		done:    make(chan struct{}),
+		changed: make(chan struct{}),
 	}
 	go s.read(resp.Body)
 	t.Cleanup(s.Close)
 	return s
 }
 
-// signalsDesc names the signals of a stream request in failure messages, shortened.
-// A page's streams differ in their path or their signals.
+// signalsDesc formats signals for a failure message, capped at 100 bytes.
 func signalsDesc(enc string) string {
 	const limit = 100
 	switch {
@@ -88,8 +93,7 @@ func isEventStream(contentType string) bool {
 	return err == nil && mt == "text/event-stream"
 }
 
-// Stream is a tab's SSE connection. A cursor marks the events that [Stream.WaitFor]
-// and [Stream.Absent] have consumed.
+// Stream is a tab's SSE connection. Its cursor tracks consumed events.
 type Stream struct {
 	desc    string
 	path    string
@@ -98,6 +102,7 @@ type Stream struct {
 	done    chan struct{} // closed when read returns
 
 	mu      sync.Mutex
+	changed chan struct{} // closed and replaced when an event arrives or the read ends
 	events  []Event
 	cursor  int
 	ended   bool
@@ -111,71 +116,73 @@ func (s *Stream) read(body io.ReadCloser) {
 	var p parser
 	r := bufio.NewReader(body)
 	for {
-		// An event that patches a whole page is one line of data and can be large,
-		// which a bufio.Scanner with its default buffer would stop at.
+		// A full-page patch can exceed a bufio.Scanner buffer.
 		line, err := r.ReadString('\n')
 		if err != nil {
 			s.mu.Lock()
 			s.ended, s.err = true, err
+			s.notifyLocked()
 			s.mu.Unlock()
 			return
 		}
 		if ev, ok := p.line(line[:len(line)-1]); ok {
 			s.mu.Lock()
 			s.events = append(s.events, ev)
+			s.notifyLocked()
 			s.mu.Unlock()
 		}
 	}
 }
 
-// Events returns the complete events the stream has carried so far,
-// including those before the cursor.
+// notifyLocked wakes blocked waits, allowing a synctest clock to advance.
+func (s *Stream) notifyLocked() {
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
+
+// Events returns all received events, including consumed events.
 func (s *Stream) Events() []Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.events)
 }
 
-// Path returns the path of the stream route that answered: the page path followed by
-// "_$/", or by "_$/anon/" when the server redirected a signed-out visitor there.
+// Path returns the final stream route, including an anonymous-stream redirect.
 func (s *Stream) Path() string { return s.path }
 
-// Ended reports whether the stream has ended: the server ended it, the connection
-// failed or the test closed it.
+// Ended reports whether the server, connection or test ended the stream.
 func (s *Stream) Ended() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.ended
 }
 
-// WaitFor waits for the first event after the cursor that m matches, moves the cursor
-// past it and returns it. It fails the test when the stream ends or the timeout passes
-// first.
+// WaitFor returns the first event matching m at or after the cursor, then advances
+// past it. It fails if the stream ends or the wait times out.
 //
-// Match what only the expected effect carries. The events of StreamOpen and of
-// earlier actions are on the stream too, and may render the same element.
+// Match narrowly: StreamOpen and earlier actions may render the same element.
 //
-// The optional msgAndArgs, a message or a format and its arguments, open the failure
-// message, such as to tell two streams of one page apart.
+// msgAndArgs optionally prefixes the failure message.
 func (s *Stream) WaitFor(t testing.TB, m Match, msgAndArgs ...any) Event {
 	t.Helper()
 	_, ev := s.waitFor(t, m, msgAndArgs)
 	return ev
 }
 
-// waitFor is [Stream.WaitFor] that also returns the index of the event.
+// waitFor also returns the matched event's index.
 func (s *Stream) waitFor(t testing.TB, m Match, msgAndArgs []any) (int, Event) {
 	t.Helper()
-	deadline := time.Now().Add(s.timeout)
+	timeout := time.NewTimer(s.timeout)
+	defer timeout.Stop()
 	s.mu.Lock()
 	from := s.cursor
 	s.mu.Unlock()
 	next := from
 	for {
 		s.mu.Lock()
-		// The reading goroutine only appends to events. The elements this copy of the
-		// slice shares with the field never change.
-		evs, ended, closing, err := s.events, s.ended, s.closing, s.err
+		// The reader only appends. Existing shared elements remain immutable.
+		evs, ended, closing, err, changed :=
+			s.events, s.ended, s.closing, s.err, s.changed
 		s.mu.Unlock()
 		for ; next < len(evs); next++ {
 			if m.f(evs[next]) {
@@ -189,22 +196,21 @@ func (s *Stream) waitFor(t testing.TB, m Match, msgAndArgs []any) (int, Event) {
 			fatalf(t, msgAndArgs, "%s: %s before %s arrived%s",
 				s.desc, endReason(closing, err), m, summary(evs[from:]))
 		}
-		if time.Now().After(deadline) {
+		select {
+		case <-changed:
+		case <-timeout.C:
 			fatalf(t, msgAndArgs, "%s: waited %v for %s%s",
 				s.desc, s.timeout, m, summary(evs[from:]))
 		}
-		time.Sleep(pollInterval)
 	}
 }
 
-// Absent waits for the first event after the cursor that anchor matches and fails the
-// test when an event before it matches prohibited. The cursor moves past the anchor.
+// Absent advances through anchor and fails if prohibited arrives first.
 //
-// Publish the anchor after the events that must not arrive, on a subject this stream
-// receives. Its arrival proves their absence: a [messaging.Subscriber] delivers
-// messages published one after the other in that order, whatever their subjects.
+// Publish anchor after the prohibited window on any subject the stream receives.
+// [messaging.Subscriber] ordering makes its arrival prove the earlier event absent.
 //
-// The optional msgAndArgs open the failure message, as for [Stream.WaitFor].
+// msgAndArgs behaves as in [Stream.WaitFor].
 func (s *Stream) Absent(t testing.TB, prohibited, anchor Match, msgAndArgs ...any) {
 	t.Helper()
 	s.mu.Lock()
@@ -219,11 +225,8 @@ func (s *Stream) Absent(t testing.TB, prohibited, anchor Match, msgAndArgs ...an
 	}
 }
 
-// WaitEnd waits for the server to end the stream, by ending the response or by
-// dropping the connection, and fails the test when the timeout passes first or the
-// test closed the stream. A Datapages server ends a stream when its session closes or
-// expires, when it shuts down and when StreamOpen fails. The events the stream carried
-// stay readable. The optional msgAndArgs open the failure message, as for
+// WaitEnd waits for the server or connection to end the stream. It fails on timeout
+// or test closure; received events remain readable. msgAndArgs behaves as in
 // [Stream.WaitFor].
 func (s *Stream) WaitEnd(t testing.TB, msgAndArgs ...any) {
 	t.Helper()
@@ -240,12 +243,13 @@ func (s *Stream) WaitEnd(t testing.TB, msgAndArgs ...any) {
 	closing := s.closing
 	s.mu.Unlock()
 	if closing {
-		fatalf(t, msgAndArgs, "%s: the test closed the stream before the server ended it",
+		fatalf(t, msgAndArgs,
+			"%s: the test closed the stream before the server ended it",
 			s.desc)
 	}
 }
 
-// fatalf fails the test with format and args, opened by the message msgAndArgs give.
+// fatalf prefixes a failure with the optional message.
 func fatalf(t testing.TB, msgAndArgs []any, format string, args ...any) {
 	t.Helper()
 	if msg := message(msgAndArgs); msg != "" {
@@ -255,8 +259,7 @@ func fatalf(t testing.TB, msgAndArgs []any, format string, args ...any) {
 	t.Fatalf(format, args...)
 }
 
-// message renders the optional message arguments of a wait the way testify does: a
-// format string and its arguments, or one value. It is "" for none.
+// message formats optional wait arguments like testify.
 func message(msgAndArgs []any) string {
 	switch len(msgAndArgs) {
 	case 0:
@@ -270,12 +273,14 @@ func message(msgAndArgs []any) string {
 	return fmt.Sprint(msgAndArgs...)
 }
 
-// Close closes the stream the way a closing tab does and waits for its reader to
-// end. The server runs the page's StreamClose afterwards: wait for its effect on
-// another stream or with [Server.WaitFor].
+// Close cancels the stream and waits for its reader. The server then runs StreamClose;
+// wait for its effect on another stream or with [Server.WaitFor].
 func (s *Stream) Close() {
 	s.mu.Lock()
-	s.closing = true
+	// Preserve a prior server-ended state for WaitEnd and failure messages.
+	if !s.ended {
+		s.closing = true
+	}
 	s.mu.Unlock()
 	s.cancel()
 	<-s.done
@@ -291,7 +296,7 @@ func endReason(closing bool, err error) string {
 	return fmt.Sprintf("the stream failed with %v", err)
 }
 
-// summary lists the events a wait saw, for its failure message.
+// summary formats events seen by a failed wait.
 func summary(evs []Event) string {
 	if len(evs) == 0 {
 		return "; no events arrived"
@@ -309,7 +314,7 @@ func summary(evs []Event) string {
 	return b.String()
 }
 
-// describe renders an event in one line, shortened.
+// describe renders a shortened, one-line event.
 func describe(ev Event) string {
 	const limit = 200
 	var b strings.Builder

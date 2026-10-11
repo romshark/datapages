@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
-	"slices"
 	"strings"
 	"testing"
 
@@ -101,20 +100,10 @@ func query(
 	require.NoError(t, err)
 
 	tab := datapagestest.New(t, srv).Visitor(t).Load(t, href.PageIndex())
-	url := urlOf(t, action.PageIndex.Input.QUERY(
+	method, url := datapagestest.ParseAction(t, action.PageIndex.Input.QUERY(
 		action.PageIndex.Input.QUERYQuery(int(btn), paste)))
-	resp = tab.Do(t, "QUERY", url, s)
+	resp = tab.Do(t, method, url, s)
 	return resp, logBuf.String()
-}
-
-// urlOf takes the URL out of a Datastar action expression such as
-// "@query('/input/?btn=18')", the form the template carries.
-func urlOf(t *testing.T, expr string) string {
-	t.Helper()
-	i := strings.Index(expr, "('")
-	j := strings.LastIndex(expr, "')")
-	require.False(t, i < 0 || j < i, "not an action expression: %s", expr)
-	return expr[i+2 : j]
 }
 
 // patchedCalculator returns the input signal and the display text of the calculator
@@ -123,10 +112,8 @@ func patchedCalculator(
 	t *testing.T, resp *datapagestest.Response,
 ) (input, display string) {
 	t.Helper()
-	evs := resp.Events(t)
-	i := slices.IndexFunc(evs, datapagestest.Element("page-calculator").Matches)
-	require.NotEqual(t, -1, i, "no patch of #page-calculator in:\n%s", resp.Body)
-	calculator := evs[i].ElementByID(t, "page-calculator")
+	calculator := resp.Event(t, datapagestest.Element("page-calculator")).
+		ElementByID(t, "page-calculator")
 
 	expr, _ := datapagestest.Attr(calculator, "data-signals:input")
 	require.NoError(t, json.Unmarshal([]byte(expr), &input),

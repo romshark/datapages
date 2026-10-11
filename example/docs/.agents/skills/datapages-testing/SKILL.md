@@ -40,31 +40,33 @@ Build `a` with the app's constructor and test dependencies such as a controllabl
 
 Pass `inmem.New(n)` as the broker. It buffers `n` messages per subscription and drops messages when full. Set `n` above the number of events a test can publish before its stream reads them.
 
-Pass `datapagestest.WithSessionCookie` or `datapagestest.WithCSRFTokens` to `New` for a server whose `SessionsConfig` renames the session cookie or whose `CSRFConfig` replaces the token writer. `datapagestest.WithTimeout` changes the 5s limit of every wait.
+Pass `datapagestest.WithSessionCookie` to `New` for a server whose `SessionsConfig` renames the session cookie, which `v.SetSessionToken` sets. `datapagestest.WithTimeout` changes the 5s limit of every request and wait.
 
 ## Visitors, tabs and streams
 
 ```go
 v := srv.Visitor(t)
 tab := v.Load(t, href.PageIndex())
-st := tab.Connect(t, tab.Page().Signals(t))
-tab.Do(t, http.MethodPost, "/add/", map[string]any{"title": "Buy milk"})
+st := tab.Connect(t, tab.Page().PublicSignals(t))
+tab.Do(t, http.MethodPost, "/add/", map[string]any{"title": "Buy milk"}).
+	WantStatus(t, http.StatusOK)
 ev := st.WaitFor(t, datapagestest.TextContains("rows", "Buy milk"))
 ```
 
 - A `Visitor` is one browser with its own cookie jar. Create one per user.
-- `v.Get` loads a page the way a navigation does and follows no redirect. `v.Load` also fails unless the page answers 200, and returns a `Tab`.
+- `v.Get` loads a page the way a navigation does, with `Sec-Fetch-Dest: document`, and follows no redirect. The error of a GET action that answers with a file renders as the error page only for such a request. `v.Load` also fails unless the page answers 200, and returns a `Tab`.
 - A tab keeps the `Datapages-Instance` header of its page load and sends it on its stream and actions. Load the page again for a second tab. A second `Connect` on the same tab is the same tab and takes over its state.
 - `tab.Connect` opens the page's stream at the page path plus `_$/` and fails unless the answer is `text/event-stream`. It follows the 303 that sends a signed-out visitor to `_$/anon/`. The stream closes when the test ends. `st.Close()` closes it earlier.
 - `tab.Do` sends an action the way Datastar does: with `Datastar-Request: true`, and with the JSON signals in the body of a POST, PUT, PATCH or QUERY and in the `datastar` query parameter of a GET or DELETE. A nil signals sends `{}`. Keys missing from the JSON decode as zero values.
+- `resp.WantStatus(t, status)` fails the test unless the response has status, naming the request and quoting the body, and returns the response. Check the status of every action whose effect the test waits for on a stream: a refused action otherwise fails later, at the timeout of the wait.
 - `tab.DoForm` sends the fields of an action built with `action.WithContentType(action.ContentTypeForm)`.
 - `tab.NewRequest` builds the tab's Datastar request for any other case, such as a request without its CSRF token. Send it with `v.Send`.
-- `v.Client()` sends a request whose response `v.Send` cannot read whole, such as a stream whose status or headers the test checks. Close the response body.
+- `v.Send` and every action fail the test when the response doesn't complete within the timeout, and `tab.Connect` when the response header doesn't arrive. `v.Client()` sends a request whose response `v.Send` cannot read whole, such as a stream whose status or headers the test checks, without a timeout. Close the response body.
 - `datapagestest.WithHTTPServer(func(s *http.Server) {...})` configures the server that serves the app, such as the `ReadTimeout` the server command sets. The in-memory connections honor its deadlines.
 
-Build page URLs with the generated `href` package, such as `href.PageIndex()`. Send each action to the route in its doc comment. That request does not show that the page calls the action: also assert that the triggering element's `data-on:*` attribute contains the call the `action` helper writes, such as `@post('/filter/'`.
+Build page URLs with the generated `href` package, such as `href.PageIndex()`. Send each action to the route in its doc comment. That request does not show that the page calls the action: also assert that the triggering element's `data-on:*` attribute contains the call the `action` helper writes, such as `@post('/filter/'`. For an action whose query parameters the `action` helper encodes, `datapagestest.ParseAction(t, expr)` returns the method and URL of the call it writes.
 
-Send the browser's signals, including the visitor's changes. `tab.Page().Signals(t)` returns the signals the page's `data-signals` attributes declare, named and decoded the way Datastar does, and fails on a value that is not a literal. By default Datastar sends every public signal with each action and stream connection and omits names that start with an underscore. Action options override this:
+Send the browser's signals, including the visitor's changes. `tab.Page().Signals(t)` returns the signals the page's `data-signals` attributes declare, named and decoded the way Datastar does, and fails on a value that is not a literal. By default Datastar sends every public signal with each action and stream connection and leaves out each signal with a name on its path that starts with an underscore. `tab.Page().PublicSignals(t)` returns what it sends. Action options override this:
 
 - `action.WithFilterSignals` sends the signals its patterns select. An empty exclude pattern keeps private signals out.
 - `action.WithPayload` sends its payload in place of the signals.
@@ -72,7 +74,7 @@ Send the browser's signals, including the visitor's changes. `tab.Page().Signals
 
 ## Responses
 
-Assert action output in its response and `On` output in the receiving tab's stream. `resp.Events(t)` parses the event stream an action with an `sse` parameter answers with; `m.Matches` applies a stream's matchers to its events, as in `slices.ContainsFunc(resp.Events(t), datapagestest.TextContains("out", "done").Matches)`. Errors from a `GET`, action or `StreamOpen` use the first matching rule:
+Assert action output in its response and `On` output in the receiving tab's stream. `resp.Events(t)` parses the event stream an action with an `sse` parameter answers with. `resp.Event(t, m)` returns the first of them that a stream's matcher `m` matches and fails the test when none does, as in `resp.Event(t, datapagestest.TextContains("out", "done"))`. Errors from a `GET`, action or `StreamOpen` use the first matching rule:
 
 1. A Datastar request, when the app defines `RecoverError`: 200 with the events `RecoverError` writes.
 2. A Datastar request whose response is already an event stream: 200 with the events written before the error. Streams, actions with an `sse` parameter and `pageCache` actions that return neither a body nor a redirect start the event stream before the handler runs.
@@ -91,7 +93,8 @@ Find the element by `id` and assert its text or relevant attribute: `resp.Elemen
 - `st.Absent(t, prohibited, anchor)` waits for the anchor and fails when a prohibited event came before it. Publish the anchor after the prohibited events, on a subject the checked stream receives. An anchor seen on another stream proves nothing about this one. Every `messaging.Broker` delivers messages published one after the other in that order, whatever their subjects. With `natscore` this holds for the messages one NATS connection publishes, such as the server's.
 - The stream subscribes before sending its response header. Events dispatched after `Connect` returns therefore reach it. With `natscore`, this guarantee covers only the server's NATS connection because other connections can publish before the subscription is registered.
 - `ev.Signals(t)` decodes a signal patch to raw values: a signal the patch deletes is `null`, and a signal it leaves out has no key. Decode `ev.Data["signals"]` into a struct for ordinary comparisons.
-- `st.WaitEnd(t)` waits for the server to end the stream, and `st.Ended()` reports whether it has ended. The server ends a stream when its session closes or expires, after it sends a script that reloads the page, and when `StreamOpen` fails. `ev.Retry` is the reconnection delay the last event of such a stream sets.
+- `ev.Script()` returns the script of an event `sse.ExecuteScript` sends, and false for any other event.
+- `st.WaitEnd(t)` waits for the server to end the stream, and `st.Ended()` reports whether it has ended. The server ends a stream when its session closes or expires, after it sends a script that reloads the page, which `datapagestest.Reload()` matches, and when `StreamOpen` fails. `ev.Retry` is the reconnection delay the last event of such a stream sets.
 - `st.Path()` is the route that answered: the page path plus `_$/`, or `_$/anon/` after the redirect of a signed-out visitor.
 
 ## Redirects
@@ -120,8 +123,8 @@ A page load creates `Datapages-Instance` without state; the stream connection al
 
 ## Waiting
 
-- Every wait of the package polls until a deadline. Do not add a fixed sleep: it can finish too early and cannot prove absence. `srv.WaitFor` waits for an effect no stream carries.
-- `datapagestest` serves the app over in-memory connections, which a `testing/synctest` bubble can wait on. Inside `synctest.Test`, `time.Sleep` advances the clock that the server's timers and the app's `time.Now` read, such as a session's expiry. Outside a bubble, advance a clock injected into the app and assert exact times.
+- Every wait of the package ends at a deadline: a stream's wait as soon as an event arrives, `srv.WaitFor` by polling its condition. Do not add a fixed sleep: it can finish too early and cannot prove absence. `srv.WaitFor` waits for an effect no stream carries.
+- `datapagestest` serves the app over in-memory connections, which a `testing/synctest` bubble can wait on. Inside `synctest.Test`, `time.Sleep` advances the clock that the server's timers, the `http.Server` deadlines and the app's `time.Now` read, such as a session's expiry, and a wait of an hour passes at once. Run a test that would otherwise wait on the real clock, such as for a timeout, a rate limit or an expiry, in a bubble. Build the server and the broker inside the bubble. `t.Run` panics inside a bubble, and a broker on a socket, such as `natscore`, cannot join one. Outside a bubble, advance a clock injected into the app and assert exact times.
 
 ## Time zones and random values
 
@@ -130,7 +133,7 @@ A page load creates `Datapages-Instance` without state; the stream connection al
 
 ## Sessions
 
-Sign in through the app's action with `tab.Do`; a guest sends it without a CSRF token. The visitor's jar keeps the session cookie, and the visitor's later actions carry the `X-CSRF-Token` the server derives from it. For an app whose sign-in a test cannot send, such as one through an identity provider, create the session with the session manager's `CreateSession` and pass its token to `v.SetSessionToken`.
+Sign in through the app's action with `tab.Do`; a guest sends it without a CSRF token. The visitor's jar keeps the session cookie. A tab sends the `X-CSRF-Token` its page's script carries, as the browser does: a page rendered for a signed-in visitor carries one, and a page rendered for a guest carries none, also after the sign-in. Load a page again after signing in, as the browser does when the sign-in redirects. An action whose response carries the script, such as a sign-in that answers with a document, gives its tab the token. For an app whose sign-in a test cannot send, such as one through an identity provider, create the session with the session manager's `CreateSession` and pass its token to `v.SetSessionToken`.
 
 To test the CSRF check, build the request with `tab.NewRequest`, delete its `X-CSRF-Token` header and send it with `v.Send`. The server answers 403.
 
@@ -151,4 +154,4 @@ Test two visitors: one user's updates must not reach the other's stream, and a c
 - Run with `-count=1`. A `(cached)` result did not execute the test again. `[no tests to run]` means that the `-run` pattern matched no tests.
 - Classify a failure as a bug or an incorrect requirement before changing the test. Do not loosen an assertion, add `t.Skip`, widen a tolerance or delete a case only to make it pass.
 
-<!-- written by datapages sha256:0f076a5c819f2ec0 -->
+<!-- written by datapages sha256:8225bb53617d0d97 -->

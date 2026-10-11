@@ -12,7 +12,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Event types a Datapages server sends.
+// Datastar SSE event types.
 const (
 	PatchElements = "datastar-patch-elements"
 	PatchSignals  = "datastar-patch-signals"
@@ -23,26 +23,22 @@ type Event struct {
 	// Type is PatchElements or PatchSignals.
 	Type string
 
-	// Data holds the event's data lines by field name, such as "elements",
-	// "selector", "mode" and "signals". Repeated lines are joined with "\n".
-	// Without a mode the elements are morphed into the page, and without a
-	// selector each one is matched by its id.
+	// Data maps data-line names to values. Repeated values are joined with "\n".
+	// A missing mode morphs elements; a missing selector matches them by id.
 	Data map[string]string
 
-	// Retry is the reconnection delay the event's retry field sets, 0 when it has none.
-	// A Datapages server sets it on the last event of a stream it ends, such as the
-	// reload at the end of a session.
+	// Retry is the reconnection delay, or 0 when unset. A server sets it on the final
+	// event of a stream it ends.
 	Retry time.Duration
 }
 
-// Root parses the event's elements the way Datastar does, inside a <template>.
-// html.Parse alone drops a <tr>, <td> or <tbody> at the root of a patch.
+// Root parses the event's elements inside a <template>, preserving table elements
+// that html.Parse drops at a document root.
 func (e Event) Root() *html.Node {
 	return parseHTML("<template>" + e.Data["elements"] + "</template>")
 }
 
-// ElementByID returns the element with id among the event's elements and fails the
-// test when there is none.
+// ElementByID returns the event element with id or fails the test.
 func (e Event) ElementByID(t testing.TB, id string) *html.Node {
 	t.Helper()
 	n := ElementByID(e.Root(), id)
@@ -52,9 +48,8 @@ func (e Event) ElementByID(t testing.TB, id string) *html.Node {
 	return n
 }
 
-// Signals decodes the top level of a PatchSignals event. A signal the patch deletes
-// has the raw value null. A signal the patch leaves alone has no key, which a struct
-// decoded from the event cannot tell apart from null.
+// Signals decodes a PatchSignals event. Deleted signals have raw value null;
+// untouched signals have no key.
 func (e Event) Signals(t testing.TB) map[string]json.RawMessage {
 	t.Helper()
 	if e.Type != PatchSignals {
@@ -67,8 +62,27 @@ func (e Event) Signals(t testing.TB) map[string]json.RawMessage {
 	return m
 }
 
-// Redirect returns the target of the redirect script the event appends, the form a
-// redirect takes after SSE started and the form of every sse.Redirect.
+// Script returns an ExecuteScript-style body-append script and whether one exists.
+// Datapages uses this form for SSE redirects, session-end reloads and sse.ExecuteScript.
+func (e Event) Script() (string, bool) {
+	if e.Type != PatchElements || e.Data["selector"] != "body" ||
+		e.Data["mode"] != "append" {
+		return "", false
+	}
+	for n := range e.Root().Descendants() {
+		if n.Type != html.ElementNode || n.Data != "script" {
+			continue
+		}
+		var b strings.Builder
+		for c := range n.ChildNodes() {
+			b.WriteString(c.Data)
+		}
+		return b.String(), true
+	}
+	return "", false
+}
+
+// Redirect returns the target of an SSE redirect script.
 func (e Event) Redirect() (target string, ok bool) {
 	if e.Type != PatchElements {
 		return "", false
@@ -76,9 +90,7 @@ func (e Event) Redirect() (target string, ok bool) {
 	return scriptRedirect(e.Data["elements"])
 }
 
-// redirectPattern finds the target in each script Datapages redirects with:
-// window.location = "<Go string>" before SSE starts, window.location=<JSON string>
-// from a page-cache action, and window.location.href = <JSON string> in an event.
+// redirectPattern accepts each window.location assignment Datapages emits.
 var redirectPattern = regexp.MustCompile(
 	`window\.location(?:\.href)?\s*=\s*("(?:[^"\\]|\\.)*")`,
 )
@@ -98,14 +110,13 @@ func scriptRedirect(script string) (string, bool) {
 	return "", false
 }
 
-// parser turns the lines of an SSE body into events. The Datastar SDK ends a line with
-// "\n" and writes each data line as "data: <field> <value>".
+// parser reads SSE lines using Datastar's "data: <field> <value>" format.
 type parser struct {
 	cur  Event
 	open bool // cur has a field
 }
 
-// line takes one line without its "\n" and returns the event a blank line finishes.
+// line returns the event completed by a blank line.
 func (p *parser) line(l string) (Event, bool) {
 	l = strings.TrimSuffix(l, "\r")
 	if l == "" {
@@ -142,8 +153,7 @@ func (p *parser) line(l string) (Event, bool) {
 	return Event{}, false
 }
 
-// parseEvents parses a whole SSE body.
-// An event whose closing blank line is missing is left out.
+// parseEvents parses complete events from an SSE body and omits an unfinished event.
 func parseEvents(body string) []Event {
 	var p parser
 	var evs []Event
@@ -159,17 +169,16 @@ func parseEvents(body string) []Event {
 	}
 }
 
-// Match selects the events [Stream.WaitFor] waits for and [Stream.Absent] rules out.
+// Match selects events for [Stream.WaitFor], [Stream.Absent] and [Response.Event].
 type Match struct {
 	what string
 	f    func(Event) bool
 }
 
-// String names the events m matches, as failure messages do.
+// String describes m for failure messages.
 func (m Match) String() string { return m.what }
 
-// Matches reports whether m matches e, such as one of the events of an action's
-// response that [Response.Events] parses.
+// Matches reports whether m matches e.
 func (m Match) Matches(e Event) bool { return m.f(e) }
 
 // Func matches the events f reports true for. what names them in failure messages.
@@ -208,5 +217,13 @@ func Signal(name string) Match {
 		}
 		_, ok := m[name]
 		return ok
+	})
+}
+
+// Reload matches a page-reload script, including the final event after a session ends.
+func Reload() Match {
+	return Func("the script that reloads the page", func(e Event) bool {
+		script, ok := e.Script()
+		return ok && strings.Contains(script, "location.reload()")
 	})
 }

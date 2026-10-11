@@ -43,13 +43,6 @@ func echo(t *testing.T, page *datapagestest.Response) string {
 	return datapagestest.Text(page.ElementByID(t, "echo"))
 }
 
-// postOK sends an action and requires the server to accept it.
-func postOK(t *testing.T, tab *datapagestest.Tab, path string, signals any) {
-	t.Helper()
-	resp := tab.Do(t, http.MethodPost, path, signals)
-	require.Equal(t, http.StatusOK, resp.Status, "POST %s: %s", path, resp.Body)
-}
-
 func text(s string) map[string]string { return map[string]string{"text": s} }
 
 func report(n int) map[string]int { return map[string]int{"n": n} }
@@ -220,26 +213,28 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	as := a.Connect(t, nil)
 
 	// Dispatched by admin, handled by both.
-	postOK(t, a, "/announce/", text("from admin"))
+	a.Do(t, http.MethodPost, "/announce/", text("from admin")).
+		WantStatus(t, http.StatusOK)
 	as.WaitFor(t, datapagestest.TextContains("announcement", "from admin"),
 		"the dispatching application did not receive its own event")
 	fs.WaitFor(t, datapagestest.TextContains("announcement", "from admin"),
 		"the other application did not receive the shared event")
 
 	// And the other way round.
-	postOK(t, f, "/announce/", text("from frontend"))
+	f.Do(t, http.MethodPost, "/announce/", text("from frontend")).
+		WantStatus(t, http.StatusOK)
 	fs.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
 		"the dispatching application did not receive its own event")
 	as.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
 		"the other application did not receive the shared event")
 
 	// An event only one application declares stays with it. The announcement
-	// the frontend dispatches next is the anchor: a notice that reached the
-	// admin stream would arrive before it, since the broker delivers in
-	// publication order.
-	postOK(t, f, "/notice/", text("private"))
+	// the frontend dispatches next is the anchor: a notice that reached the admin
+	// stream would arrive before it, since the broker delivers in publication order.
+	f.Do(t, http.MethodPost, "/notice/", text("private")).WantStatus(t, http.StatusOK)
 	fs.WaitFor(t, datapagestest.TextContains("out", "private"))
-	postOK(t, f, "/announce/", text("after the notice"))
+	f.Do(t, http.MethodPost, "/announce/", text("after the notice")).
+		WantStatus(t, http.StatusOK)
 	private := datapagestest.Func(`an event carrying "private"`,
 		func(ev datapagestest.Event) bool {
 			for _, v := range ev.Data {

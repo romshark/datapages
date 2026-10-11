@@ -125,11 +125,11 @@ func TestMiddlewareInjectsBeforeHead(t *testing.T) {
 
 	for name, tc := range map[string]struct{ head, tail string }{
 		"capital I with dot": {
-			head: "<!DOCTYPE html><html><head><title>İletişim</title>",
+			head: "<!DOCTYPE html><html><head><title>\u0130letişim</title>",
 			tail: "</head><body><h1>x</h1></body></html>",
 		},
 		"kelvin sign": {
-			head: "<!DOCTYPE html><html><head><title>300K</title>",
+			head: "<!DOCTYPE html><html><head><title>300\u212a</title>",
 			tail: "</head><body><h1>x</h1></body></html>",
 		},
 		// Lowercasing replaces each invalid byte with the three-byte U+FFFD encoding.
@@ -143,7 +143,7 @@ func TestMiddlewareInjectsBeforeHead(t *testing.T) {
 			tail: "</HEAD><BODY>x</BODY></HTML>",
 		},
 		"no head": {
-			head: "<!DOCTYPE html><html><body>İ",
+			head: "<!DOCTYPE html><html><body>\u0130",
 			tail: "</body></html>",
 		},
 	} {
@@ -172,7 +172,7 @@ func TestMiddlewareInjectsBeforeHeadAfterDenseTags(t *testing.T) {
 func FuzzMiddlewareInjectsBeforeHead(f *testing.F) {
 	for _, seed := range []string{
 		"", "<head></head>", "</HEAD>", "</body>", "<</head>", "</hea</head>",
-		"İ</head>", "\xff</head>", strings.Repeat("<", 100) + "</HeAd>",
+		"\u0130</head>", "\xff</head>", strings.Repeat("<", 100) + "</HeAd>",
 		strings.Repeat("</", 3000) + "</head>",
 	} {
 		f.Add(seed)
