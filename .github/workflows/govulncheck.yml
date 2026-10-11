@@ -1,11 +1,21 @@
 name: govulncheck
+# The schedule catches new vulnerabilities.
+# GitHub ignores paths filters on tag pushes.
 on:
   push:
     branches:
       - main
     tags:
       - "v*"
+    paths:
+      - "**/go.mod"
+      - "**/go.sum"
+      - ".github/workflows/govulncheck.yml"
   pull_request:
+    paths:
+      - "**/go.mod"
+      - "**/go.sum"
+      - ".github/workflows/govulncheck.yml"
   schedule:
     - cron: "22 10 * * *"
   workflow_dispatch:

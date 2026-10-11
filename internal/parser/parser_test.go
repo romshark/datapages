@@ -1513,6 +1513,61 @@ func TestParse_ErrTypeCheck(t *testing.T) {
 	require.Contains(t, e.Error(), "undefined: undefinedHelper")
 }
 
+// TestLoadPackageDropsDependencyBodies tests that the load parses the files of
+// GOROOT and of the module cache without function bodies, and keeps those of
+// the app package, which the parser reads, and of a module replaced by a local
+// directory.
+func TestLoadPackageDropsDependencyBodies(t *testing.T) {
+	pkg, err := parser.LoadPackage(fixtureDir(t, "event_shared"))
+	require.NoError(t, err)
+	require.Empty(t, pkg.Errors)
+	datapages := pkg.Imports["github.com/romshark/datapages"]
+	require.NotNil(t, datapages)
+	// Not the prometheus package itself: on macOS, it holds a cgo file, which
+	// go/packages parses from the build cache with its bodies.
+	prometheus := datapages.Imports["github.com/prometheus/client_golang/prometheus"]
+	require.NotNil(t, prometheus)
+
+	for name, tc := range map[string]struct {
+		pkg    *packages.Package
+		bodies bool
+	}{
+		"app package": {
+			pkg:    pkg,
+			bodies: true,
+		},
+		"replaced module": {
+			pkg:    datapages,
+			bodies: true,
+		},
+		"standard library": {
+			pkg:    pkg.Imports["net/http"],
+			bodies: false,
+		},
+		"module cache": {
+			pkg:    prometheus.Imports["github.com/prometheus/client_model/go"],
+			bodies: false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotNil(t, tc.pkg)
+			require.Equal(t, tc.bodies, hasFuncBody(tc.pkg))
+		})
+	}
+}
+
+// hasFuncBody reports whether a function declared in pkg has a body.
+func hasFuncBody(pkg *packages.Package) bool {
+	for _, f := range pkg.Syntax {
+		for _, decl := range f.Decls {
+			if fd, ok := decl.(*ast.FuncDecl); ok && fd.Body != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // TestParse_ErrPageNotStruct tests a page name bound to a defined non-struct
 // type and to an alias. Both produced no page and no error before.
 func TestParse_ErrPageNotStruct(t *testing.T) {

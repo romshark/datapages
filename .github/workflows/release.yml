@@ -11,16 +11,16 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - name: Install Go 1.27.2
         uses: actions/setup-go@v7
         with:
           go-version: "1.27.2"
           check-latest: true
-
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       # Validate the tag's changelog section and compare link before publishing.
       - name: Cut the release notes from CHANGELOG.md
