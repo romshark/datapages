@@ -47,7 +47,6 @@ var appFixedImports = map[string]string{
 	"github.com/romshark/datapages/runtime/sse":               "dpsse",
 	"github.com/romshark/datapages/runtime/stream":            "stream",
 	"github.com/romshark/datapages/runtime/subject":           "subject",
-	"github.com/starfederation/datastar-go/datastar":          "datastar",
 	"golang.org/x/sync/errgroup":                              "errgroup",
 	"hash/maphash":                                            "maphash",
 	"io":                                                      "io",

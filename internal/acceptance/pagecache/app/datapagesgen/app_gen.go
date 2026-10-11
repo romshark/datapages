@@ -26,8 +26,6 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/pagecache/app"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -89,7 +87,7 @@ func httpRedirectOffline(
 
 func newPageCache(
 	w http.ResponseWriter, s *Server, r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse *dpsse.Stream,
 ) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
@@ -122,7 +120,7 @@ type pageCacheWriter struct {
 	s *Server
 	r *http.Request
 	// sse is nil, unless the handler takes [datapages.SSE].
-	sse      *datastar.ServerSentEventGenerator
+	sse      *dpsse.Stream
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -250,7 +248,8 @@ func (c *pageCacheWriter) flush() error {
 // out with its headers, and a panic in a rendered body still gets a status.
 func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
 	payload, err := c.payload()
-	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	sse := dpsse.Open(w, c.r)
+	defer sse.Close()
 	if err != nil || payload == "" {
 		return err
 	}
@@ -347,7 +346,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -497,7 +496,7 @@ func (s *Server) httpErr404(
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
@@ -653,13 +652,14 @@ func (s pageIndexHandlers) POSTStream(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Stream")
 	pageCache := newPageCache(w, s.Server, r, sse)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStream(r, dpsse.New(sse), pageCache)
+	err := p.POSTStream(r, sse, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Stream", err)
 		return
@@ -695,20 +695,21 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.StreamRedirect")
 	pageCache := newPageCache(w, s.Server, r, sse)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	redirect, err := p.POSTStreamRedirect(r, dpsse.New(sse), pageCache)
+	redirect, err := p.POSTStreamRedirect(r, sse, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamRedirect", err)
 		return
 	}
 	if redirect.URL != "" {
 		_ = pageCache.flush()
-		if err := dpsse.New(sse).Redirect(redirect.URL); err != nil {
+		if err := sse.Redirect(redirect.URL); err != nil {
 			s.httpErrIntern(w, r, sse, "redirecting", err)
 		}
 		return

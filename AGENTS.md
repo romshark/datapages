@@ -61,7 +61,7 @@ Public, imported by application or generated code:
 - `runtime/` - what generated code imports:
   - `httpserve` - the server core a generated one embeds: listener, routes, middleware chain, logger, shutdown, redirect, Datastar request check, dev-mode cache headers, the assets file system and the HTML document writer.
   - `auth` - session cookie, the record behind it and the CSRF check. Generic over the application's session data.
-  - `sse` - implements `datapages.SSE` on the Datastar generator, which keeps datastar out of handler signatures.
+  - `sse` - writes the Datastar events of an SSE response and reads the signals of a request. `Stream` implements `datapages.SSE`.
   - `stream` - serves the SSE event stream of a page: the broker subscription behind it, the session that may end it and the shutdown that closes it.
   - `httpread` - reads cookies and query parameters the way `net/http` and `net/url` do, without their allocations. Fuzzed against them.
   - `htmlattr` - escapes values written into Datastar attributes. Fuzzed for anything that could end the attribute or the script.

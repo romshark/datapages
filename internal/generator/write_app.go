@@ -208,7 +208,6 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.Line(1, `"github.com/romshark/datapages/runtime/prom"`)
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus/promhttp"`)
 	}
-	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
 	w.Line(0, ")")
 }
 
@@ -218,7 +217,7 @@ func (w *Writer) writePageCache(m *model.App) {
 	w.Raw(`
 func newPageCache(
 	w http.ResponseWriter, s *Server, r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse *dpsse.Stream,
 ) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
@@ -257,7 +256,7 @@ type pageCacheWriter struct {
 	s *Server
 	r *http.Request
 	// sse is nil, unless the handler takes [datapages.SSE].
-	sse      *datastar.ServerSentEventGenerator
+	sse      *dpsse.Stream
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -393,7 +392,8 @@ func (c *pageCacheWriter) flush() error {
 // out with its headers, and a panic in a rendered body still gets a status.
 func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
 	payload, err := c.payload()
-	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
+	sse := dpsse.Open(w, c.r)
+	defer sse.Close()
 	if err != nil || payload == "" {
 		return err
 	}
@@ -631,12 +631,12 @@ func (s *Server) handleStreamRequest(
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
@@ -1502,7 +1502,7 @@ func (s *Server) httpErr404(
 	w.Rawf(`
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, %s,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 `, reqParam)
@@ -1541,8 +1541,9 @@ func (s *Server) httpErrIntern(
 	}
 	if hasRecover {
 		w.Raw(`	if sse == nil {
-		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
-		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		// [dpsse.Open] commits HTTP 200 before recovery runs.
+		sse = dpsse.Open(w, r)
+		defer sse.Close()
 	}
 	errRecover := s.app.RecoverError(`)
 		for i, kind := range m.RecoverError.OrderedInputs {
@@ -1550,7 +1551,7 @@ func (s *Server) httpErrIntern(
 				w.Raw(", ")
 			}
 			if kind == model.InputKindSSE {
-				w.Raw("dpsse.New(sse)")
+				w.Raw("sse")
 			} else {
 				w.Raw("err")
 			}
@@ -1576,8 +1577,7 @@ func (s *Server) httpErrIntern(
 		slog.Any("err", errRecover))
 `)
 	} else {
-		// datastar.NewSSE sent the 200 and the headers without a body byte,
-		// which ResponseBodyWritten cannot see.
+		// ResponseBodyWritten cannot see the headers sent by dpsse.Open.
 		w.Raw(`	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -1663,7 +1663,7 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 	if pageCacheViaStream(h) {
 		w.Line(2, "_ = pageCache.flush()")
 	}
-	w.Linef(2, "if err := dpsse.New(sse).Redirect(%s.URL); err != nil {", ref)
+	w.Linef(2, "if err := sse.Redirect(%s.URL); err != nil {", ref)
 	w.Line(3, `s.httpErrIntern(w, r, sse, "redirecting", err)`)
 	w.Line(2, "}")
 	w.Line(2, "return")
@@ -1681,7 +1681,7 @@ func (w *Writer) writeRecoverPanic(m *model.App) {
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -1893,7 +1893,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.Raw("\tvar signals ")
 		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+		w.Line(1, "if err := dpsse.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1909,9 +1909,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
-	// The request is read; claim the state for the duration of the handler.
-	// Before the SSE generator, which commits the response headers and would
-	// leave the rejection below nowhere to go.
+	// Claim state before dpsse.Open commits the response.
 	if h.InputState != nil {
 		w.writeLockSlotOrReject(h)
 	}

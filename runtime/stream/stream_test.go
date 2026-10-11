@@ -2,6 +2,7 @@ package stream_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/starfederation/datastar-go/datastar"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
@@ -21,6 +21,7 @@ import (
 	msginmem "github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 )
 
@@ -118,9 +119,6 @@ func TestHandleEnds(t *testing.T) {
 
 			req := streamRequest(t.Context())
 			req.URL.Scheme, req.URL.Host, req.RequestURI = "http", srv.Listener.Addr().String(), ""
-			// The client asks for gzip by default, and datastar-go ends
-			// a compressed stream without the gzip trailer.
-			req.Header.Set("Accept-Encoding", "identity")
 			resp, err := srv.Client().Do(req)
 			require.NoError(t, err)
 			defer func() { _ = resp.Body.Close() }()
@@ -157,18 +155,18 @@ func TestHandleFailedOpenDelaysReconnect(t *testing.T) {
 	t.Parallel()
 
 	for name, tt := range map[string]struct {
-		onOpen   func(datapages.StreamID, *datastar.ServerSentEventGenerator) error
+		onOpen   func(datapages.StreamID, *dpsse.Stream) error
 		notifier *notifier
 		wantMsg  string
 	}{
 		"open hook fails": {
-			onOpen: func(datapages.StreamID, *datastar.ServerSentEventGenerator) error {
+			onOpen: func(datapages.StreamID, *dpsse.Stream) error {
 				return errors.New("open failed")
 			},
 			wantMsg: "handling stream open hook",
 		},
 		"open hook panics": {
-			onOpen: func(datapages.StreamID, *datastar.ServerSentEventGenerator) error {
+			onOpen: func(datapages.StreamID, *dpsse.Stream) error {
 				panic("open panicked")
 			},
 			wantMsg: "handling stream open hook",
@@ -184,10 +182,10 @@ func TestHandleFailedOpenDelaysReconnect(t *testing.T) {
 			var msgs []string
 			h, _, _ := newHandler(t, tt.notifier, func(
 				_ http.ResponseWriter, _ *http.Request,
-				sse *datastar.ServerSentEventGenerator, msg string, _ error,
+				sse *dpsse.Stream, msg string, _ error,
 			) {
 				require.NotNil(t, sse, "the stream is open when %s fails", msg)
-				require.NoError(t, sse.PatchSignals([]byte(`{"error":true}`)))
+				require.NoError(t, sse.PatchSignals(json.RawMessage(`{"error":true}`)))
 				msgs = append(msgs, msg)
 			})
 
@@ -216,12 +214,12 @@ func TestHandleClosesAfterPanic(t *testing.T) {
 	require.PanicsWithValue(t, "the message loop panicked", func() {
 		h.Handle(httptest.NewRecorder(), streamRequest(t.Context()),
 			"", "", time.Time{}, []string{"notice"},
-			func(datapages.StreamID, *datastar.ServerSentEventGenerator) error {
+			func(datapages.StreamID, *dpsse.Stream) error {
 				opened = true
 				return nil
 			},
 			func(datapages.StreamID) { closed = true },
-			func(datapages.StreamID, *datastar.ServerSentEventGenerator,
+			func(datapages.StreamID, *dpsse.Stream,
 				<-chan messaging.Message,
 			) {
 				panic("the message loop panicked")
@@ -231,10 +229,8 @@ func TestHandleClosesAfterPanic(t *testing.T) {
 	require.True(t, closed, "the close hook did not run after the panic")
 }
 
-// TestHandleClientGoneBeforeOpen tests a client that disconnects while its
-// stream subscribes, before the response head reaches it. datastar.NewSSE
-// panics when it cannot send the head, and net/http logs the panic with a stack.
-// Handle returns instead, closes the subscription and reports nothing.
+// TestHandleClientGoneBeforeOpen tests disconnect during subscription setup.
+// Handle skips the open hook, closes the subscription and reports nothing.
 func TestHandleClientGoneBeforeOpen(t *testing.T) {
 	t.Parallel()
 
@@ -243,7 +239,7 @@ func TestHandleClientGoneBeforeOpen(t *testing.T) {
 	b := &slowBroker{Broker: msginmem.New(0), entered: make(chan struct{})}
 	h := stream.NewHandler(core, b, nil, nil, nil, func(
 		_ http.ResponseWriter, _ *http.Request,
-		_ *datastar.ServerSentEventGenerator, msg string, err error,
+		_ *dpsse.Stream, msg string, err error,
 	) {
 		t.Errorf("%s: %v", msg, err)
 	})
@@ -252,7 +248,7 @@ func TestHandleClientGoneBeforeOpen(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) {
 			defer func() { panicked <- recover() }()
 			h.Handle(w, r, "", "", time.Time{}, []string{"notice"},
-				func(datapages.StreamID, *datastar.ServerSentEventGenerator) error {
+				func(datapages.StreamID, *dpsse.Stream) error {
 					t.Error("the open hook ran for a client that is gone")
 					return nil
 				}, nil, drain)
@@ -329,7 +325,7 @@ func newHandler(
 	if onErr == nil {
 		onErr = func(
 			_ http.ResponseWriter, _ *http.Request,
-			_ *datastar.ServerSentEventGenerator, msg string, err error,
+			_ *dpsse.Stream, msg string, err error,
 		) {
 			t.Errorf("%s: %v", msg, err)
 		}
@@ -366,7 +362,7 @@ func streamRequest(ctx context.Context) *http.Request {
 
 // drain reads the subscription until the handler closes it.
 func drain(
-	_ datapages.StreamID, _ *datastar.ServerSentEventGenerator,
+	_ datapages.StreamID, _ *dpsse.Stream,
 	ch <-chan messaging.Message,
 ) {
 	for range ch {

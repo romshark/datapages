@@ -23,8 +23,6 @@ import (
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/getoptions/app"
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -63,12 +61,12 @@ func (s *Server) handleStreamRequest(
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
@@ -78,7 +76,7 @@ func (s *Server) handleStreamRequest(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -225,7 +223,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -288,7 +286,7 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageBackground stream")
 			var eventPing dpapp.EventPing
@@ -302,7 +300,7 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackground.OnPing", err)
 					}
@@ -404,7 +402,7 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageLive stream")
 			var eventPing dpapp.EventPing
@@ -418,7 +416,7 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageLive.OnPing", err)
 					}
@@ -511,7 +509,7 @@ func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageNoRefresh stream")
 			var eventPing dpapp.EventPing
@@ -525,7 +523,7 @@ func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageNoRefresh.OnPing", err)
 					}

@@ -14,12 +14,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/starfederation/datastar-go/datastar"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 )
 
 // Metrics counts what the handler does. A nil Metrics counts nothing.
@@ -41,7 +40,7 @@ type Metrics interface {
 // sse is nil while nothing has been written yet.
 type ErrorHandler func(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 )
 
 // Handler serves the streams of one server.
@@ -104,12 +103,12 @@ func (h *Handler) Handle(
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
@@ -138,8 +137,10 @@ func (h *Handler) Handle(
 		}
 	}()
 
-	sse := newSSE(w, r, datastar.WithCompression())
-	if sse == nil {
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
+	if sse.Err() != nil {
+		// The client left before the response headers were flushed.
 		return
 	}
 
@@ -147,7 +148,7 @@ func (h *Handler) Handle(
 	if onOpen != nil {
 		if err := callOnOpen(onOpen, streamID, sse); err != nil {
 			h.onErr(w, r, sse, "handling stream open hook", err)
-			delayReconnect(sse)
+			_ = sse.DelayReconnect(reconnectDelay)
 			return
 		}
 	}
@@ -167,7 +168,7 @@ func (h *Handler) Handle(
 			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
-			delayReconnect(sse)
+			_ = sse.DelayReconnect(reconnectDelay)
 			return
 		}
 	}
@@ -223,8 +224,7 @@ func (h *Handler) Handle(
 		// net/http resets the connection and logs nothing for this value.
 		panic(http.ErrAbortHandler)
 	case sessionEnded.Load():
-		_ = sse.ExecuteScript(reloadScript,
-			datastar.WithExecuteScriptRetryDuration(reconnectDelay))
+		_ = sse.ExecuteScriptRetry(reloadScript, reconnectDelay)
 	}
 }
 
@@ -238,27 +238,9 @@ func (h *Handler) Handle(
 func (h *Handler) Reload(w http.ResponseWriter, r *http.Request) {
 	h.core.Logger().Debug("stream request from a page whose session ended",
 		slog.String("path", r.URL.Path))
-	sse := newSSE(w, r)
-	if sse == nil {
-		return
-	}
-	_ = sse.ExecuteScript(reloadScript,
-		datastar.WithExecuteScriptRetryDuration(reconnectDelay))
-}
-
-// newSSE calls [datastar.NewSSE] and returns nil if the client disconnected
-// before the response headers were sent. NewSSE panics in that case,
-// and net/http logs the panic with a stack trace. Other panics still propagate,
-// such as the one for a writer that cannot flush.
-func newSSE(
-	w http.ResponseWriter, r *http.Request, opts ...datastar.SSEOption,
-) (sse *datastar.ServerSentEventGenerator) {
-	defer func() {
-		if sse == nil && r.Context().Err() != nil {
-			_ = recover()
-		}
-	}()
-	return datastar.NewSSE(w, r, opts...)
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
+	_ = sse.ExecuteScriptRetry(reloadScript, reconnectDelay)
 }
 
 // reconnectDelay is how long the page waits to reconnect a stream whose open
@@ -273,9 +255,7 @@ func newSSE(
 // it the first wait after a later shutdown too.
 const reconnectDelay = 5 * time.Second
 
-// reloadScript reloads the page after its session ends. The page shows what
-// that session could see. The reload renders it for the session the browser
-// holds now, if any.
+// reloadScript reloads the page for the session the browser now holds.
 //
 // The 1s delay lets the tab that signed out follow the sign-out redirect.
 // Its stream ends when the action closes the session, before the redirect
@@ -286,19 +266,12 @@ const reloadScript = `setTimeout(() => { ` +
 	`try { history.replaceState(history.state, "", location.href) } catch {} ` +
 	`location.reload() }, 1000)`
 
-// delayReconnect sends [reconnectDelay] as the retry field of an empty signal patch,
-// which changes nothing on the page.
-func delayReconnect(sse *datastar.ServerSentEventGenerator) {
-	_ = sse.PatchSignals([]byte("{}"),
-		datastar.WithPatchSignalsRetryDuration(reconnectDelay))
-}
-
 // callOnOpen runs the stream open hook and turns a panic in it into a
 // [github.com/romshark/datapages.PanicError] for the error handler.
 func callOnOpen(
-	onOpen func(datapages.StreamID, *datastar.ServerSentEventGenerator) error,
+	onOpen func(datapages.StreamID, *dpsse.Stream) error,
 	streamID datapages.StreamID,
-	sse *datastar.ServerSentEventGenerator,
+	sse *dpsse.Stream,
 ) (err error) {
 	defer func() {
 		if v := recover(); v != nil {

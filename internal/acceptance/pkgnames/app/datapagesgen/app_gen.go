@@ -29,8 +29,6 @@ import (
 
 	dpStream "github.com/romshark/datapages/internal/acceptance/pkgnames/stream"
 	dpStrings "github.com/romshark/datapages/internal/acceptance/pkgnames/strings"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -82,12 +80,12 @@ func (s *Server) handleStreamRequest(
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
@@ -97,7 +95,7 @@ func (s *Server) handleStreamRequest(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -230,7 +228,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -298,14 +296,14 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
+			sse *dpsse.Stream,
 		) error {
 			return p.StreamOpen(r, streamID, sess)
 		},
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventTicked dpapp.EventTicked
@@ -319,7 +317,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnTicked(
 						eventTicked,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageIndex.OnTicked", err)
 					}
@@ -342,7 +340,7 @@ func (s pageIndexHandlers) POSTTick(
 	var signals datapages.Signals[struct {
 		Code dpStrings.Code `json:"code"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -425,7 +423,7 @@ func (s pageItemHandlers) POSTSave(
 	var signals datapages.Signals[struct {
 		Code dpStrings.Code `json:"code"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -449,12 +447,13 @@ func (s pageItemHandlers) POSTSave(
 	}]
 	path.Values.ID = dpStrings.Code(r.PathValue("id"))
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageItem.Save")
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	err := p.POSTSave(r, path, query, signals, dpsse.New(sse))
+	err := p.POSTSave(r, path, query, signals, sse)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageItem.Save", err)
 		return

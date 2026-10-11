@@ -33,8 +33,6 @@ import (
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -126,12 +124,12 @@ func (s *Server) handleStreamRequest(
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
@@ -141,7 +139,7 @@ func (s *Server) handleStreamRequest(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -473,7 +471,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
@@ -484,10 +482,11 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
-		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		// [dpsse.Open] commits HTTP 200 before recovery runs.
+		sse = dpsse.Open(w, r)
+		defer sse.Close()
 	}
-	errRecover := s.app.RecoverError(err, dpsse.New(sse))
+	errRecover := s.app.RecoverError(err, sse)
 	if errRecover == nil {
 		return
 	}
@@ -609,7 +608,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	s.handleStreamRequest(w, r, evSubjPageIndex(stateID),
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
+			sse *dpsse.Stream,
 		) error {
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
@@ -630,7 +629,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		},
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventFilesChanged dpapp.EventFilesChanged
@@ -653,7 +652,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						defer slot.mu.Unlock()
 						if err := p.OnFilesChanged(
 							eventFilesChanged,
-							dpsse.New(sse),
+							sse,
 							datapages.State[dpapp.StateIndex]{Values: slot.state},
 							stateID,
 						); err != nil {
@@ -668,7 +667,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnLimitsChanged(
 						eventLimitsChanged,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageIndex.OnLimitsChanged", err)
 					}
@@ -680,7 +679,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnUploadStarted(
 						eventUploadStarted,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageIndex.OnUploadStarted", err)
 					}
@@ -721,7 +720,7 @@ func (s pageIndexHandlers) POSTLimits(
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[dpapp.LimitSignals]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -760,7 +759,7 @@ func (s pageIndexHandlers) POSTStage(
 	var signals datapages.Signals[struct {
 		Files []dpapp.PickedFile `json:"files"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -772,12 +771,13 @@ func (s pageIndexHandlers) POSTStage(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Stage")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStage(r, dpsse.New(sse), datapages.State[dpapp.StateIndex]{Values: slot.state}, signals)
+	err := p.POSTStage(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state}, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Stage", err)
 		return
@@ -810,12 +810,13 @@ func (s pageIndexHandlers) POSTCancel(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Cancel")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTCancel(r, dpsse.New(sse), datapages.State[dpapp.StateIndex]{Values: slot.state})
+	err := p.POSTCancel(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state})
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Cancel", err)
 		return
@@ -979,12 +980,13 @@ func (s pageIndexHandlers) POSTResume(
 
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Resume")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTResume(r, dpsse.New(sse), datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, path, dispatchFilesChanged)
+	err := p.POSTResume(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, path, dispatchFilesChanged)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Resume", err)
 		return
@@ -1016,7 +1018,7 @@ func (s pageIndexHandlers) POSTReattach(
 		Name string `json:"name"`
 		Size int64  `json:"size"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -1030,12 +1032,13 @@ func (s pageIndexHandlers) POSTReattach(
 
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := dpsse.Open(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Reattach")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTReattach(r, dpsse.New(sse), datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, signals, dispatchFilesChanged)
+	err := p.POSTReattach(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, signals, dispatchFilesChanged)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Reattach", err)
 		return

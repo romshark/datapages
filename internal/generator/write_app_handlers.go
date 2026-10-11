@@ -33,8 +33,7 @@ func handlerArgVar(kind string, skipSSE bool, stateExpr string) string {
 		if skipSSE {
 			return ""
 		}
-		// Handlers receive datapages.SSE, never the raw Datastar generator.
-		return "dpsse.New(sse)"
+		return "sse"
 	case model.InputKindSession:
 		return "sess"
 	case model.InputKindPath:
@@ -193,7 +192,7 @@ func handlerInputArgs(
 		args = append(args, "streamID")
 	}
 	if h.InputSSE != nil && !skipSSE {
-		args = append(args, "dpsse.New(sse)")
+		args = append(args, "sse")
 	}
 	if h.InputSession != nil {
 		args = append(args, "sess")
@@ -251,7 +250,7 @@ func eventHandlerInputArgs(
 		args = append(args, eventVar)
 	}
 	if eh.InputSSE != nil {
-		args = append(args, "dpsse.New(sse)")
+		args = append(args, "sse")
 	}
 	if eh.InputStreamID != nil {
 		args = append(args, "streamID")
@@ -375,7 +374,7 @@ func (w *Writer) writeReadGETSignals(input *model.Input, m *model.App) {
 	w.Raw(w.renderSignalsType(input, m))
 	w.Byte('\n')
 	w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
-	w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+	w.Line(2, "if err := dpsse.ReadSignals(r, &"+varSignals+"); err != nil {")
 	w.Line(3, `s.HTTPErrBad(w, "reading signals", err)`)
 	w.Line(3, "return")
 	w.Line(2, "}")
@@ -392,7 +391,7 @@ func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) []st
 	w.Raw("\tvar subjSignals ")
 	w.Raw(typ)
 	w.Byte('\n')
-	w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
+	w.Line(1, "if err := dpsse.ReadSignals(r, &subjSignals); err != nil {")
 	w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 	w.Line(2, "return")
 	w.Line(1, "}")
@@ -1159,7 +1158,7 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(w.renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+		w.Line(1, "if err := dpsse.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1233,7 +1232,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
-	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
+	w.Line(2, "sse *dpsse.Stream, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
 	if len(p.EventHandlers) > 0 {
 		w.writeStreamRecover(p.TypeName + " stream")
@@ -1399,7 +1398,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	}
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
-	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
+	w.Line(2, "sse *dpsse.Stream,")
 	w.Line(1, ") error {")
 	if p.StreamOpen.OutputErr != nil {
 		w.Raw("\t\treturn ")
@@ -1429,7 +1428,7 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	}
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
-	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
+	w.Line(2, "sse *dpsse.Stream,")
 	w.Line(1, ") error {")
 	w.Line(2, "slot.mu.Lock()")
 	w.Line(2, "defer slot.mu.Unlock()")
@@ -1586,7 +1585,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(w.renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+		w.Line(1, "if err := dpsse.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1634,7 +1633,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
-	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
+	w.Line(2, "sse *dpsse.Stream, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
 	// Only public events reach an anonymous stream.
 	var publicHandlers []*model.EventHandler
@@ -1734,7 +1733,7 @@ func (w *Writer) writePageActionHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+		w.Line(1, "if err := dpsse.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1750,9 +1749,7 @@ func (w *Writer) writePageActionHandler(
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
-	// The request is read; claim the state for the duration of the handler.
-	// Before the SSE generator, which commits the response headers and would
-	// leave the rejection below nowhere to go.
+	// Claim state before dpsse.Open commits the response.
 	if h.InputState != nil {
 		w.writeLockSlotOrReject(h)
 	}
@@ -1765,7 +1762,8 @@ func (w *Writer) writePageActionHandler(
 	// A redirect or HTML body sends its offline writes in that response.
 	if h.InputSSE != nil {
 		w.Line(0, "")
-		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
+		w.Line(1, "sse := dpsse.Open(w, r)")
+		w.Line(1, "defer sse.Close()")
 	}
 
 	if h.OutputFile != nil {

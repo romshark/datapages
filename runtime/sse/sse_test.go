@@ -1,107 +1,264 @@
 package sse_test
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/runtime/sse"
 )
 
-// recorder captures what a generator writes.
 type recorder struct {
-	h   http.Header
-	buf strings.Builder
+	h       http.Header
+	buf     bytes.Buffer
+	flushes int
+	err     error // Returned by every Write when set.
 }
 
-func (r *recorder) Header() http.Header         { return r.h }
-func (r *recorder) Write(b []byte) (int, error) { return r.buf.Write(b) }
-func (r *recorder) WriteHeader(int)             {}
-func (r *recorder) Flush()                      {}
+func (r *recorder) Header() http.Header { return r.h }
+func (r *recorder) Write(b []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	return r.buf.Write(b)
+}
+func (r *recorder) WriteHeader(int) {}
+func (r *recorder) Flush()          { r.flushes++ }
 
-// frame runs fn against a fresh generator and returns what it wrote.
-func frame(t *testing.T, fn func(g *datastar.ServerSentEventGenerator) error) string {
+func streamRequest() *http.Request {
+	return httptest.NewRequest(http.MethodGet, "/_$/", nil)
+}
+
+func codingRequest(coding string) *http.Request {
+	r := streamRequest()
+	r.Header.Set("Accept-Encoding", coding)
+	return r
+}
+
+var codings = []string{"zstd", "br", "gzip"}
+
+func decoder(t *testing.T, coding string, b []byte) io.Reader {
+	t.Helper()
+	switch coding {
+	case "zstd":
+		d, err := zstd.NewReader(bytes.NewReader(b))
+		require.NoError(t, err)
+		t.Cleanup(d.Close)
+		return d
+	case "br":
+		return brotli.NewReader(bytes.NewReader(b))
+	case "gzip":
+		zr, err := gzip.NewReader(bytes.NewReader(b))
+		require.NoError(t, err)
+		return zr
+	}
+	t.Fatalf("unknown coding %q", coding)
+	return nil
+}
+
+func decode(t *testing.T, coding string, b []byte) string {
+	t.Helper()
+	out, err := io.ReadAll(decoder(t, coding, b))
+	require.NoError(t, err, "the %s stream is incomplete", coding)
+	return string(out)
+}
+
+func frame(t testing.TB, fn func(s *sse.Stream) error) string {
 	t.Helper()
 	w := &recorder{h: make(http.Header)}
-	req := httptest.NewRequest(http.MethodGet, "/_$/", nil)
-	require.NoError(t, fn(datastar.NewSSE(w, req)))
+	s := sse.Open(w, streamRequest())
+	require.NoError(t, fn(s))
+	s.Close()
+	require.NoError(t, s.Err())
 	return w.buf.String()
 }
 
 var element = templ.Raw(`<div id="out">x</div>`)
 
-// TestPatchElement tests the element patch event the wrapper writes. An empty selector,
-// an empty mode and a mode Datastar does not know are all left out of the event
-// rather than written empty, which would make the client patch the wrong place.
+// TestOpen tests response headers, compression negotiation and the initial flush.
+func TestOpen(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		acceptEncoding string
+		protoMajor     int
+		wantEncoding   string
+		wantConnection string
+	}{
+		"http/1.1": {
+			protoMajor: 1, wantConnection: "keep-alive",
+		},
+		"http/2": {protoMajor: 2},
+		"browser": {
+			acceptEncoding: "gzip, deflate, br, zstd",
+			protoMajor:     2,
+			wantEncoding:   "zstd",
+		},
+		"without zstd": {
+			acceptEncoding: "gzip, deflate, br",
+			protoMajor:     2,
+			wantEncoding:   "br",
+		},
+		"gzip only": {
+			acceptEncoding: "gzip",
+			protoMajor:     2,
+			wantEncoding:   "gzip",
+		},
+		"zstd refused": {
+			acceptEncoding: "zstd;q=0, gzip",
+			protoMajor:     2,
+			wantEncoding:   "gzip",
+		},
+		"any coding": {
+			acceptEncoding: "*",
+			protoMajor:     2,
+			wantEncoding:   "gzip",
+		},
+		"identity listed": {
+			acceptEncoding: "identity",
+			protoMajor:     2,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := streamRequest()
+			r.ProtoMajor = tc.protoMajor
+			if tc.acceptEncoding != "" {
+				r.Header.Set("Accept-Encoding", tc.acceptEncoding)
+			}
+			w := &recorder{h: make(http.Header)}
+			s := sse.Open(w, r)
+			require.NoError(t, s.Err())
+			require.Equal(t, 1, w.flushes, "the head is not flushed")
+			require.Equal(t, "text/event-stream", w.h.Get("Content-Type"))
+			require.Equal(t, "no-cache", w.h.Get("Cache-Control"))
+			require.Equal(t, tc.wantConnection, w.h.Get("Connection"))
+			require.Equal(t, tc.wantEncoding, w.h.Get("Content-Encoding"))
+			require.Equal(t, []string{"Accept-Encoding"}, w.h.Values("Vary"))
+			require.Zero(t, w.buf.Len(), "the head wrote body bytes")
+		})
+	}
+}
+
+// TestOpenWithoutFlushPanics tests a writer that hides [http.Flusher].
+func TestOpenWithoutFlushPanics(t *testing.T) {
+	t.Parallel()
+
+	require.Panics(t, func() {
+		sse.Open(struct{ http.ResponseWriter }{httptest.NewRecorder()}, streamRequest())
+	})
+}
+
+// TestPatchElement tests fields, defaults and line framing of an element patch.
 func TestPatchElement(t *testing.T) {
 	t.Parallel()
 
 	for name, tc := range map[string]struct {
 		call func(s datapages.SSE) error
-		want []string
-		omit []string
+		want string
 	}{
 		"plain": {
 			call: func(s datapages.SSE) error { return s.PatchElement(element) },
-			want: []string{"event: datastar-patch-elements", `data: elements <div id="out">x</div>`},
-			omit: []string{"data: selector", "data: mode"},
+			want: "event: datastar-patch-elements\n" +
+				`data: elements <div id="out">x</div>` + "\n\n",
 		},
 		"selector and mode": {
 			call: func(s datapages.SSE) error {
 				return s.PatchElementAt(element, "#t", datapages.PatchModeAppend)
 			},
-			want: []string{"data: selector #t", "data: mode append"},
+			want: "event: datastar-patch-elements\n" +
+				"data: selector #t\n" +
+				"data: mode append\n" +
+				`data: elements <div id="out">x</div>` + "\n\n",
 		},
 		"selector only": {
 			call: func(s datapages.SSE) error {
 				return s.PatchElementAt(element, "#t", "")
 			},
-			want: []string{"data: selector #t"},
-			omit: []string{"data: mode"},
+			want: "event: datastar-patch-elements\n" +
+				"data: selector #t\n" +
+				`data: elements <div id="out">x</div>` + "\n\n",
 		},
 		"mode only": {
 			call: func(s datapages.SSE) error {
 				return s.PatchElementAt(element, "", datapages.PatchModeInner)
 			},
-			want: []string{"data: mode inner"},
-			omit: []string{"data: selector"},
+			want: "event: datastar-patch-elements\n" +
+				"data: mode inner\n" +
+				`data: elements <div id="out">x</div>` + "\n\n",
 		},
-		"neither": {
-			call: func(s datapages.SSE) error { return s.PatchElementAt(element, "", "") },
-			omit: []string{"data: selector", "data: mode"},
+		"outer mode is the default": {
+			call: func(s datapages.SSE) error {
+				return s.PatchElementAt(element, "", datapages.PatchModeOuter)
+			},
+			want: "event: datastar-patch-elements\n" +
+				`data: elements <div id="out">x</div>` + "\n\n",
 		},
 		"unknown mode is ignored": {
 			call: func(s datapages.SSE) error {
 				return s.PatchElementAt(element, "", datapages.PatchMode("sideways"))
 			},
-			omit: []string{"data: mode", "data: selector"},
+			want: "event: datastar-patch-elements\n" +
+				`data: elements <div id="out">x</div>` + "\n\n",
+		},
+		"lines": {
+			call: func(s datapages.SSE) error {
+				return s.PatchElement(templ.Raw("<ul id=\"l\">\n<li>a</li>\n</ul>"))
+			},
+			want: "event: datastar-patch-elements\n" +
+				"data: elements <ul id=\"l\">\n" +
+				"data: elements <li>a</li>\n" +
+				"data: elements </ul>\n\n",
+		},
+		"empty": {
+			call: func(s datapages.SSE) error { return s.PatchElement(templ.Raw("")) },
+			want: "event: datastar-patch-elements\n\n",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-				return tc.call(sse.New(g))
-			})
-			for _, want := range tc.want {
-				require.Contains(t, got, want)
-			}
-			for _, omit := range tc.omit {
-				require.NotContains(t, got, omit)
-			}
+			got := frame(t, func(s *sse.Stream) error { return tc.call(s) })
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
 
-// TestSelectorLineBreak tests the selector that would end the data line it goes on.
-// What follows one reaches the browser as events of its own.
+// TestPatchElementRenderError tests that a render failure writes nothing and
+// leaves the stream usable.
+func TestPatchElementRenderError(t *testing.T) {
+	t.Parallel()
+
+	errRender := errors.New("render failed")
+	got := frame(t, func(s *sse.Stream) error {
+		err := s.PatchElement(templ.ComponentFunc(
+			func(_ context.Context, w io.Writer) error {
+				_, _ = io.WriteString(w, `<div id="half">`)
+				return errRender
+			},
+		))
+		require.ErrorIs(t, err, errRender)
+		return s.PatchElement(element)
+	})
+	require.Equal(t, "event: datastar-patch-elements\n"+
+		`data: elements <div id="out">x</div>`+"\n\n", got)
+}
+
+// TestSelectorLineBreak tests that CR and LF cannot inject SSE fields.
 func TestSelectorLineBreak(t *testing.T) {
 	t.Parallel()
 
@@ -128,36 +285,154 @@ func TestSelectorLineBreak(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			w := &recorder{h: make(http.Header)}
-			req := httptest.NewRequest(http.MethodGet, "/_$/", nil)
-			err := tc.call(sse.New(datastar.NewSSE(w, req)))
-			require.ErrorIs(t, err, datapages.ErrSelectorLineBreak)
-			require.Empty(t, w.buf.String(), "the event reached the wire")
+			got := frame(t, func(s *sse.Stream) error {
+				require.ErrorIs(t, tc.call(s), datapages.ErrSelectorLineBreak)
+				return nil
+			})
+			require.Empty(t, got, "the event reached the wire")
 		})
 	}
 }
 
-// TestRemoveElementMatchesDatastar tests the removal event the wrapper writes.
-// Its bytes must be the ones datastar.RemoveElement writes.
-func TestRemoveElementMatchesDatastar(t *testing.T) {
+// TestRemoveElement tests a removal event without an elements field.
+func TestRemoveElement(t *testing.T) {
 	t.Parallel()
 
-	want := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-		return g.RemoveElement("#gone")
-	})
-	got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-		return sse.New(g).RemoveElement("#gone")
-	})
-	require.Equal(t, want, got)
+	got := frame(t, func(s *sse.Stream) error { return s.RemoveElement("#gone") })
+	require.Equal(t, "event: datastar-patch-elements\n"+
+		"data: selector #gone\n"+
+		"data: mode remove\n\n", got)
 }
 
-// TestRedirectCarriesNoTag tests a redirect target that would end the script element
-// it travels in. What follows such a target would reach the DOM as markup of its own.
+// patchedElements extracts HTML and rejects invalid element-patch framing.
+func patchedElements(t *testing.T, event string) string {
+	t.Helper()
+	require.NotContains(t, event, "\r",
+		"a carriage return reached the event stream:\n%q", event)
+	body, ok := strings.CutPrefix(event, "event: datastar-patch-elements\n")
+	require.True(t, ok, "not an elements patch:\n%q", event)
+	body, ok = strings.CutSuffix(body, "\n")
+	require.True(t, ok && (body == "" || strings.HasSuffix(body, "\n")),
+		"the event does not end:\n%q", event)
+	var elements []string
+	for line := range strings.Lines(body) {
+		field, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "data: ")
+		require.True(t, ok, "not a data field: %q in\n%q", line, event)
+		if el, ok := strings.CutPrefix(field, "elements "); ok {
+			elements = append(elements, el)
+		}
+	}
+	return strings.Join(elements, "\n")
+}
+
+// TestCarriageReturnInContent tests that CR cannot inject fields and is
+// normalized like an HTML line break.
+func TestCarriageReturnInContent(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		text, want string
+	}{
+		"lone":            {"a\rb", "a\nb"},
+		"pair":            {"a\r\nb", "a\nb"},
+		"before a pair":   {"a\r\r\nb", "a\n\nb"},
+		"after a newline": {"a\n\rb", "a\n\nb"},
+		"at the end":      {"a\r", "a\n"},
+		"signals field": {
+			"hi\revent: datastar-patch-signals\rdata: signals alert(1)\r",
+			"hi\nevent: datastar-patch-signals\ndata: signals alert(1)\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			el := templ.Raw(`<p id="m">` + tc.text + `</p>`)
+			want := `<p id="m">` + tc.want + `</p>`
+
+			got := frame(t, func(s *sse.Stream) error { return s.PatchElement(el) })
+			require.Equal(t, want, patchedElements(t, got))
+
+			got = frame(t, func(s *sse.Stream) error {
+				return s.PatchElementAt(el, "#t", datapages.PatchModeInner)
+			})
+			require.Equal(t, want, patchedElements(t, got))
+
+			got = frame(t, func(s *sse.Stream) error { return s.ExecuteScript(tc.text) })
+			require.Equal(t, `<script data-effect="el.remove()">`+tc.want+`</script>`,
+				patchedElements(t, got))
+		})
+	}
+}
+
+// chunks renders in two writes to cover a CRLF split across writes.
+func chunks(s string, i int) templ.Component {
+	return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
+		if _, err := w.Write([]byte(s[:i])); err != nil {
+			return err
+		}
+		_, err := w.Write([]byte(s[i:]))
+		return err
+	})
+}
+
+// FuzzContentLineBreaks tests that arbitrary content stays within one element
+// field and normalizes each line break to LF.
+func FuzzContentLineBreaks(f *testing.F) {
+	for _, seed := range []struct {
+		s     string
+		split uint
+	}{
+		{"hi\revent: datastar-patch-signals\rdata: signals alert(1)\r", 3},
+		{"a\r\nb\n\rc\r\r\nd", 2},
+		{"\n\nevent: x\ndata: signals alert(1)\n\n", 1},
+		{"", 0},
+	} {
+		f.Add(seed.s, seed.split)
+	}
+	withoutBreaks := strings.NewReplacer("\r", "", "\n", "")
+	f.Fuzz(func(t *testing.T, s string, split uint) {
+		i := int(split % uint(len(s)+1))
+		for _, tc := range []struct {
+			call func(x datapages.SSE) error
+			sent string // The content the call puts in the patch.
+		}{
+			{
+				call: func(x datapages.SSE) error {
+					return x.PatchElement(templ.Raw(s))
+				},
+				sent: s,
+			},
+			{
+				call: func(x datapages.SSE) error {
+					return x.PatchElement(chunks(s, i))
+				},
+				sent: s,
+			},
+			{
+				call: func(x datapages.SSE) error {
+					return x.ExecuteScript(s)
+				},
+				sent: `<script data-effect="el.remove()">` + s + `</script>`,
+			},
+		} {
+			el := patchedElements(t, frame(t, func(x *sse.Stream) error {
+				return tc.call(x)
+			}))
+			require.Equal(t,
+				withoutBreaks.Replace(tc.sent),
+				strings.ReplaceAll(el, "\n", ""))
+			breaks := strings.Count(tc.sent, "\r") + strings.Count(tc.sent, "\n") -
+				strings.Count(tc.sent, "\r\n")
+			require.Equal(t, breaks, strings.Count(el, "\n"))
+		}
+	})
+}
+
+// TestRedirectCarriesNoTag tests that a target cannot close the script element.
 func TestRedirectCarriesNoTag(t *testing.T) {
 	t.Parallel()
 
-	got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-		return sse.New(g).Redirect(`/x</script><img src=x onerror=alert(1)>`)
+	got := frame(t, func(s *sse.Stream) error {
+		return s.Redirect(`/x</script><img src=x onerror=alert(1)>`)
 	})
 
 	require.NotContains(t, got, "</script><img",
@@ -167,9 +442,21 @@ func TestRedirectCarriesNoTag(t *testing.T) {
 	require.Contains(t, got, "window.location.href")
 }
 
-// TestPatchSignals tests the signal patch event for a struct, for raw JSON and
-// for the if-missing variant. A value that fails to marshal returns the error and
-// writes nothing: a half-written event would leave the stream unparseable.
+func signalsOf(t *testing.T, event string) string {
+	t.Helper()
+	require.NotContains(t, event, "\r",
+		"a carriage return reached the event stream:\n%q", event)
+	var lines []string
+	for line := range strings.Lines(event) {
+		if s, ok := strings.CutPrefix(line, "data: signals "); ok {
+			lines = append(lines, strings.TrimSuffix(s, "\n"))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// TestPatchSignals tests struct, raw and if-missing patches.
+// Invalid values return an error without a partial event.
 func TestPatchSignals(t *testing.T) {
 	t.Parallel()
 
@@ -179,71 +466,301 @@ func TestPatchSignals(t *testing.T) {
 
 	t.Run("struct", func(t *testing.T) {
 		t.Parallel()
-		got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-			return sse.New(g).PatchSignals(signals{Count: 7})
+		got := frame(t, func(s *sse.Stream) error {
+			return s.PatchSignals(signals{Count: 7})
 		})
-		require.Contains(t, got, "event: datastar-patch-signals")
-		require.Contains(t, got, `data: signals {"count":7}`)
-		require.NotContains(t, got, "onlyIfMissing")
+		require.Equal(t, "event: datastar-patch-signals\n"+
+			`data: signals {"count":7}`+"\n\n", got)
 	})
 
 	t.Run("raw json", func(t *testing.T) {
 		t.Parallel()
-		got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-			return sse.New(g).PatchSignals(json.RawMessage(`{"count":7}`))
+		got := frame(t, func(s *sse.Stream) error {
+			return s.PatchSignals(json.RawMessage(`{"count":7}`))
 		})
 		require.Contains(t, got, `data: signals {"count":7}`)
 	})
 
+	t.Run("raw json with line breaks", func(t *testing.T) {
+		t.Parallel()
+		got := frame(t, func(s *sse.Stream) error {
+			return s.PatchSignals(json.RawMessage("{\r\n\"count\":\r7\n}"))
+		})
+		var v signals
+		require.NoError(t, json.Unmarshal([]byte(signalsOf(t, got)), &v))
+		require.Equal(t, signals{Count: 7}, v)
+	})
+
 	t.Run("if missing", func(t *testing.T) {
 		t.Parallel()
-		got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-			return sse.New(g).PatchSignalsIfMissing(signals{Count: 3})
+		got := frame(t, func(s *sse.Stream) error {
+			return s.PatchSignalsIfMissing(signals{Count: 3})
 		})
-		require.Contains(t, got, "data: onlyIfMissing true")
-		require.Contains(t, got, `data: signals {"count":3}`)
+		require.Equal(t, "event: datastar-patch-signals\n"+
+			"data: onlyIfMissing true\n"+
+			`data: signals {"count":3}`+"\n\n", got)
 	})
 
 	t.Run("invalid raw json", func(t *testing.T) {
 		t.Parallel()
-		w := &recorder{h: make(http.Header)}
-		req := httptest.NewRequest(http.MethodGet, "/_$/", nil)
-		err := sse.New(datastar.NewSSE(w, req)).
-			PatchSignals(json.RawMessage(`{"count":`))
-		require.Error(t, err)
-		require.NotContains(t, w.buf.String(), "datastar-patch-signals")
+		got := frame(t, func(s *sse.Stream) error {
+			require.Error(t, s.PatchSignals(json.RawMessage(`{"count":`)))
+			return nil
+		})
+		require.Empty(t, got)
 	})
 
 	t.Run("value that does not marshal", func(t *testing.T) {
 		t.Parallel()
-		w := &recorder{h: make(http.Header)}
-		req := httptest.NewRequest(http.MethodGet, "/_$/", nil)
-		err := sse.New(datastar.NewSSE(w, req)).PatchSignals(make(chan int))
-		require.Error(t, err)
-		require.NotContains(t, w.buf.String(), "datastar-patch-signals")
+		got := frame(t, func(s *sse.Stream) error {
+			require.Error(t, s.PatchSignals(make(chan int)))
+			return nil
+		})
+		require.Empty(t, got)
 	})
 }
 
-// TestScriptAndRedirect tests the three events that carry a payload straight to
-// the browser: a script, a redirect target and prefetch hints.
+// TestRetry tests events that set the reconnect delay.
+func TestRetry(t *testing.T) {
+	t.Parallel()
+
+	got := frame(t, func(s *sse.Stream) error {
+		return s.DelayReconnect(5 * time.Second)
+	})
+	require.Equal(t, "event: datastar-patch-signals\n"+
+		"retry: 5000\n"+
+		"data: signals {}\n\n", got)
+
+	got = frame(t, func(s *sse.Stream) error {
+		return s.ExecuteScriptRetry("location.reload()", 5*time.Second)
+	})
+	require.Equal(t, "event: datastar-patch-elements\n"+
+		"retry: 5000\n"+
+		"data: selector body\n"+
+		"data: mode append\n"+
+		`data: elements <script data-effect="el.remove()">location.reload()</script>`+
+		"\n\n", got)
+}
+
+// TestScriptAndRedirect tests script, redirect and prefetch events.
 func TestScriptAndRedirect(t *testing.T) {
 	t.Parallel()
 
-	got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-		return sse.New(g).ExecuteScript(`console.log("x")`)
+	got := frame(t, func(s *sse.Stream) error {
+		return s.ExecuteScript(`console.log("x")`)
 	})
-	require.Contains(t, got, `console.log("x")`)
+	require.Equal(t, "event: datastar-patch-elements\n"+
+		"data: selector body\n"+
+		"data: mode append\n"+
+		`data: elements <script data-effect="el.remove()">console.log("x")</script>`+
+		"\n\n", got)
 
-	got = frame(t, func(g *datastar.ServerSentEventGenerator) error {
-		return sse.New(g).Redirect("/next/")
+	got = frame(t, func(s *sse.Stream) error {
+		return s.Redirect("/next/")
 	})
-	require.Contains(t, got, "/next/")
+	require.Contains(t, got,
+		`data: elements <script data-effect="el.remove()">`+
+			`setTimeout(() => window.location.href = "/next/")</script>`)
 
-	got = frame(t, func(g *datastar.ServerSentEventGenerator) error {
-		return sse.New(g).Prefetch("/a/", "/b/")
+	got = frame(t, func(s *sse.Stream) error {
+		return s.Prefetch("/a/", "/b/")
 	})
 	require.Contains(t, got, "/a/")
 	require.Contains(t, got, "/b/")
+}
+
+// TestClose tests repeated Close calls and an event after Close.
+func TestClose(t *testing.T) {
+	t.Parallel()
+
+	w := &recorder{h: make(http.Header)}
+	s := sse.Open(w, streamRequest())
+	s.Close()
+	require.Error(t, s.PatchElement(element))
+	s.Close()
+	require.NoError(t, s.Err())
+	require.Zero(t, w.buf.Len())
+}
+
+// TestWriteFails tests that later events return the first write error.
+func TestWriteFails(t *testing.T) {
+	t.Parallel()
+
+	for _, coding := range append([]string{"identity"}, codings...) {
+		t.Run(coding, func(t *testing.T) {
+			t.Parallel()
+			r := codingRequest(coding)
+			errGone := errors.New("client gone")
+			w := &recorder{h: make(http.Header)}
+			s := sse.Open(w, r)
+			w.err = errGone
+			require.ErrorIs(t, s.PatchElement(element), errGone)
+			require.ErrorIs(t, s.PatchElement(element), errGone)
+			require.ErrorIs(t, s.Err(), errGone)
+			s.Close()
+			require.ErrorIs(t, s.Err(), errGone)
+		})
+	}
+}
+
+// TestCanceledContext tests an event after request cancellation.
+func TestCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	w := &recorder{h: make(http.Header)}
+	s := sse.Open(w, streamRequest().WithContext(ctx))
+	cancel()
+	require.ErrorIs(t, s.PatchElement(element), context.Canceled)
+	s.Close()
+	require.Zero(t, w.buf.Len())
+}
+
+// TestCompressed tests that each encoder flushes events and writes its trailer.
+func TestCompressed(t *testing.T) {
+	t.Parallel()
+
+	events := frame(t, func(s *sse.Stream) error {
+		return s.PatchElement(element)
+	}) +
+		frame(t, func(s *sse.Stream) error {
+			return s.PatchSignals(map[string]int{"n": 1})
+		})
+	for _, coding := range codings {
+		t.Run(coding, func(t *testing.T) {
+			t.Parallel()
+			w := &recorder{h: make(http.Header)}
+			s := sse.Open(w, codingRequest(coding))
+			require.Equal(t, coding, w.h.Get("Content-Encoding"))
+
+			require.NoError(t, s.PatchElement(element))
+			require.NoError(t, s.PatchSignals(map[string]int{"n": 1}))
+			got := make([]byte, len(events))
+			_, err := io.ReadFull(decoder(t, coding, w.buf.Bytes()), got)
+			require.NoError(t, err, "an event waits in the encoder")
+			require.Equal(t, events, string(got))
+
+			s.Close()
+			require.NoError(t, s.Err())
+			require.Equal(t, events, decode(t, coding, w.buf.Bytes()))
+		})
+	}
+}
+
+// TestCompressedWithoutEvents tests a valid empty body for each coding.
+func TestCompressedWithoutEvents(t *testing.T) {
+	t.Parallel()
+
+	for _, coding := range codings {
+		t.Run(coding, func(t *testing.T) {
+			t.Parallel()
+			w := &recorder{h: make(http.Header)}
+			s := sse.Open(w, codingRequest(coding))
+			s.Close()
+			require.NoError(t, s.Err())
+			require.NotZero(t, w.buf.Len())
+			require.Empty(t, decode(t, coding, w.buf.Bytes()))
+		})
+	}
+}
+
+// TestReadSignals tests query and body signal sources.
+func TestReadSignals(t *testing.T) {
+	t.Parallel()
+
+	type signals struct {
+		Count int `json:"count"`
+	}
+	for name, tc := range map[string]struct {
+		method, url, body string
+		want              signals
+		wantErr           bool
+	}{
+		"get": {
+			method: http.MethodGet,
+			url:    "/?datastar=%7B%22count%22%3A2%7D",
+			want:   signals{Count: 2},
+		},
+		"get without": {
+			method: http.MethodGet,
+			url:    "/?other=1",
+			want:   signals{Count: 1},
+		},
+		"get empty": {
+			method: http.MethodGet,
+			url:    "/?datastar=",
+			want:   signals{Count: 1},
+		},
+		"delete": {
+			method: http.MethodDelete,
+			url:    "/?datastar=%7B%22count%22%3A3%7D",
+			want:   signals{Count: 3},
+		},
+		"get with a body": {
+			method: http.MethodGet,
+			url:    "/", body: `{"count":9}`,
+			want: signals{Count: 1},
+		},
+		"post": {
+			method: http.MethodPost,
+			url:    "/", body: `{"count":4}`,
+			want: signals{Count: 4},
+		},
+		"query method": {
+			method: "QUERY",
+			url:    "/", body: `{"count":5}`,
+			want: signals{Count: 5},
+		},
+		"post ignores query": {
+			method: http.MethodPost,
+			url:    "/?datastar=%7B%7D", body: `{"count":6}`,
+			want: signals{Count: 6},
+		},
+		"get invalid": {
+			method: http.MethodGet,
+			url:    "/?datastar=%7B", wantErr: true,
+		},
+		"post invalid": {
+			method: http.MethodPost,
+			url:    "/", body: `{"count":`, wantErr: true,
+		},
+		"post empty": {
+			method: http.MethodPost,
+			url:    "/", wantErr: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
+			v := signals{Count: 1}
+			err := sse.ReadSignals(r, &v)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, v)
+		})
+	}
+}
+
+// TestPatchElementAllocs tests warm pooled writes with every coding.
+func TestPatchElementAllocs(t *testing.T) {
+	for _, coding := range append([]string{"identity"}, codings...) {
+		t.Run(coding, func(t *testing.T) {
+			el := templ.Raw(`<ul id="l">` +
+				strings.Repeat("\n<li>item</li>", 200) +
+				"\n</ul>")
+			s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding))
+			defer s.Close()
+			require.NoError(t, s.PatchElement(el))
+			require.Zero(t, testing.AllocsPerRun(100, func() {
+				if err := s.PatchElement(el); err != nil {
+					t.Fatal(err)
+				}
+			}))
+		})
+	}
 }
 
 // prefetchURLs extracts URLs after validating the SSE, script and JSON boundaries.
@@ -295,8 +812,8 @@ func TestPrefetchEncodesURLs(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-				return sse.New(g).Prefetch("/a/", url)
+			got := frame(t, func(s *sse.Stream) error {
+				return s.Prefetch("/a/", url)
 			})
 			require.Equal(t, []string{"/a/", url}, prefetchURLs(t, got))
 		})
@@ -306,9 +823,7 @@ func TestPrefetchEncodesURLs(t *testing.T) {
 func TestPrefetchWithoutURLs(t *testing.T) {
 	t.Parallel()
 
-	got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-		return sse.New(g).Prefetch()
-	})
+	got := frame(t, func(s *sse.Stream) error { return s.Prefetch() })
 	require.Empty(t, got)
 }
 
@@ -325,9 +840,7 @@ func FuzzPrefetch(f *testing.F) {
 		f.Add(seed[0], seed[1])
 	}
 	f.Fuzz(func(t *testing.T, a, b string) {
-		got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
-			return sse.New(g).Prefetch(a, b)
-		})
+		got := frame(t, func(s *sse.Stream) error { return s.Prefetch(a, b) })
 		urls := prefetchURLs(t, got)
 		if utf8.ValidString(a) && utf8.ValidString(b) {
 			require.Equal(t, []string{a, b}, urls)
@@ -342,10 +855,33 @@ func (d *discard) Write(b []byte) (int, error) { return len(b), nil }
 func (d *discard) WriteHeader(int)             {}
 func (d *discard) Flush()                      {}
 
+// BenchmarkPatchElement measures two element sizes with every coding.
+func BenchmarkPatchElement(b *testing.B) {
+	for _, size := range []struct {
+		name string
+		n    int
+	}{{"200B", 200}, {"8KiB", 8 << 10}} {
+		el := templ.Raw(`<ul id="l">` +
+			strings.Repeat("<li>item text</li>\n", size.n/19) +
+			`</ul>`)
+		for _, coding := range append([]string{"identity"}, codings...) {
+			b.Run(size.name+"/"+coding, func(b *testing.B) {
+				s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding))
+				defer s.Close()
+				b.ReportAllocs()
+				for b.Loop() {
+					if err := s.PatchElement(el); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}
+
 // BenchmarkPrefetch measures the href-generated URL case.
 func BenchmarkPrefetch(b *testing.B) {
-	req := httptest.NewRequest(http.MethodGet, "/_$/", nil)
-	s := sse.New(datastar.NewSSE(&discard{h: make(http.Header)}, req))
+	s := sse.Open(&discard{h: make(http.Header)}, streamRequest())
 	urls := []string{"/listing/42/", "/listing/43/", "/search/?q=bike&page=2"}
 	b.ReportAllocs()
 	for b.Loop() {

@@ -469,10 +469,8 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 	id := page.Instance()
 	require.NotEmpty(t, id, "GET %s mints no instance id", pathFailOpen)
 
-	// The instance is reserved before the open hook runs.
-	// The stream is answered 200 regardless:
-	// the SSE generator commits the status line first,
-	// which leaves the hook nowhere to report the failure.
+	// The instance is reserved before the hook.
+	// The stream commits 200 before the hook can fail.
 	req := c.Request(t, http.MethodGet, pathFailOpenStream, "")
 	req.Header.Set("Datapages-Instance", id)
 	require.Equal(t, http.StatusOK, c.Do(t, req).Status,

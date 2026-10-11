@@ -17,12 +17,11 @@ import (
 	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/getsignals/app"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -62,7 +61,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -178,7 +177,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -239,7 +238,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Page int    `json:"page"`
 	}]
 	if httpread.QueryHas(r.URL.RawQuery, "datastar") {
-		if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 			s.HTTPErrBad(w, "reading signals", err)
 			return
 		}
@@ -308,7 +307,7 @@ func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		} `json:"foo"`
 	}]
 	if httpread.QueryHas(r.URL.RawQuery, "datastar") {
-		if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 			s.HTTPErrBad(w, "reading signals", err)
 			return
 		}
