@@ -25,9 +25,10 @@ const DefaultTimeout = 5 * time.Second
 const pollInterval = 5 * time.Millisecond
 
 type config struct {
-	timeout time.Duration
-	cookie  string
-	tokens  csrf.TokenWriter
+	timeout    time.Duration
+	cookie     string
+	tokens     csrf.TokenWriter
+	httpServer func(*http.Server)
 }
 
 // Option configures a [Server].
@@ -50,6 +51,14 @@ func WithSessionCookie(name string) Option {
 // [github.com/romshark/datapages.CSRFConfig] replaces the default [csrf.Tokens].
 func WithCSRFTokens(w csrf.TokenWriter) Option {
 	return func(c *config) { c.tokens = w }
+}
+
+// WithHTTPServer calls configure with the net/http server that serves the handler
+// before it starts, such as to set the ReadTimeout a deployment passes to
+// [github.com/romshark/datapages.WithHTTPServer]. The in-memory connections honor
+// the deadlines its timeouts set. New overwrites the Handler field.
+func WithHTTPServer(configure func(*http.Server)) Option {
+	return func(c *config) { c.httpServer = configure }
 }
 
 // Server is a Datapages server that its visitors reach over in-memory connections.
@@ -76,7 +85,12 @@ func New(t testing.TB, h http.Handler, opts ...Option) *Server {
 		opt(&conf)
 	}
 	l := newPipeListener()
-	srv := &httptest.Server{Listener: l, Config: &http.Server{Handler: h}}
+	hs := &http.Server{}
+	if conf.httpServer != nil {
+		conf.httpServer(hs)
+	}
+	hs.Handler = h
+	srv := &httptest.Server{Listener: l, Config: hs}
 	srv.Start()
 	t.Cleanup(srv.Close)
 	transport := &http.Transport{DialContext: l.dial, DisableCompression: true}

@@ -2,8 +2,10 @@ package datapagestest_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"runtime"
 	"slices"
@@ -647,6 +649,38 @@ func TestLoadRefusesRedirect(t *testing.T) {
 	v := datapagestest.New(t, mux).Visitor(t)
 	msg := failure(t, func(tb testing.TB) { v.Load(tb, "/old/") })
 	require.Contains(t, msg, "GET /old/: 302, want 200, a redirect to /new/")
+}
+
+// TestWithHTTPServer tests that the configuration of WithHTTPServer applies to the
+// in-memory connections: a body that does not arrive within the read timeout fails
+// to read with a timeout.
+func TestWithHTTPServer(t *testing.T) {
+	read := make(chan error, 1)
+	h := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		read <- err
+	})
+	srv := datapagestest.New(t, h, datapagestest.WithHTTPServer(func(s *http.Server) {
+		s.ReadTimeout = 50 * time.Millisecond
+	}))
+	v := srv.Visitor(t)
+
+	body, w := io.Pipe()
+	t.Cleanup(func() { _ = w.Close() })
+	req := v.NewRequest(t, http.MethodPost, "/", body)
+	go func() {
+		if resp, err := v.Client().Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	select {
+	case err := <-read:
+		var ne net.Error
+		require.True(t, errors.As(err, &ne) && ne.Timeout(), "read: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read timeout did not end the read of the body")
+	}
 }
 
 // TestServerWaitFor tests polling a condition until it holds and failing at the timeout.

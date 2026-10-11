@@ -60,6 +60,7 @@ ev := st.WaitFor(t, datapagestest.TextContains("rows", "Buy milk"))
 - `tab.DoForm` sends the fields of an action built with `action.WithContentType(action.ContentTypeForm)`.
 - `tab.NewRequest` builds the tab's Datastar request for any other case, such as a request without its CSRF token. Send it with `v.Send`.
 - `v.Client()` sends a request whose response `v.Send` cannot read whole, such as a stream whose status or headers the test checks. Close the response body.
+- `datapagestest.WithHTTPServer(func(s *http.Server) {...})` configures the server that serves the app, such as the `ReadTimeout` the server command sets. The in-memory connections honor its deadlines.
 
 Build page URLs with the generated `href` package, such as `href.PageIndex()`. Send each action to the route in its doc comment. That request does not show that the page calls the action: also assert that the triggering element's `data-on:*` attribute contains the call the `action` helper writes, such as `@post('/filter/'`.
 
@@ -150,4 +151,4 @@ Test two visitors: one user's updates must not reach the other's stream, and a c
 - Run with `-count=1`. A `(cached)` result did not execute the test again. `[no tests to run]` means that the `-run` pattern matched no tests.
 - Classify a failure as a bug or an incorrect requirement before changing the test. Do not loosen an assertion, add `t.Skip`, widen a tolerance or delete a case only to make it pass.
 
-<!-- written by datapages sha256:841ee65ac27b1c71 -->
+<!-- written by datapages sha256:0f076a5c819f2ec0 -->

@@ -10,6 +10,7 @@ require (
 	github.com/romshark/morpheus v0.1.0
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/stretchr/testify v1.12.1
+	golang.org/x/net v0.61.0
 )
 
 require (
