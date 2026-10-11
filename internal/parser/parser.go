@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	goparser "go/parser"
 	"go/token"
 	"go/types"
 	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -2289,7 +2291,8 @@ func validateGETActionNames(ctx *parseCtx, errs *Errors) {
 			}
 			errs.ErrAt(ctx.pkg.Fset.Position(h.Expr.Pos()), fmt.Errorf(
 				"%w: href.%s.%s builds the query of %s.GET%s",
-				ErrGETActionNameConflict, owner, h.Name, owner, base))
+				ErrGETActionNameConflict, owner, h.Name, owner, base,
+			))
 		}
 	}
 	check("App", ctx.app.Actions)
@@ -2732,6 +2735,9 @@ func loadPackage(appPackagePath string) (*packages.Package, error) {
 func loadSingle(
 	cfg *packages.Config, pattern string,
 ) (*packages.Package, error) {
+	if cfg.Dir != "" {
+		cfg.ParseFile = bodilessParser(cfg.Dir)
+	}
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
 		return nil, err
@@ -2742,6 +2748,53 @@ func loadSingle(
 		)
 	}
 	return pkgs[0], nil
+}
+
+// bodilessParser skips function bodies in GOROOT and the module cache,
+// which saves about 25% of load CPU. It returns nil to use the default parser
+// when go env fails or appDir is under either root.
+//
+// Skipped bodies cause soft errors and mark dependencies and the app IllTyped,
+// so callers must check the app package's Errors. Export data without NeedDeps
+// uses less CPU, but reports compiler-only errors and makes go list compile
+// every package on a cold cache, tripling load time.
+func bodilessParser(
+	appDir string,
+) func(*token.FileSet, string, []byte) (*ast.File, error) {
+	cmd := exec.Command("go", "env", "GOROOT", "GOMODCACHE")
+	cmd.Dir = appDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var roots []string
+	for line := range strings.Lines(string(out)) {
+		if root := strings.TrimSpace(line); root != "" {
+			roots = append(roots, filepath.Clean(root)+string(filepath.Separator))
+		}
+	}
+	inRoots := func(path string) bool {
+		return slices.ContainsFunc(roots, func(root string) bool {
+			return strings.HasPrefix(path, root)
+		})
+	}
+	abs, err := filepath.Abs(appDir)
+	if err != nil || inRoots(abs+string(filepath.Separator)) {
+		return nil
+	}
+	return func(fset *token.FileSet, filename string, src []byte) (*ast.File, error) {
+		// The mode of the default parser of go/packages.
+		const mode = goparser.AllErrors | goparser.ParseComments
+		f, err := goparser.ParseFile(fset, filename, src, mode)
+		if f != nil && inRoots(filename) {
+			for _, decl := range f.Decls {
+				if fd, ok := decl.(*ast.FuncDecl); ok {
+					fd.Body = nil
+				}
+			}
+		}
+		return f, err
+	}
 }
 
 func pickDoc(
