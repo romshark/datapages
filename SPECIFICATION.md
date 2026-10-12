@@ -4,7 +4,7 @@
 
 The generator requires an application source package containing `App` and `type PageIndex struct`.
 
-`App`, page, abstract page, and event types must not have type parameters. The generator rejects them with "type parameters are not supported". Other package types may have type parameters.
+`App`, page, stream embed, and event types must not have type parameters. The generator rejects them with "type parameters are not supported". Other package types may have type parameters.
 
 ### App
 
@@ -63,7 +63,7 @@ An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]`
 
 A `Page*` declaration must use a struct type literal. An alias to a struct literal is recognized as a page; an alias to a named type or a non-struct type is rejected.
 
-A page type must declare exactly 1 named field: `App *App`. Embedded types are permitted under [Abstract Page Types](#abstract-page-types).
+A page type must declare exactly 1 named field: `App *App`. Embedded types are permitted under [Stream Embeds](#stream-embeds).
 
 URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux). A route must not contain `"`, `\`, `` ` ``, `?` or `#`, nor a `%` that does not start a percent-encoding. Write them as `%22`, `%5C`, `%60`, `%3F`, `%23` and `%25`, which ServeMux decodes before matching.
 
@@ -230,7 +230,7 @@ func (PageIndex) StreamClose(
 
 A `GETXXX` action serves a [`datapages.File`](#return-value-datapagesfile) for `GET` and `HEAD`, such as an image, download or feed. Requests from an `img` element, link or script carry neither signals nor `Datastar-Request`. GET actions skip cross-origin and CSRF checks and must not change server state.
 
-A GET action may belong to `*App`, a page or an abstract page. It does not replace a page's `GET` and accepts only these parameters:
+A GET action may belong to `*App` or a page. It does not replace a page's `GET` and accepts only these parameters:
 
 ```go
 // GETImage is /images/{name}
@@ -255,11 +255,11 @@ A path value holds its segment unescaped: `%2F` arrives as `/` and `%2E%2E` as `
 
 Query parameters use the adjacent constructor: `href.App.Image(name, href.App.ImageQuery(width))`. A GET action name must not match another GET action's query constructor on the same owner. The `action` package provides no GET action helper.
 
-#### Abstract Page Types
+#### Stream Embeds
 
-A struct in the app package whose name does not start with `Page` and that declares `App *App` is an abstract page type. Pages may embed it to share its handlers.
+A struct in the app package whose name does not start with `Page` and that declares `App *App` is a stream embed. Pages may embed it to share its `OnXXX` event handlers, `StreamOpen` and `StreamClose`. It cannot declare `GET` or actions.
 
-A handler declared by the page shadows an embedded one with the same method name. A page declaring `POSTSave` keeps an embedded `PUTSave`. An action embedded at a shallower depth shadows one with the same method name at a deeper depth, as Go's promoted methods do. A page is rejected when 2 types embedded at the same depth declare the same action, or when it reaches an abstract page through 2 embedded fields at the same depth. Go reports both selectors as ambiguous.
+A handler the page declares for an event, `StreamOpen` or `StreamClose` replaces the embedded one. A page is rejected when 2 embedded types handle the same event or declare the same stream hook, or when it reaches a stream embed through 2 embedded fields at the same depth.
 
 #### Parameter: `datapages.State[T]`
 
@@ -291,7 +291,7 @@ func (PageIndex) StreamOpen(r *http.Request, state datapages.State[StateIndex]) 
 - `T` must be an exported struct declared at the source package level.
 - The parameter name is unrestricted. `T` must directly name the app package's struct. Pointers, struct literals, and types from other packages are rejected.
 - All handlers on a page, including those of embedded types, must use the same `T`.
-- State used by an abstract page binds every page that embeds it.
+- State used by a stream embed binds every page that embeds it.
 - Global `*App` actions may take `datapages.State[T]`. The caller must be bound to a page using the same `T`; otherwise the action receives `409 Conflict` with `Datapages-Retry: reconnect`. A global action callable from every page must be stateless.
 - `GET` cannot take state because no instance exists at render time.
 - A page using state gets an SSE stream even without stream hooks or `OnXXX`. Connect allocates the state slot; disconnect releases it.

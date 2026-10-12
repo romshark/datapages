@@ -179,9 +179,9 @@ func TestParse_Basic(t *testing.T) {
 	}
 }
 
-// TestParse_Embed tests a page embedding a struct: the embedded GET, actions and
-// event handlers become the page's own. A method the page declares shadows the embedded
-// method of that name only, not one sharing its suffix under another HTTP method.
+// TestParse_Embed tests pages embedding structs: the embedded event handlers
+// become the page's own, and a handler the page declares for an event shadows
+// the embedded one, whatever its method name.
 func TestParse_Embed(t *testing.T) {
 	app, err := parse(t, "embed")
 	require := require.New(t)
@@ -201,9 +201,7 @@ func TestParse_Embed(t *testing.T) {
 		handlerNames := getHandlerNames(p.EventHandlers)
 		require.ElementsMatch([]string{"C", "B", "A"}, handlerNames)
 
-		// Should have inherited GET
 		require.NotNil(p.GET)
-		// Should have no other actions
 		require.Empty(p.Actions)
 	}
 
@@ -251,25 +249,6 @@ func TestParse_Embed(t *testing.T) {
 
 		require.NotNil(p.GET)
 		require.Empty(p.Actions)
-	}
-
-	// PageVerbs
-	// - Own: POSTSave
-	// - Saver: POSTSave (shadowed), PUTSave
-	{
-		p := findPage(app, "PageVerbs")
-		require.NotNil(p)
-		require.ElementsMatch([]string{"POSTSave", "PUTSave"},
-			actionMethodNames(p.Actions))
-	}
-
-	// PageArchive
-	// - Archiver: POSTArchive, DELETEArchive
-	{
-		p := findPage(app, "PageArchive")
-		require.NotNil(p)
-		require.ElementsMatch([]string{"POSTArchive", "DELETEArchive"},
-			actionMethodNames(p.Actions))
 	}
 }
 
@@ -808,13 +787,12 @@ func TestParse_ErrRouteWildcardStream(t *testing.T) {
 
 // TestParse_ErrRouteWildcardAction tests a page whose path ends in a wildcard
 // and which has actions. Each action is reported once,
-// whatever its path comment says, the adopted one included.
+// whatever its path comment says.
 func TestParse_ErrRouteWildcardAction(t *testing.T) {
 	_, err := parse(t, "err_route_wildcard_action")
 
 	requireParseErrors(
 		t, err,
-		parser.ErrRouteWildcardAction, // Archiver.POSTArchive
 		parser.ErrRouteWildcardAction, // POSTDelete
 		parser.ErrRouteWildcardAction, // POSTSave
 		parser.ErrRouteWildcardAction, // POSTMove
@@ -824,7 +802,7 @@ func TestParse_ErrRouteWildcardAction(t *testing.T) {
 	require.ErrorAs(t, e, &d)
 	require.Equal(t, "PageFiles", d.TypeName)
 	require.Equal(t, "/files/{rest...}", d.Route)
-	require.Equal(t, "POSTArchive", d.MethodName)
+	require.Equal(t, "POSTDelete", d.MethodName)
 }
 
 // TestParse_ErrRouteExactMatchStream tests a page whose path ends in {$} and
@@ -840,19 +818,18 @@ func TestParse_ErrRouteExactMatchStream(t *testing.T) {
 
 // TestParse_ErrRouteExactMatchAction tests a page whose path ends in {$} and
 // which has actions. The {$} declares a page that serves only GET. Each action
-// is reported once, whatever its path comment says, the adopted one included.
+// is reported once, whatever its path comment says.
 func TestParse_ErrRouteExactMatchAction(t *testing.T) {
 	_, err := parse(t, "err_route_exact_match_action")
 
 	requireParseErrors(
 		t, err,
-		parser.ErrRouteExactMatchAction, // Archiver.POSTArchive
 		parser.ErrRouteExactMatchAction, // POSTSave
 		parser.ErrRouteExactMatchAction, // POSTReset
 		parser.ErrRouteExactMatchAction, // POSTMove
 	)
 	var d *parser.RouteExactMatchActionError
-	_, e := err.Entry(1)
+	_, e := err.Entry(0)
 	require.ErrorAs(t, e, &d)
 	require.Equal(t, "PageSettings", d.TypeName)
 	require.Equal(t, "/settings/{$}", d.Route)
@@ -860,15 +837,14 @@ func TestParse_ErrRouteExactMatchAction(t *testing.T) {
 }
 
 // TestParse_ErrActionRouteWildcard tests actions whose route ends in a
-// wildcard, on App, adopted from an embedded type and on a page. Each is
-// reported once, and none as a conflict on the pattern it is registered under.
+// wildcard, on App and on a page. Each is reported once, and none as
+// a conflict on the pattern it is registered under.
 func TestParse_ErrActionRouteWildcard(t *testing.T) {
 	_, err := parse(t, "err_action_route_wildcard")
 
 	requireParseErrors(
 		t, err,
 		parser.ErrActionRouteWildcard, // App.POSTUpload
-		parser.ErrActionRouteWildcard, // Dropper.POSTDrop
 		parser.ErrActionRouteWildcard, // PageItem.POSTAttach
 	)
 	var d *parser.ActionRouteWildcardError
@@ -877,18 +853,6 @@ func TestParse_ErrActionRouteWildcard(t *testing.T) {
 	require.Equal(t, "App", d.Recv)
 	require.Equal(t, "POSTUpload", d.MethodName)
 	require.Equal(t, "/upload/{path...}", d.Route)
-}
-
-// TestParse_ErrEmbedGETInput tests a GET declared on an embedded type that
-// fails to parse. Its parameter is the only error: the page adopts it without
-// checking its return values or its path against the page route.
-func TestParse_ErrEmbedGETInput(t *testing.T) {
-	_, err := parse(t, "err_embed_get_input")
-
-	requireParseErrors(
-		t, err,
-		parser.ErrSignatureUnsupportedInput,
-	)
 }
 
 // TestParse_ErrPages tests every way a page declaration can be wrong:
@@ -1175,7 +1139,7 @@ func TestParse_ErrQueryReflectSignalNotText(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrQueryReflectSignalNotText)
 }
 
-// TestParse_ErrEmbedPointer tests an abstract page embedded as a pointer.
+// TestParse_ErrEmbedPointer tests a page holding its stream embed as a pointer.
 // Generated code writes a page as a composite literal of values, which a pointer
 // field cannot take, and a nil one would panic in every handler the embed promotes.
 func TestParse_ErrEmbedPointer(t *testing.T) {
@@ -1185,7 +1149,7 @@ func TestParse_ErrEmbedPointer(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrPageEmbedPointer)
 }
 
-// TestParse_ErrEmbedUnexported tests an abstract page embedded under
+// TestParse_ErrEmbedUnexported tests a page holding a stream embed under
 // an unexported name, which the generated package cannot write.
 func TestParse_ErrEmbedUnexported(t *testing.T) {
 	_, err := parse(t, "err_embed_unexported")
@@ -1574,7 +1538,12 @@ func TestParse_ErrPageNotStruct(t *testing.T) {
 	_, err := parse(t, "err_page_not_struct")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err, parser.ErrPageNotStruct, parser.ErrPageNotStruct)
+	requireParseErrors(t, err,
+		parser.ErrPageNotStruct,
+		parser.ErrPageNotStruct,
+		// The aliased struct is a stream embed, which takes no GET.
+		parser.ErrStreamEmbedUnsupportedMethod,
+	)
 
 	pos, _ := err.Entry(0)
 	requirePosEqual(t, "app.go", 19, 6, pos)
@@ -1582,7 +1551,7 @@ func TestParse_ErrPageNotStruct(t *testing.T) {
 	requirePosEqual(t, "app.go", 26, 6, pos)
 }
 
-// TestParse_ErrTypeParams tests a page and an abstract page declared with
+// TestParse_ErrTypeParams tests a page and a stream embed declared with
 // type parameters. Both were dropped without a word before.
 func TestParse_ErrTypeParams(t *testing.T) {
 	_, err := parse(t, "err_typeparams")
@@ -1596,33 +1565,42 @@ func TestParse_ErrTypeParams(t *testing.T) {
 	requirePosEqual(t, "app.go", 28, 6, pos)
 }
 
-// TestParse_ErrEmbedConflictingGET tests a page inheriting
-// a GET from 2 embedded structs.
-func TestParse_ErrEmbedConflictingGET(t *testing.T) {
-	_, err := parse(t, "err_embed_conflicting_get")
-	require.NotZero(t, err.Error())
-
-	requireParseErrors(t, err, parser.ErrPageConflictingGETEmbed)
-
-	pos, _ := err.Entry(0)
-	requirePosEqual(t, "app.go", 15, 2, pos)
-}
-
-// TestParse_ErrEmbedAmbiguous tests an action defined by 2 embedded types and
-// a GET inherited through 2 embedding paths. Go treats both selectors as ambiguous.
-// A shallower action may shadow a deeper one.
+// TestParse_ErrEmbedAmbiguous tests a stream hook inherited through 2 embedding
+// paths at the same depth. Go treats its selector as ambiguous.
 func TestParse_ErrEmbedAmbiguous(t *testing.T) {
 	_, err := parse(t, "err_embed_ambiguous")
 
 	requireParseErrors(
 		t, err,
-		parser.ErrPageAmbiguousEmbed, // PageTwo.POSTSave
-		parser.ErrPageAmbiguousEmbed, // PageDiamond.GET
+		parser.ErrPageAmbiguousEmbed, // PageDiamond.StreamOpen
 	)
-	for i, line := range []int{33, 62} {
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "app.go", 37, 6, pos)
+}
+
+// TestParse_ErrStreamEmbedMethod tests the methods a stream embed does not
+// take, which are GET, an action, a GET action and an exported method that is
+// no handler. Its event handler, stream hooks and unexported method pass.
+// A page that embeds it does not adopt its GET.
+func TestParse_ErrStreamEmbedMethod(t *testing.T) {
+	_, err := parse(t, "err_stream_embed_method")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrStreamEmbedUnsupportedMethod, // Base.GET
+		parser.ErrStreamEmbedUnsupportedMethod, // Base.POSTSave
+		parser.ErrStreamEmbedUnsupportedMethod, // Base.GETManual
+		parser.ErrStreamEmbedUnsupportedMethod, // Base.Format
+		parser.ErrPageMissingGET,               // PageNoGET
+	)
+	for i, want := range []struct{ line, col int }{
+		{20, 13}, {25, 13}, {28, 13}, {32, 13}, {55, 6},
+	} {
 		pos, _ := err.Entry(i)
-		requirePosEqual(t, "app.go", line, 6, pos)
+		requirePosEqual(t, "app.go", want.line, want.col, pos)
 	}
+	_, e := err.Entry(0)
+	require.ErrorContains(t, e, "Base.GET")
 }
 
 // TestParse_NameCollisions tests the name pairs that concatenate into the same
@@ -1647,19 +1625,6 @@ func TestParse_ErrAppMethodSSE(t *testing.T) {
 	require.NotZero(t, err.Error())
 
 	requireParseErrors(t, err, parser.ErrSSEOnAppMethod)
-}
-
-// TestParse_ErrEmbedGETPath tests the path struct of a GET inherited from an
-// abstract page, which is only checkable once a page's route is known.
-func TestParse_ErrEmbedGETPath(t *testing.T) {
-	_, err := parse(t, "err_embed_get_path")
-	require.NotZero(t, err.Error())
-
-	requireParseErrors(
-		t, err,
-		parser.ErrPathMissingRouteVar,
-		parser.ErrPathFieldNotInRoute,
-	)
 }
 
 // TestParse_Path tests the path parameter: the struct's fields,
@@ -1981,16 +1946,16 @@ func TestParse_ErrDispatch(t *testing.T) {
 	)
 }
 
-// TestParse_SessionOnAbstractPage tests a session-carrying GET declared only on
-// an abstract page. The session type is reachable once the abstract page's
-// handlers have been adopted, and the generated code calls ReadSession.
-func TestParse_SessionOnAbstractPage(t *testing.T) {
-	app, errs := parse(t, "session_abstract")
+// TestParse_SessionOnStreamEmbed tests the session-carrying stream hooks and
+// event handler declared only on a stream embed. The session type is
+// reachable once the page has adopted them.
+func TestParse_SessionOnStreamEmbed(t *testing.T) {
+	app, errs := parse(t, "session_stream_embed")
 	require := require.New(t)
 	requireParseErrors(t, errs /*none*/)
 	require.NotNil(app)
 	require.NotNil(app.Session)
-	require.Equal("datapagestest/fixture/session_abstract.SessionData",
+	require.Equal("datapagestest/fixture/session_stream_embed.SessionData",
 		app.Session.Data.Resolved.String())
 
 	pages := map[string]*model.Page{}
@@ -1998,29 +1963,17 @@ func TestParse_SessionOnAbstractPage(t *testing.T) {
 		pages[p.TypeName] = p
 	}
 
-	// Every session-carrying shape collectSessionType reads, adopted from an
-	// abstract page.
+	// Every session-carrying shape a stream embed takes, adopted by the page.
 	index := pages["PageIndex"]
 	require.NotNil(index)
 	require.NotNil(index.GET)
-	require.NotNil(index.GET.InputSession)
+	require.Nil(index.GET.InputSession)
 	require.NotNil(index.StreamOpen)
 	require.NotNil(index.StreamOpen.InputSession)
 	require.NotNil(index.StreamClose)
 	require.NotNil(index.StreamClose.InputSession)
 	require.Len(index.EventHandlers, 1)
 	require.NotNil(index.EventHandlers[0].InputSession)
-
-	auth := pages["PageAuth"]
-	require.NotNil(auth)
-	actions := map[string]*model.Handler{}
-	for _, a := range auth.Actions {
-		actions[a.Name] = a
-	}
-	require.NotNil(actions["SignIn"])
-	require.NotNil(actions["SignIn"].OutputNewSession)
-	require.NotNil(actions["SignOut"])
-	require.NotNil(actions["SignOut"].OutputCloseSession)
 }
 
 // TestParse_Session tests the session parameter and the session data type the
@@ -2310,7 +2263,7 @@ func TestParse_ErrBodyWithSSE(t *testing.T) {
 	)
 }
 
-// TestParse_GETAction tests GET actions on App, on a page and on an abstract page,
+// TestParse_GETAction tests GET actions on App and on a page,
 // and a POST action that returns a datapages.File.
 func TestParse_GETAction(t *testing.T) {
 	app, err := parse(t, "get_action")
@@ -2346,22 +2299,16 @@ func TestParse_GETAction(t *testing.T) {
 	require.NotNil(export.InputSignals)
 	require.NotNil(export.OutputFile)
 
-	// The page keeps its own GET. The GET action of the abstract page it embeds
-	// is one of its actions, not a second GET.
+	// The GET action of the page is one of its actions, not a second GET.
 	p := findPage(app, "PageDoc")
 	require.NotNil(p)
 	require.NotNil(p.GET)
 	require.Empty(p.GET.Name)
 	require.NotNil(p.GET.OutputBody)
-	pageActions := map[string]*model.Handler{}
-	for _, a := range p.Actions {
-		pageActions[a.HTTPMethod+a.Name] = a
-	}
-	require.Len(pageActions, 2)
-	require.NotNil(pageActions["GETExport"])
-	require.NotNil(pageActions["GETExport"].InputSession)
-	require.NotNil(pageActions["GETManual"])
-	require.True(pageActions["GETManual"].IsGETAction())
+	require.Len(p.Actions, 1)
+	require.Equal("Export", p.Actions[0].Name)
+	require.True(p.Actions[0].IsGETAction())
+	require.NotNil(p.Actions[0].InputSession)
 }
 
 // TestParse_ErrGETAction tests the parameters and the return values
@@ -2666,10 +2613,6 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrEventSubjectDerivedType, "app.go", 43, 2},
 			{parser.ErrEventSubjectDerivedType, "app.go", 53, 2},
 			{parser.ErrEventSubjectDerivedType, "app.go", 62, 2},
-		},
-		"err_embed_get_path": {
-			{parser.ErrPathMissingRouteVar, "app.go", 17, 2},
-			{parser.ErrPathFieldNotInRoute, "app.go", 18, 3},
 		},
 		"err_events": {
 			{parser.ErrEventCommMissing, "app.go", 30, 6},
@@ -3118,15 +3061,6 @@ func getHandlerNames(hs []*model.EventHandler) []string {
 	names := make([]string, 0, len(hs))
 	for _, h := range hs {
 		names = append(names, h.Name)
-	}
-	return names
-}
-
-// actionMethodNames returns the Go method names of actions, such as "PUTSave".
-func actionMethodNames(actions []*model.Handler) []string {
-	names := make([]string, 0, len(actions))
-	for _, a := range actions {
-		names = append(names, a.HTTPMethod+a.Name)
 	}
 	return names
 }

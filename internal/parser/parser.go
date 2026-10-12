@@ -68,8 +68,8 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	secondPassEmbeds(&ctx, &errs)
 	thirdPassMethods(&ctx, &errs)
 	collectAssets(&ctx, &errs)
-	// Both run after flattenPages: a session-carrying handler declared on an
-	// abstract page is only reachable from ctx.pages once it has been adopted.
+	// Both run after flattenPages: a session-carrying handler declared on a
+	// stream embed is only reachable from ctx.pages once it has been adopted.
 	flattenPages(&ctx, &errs)
 	collectSessionType(&ctx, &errs)
 	validateEventsNeedSession(&ctx, &errs)
@@ -120,8 +120,8 @@ type parseCtx struct {
 	// for the overlap check an exact map cannot make.
 	eventClaims []eventClaim
 
-	pages     map[string]*model.Page
-	abstracts map[string]*model.AbstractPage
+	pages        map[string]*model.Page
+	streamEmbeds map[string]*model.StreamEmbed
 
 	// recv -> event type name -> first handler position
 	seenEvHandlerByRecv map[string]map[string]token.Pos
@@ -146,7 +146,7 @@ func newParseCtx(pkg *packages.Package) parseCtx {
 		foreignEvents:       map[string]bool{},
 		eventSubjects:       map[string]string{},
 		pages:               map[string]*model.Page{},
-		abstracts:           map[string]*model.AbstractPage{},
+		streamEmbeds:        map[string]*model.StreamEmbed{},
 		seenEvHandlerByRecv: map[string]map[string]token.Pos{},
 		handlerOutputs:      map[*model.Handler][]*model.Output{},
 		basePos:             earliestPkgPos(pkg),
@@ -288,10 +288,10 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 			continue
 		}
 
-		// Pages / abstracts are structs only.
+		// Pages and stream embeds are structs only.
 		// State types are detected usage-driven on the first handler that
 		// accepts datapages.State[SomeType], not by name.
-		firstPassPageOrAbstractType(ctx, errs, name, ts)
+		firstPassPageOrStreamEmbed(ctx, errs, name, ts)
 	}
 }
 
@@ -705,7 +705,7 @@ func checkTypeParams(ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec)
 		if !ok {
 			return
 		}
-		// An abstract page is a struct carrying App *App.
+		// A stream embed is a struct carrying App *App.
 		generated = structinspect.HasRequiredAppField(st, ctx.pkg.TypesInfo)
 	}
 	if !generated {
@@ -715,7 +715,7 @@ func checkTypeParams(ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec)
 		fmt.Errorf("%w: %s", ErrTypeParams, name))
 }
 
-func firstPassPageOrAbstractType(
+func firstPassPageOrStreamEmbed(
 	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
 ) {
 	st, ok := ts.Type.(*ast.StructType)
@@ -762,11 +762,11 @@ func firstPassPageOrAbstractType(
 		return
 	}
 
-	// Abstract pages still require App *App.
+	// Stream embeds still require App *App.
 	if !structinspect.HasRequiredAppField(st, ctx.pkg.TypesInfo) {
 		return
 	}
-	ctx.abstracts[name] = &model.AbstractPage{
+	ctx.streamEmbeds[name] = &model.StreamEmbed{
 		Expr:     ts.Name,
 		TypeName: name,
 	}
@@ -775,21 +775,21 @@ func firstPassPageOrAbstractType(
 func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
 	for _, pg := range ctx.pages {
 		embedTypes := embeddedFieldTypes(ctx, pg.TypeName)
-		resolveEmbedsForStruct(ctx, errs, pg.TypeName, func(ap *model.AbstractPage) {
-			pg.Embeds = append(pg.Embeds, ap)
-			t, ok := embedTypes[ap.TypeName]
+		resolveEmbedsForStruct(ctx, errs, pg.TypeName, func(se *model.StreamEmbed) {
+			pg.Embeds = append(pg.Embeds, se)
+			t, ok := embedTypes[se.TypeName]
 			if !ok {
 				return
 			}
 			if pg.EmbedTypes == nil {
 				pg.EmbedTypes = map[string]model.Type{}
 			}
-			pg.EmbedTypes[ap.TypeName] = t
+			pg.EmbedTypes[se.TypeName] = t
 		})
 	}
-	for _, ap := range ctx.abstracts {
-		resolveEmbedsForStruct(ctx, errs, ap.TypeName, func(sub *model.AbstractPage) {
-			ap.Embeds = append(ap.Embeds, sub)
+	for _, se := range ctx.streamEmbeds {
+		resolveEmbedsForStruct(ctx, errs, se.TypeName, func(sub *model.StreamEmbed) {
+			se.Embeds = append(se.Embeds, sub)
 		})
 	}
 }
@@ -813,7 +813,7 @@ func embeddedFieldTypes(ctx *parseCtx, typeName string) map[string]model.Type {
 }
 
 func resolveEmbedsForStruct(
-	ctx *parseCtx, errs *Errors, typeName string, add func(*model.AbstractPage),
+	ctx *parseCtx, errs *Errors, typeName string, add func(*model.StreamEmbed),
 ) {
 	ts := ctx.typeSpecByName[typeName]
 	st, ok := ts.Type.(*ast.StructType)
@@ -821,7 +821,7 @@ func resolveEmbedsForStruct(
 		return
 	}
 	for _, emb := range structinspect.EmbeddedTypes(st) {
-		if ap, ok := ctx.abstracts[emb.Name]; ok {
+		if se, ok := ctx.streamEmbeds[emb.Name]; ok {
 			embPos := ctx.pkg.Fset.Position(emb.Pos)
 			switch {
 			case emb.Pointer:
@@ -841,7 +841,7 @@ func resolveEmbedsForStruct(
 			}
 			// Adopted whatever was reported: the page keeps what it inherits,
 			// which is what leaves the rest of the model worth reading.
-			add(ap)
+			add(se)
 			continue
 		}
 		typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
@@ -969,12 +969,21 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			}
 
 			pg, isPage := ctx.pages[recv]
-			ap, isAbs := ctx.abstracts[recv]
-			if !isPage && !isAbs {
+			se, isEmbed := ctx.streamEmbeds[recv]
+			if !isPage && !isEmbed {
 				continue
 			}
 
 			kind, suffix := methodkind.Classify(fd.Name.Name)
+			// A stream embed shares what is the same on every page that embeds it.
+			// A GET renders 1 page, and an action has 1 route, which 1 page can serve.
+			if isEmbed && fd.Name.IsExported() && kind != methodkind.EventHandler &&
+				kind != methodkind.StreamOpenHook && kind != methodkind.StreamCloseHook {
+				errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()),
+					fmt.Errorf("%w: %s.%s",
+						ErrStreamEmbedUnsupportedMethod, recv, fd.Name.Name))
+				continue
+			}
 			if kind == 0 {
 				if fd.Name.IsExported() {
 					errs.ErrAt(
@@ -1000,16 +1009,16 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 
 			switch kind {
 			case methodkind.StreamOpenHook, methodkind.StreamCloseHook:
-				validateAndAttachStreamHook(ctx, errs, recv, fd, pg, ap, kind)
+				validateAndAttachStreamHook(ctx, errs, recv, fd, pg, se, kind)
 			case methodkind.EventHandler:
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
 						fmt.Errorf("%w: %s.%s",
 							validate.ErrEventHandlerNameInvalid, recv, fd.Name.Name))
 				}
-				validateAndAttachEventHandler(ctx, errs, recv, fd, pg, ap, suffix)
+				validateAndAttachEventHandler(ctx, errs, recv, fd, pg, se, suffix)
 			default:
-				attachHTTPHandler(ctx, errs, recv, fd, pg, ap, kind, suffix)
+				attachHTTPHandler(ctx, errs, recv, fd, pg, kind, suffix)
 			}
 		}
 	}
@@ -1021,7 +1030,7 @@ func validateAndAttachEventHandler(
 	recv string,
 	fd *ast.FuncDecl,
 	pg *model.Page,
-	ap *model.AbstractPage,
+	se *model.StreamEmbed,
 	suffix string,
 ) {
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
@@ -1186,7 +1195,7 @@ func validateAndAttachEventHandler(
 	if pg != nil {
 		pg.EventHandlers = append(pg.EventHandlers, h)
 	} else {
-		ap.EventHandlers = append(ap.EventHandlers, h)
+		se.EventHandlers = append(se.EventHandlers, h)
 	}
 }
 
@@ -1196,7 +1205,7 @@ func validateAndAttachStreamHook(
 	recv string,
 	fd *ast.FuncDecl,
 	pg *model.Page,
-	ap *model.AbstractPage,
+	se *model.StreamEmbed,
 	kind methodkind.Kind,
 ) {
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
@@ -1218,9 +1227,9 @@ func validateAndAttachStreamHook(
 		return
 	}
 	if kind == methodkind.StreamOpenHook {
-		ap.StreamOpen = h
+		se.StreamOpen = h
 	} else {
-		ap.StreamClose = h
+		se.StreamClose = h
 	}
 }
 
@@ -1257,7 +1266,6 @@ func attachHTTPHandler(
 	recv string,
 	fd *ast.FuncDecl,
 	pg *model.Page,
-	ap *model.AbstractPage,
 	kind methodkind.Kind,
 	suffix string,
 ) {
@@ -1280,39 +1288,35 @@ func attachHTTPHandler(
 	// [validateRouteConflicts] refuses every action of a page that serves only GET.
 	// No path comment fixes that, and checking the comment or the path parameter
 	// against the route it holds would only add to the report.
-	getOnly := kind.IsAction() && pg != nil && servesOnlyGET(pg.Route)
+	getOnly := kind.IsAction() && servesOnlyGET(pg.Route)
 
 	if kind.IsAction() {
 		r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
 		h.Route = r
 
-		pagePath := ""
-		if pg != nil {
-			pagePath = pg.Route
-		}
 		switch {
 		case getOnly:
 		case !found:
 			errs.ErrAt(pos,
 				&ActionMissingPathCommError{
-					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
+					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
 				})
 		case !valid:
 			errs.ErrAt(pos,
 				&ActionInvalidPathCommError{
-					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
+					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
 				})
 		case routepattern.EndsInWildcard(r):
 			errs.ErrAt(pos, &ActionRouteWildcardError{
 				Recv: recv, MethodName: fd.Name.Name, Route: r,
 			})
-		case pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r):
+		case pg.Route != "" && !actionIsUnderPage(pg.Route, r):
 			errs.ErrAt(pos,
 				&ActionPathNotUnderPageError{
 					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
 				})
 		}
-	} else if kind == methodkind.GETHandler && pg != nil {
+	} else if kind == methodkind.GETHandler {
 		h.Route = pg.Route
 	}
 
@@ -1340,29 +1344,25 @@ func attachHTTPHandler(
 		}
 	}
 
-	if pg != nil {
-		if kind == methodkind.GETHandler {
-			if herr != nil {
-				// Handler parsing failed; attach a minimal GET so the
-				// page is not flagged as missing a GET handler,
-				// but skip output validation and code generation details.
-				pg.GET = &model.HandlerGET{Handler: h}
-			} else {
-				get, getErr := buildHandlerGET(h, outputs)
-				pg.GET = get
-				if getErr != nil {
-					p := resolveErrorPos(getErr, ctx.pkg.Fset, pos)
-					errs.ErrAt(p,
-						fmt.Errorf("%w in %s.%s",
-							unwrapPositioned(getErr), recv, fd.Name.Name))
-				}
-			}
-		} else {
-			pg.Actions = append(pg.Actions, h)
-		}
+	if kind != methodkind.GETHandler {
+		pg.Actions = append(pg.Actions, h)
 		return
 	}
-	ap.Methods = append(ap.Methods, h)
+	if herr != nil {
+		// Handler parsing failed; attach a minimal GET so the
+		// page is not flagged as missing a GET handler,
+		// but skip output validation and code generation details.
+		pg.GET = &model.HandlerGET{Handler: h}
+		return
+	}
+	get, getErr := buildHandlerGET(h, outputs)
+	pg.GET = get
+	if getErr != nil {
+		p := resolveErrorPos(getErr, ctx.pkg.Fset, pos)
+		errs.ErrAt(p,
+			fmt.Errorf("%w in %s.%s",
+				unwrapPositioned(getErr), recv, fd.Name.Name))
+	}
 }
 
 func attachAppAction(
@@ -1442,31 +1442,19 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	// conflicted holds the handlers whose conflict is reported here,
 	// which [reportAmbiguousHandlers] then does not report a second time.
 	conflicted := map[string]bool{}
-	// ownedMethods holds the Go method names the page has so far. A handler of an
-	// embedded type is dropped when its method name is taken, the way a method declared
-	// on a shallower type shadows it in Go. A handler's Name is only its suffix:
-	// keyed by it, POSTSave would drop an embedded PUTSave.
+	// ownedMethods holds the Go method names of the event handlers without an
+	// event type that the page has so far. An embedded one is dropped when its
+	// method name is taken, the way a method declared on a shallower type
+	// shadows it in Go.
 	ownedMethods := map[string]bool{}
 	handledEvents := map[string]string{}
 	handledEventPos := map[string]token.Pos{}
 
-	getOwner := ""             // "page" or abstract type name
-	getOwnerPos := token.NoPos // Embed site for an inherited GET
 	streamOpenOwner := ""
 	streamOpenOwnerPos := token.NoPos
 	streamClosedOwner := ""
 	streamClosedOwnerPos := token.NoPos
 
-	if pg.GET != nil {
-		ownedMethods["GET"] = true
-		getOwner = "page"
-		if pg.GET.Handler != nil && pg.GET.Expr != nil {
-			getOwnerPos = pg.GET.Expr.Pos()
-		}
-	}
-	for _, a := range pg.Actions {
-		ownedMethods[a.HTTPMethod+a.Name] = true
-	}
 	if pg.StreamOpen != nil {
 		streamOpenOwner = "page"
 		if pg.StreamOpen.Expr != nil {
@@ -1490,9 +1478,9 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		}
 	}
 
-	// Queue items carry the embed site position that introduced this abstract.
+	// Queue items carry the embed site position that introduced this stream embed.
 	type qitem struct {
-		ap       *model.AbstractPage
+		se       *model.StreamEmbed
 		embedPos token.Pos
 	}
 
@@ -1500,127 +1488,44 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	pageSt := typeStruct(ctx, pg.TypeName)
 	pageEmbPos := structinspect.EmbeddedFieldPosMap(pageSt)
 	queue := make([]qitem, 0, len(pg.Embeds))
-	for _, ap := range pg.Embeds {
+	for _, se := range pg.Embeds {
 		queue = append(queue, qitem{
-			ap:       ap,
-			embedPos: pageEmbPos[ap.TypeName],
+			se:       se,
+			embedPos: pageEmbPos[se.TypeName],
 		})
 	}
 
 	for len(queue) > 0 {
 		it := queue[0]
 		queue = queue[1:]
-		ap := it.ap
+		se := it.se
 
-		if visited[ap.TypeName] {
+		if visited[se.TypeName] {
 			continue
 		}
-		visited[ap.TypeName] = true
+		visited[se.TypeName] = true
 
-		// A child carries the position of its embed site in the parent abstract,
+		// A child carries the position of its embed site in the parent stream embed,
 		// which is where a conflict it introduces is reported.
-		apSt := typeStruct(ctx, ap.TypeName)
-		apEmbPos := structinspect.EmbeddedFieldPosMap(apSt)
-		for _, child := range ap.Embeds {
+		seSt := typeStruct(ctx, se.TypeName)
+		seEmbPos := structinspect.EmbeddedFieldPosMap(seSt)
+		for _, child := range se.Embeds {
 			queue = append(queue, qitem{
-				ap:       child,
-				embedPos: apEmbPos[child.TypeName],
+				se:       child,
+				embedPos: seEmbPos[child.TypeName],
 			})
 		}
 
-		for _, m := range ap.Methods {
-			if m.HTTPMethod == "GET" && !m.IsGETAction() {
-				// Page's own GET always wins; no conflict in that case.
-				if getOwner == "page" {
-					continue
-				}
-				// First embedded GET wins (record embed site).
-				if getOwner == "" {
-					// A GET that failed to parse is adopted bare, as a page's
-					// own GET is. Its errors are reported where it is declared,
-					// and its outputs and path were never read.
-					get := &model.HandlerGET{Handler: m}
-					var getErr error
-					outputs, parsed := ctx.handlerOutputs[m]
-					if parsed {
-						get, getErr = buildHandlerGET(m, outputs)
-					}
-					// An abstract page carries no route of its own,
-					// so the handler is only complete once a page adopts it.
-					// The handler is copied first: pages with different routes may
-					// embed the same abstract, and the generator reads the
-					// route back to pick the path accessors.
-					hc := *get.Handler
-					hc.Route = pg.Route
-					get.Handler = &hc
-					pg.GET = get
-					switch {
-					case !parsed:
-					case getErr != nil:
-						fallback := ctx.pkg.Fset.Position(m.Expr.Pos())
-						p := resolveErrorPos(getErr, ctx.pkg.Fset, fallback)
-						errs.ErrAt(p, fmt.Errorf("%w in %s.%s",
-							unwrapPositioned(getErr), ap.TypeName, m.Name))
-					case hc.Route != "":
-						if err := paramvalidation.ValidatePathAgainstRoute(
-							&hc, ap.TypeName, "GET",
-						); err != nil {
-							p := ctx.pkg.Fset.Position(m.Expr.Pos())
-							if hc.InputPath != nil {
-								p = ctx.pkg.Fset.Position(hc.InputPath.Expr.Pos())
-							}
-							reportErrorsWithFset(errs, ctx.pkg.Fset, p, err)
-						}
-					}
-					getOwner = ap.TypeName
-					getOwnerPos = it.embedPos
-					continue
-				}
-				if getOwner == ap.TypeName {
-					continue
-				}
-
-				// Conflicting embedded GETs -> report at embed site of the second one.
-				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
-				if it.embedPos != token.NoPos {
-					pos = ctx.pkg.Fset.Position(it.embedPos)
-				}
-
-				prevPos := token.Position{}
-				if getOwnerPos != token.NoPos {
-					prevPos = ctx.pkg.Fset.Position(getOwnerPos)
-				}
-
-				conflicted["GET"] = true
-				errs.ErrAt(pos, fmt.Errorf(
-					"%w: %s inherits %s and %s which both define GET (previous at %s)",
-					ErrPageConflictingGETEmbed,
-					pg.TypeName,
-					getOwner,
-					ap.TypeName,
-					prevPos,
-				))
-				continue
-			}
-
-			if ownedMethods[m.HTTPMethod+m.Name] {
-				continue
-			}
-			ownedMethods[m.HTTPMethod+m.Name] = true
-			pg.Actions = append(pg.Actions,
-				m)
-		}
-
-		if ap.StreamOpen != nil {
+		if se.StreamOpen != nil {
 			switch streamOpenOwner {
 			case "":
-				streamOpenOwner = ap.TypeName
-				if ap.StreamOpen.Expr != nil {
-					streamOpenOwnerPos = ap.StreamOpen.Expr.Pos()
+				streamOpenOwner = se.TypeName
+				if se.StreamOpen.Expr != nil {
+					streamOpenOwnerPos = se.StreamOpen.Expr.Pos()
 				}
-				pg.StreamOpen = ap.StreamOpen
-			case "page", ap.TypeName:
-				// Page-owned or already inherited from the same abstract wins.
+				pg.StreamOpen = se.StreamOpen
+			case "page", se.TypeName:
+				// Page-owned or already inherited from the same stream embed wins.
 			default:
 				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
 				if it.embedPos != token.NoPos {
@@ -1637,22 +1542,22 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					ErrStreamHookDuplicateEmbed,
 					pg.TypeName,
 					streamOpenOwner,
-					ap.TypeName,
+					se.TypeName,
 					prevPos,
 				))
 			}
 		}
 
-		if ap.StreamClose != nil {
+		if se.StreamClose != nil {
 			switch streamClosedOwner {
 			case "":
-				streamClosedOwner = ap.TypeName
-				if ap.StreamClose.Expr != nil {
-					streamClosedOwnerPos = ap.StreamClose.Expr.Pos()
+				streamClosedOwner = se.TypeName
+				if se.StreamClose.Expr != nil {
+					streamClosedOwnerPos = se.StreamClose.Expr.Pos()
 				}
-				pg.StreamClose = ap.StreamClose
-			case "page", ap.TypeName:
-				// Page-owned or already inherited from the same abstract wins.
+				pg.StreamClose = se.StreamClose
+			case "page", se.TypeName:
+				// Page-owned or already inherited from the same stream embed wins.
 			default:
 				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
 				if it.embedPos != token.NoPos {
@@ -1669,13 +1574,13 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					ErrStreamHookDuplicateEmbed,
 					pg.TypeName,
 					streamClosedOwner,
-					ap.TypeName,
+					se.TypeName,
 					prevPos,
 				))
 			}
 		}
 
-		for _, h := range ap.EventHandlers {
+		for _, h := range se.EventHandlers {
 			ev := h.EventTypeName
 			if ev == "" {
 				if ownedMethods["On"+h.Name] {
@@ -1692,7 +1597,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					// The page overrides this inherited handler; skip.
 					continue
 				}
-				if prevOwner == ap.TypeName {
+				if prevOwner == se.TypeName {
 					continue
 				}
 
@@ -1710,14 +1615,14 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					ErrEvHandDuplicateEmbed,
 					pg.TypeName,
 					prevOwner,
-					ap.TypeName,
+					se.TypeName,
 					ev,
 					prevPos,
 				))
 				continue
 			}
 
-			handledEvents[ev] = ap.TypeName
+			handledEvents[ev] = se.TypeName
 			if h.Expr != nil {
 				handledEventPos[ev] = h.Expr.Pos()
 			}
@@ -1733,11 +1638,9 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 // than 1 embedded field at the same depth. Generated code calls a handler as
 // a method of the page, which Go refuses as an ambiguous selector.
 //
-// [flattenPage] keeps the first action of a method name and visits each
-// abstract page once. It therefore accepts 2 abstracts defining the same action
-// at the same depth, and 1 abstract reached through 2 embedded fields.
-// [types.LookupFieldOrMethod] applies Go's selector rules, which refuse both
-// and let a shallower method shadow a deeper one.
+// [flattenPage] visits each stream embed once, which accepts 1 stream embed
+// reached through 2 embedded fields. [types.LookupFieldOrMethod] applies Go's
+// selector rules, which refuse it.
 func reportAmbiguousHandlers(
 	ctx *parseCtx, errs *Errors, pg *model.Page, conflicted map[string]bool,
 ) {
@@ -1763,12 +1666,6 @@ func reportAmbiguousHandlers(
 				"at the same depth",
 			ErrPageAmbiguousEmbed, pg.TypeName, name,
 		))
-	}
-	if pg.GET != nil {
-		check(pg.GET.Expr)
-	}
-	for _, h := range pg.Actions {
-		check(h.Expr)
 	}
 	if pg.StreamOpen != nil {
 		check(pg.StreamOpen.Expr)
@@ -1868,23 +1765,23 @@ func finalizePages(ctx *parseCtx) {
 	}
 }
 
-// finalizeStates binds each page and each abstract page to its single state type.
+// finalizeStates binds each page and each stream embed to its single state type.
 // Handler-driven registration populates ctx.app.States on demand in parseStateParam;
 // this pass resolves the final bindings and flags multi-state conflicts.
 func finalizeStates(ctx *parseCtx, errs *Errors) {
 	if len(ctx.app.States) == 0 {
 		return
 	}
-	for _, name := range slices.Sorted(maps.Keys(ctx.abstracts)) {
-		ap := ctx.abstracts[name]
-		names := collectAbstractStateNames(ap)
+	for _, name := range slices.Sorted(maps.Keys(ctx.streamEmbeds)) {
+		se := ctx.streamEmbeds[name]
+		names := collectStreamEmbedStateNames(se)
 		if len(names) > 1 {
-			pos := ctx.pkg.Fset.Position(ap.Expr.Pos())
-			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateConflict, ap.TypeName))
+			pos := ctx.pkg.Fset.Position(se.Expr.Pos())
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateConflict, se.TypeName))
 			continue
 		}
 		for n := range names {
-			ap.State = ctx.app.States[n]
+			se.State = ctx.app.States[n]
 		}
 	}
 	for _, pg := range ctx.pages {
@@ -2017,19 +1914,16 @@ func checkAppActionStates(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-func collectAbstractStateNames(ap *model.AbstractPage) map[string]struct{} {
+func collectStreamEmbedStateNames(se *model.StreamEmbed) map[string]struct{} {
 	out := map[string]struct{}{}
 	add := func(h *model.Handler) {
 		if h != nil && h.InputState != nil {
 			out[h.InputState.StateTypeName] = struct{}{}
 		}
 	}
-	for _, h := range ap.Methods {
-		add(h)
-	}
-	add(ap.StreamOpen)
-	add(ap.StreamClose)
-	for _, eh := range ap.EventHandlers {
+	add(se.StreamOpen)
+	add(se.StreamClose)
+	for _, eh := range se.EventHandlers {
 		if eh.InputState != nil {
 			out[eh.InputState.StateTypeName] = struct{}{}
 		}

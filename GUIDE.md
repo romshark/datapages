@@ -82,7 +82,7 @@ Start with the generated `PageIndex`. Add 1 feature at a time and let `datapages
 
 As the page model grows, use these reference sections:
 
-- [Abstract page types](SPECIFICATION.md#abstract-page-types) for shared page behavior.
+- [Stream embeds](SPECIFICATION.md#stream-embeds) for event handlers and stream hooks that pages share.
 - [`body`](SPECIFICATION.md#return-value-body-datapagescomponent) and [`head`](SPECIFICATION.md#return-value-head-datapageshead) for rendered output.
 - [`redirect`](SPECIFICATION.md#return-value-redirect-datapagesredirect) for navigation.
 - [Background streaming](SPECIFICATION.md#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming) and [refresh control](SPECIFICATION.md#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden)

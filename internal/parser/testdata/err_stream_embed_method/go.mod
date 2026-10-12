@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_embed_get_path
+module datapagestest/fixture/err_stream_embed_method
 
 go 1.27.2
 

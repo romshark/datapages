@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_embed_conflicting_get
+module datapagestest/fixture/session_stream_embed
 
 go 1.27.2
 

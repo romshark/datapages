@@ -52,10 +52,10 @@ func toSnakeCase(s string) string {
 //   - ErrSignatureMultiErrRet: message states to remove the duplicate
 //   - ErrSignatureEvHandReturnMustBeError: message names the required return type
 //   - ErrPageHasExtraFields: message states to remove the fields
-//   - ErrPageConflictingGETEmbed: message names the conflicting embedded types
 //   - ErrPageAmbiguousEmbed: message identifies the page and the method
 //   - ErrPageNameInvalid: naming rule is clear from valid examples
 //   - ErrAppUnsupportedMethod: message names what App takes
+//   - ErrStreamEmbedUnsupportedMethod: message names what a stream embed takes
 //   - ErrPageNotStruct: message names the required type form
 //   - ErrTypeParams: message names the type and what it may not have
 //   - ErrActionNameMissing: message states a name is required
@@ -636,7 +636,7 @@ func Suggest(err error) string {
 
 	case errors.Is(err, parser.ErrStateConflict):
 		return "fix: Reference 1 state type from every handler of the page, " +
-			"the handlers of embedded abstract pages included"
+			"the handlers of stream embeds included"
 
 	case errors.Is(err, parser.ErrStateAppActionUnbound):
 		return "fix: Bind the state type on a page, " +
@@ -670,7 +670,7 @@ func pageTypePath(typeName string) string {
 // actionPath derives a suggested route for the action method of recv below pagePath,
 // the route of its page. "/user/{name}" and "POSTFollow" -> "/user/{name}/follow".
 // A pagePath that is empty or does not start with "/" is replaced with the route
-// [pageTypePath] suggests for recv, which is "/" for App and abstract pages.
+// [pageTypePath] suggests for recv, which is "/" for App.
 func actionPath(pagePath, recv, method string) string {
 	if !strings.HasPrefix(pagePath, "/") {
 		pagePath = pageTypePath(recv)

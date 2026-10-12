@@ -688,7 +688,7 @@ func TestSuggest(t *testing.T) {
 		"ErrStateConflict": {
 			err: parser.ErrStateConflict,
 			want: "fix: Reference 1 state type from every handler of the " +
-				"page, the handlers of embedded abstract pages included",
+				"page, the handlers of stream embeds included",
 		},
 
 		"ErrStateAppActionUnbound": {

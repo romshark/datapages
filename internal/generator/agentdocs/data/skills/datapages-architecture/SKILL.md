@@ -125,8 +125,9 @@ Every page must also render correctly from a plain `GET`.
 | route | owner |
 | --- | --- |
 | Serves 1 page | That page type, value receiver. |
-| Called from several pages | `*App`. An action has 1 absolute route, so embedding it 2 times conflicts. |
-| Shared `GET`, `On` or stream hook | A non-`Page` type with `App *App`, embedded in each page. |
+| Called from several pages | `*App`. A stream embed cannot declare actions. |
+| Shared `On` or stream hook | A stream embed, a non-`Page` type with `App *App` embedded in each page. |
+| Same `GET` on several pages | Each page's own `GET`, calling a shared function. |
 
 Keep an app action stateless unless every calling page uses the same `State[T]` type. A state type mismatch returns 409.
 

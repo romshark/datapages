@@ -35,27 +35,22 @@ type EventD struct {
 	Payload string `json:"p"`
 }
 
-// AbstractLevel1 defines OnEventA and GET
-type AbstractLevel1 struct{ App *App }
+// EmbedLevel1 defines OnA.
+type EmbedLevel1 struct{ App *App }
 
-func (AbstractLevel1) GET(r *http.Request) (body datapages.Component, err error) {
-	return nil, nil
-}
-
-func (AbstractLevel1) OnA(
+func (EmbedLevel1) OnA(
 	event EventA, sse datapages.SSE,
 ) error {
 	return nil
 }
 
-// AbstractLevel2 embeds AbstractLevel1 and defines OnEventB.
-// It also overrides GET? No, let's keep it.
-type AbstractLevel2 struct {
+// EmbedLevel2 embeds EmbedLevel1 and defines OnB.
+type EmbedLevel2 struct {
 	App *App
-	AbstractLevel1
+	EmbedLevel1
 }
 
-func (AbstractLevel2) OnB(
+func (EmbedLevel2) OnB(
 	event EventB, sse datapages.SSE,
 ) error {
 	return nil
@@ -63,15 +58,18 @@ func (AbstractLevel2) OnB(
 
 // PageConcrete is /concrete
 //
-// This page embeds AbstractLevel2.
+// This page embeds EmbedLevel2.
 // It inherits:
-// - GET (from Level1)
 // - OnA (from Level1)
 // - OnB (from Level2)
-// It defines OnC.
+// It defines GET and OnC.
 type PageConcrete struct {
 	App *App
-	AbstractLevel2
+	EmbedLevel2
+}
+
+func (PageConcrete) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
 }
 
 func (PageConcrete) OnC(
@@ -82,11 +80,11 @@ func (PageConcrete) OnC(
 
 // PageOverride is /override
 //
-// This page embeds AbstractLevel1.
+// This page embeds EmbedLevel1.
 // It overrides OnA.
 type PageOverride struct {
 	App *App
-	AbstractLevel1
+	EmbedLevel1
 }
 
 func (PageOverride) GET(r *http.Request) (body datapages.Component, err error) {
@@ -102,12 +100,12 @@ func (PageOverride) OnA(
 
 // PageOverrideEvent is /override-event
 //
-// This page embeds AbstractLevel1.
+// This page embeds EmbedLevel1.
 // It handles EventA with a DIFFERENT method name.
 // Since PageOverrideEvent handles EventA, proper flattening should ignore Level1's handler for EventA.
 type PageOverrideEvent struct {
 	App *App
-	AbstractLevel1
+	EmbedLevel1
 }
 
 func (PageOverrideEvent) GET(r *http.Request) (body datapages.Component, err error) {
@@ -120,10 +118,10 @@ func (PageOverrideEvent) OnNewA(
 	return nil
 }
 
-// AbstractLevel3 defines OnD.
-type AbstractLevel3 struct{ App *App }
+// EmbedLevel3 defines OnD.
+type EmbedLevel3 struct{ App *App }
 
-func (AbstractLevel3) OnD(
+func (EmbedLevel3) OnD(
 	event EventD, sse datapages.SSE,
 ) error {
 	return nil
@@ -131,59 +129,16 @@ func (AbstractLevel3) OnD(
 
 // PageMulti is /multi
 //
-// This page embeds AbstractLevel1 and AbstractLevel3.
+// This page embeds EmbedLevel1 and EmbedLevel3.
 // It inherits:
-// - GET (from Level1)
 // - OnA (from Level1)
 // - OnD (from Level3)
 type PageMulti struct {
 	App *App
-	AbstractLevel1
-	AbstractLevel3
+	EmbedLevel1
+	EmbedLevel3
 }
 
-// Saver defines the action suffix Save for 2 HTTP methods.
-type Saver struct{ App *App }
-
-// POSTSave is /verbs/save
-func (Saver) POSTSave(r *http.Request) error { return nil }
-
-// PUTSave is /verbs/save
-func (Saver) PUTSave(r *http.Request) error { return nil }
-
-// PageVerbs is /verbs
-//
-// This page embeds Saver and shadows its POSTSave.
-// It keeps Saver's PUTSave, which has the same suffix and another method.
-type PageVerbs struct {
-	App *App
-	Saver
-}
-
-func (PageVerbs) GET(r *http.Request) (body datapages.Component, err error) {
-	return nil, nil
-}
-
-// POSTSave is /verbs/save
-func (PageVerbs) POSTSave(r *http.Request) error { return nil }
-
-// Archiver defines the action suffix Archive for 2 HTTP methods.
-type Archiver struct{ App *App }
-
-// POSTArchive is /archive/archive
-func (Archiver) POSTArchive(r *http.Request) error { return nil }
-
-// DELETEArchive is /archive/archive
-func (Archiver) DELETEArchive(r *http.Request) error { return nil }
-
-// PageArchive is /archive
-//
-// This page embeds Archiver and keeps both of its actions.
-type PageArchive struct {
-	App *App
-	Archiver
-}
-
-func (PageArchive) GET(r *http.Request) (body datapages.Component, err error) {
+func (PageMulti) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
