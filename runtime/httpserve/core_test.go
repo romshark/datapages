@@ -456,6 +456,7 @@ func TestBuildDefaults(t *testing.T) {
 // TestDatastarJSOption tests that a custom script URL replaces the
 // bundled one in the HTML prefix, which is where every page picks it up.
 // The URL is HTML-escaped there: RFC 3986 allows & and ' in it.
+// The tag is HTMLDatastarScript, which WriteHTML writes after a head prologue.
 func TestDatastarJSOption(t *testing.T) {
 	t.Parallel()
 
@@ -470,7 +471,8 @@ func TestDatastarJSOption(t *testing.T) {
 			c := mustCore(t, datapages.ServerConfig{DatastarJS: tc.src}, "")
 			c.Build()
 
-			require.Contains(t, c.HTMLPrefix(), tc.want)
+			require.Equal(t, c.HTMLPrefix(), c.HTMLHead()+c.HTMLDatastarScript())
+			require.Contains(t, c.HTMLDatastarScript(), tc.want)
 		})
 	}
 }
