@@ -29,8 +29,8 @@ github.com/aymanbagabas/go-udiff v0.4.0 h1:TKnLPh7IbnizJIBKFWa9mKayRUBQ9Kh1BPCk6
 github.com/aymanbagabas/go-udiff v0.4.0/go.mod h1:0L9PGwj20lrtmEMeyw4WKJ/TMyDtvAoK9bf2u/mNo3w=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
-github.com/bmatcuk/doublestar/v4 v4.10.2 h1:eF7W7HWKg3z9NrWV9pTLnNeoXaqq3Tq9DNKXVMfoCnw=
-github.com/bmatcuk/doublestar/v4 v4.10.2/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
+github.com/bmatcuk/doublestar/v4 v4.10.3 h1:1UIv1+fqH3++ViVkpnaPTB+Pi1UHycnPFAq14zgK+gI=
+github.com/bmatcuk/doublestar/v4 v4.10.3/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
 github.com/catppuccin/go v0.3.0 h1:d+0/YicIq+hSTo5oPuRi5kOpqkVA5tAsU6dNhvRu+aY=
 github.com/catppuccin/go v0.3.0/go.mod h1:8IHJuMGaUUjQM82qBrGNBv7LFq6JI3NnQCF6MOlZjpc=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
@@ -211,10 +211,10 @@ github.com/prometheus/procfs v0.22.0 h1:6q9+/JL9IKAPbCmBrv9n5O5Ty3NKnciV5X7YGw0o
 github.com/prometheus/procfs v0.22.0/go.mod h1:CvmFr/GVhIjIvWJZW3tgkODBQMRIf0EyWMQLHCHab58=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
-github.com/romshark/templier v0.13.1 h1:GtHtKAWm1ZmvnGHKdOyeTm0nWxWqxzEb6kwR2mxdysM=
-github.com/romshark/templier v0.13.1/go.mod h1:DrdvVbdNL4iLw5CzHDUdmwWV0bE01NNoH985xYyyaYs=
-github.com/romshark/yamagiconf v1.1.1 h1:6cDXJ8O9x3Ywz2DCtblIPTTyS+comqyTkv2VwpWuIkg=
-github.com/romshark/yamagiconf v1.1.1/go.mod h1:ZFFtL+wAAcjWfgKh2tJqiWi9zjT3Bbf1dFmoJH8nWs8=
+github.com/romshark/templier v0.13.2 h1:HIZW01UlJ38x/fLnUUJTet4MLaizxYDH+0or5LT0U78=
+github.com/romshark/templier v0.13.2/go.mod h1:t1+7o+xyhRY8TmnrsRSYTDj8Eh77YAt78eNjqCciUM0=
+github.com/romshark/yamagiconf v1.1.2 h1:FmjefhGiJ0/3QxfQ/vU25/qM+io3V+bF/Rn+mcTqxQo=
+github.com/romshark/yamagiconf v1.1.2/go.mod h1:LCCtyxJdmFyES7TOS7EIVbPboPsrKuRBtkoPdGrlu0Q=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/shirou/gopsutil/v4 v4.26.9 h1:CaBo/hBFqvlJoLvAQEKdHdf5GD97/MN2ACfyv63+2Ig=
 github.com/shirou/gopsutil/v4 v4.26.9/go.mod h1:nKH+8wX2zxr/mDbsR+AAy6Qd2z4ZOQ7wfQaEp+yrYmg=

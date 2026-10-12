@@ -9,8 +9,8 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.54.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/romshark/templier v0.13.1
-	github.com/romshark/yamagiconf v1.1.1
+	github.com/romshark/templier v0.13.2
+	github.com/romshark/yamagiconf v1.1.2
 	github.com/spf13/cobra v1.10.2
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/stretchr/testify v1.12.1
@@ -31,7 +31,7 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymanbagabas/go-udiff v0.4.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.2 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.3 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
