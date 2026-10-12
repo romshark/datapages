@@ -2627,18 +2627,14 @@ func loadPackage(appPackagePath string) (*packages.Package, error) {
 		return loadSingle(cfg, ".")
 	}
 
-	// A path that does not exist is loaded as an import pattern instead.
-	pattern := appPackagePath
+	// go list rejects an absolute pattern. The parent directory holds
+	// another package, which would be parsed as the app.
 	if filepath.IsAbs(appPackagePath) {
-		// go list rejects an absolute pattern, load its directory instead.
-		dir := filepath.Dir(appPackagePath)
-		if st, err := os.Stat(dir); err == nil && st.IsDir() {
-			cfg.Dir = dir
-			return loadSingle(cfg, ".")
-		}
+		return nil, fmt.Errorf("%w: %s", ErrAppDirMissing, appPackagePath)
 	}
 
-	return loadSingle(cfg, pattern)
+	// A relative path that is no directory is loaded as an import pattern.
+	return loadSingle(cfg, appPackagePath)
 }
 
 func loadSingle(

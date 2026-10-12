@@ -18,6 +18,7 @@ import (
 )
 
 var (
+	ErrAppDirMissing           = errors.New("app package directory does not exist")
 	ErrAppMissingTypeApp       = errors.New(`missing required type "App"`)
 	ErrAppMissingPageIndex     = errors.New(`missing required page type "PageIndex"`)
 	ErrSignatureMissingReq     = errors.New(`missing the *http.Request parameter`)

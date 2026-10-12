@@ -1,6 +1,7 @@
 package serverscan_test
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,42 @@ func genPkg(header bool) string {
 		h = serverscan.GeneratedHeader + "\n\n"
 	}
 	return h + "package datapagesgen\n\ntype Server struct{}\n"
+}
+
+// TestCheckAppDir tests the report of an app package whose directory doesn't exist:
+// the default app of a module without a datapages.NewServer call, with the fix,
+// and the app package of a call, at the call.
+func TestCheckAppDir(t *testing.T) {
+	root := write(t, map[string]string{"web/web.go": "package web\n"})
+	call := serverscan.Call{
+		Pos: token.Position{Filename: "cmd/site/main.go", Line: 12, Column: 3},
+	}
+	for name, tc := range map[string]struct {
+		app  serverscan.App
+		want string
+	}{
+		"exists": {app: serverscan.App{Dir: "web"}},
+		"default": {
+			app: serverscan.App{Dir: "app"},
+			want: "app: no such directory, the default app package " +
+				"of a module without a datapages.NewServer call\n" +
+				"  fix: run datapages init",
+		},
+		"from a call": {
+			app: serverscan.App{Dir: "site", Calls: []serverscan.Call{call}},
+			want: "cmd/site/main.go:12:3: " +
+				"the app package site of datapages.NewServer does not exist",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := serverscan.CheckAppDir(root, tc.app)
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.want)
+		})
+	}
 }
 
 // TestScan tests finding the app package and the generated package from the

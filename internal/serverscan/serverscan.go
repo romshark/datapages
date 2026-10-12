@@ -350,6 +350,29 @@ func CheckSessionData(a App, hasSession bool) error {
 	return errs.Err()
 }
 
+// CheckAppDir reports an app package whose directory does not exist,
+// which leaves nothing to parse or generate.
+// A caller checks it before it writes anything, stubs included.
+//
+// [Scan] doesn't report it, because init scans
+// a module before it writes the app package.
+func CheckAppDir(moduleDir string, a App) error {
+	st, err := os.Stat(filepath.Join(moduleDir, a.Dir))
+	if err == nil && st.IsDir() {
+		return nil
+	}
+	var errs Errors
+	if len(a.Calls) == 0 {
+		errs.addf(token.Position{Filename: a.Dir}, "no such directory, "+
+			"the default app package of a module without a datapages.NewServer call")
+		errs.hint("fix: run datapages init")
+		return errs.Err()
+	}
+	errs.addf(a.Calls[0].Pos,
+		"the app package %s of datapages.NewServer does not exist", a.Dir)
+	return errs.Err()
+}
+
 // checkDestination refuses a destination that datapages did not write.
 // A package that does not exist yet passes, the first run is what creates it.
 func checkDestination(moduleDir string, a App, errs *Errors) {

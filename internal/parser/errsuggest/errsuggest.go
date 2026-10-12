@@ -57,6 +57,7 @@ func toSnakeCase(s string) string {
 //   - ErrAppUnsupportedMethod: message names what App takes
 //   - ErrStreamEmbedUnsupportedMethod: message names what a stream embed takes
 //   - ErrPageNotStruct: message names the required type form
+//   - ErrAppDirMissing: the CLI checks the directory first and gives the fix
 //   - ErrTypeParams: message names the type and what it may not have
 //   - ErrActionNameMissing: message states a name is required
 //   - ErrActionNameInvalid: naming rule is clear from valid examples

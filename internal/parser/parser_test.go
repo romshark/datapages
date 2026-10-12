@@ -1583,6 +1583,20 @@ func TestParse_ErrTypeCheck(t *testing.T) {
 	require.Contains(t, e.Error(), "undefined: undefinedHelper")
 }
 
+// TestParse_ErrAppDirMissing tests an app package directory that does not exist
+// in a module whose root holds a package. The missing directory is reported,
+// and the root package is not parsed as the app.
+func TestParse_ErrAppDirMissing(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
+		[]byte("module example.com/m\n\ngo 1.27.2\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "lib.go"),
+		[]byte("package lib\n"), 0o644))
+
+	_, errs := parser.Parse(filepath.Join(dir, "app"))
+	requireParseErrors(t, errs, parser.ErrAppDirMissing)
+}
+
 // TestLoadPackageDropsDependencyBodies tests that the load parses the files of
 // GOROOT and of the module cache without function bodies, and keeps those of
 // the app package, which the parser reads, and of a module replaced by a local
