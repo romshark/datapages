@@ -71,7 +71,9 @@ func Test() error {
 // the acceptance cases run.
 //
 // The second number is collected inside the case modules under
-// internal/acceptance, where the generated packages live.
+// internal/acceptance, where the generated packages live. The profile of the
+// cases also covers the datapages packages generated code imports, which the
+// second number leaves out.
 func Coverage() error {
 	dir, err := os.MkdirTemp("", "datapages-coverage")
 	if err != nil {
@@ -80,7 +82,7 @@ func Coverage() error {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	generatorProfile := filepath.Join(dir, "generator.out")
-	generatedProfile := filepath.Join(dir, "generated.out")
+	acceptanceProfile := filepath.Join(dir, "acceptance.out")
 
 	if err := run(
 		"go", "test", "./internal/generator/...", "-count=1",
@@ -90,16 +92,17 @@ func Coverage() error {
 	}
 	if err := run(
 		"go", "test", "./"+acceptanceRoot+"/", "-count=1",
-		"-args", "-cover.out="+generatedProfile,
+		"-args", "-cover.out="+acceptanceProfile,
 	); err != nil {
 		return err
 	}
 
-	generatorPct, err := coverProfilePercent(generatorProfile)
+	generatorPct, err := coverProfilePercent(generatorProfile, "")
 	if err != nil {
 		return err
 	}
-	generatedPct, err := coverProfilePercent(generatedProfile)
+	generatedPct, err := coverProfilePercent(acceptanceProfile,
+		"github.com/romshark/datapages/"+acceptanceRoot+"/")
 	if err != nil {
 		return err
 	}

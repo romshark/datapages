@@ -116,6 +116,8 @@ jobs:
         run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
 
       # The root entry tests the packages without an entry of their own.
+      # The acceptance cases run in modules of their own: TestMain merges
+      # their profiles into the file -cover.out names.
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
         env:
@@ -125,7 +127,11 @@ jobs:
             PACKAGES=$(go list ./... | grep -vxE \
               'github.com/romshark/datapages/internal/(parser|generator|cmd|acceptance)')
           fi
-          go test -timeout 15m -covermode=atomic -coverprofile=coverage.out $PACKAGES
+          if [ "${{ matrix.project.name }}" = acceptance ]; then
+            go test -timeout 15m $PACKAGES -args -cover.out="$PWD/coverage.out"
+          else
+            go test -timeout 15m -covermode=atomic -coverprofile=coverage.out $PACKAGES
+          fi
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@v2.3.8

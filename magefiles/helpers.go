@@ -60,12 +60,14 @@ func hasTemplFiles(dir string) bool {
 	return found
 }
 
-// coverProfilePercent reports the share of covered statements in a Go coverage profile.
+// coverProfilePercent reports the share of covered statements in a Go coverage
+// profile, counting only the files whose import path starts with pkgPrefix.
+// An empty pkgPrefix counts every file.
 //
 // The same block is listed once per test binary that reported it.
 // Blocks are merged by location the way "go tool cover" merges them.
 // Counts add up and statements are counted once.
-func coverProfilePercent(profile string) (float64, error) {
+func coverProfilePercent(profile, pkgPrefix string) (float64, error) {
 	b, err := os.ReadFile(profile)
 	if err != nil {
 		return 0, fmt.Errorf("reading %s: %w", profile, err)
@@ -84,6 +86,9 @@ func coverProfilePercent(profile string) (float64, error) {
 		fields := strings.Fields(line)
 		if len(fields) != 3 {
 			return 0, fmt.Errorf("malformed profile line %q", line)
+		}
+		if !strings.HasPrefix(fields[0], pkgPrefix) {
+			continue
 		}
 		numStmt, err := strconv.Atoi(fields[1])
 		if err != nil {
