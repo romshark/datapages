@@ -32,27 +32,29 @@ from the "watch" section of datapages.yaml; sane defaults are used
 if the section is missing.
 
 1 dev server runs 1 application. A module that builds more than 1
-needs --app to say which, naming the app package: "datapages watch --app frontend".`,
+needs --app to say which, the directory of the app package relative to
+the module root, as in "datapages watch --app app/frontend".`,
 	}
 	host := cmd.Flags().String("host", "localhost:7331",
 		"Host address for the dev server proxy")
 	app := cmd.Flags().String("app", "",
-		"App package to run, required when the module builds more than 1")
+		"Directory of the app package to run, relative to the module root, "+
+			"required when the module builds more than 1")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		return runWatch(c.Context(), *host, *app, stderr, version)
 	}
 	return cmd
 }
 
-// selectApp picks the app the dev server runs.
-// A module building 1 needs no flag; one building more must name it.
-func selectApp(r serverscan.Result, name string) (serverscan.App, error) {
-	if name != "" {
-		a, ok := r.Find(name)
+// selectApp picks the app the dev server runs. A module building 1 needs no
+// flag, one building more the directory of the app package to run.
+func selectApp(r serverscan.Result, dir string) (serverscan.App, error) {
+	if dir != "" {
+		a, ok := r.Find(dir)
 		if !ok {
 			return serverscan.App{}, fmt.Errorf(
-				"no app package %q in this module, it builds: %s",
-				name, strings.Join(r.Names(), ", "),
+				"no app package in %q, the module builds: %s",
+				dir, strings.Join(r.Dirs(), ", "),
 			)
 		}
 		return a, nil
@@ -61,13 +63,14 @@ func selectApp(r serverscan.Result, name string) (serverscan.App, error) {
 		return r.Apps[0], nil
 	}
 	return serverscan.App{}, fmt.Errorf(
-		"this module builds %d applications (%s), name the one to run with --app",
-		len(r.Apps), strings.Join(r.Names(), ", "),
+		"this module builds %d applications (%s), "+
+			"pass the directory of the one to run with --app",
+		len(r.Apps), strings.Join(r.Dirs(), ", "),
 	)
 }
 
 func runWatch(
-	ctx context.Context, host, appName string, stderr io.Writer, version string,
+	ctx context.Context, host, appDir string, stderr io.Writer, version string,
 ) error {
 	// Start the update check immediately so it has maximum time to complete.
 	startUpdateCheck(ctx, version, stderr, http.DefaultClient)
@@ -93,7 +96,9 @@ func runWatch(
 			return err
 		}
 	}
-	if err := runGen(moduleDir, cfg, scaffold{prometheus: scaffoldPrometheus}, stderr, version); err != nil {
+	if err := runGen(
+		moduleDir, cfg, scaffold{prometheus: scaffoldPrometheus}, stderr, version,
+	); err != nil {
 		// Non-fatal: individual parse errors are already on stderr.
 		// The gen watcher will retry and surface errors in the browser on next save.
 		_, _ = fmt.Fprintln(stderr, err)
@@ -108,7 +113,7 @@ func runWatch(
 	if err != nil {
 		return err
 	}
-	app, err := selectApp(scan, appName)
+	app, err := selectApp(scan, appDir)
 	if err != nil {
 		return err
 	}

@@ -127,12 +127,8 @@ type Call struct {
 // App is 1 app package of the module, with the calls that build a server
 // for it and the package they generate into.
 type App struct {
-	// Name is the last element of Dir, which is what names the app on the
-	// command line, for example "frontend".
-	Name string
-
 	// Dir is the app package relative to the module root,
-	// for example "app" or "app/frontend".
+	// for example "app" or "app/frontend". The command line selects an app by it.
 	Dir string
 
 	// Import is the import path of the app package.
@@ -206,7 +202,6 @@ func Scan(moduleDir, modulePath string) (Result, error) {
 		a := byImport[c.App.Import]
 		if a == nil {
 			a = &App{
-				Name:        filepath.Base(dir),
 				Dir:         dir,
 				Import:      c.App.Import,
 				GenDir:      filepath.Join(dir, GenSubdir),
@@ -240,31 +235,30 @@ func Scan(moduleDir, modulePath string) (Result, error) {
 	return res, nil
 }
 
-// Find returns the app named on the command line, matched against its name or
-// its directory. ok is false when nothing matches.
-func (r Result) Find(name string) (App, bool) {
-	name = filepath.ToSlash(name)
+// Find returns the app whose package is in dir, relative to the module root.
+// The last element of the directory alone does not tell web/app from admin/app.
+func (r Result) Find(dir string) (App, bool) {
+	dir = filepath.ToSlash(filepath.Clean(dir))
 	for _, a := range r.Apps {
-		if a.Name == name || filepath.ToSlash(a.Dir) == name {
+		if filepath.ToSlash(a.Dir) == dir {
 			return a, true
 		}
 	}
 	return App{}, false
 }
 
-// Names lists the app names, which is what an ambiguous command line is
-// answered with.
-func (r Result) Names() []string {
-	names := make([]string, len(r.Apps))
+// Dirs lists the directories of the app packages, which is what the command line takes.
+func (r Result) Dirs() []string {
+	dirs := make([]string, len(r.Apps))
 	for i, a := range r.Apps {
-		names[i] = a.Name
+		dirs[i] = filepath.ToSlash(a.Dir)
 	}
-	return names
+	return dirs
 }
 
-// Cmd returns the command package that builds this app, relative to the module
-// root. ok is false when no call to it is written in one, which is what a
-// module whose only calls are in tests looks like.
+// Cmd returns the command package that builds this app, relative to the module root.
+// ok is false when no call to it is written in one, which is what
+// a module whose only calls are in tests looks like.
 func (a App) Cmd() (dir string, ok bool) {
 	for _, c := range a.Calls {
 		if c.Main {
@@ -277,7 +271,6 @@ func (a App) Cmd() (dir string, ok bool) {
 // defaultApp is what a module with no NewServer call is generated as.
 func defaultApp(modulePath string) App {
 	return App{
-		Name:      DefaultAppDir,
 		Dir:       DefaultAppDir,
 		Import:    modulePath + "/" + DefaultAppDir,
 		GenDir:    filepath.Join(DefaultAppDir, GenSubdir),

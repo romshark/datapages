@@ -351,8 +351,10 @@ offline.WithServiceWorker("", offline.Config{
 1 Go module can contain several application packages and entry points. Each `datapages.NewServer` call connects an app package to its generated package. `datapages gen` processes all of them; select one for development with:
 
 ```sh
-datapages watch --app frontend
+datapages watch --app app/frontend
 ```
+
+`--app` takes the directory of the app package relative to the module root.
 
 Put an event type in a shared package when applications exchange that event. The specification for [events outside the application package](SPECIFICATION.md#events-declared-outside-the-application-package) defines discovery and subject ownership.
 

@@ -159,10 +159,10 @@ Applications that use the same broker share 1 event namespace. They must not cla
 Use:
 
 ```sh
-datapages watch --app <name>
+datapages watch --app <dir>
 ```
 
-when the module contains multiple applications.
+when the module contains multiple applications. `<dir>` is the directory of the app package relative to the module root, such as `app/frontend`.
 
 ## Server topology
 

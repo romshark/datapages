@@ -24,7 +24,7 @@ s, err := datapages.NewServer[
 ](&a, broker, opts...) // the app is passed by pointer
 ```
 
-Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. 1 module can contain several apps. Run one with `datapages watch --app frontend`.
+Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. 1 module can contain several apps. Run one with `datapages watch --app app/frontend`, the directory of its app package.
 
 `datapages.EnablePrometheus` requires `WithPrometheus`, `DisablePrometheus` rejects it.
 

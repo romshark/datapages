@@ -34,6 +34,7 @@ Releases up to v0.10.0 have their notes on
 - Reject application code that imports a package under `github.com/romshark/datapages/runtime`, test files included. Those packages are for the generated code only, and any release may change them without notice. Use the `datapages` package or the generated packages instead.
 - Skip type-checking the function bodies of the standard library and of downloaded modules when loading the app package. `datapages lint` on `example/classifieds` takes 277ms instead of 406ms, and `datapages watch` regenerates sooner after each change to a Go file.
 - Reject an `OnXXX` handler that is not named after its event, as `OnNewMessage(event EventMessageSent, sse datapages.SSE)`. A page's `OnB` taking `EventA` hid an embedded `OnB` taking `EventB`, and the generated code did not compile. Rename the handler to `On` and the event name after `Event`, as `OnMessageSent`.
+- Require the app package directory in `datapages watch --app`, as `--app app/frontend` instead of `--app frontend`. With `web/app` and `admin/app`, `--app app` was ambiguous and ran one of them.
 
 #### Generated code
 

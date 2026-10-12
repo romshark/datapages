@@ -159,10 +159,10 @@ Applications that use the same broker share 1 event namespace. They must not cla
 Use:
 
 ```sh
-datapages watch --app <name>
+datapages watch --app <dir>
 ```
 
-when the module contains multiple applications.
+when the module contains multiple applications. `<dir>` is the directory of the app package relative to the module root, such as `app/frontend`.
 
 ## Server topology
 
@@ -207,4 +207,4 @@ Deviate when the requirements make a simpler or different model more suitable.
 
 A page that re-reads data on navigation is correct before events exist. Add events only when changes must reach already open pages. Add `State[T]` only when a handler without a request needs a per-tab value.
 
-<!-- written by datapages sha256:2d01fbd0391fbaaa -->
+<!-- written by datapages sha256:82944077aa67aab0 -->
