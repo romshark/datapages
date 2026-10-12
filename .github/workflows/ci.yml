@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  # checkFmt and checkMod cover every module from the repository root.
+  # The mage targets cover every module from the repository root.
   check:
     runs-on: ubuntu-latest
     steps:
@@ -37,6 +37,15 @@ jobs:
       - name: Check go.mod tidy
         run: mage checkMod
 
+      # Runs every generator and fails if a file changes: templ everywhere,
+      # the datapages code of every example and acceptance case, the AI agent
+      # instructions of every example, docs/style.css.
+      - name: Check generated code is current
+        run: mage checkGen
+
+      - name: Lint datapages examples
+        run: mage lintDatapages
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -45,6 +54,20 @@ jobs:
         project:
           - path: "."
             name: "root"
+          # The 4 slowest test packages of the root module are CPU-bound.
+          # A runner has 4 vCPUs, hence 1 runner per package.
+          - path: "."
+            name: "parser"
+            packages: "./internal/parser"
+          - path: "."
+            name: "generator"
+            packages: "./internal/generator"
+          - path: "."
+            name: "cmd"
+            packages: "./internal/cmd"
+          - path: "."
+            name: "acceptance"
+            packages: "./internal/acceptance"
           - path: "example/counter"
             name: "counter"
           - path: "example/classifieds"
@@ -79,18 +102,6 @@ jobs:
           check-latest: true
           cache-dependency-path: ${{ matrix.project.path }}/go.sum
 
-      - name: Install mage
-        if: matrix.project.name == 'root'
-        run: go install github.com/magefile/mage@latest
-
-      # Runs every generator and fails if a file changes: templ everywhere,
-      # the datapages code of every example and acceptance case, the AI agent
-      # instructions of every example, docs/style.css.
-      # Needs a clean tree, hence it runs before the tests write coverage.out.
-      - name: Check generated code is current
-        if: matrix.project.name == 'root'
-        run: mage checkGen
-
       - name: Install Wails system dependencies
         if: matrix.project.name == 'calculator'
         run: |
@@ -101,12 +112,20 @@ jobs:
       # a command. mage itself only ever `go run`s it, which puts nothing on
       # PATH. Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
-        if: matrix.project.name == 'root'
+        if: matrix.project.name == 'cmd'
         run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
 
+      # The root entry tests the packages without an entry of their own.
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
-        run: go test -timeout 15m -covermode=atomic -coverprofile=coverage.out ./...
+        env:
+          PACKAGES: ${{ matrix.project.packages || './...' }}
+        run: |
+          if [ "${{ matrix.project.name }}" = root ]; then
+            PACKAGES=$(go list ./... | grep -vxE \
+              'github.com/romshark/datapages/internal/(parser|generator|cmd|acceptance)')
+          fi
+          go test -timeout 15m -covermode=atomic -coverprofile=coverage.out $PACKAGES
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@v2.3.8
@@ -116,12 +135,9 @@ jobs:
           flag-name: ${{ matrix.project.name }}
           parallel: true
 
-      - name: Lint datapages examples
-        if: matrix.project.name == 'root'
-        run: mage lintDatapages
-
-      # Try compile
+      # Runs once per module: the root entry builds the whole root module.
       - name: Compile
+        if: ${{ !matrix.project.packages }}
         working-directory: ${{ matrix.project.path }}
         run: go build -o /dev/null ./...
 
