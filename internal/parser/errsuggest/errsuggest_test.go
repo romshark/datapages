@@ -189,8 +189,23 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Add `// POSTSignup is /signup`",
 		},
+		"ErrActionMissingPathComm/page without route": {
+			err: &parser.ActionMissingPathCommError{
+				Recv:       "PageProfile",
+				MethodName: "POSTFoo",
+			},
+			want: "fix: Add `// POSTFoo is /profile/foo`",
+		},
 
 		"ErrActionInvalidPathComm": {
+			err: &parser.ActionInvalidPathCommError{
+				PagePath:   "/user/{name}",
+				Recv:       "PageUser",
+				MethodName: "POSTFollow",
+			},
+			want: "fix: First doc comment line must be `// POSTFollow is /user/{name}/follow`; put a blank `//` line before any description",
+		},
+		"ErrActionInvalidPathComm/page without route": {
 			err: &parser.ActionInvalidPathCommError{
 				Recv:       "PageProfile",
 				MethodName: "POSTFoo",
@@ -416,6 +431,15 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Give EventNotifyUser a subject outside \"notify.\", which EventNotify occupies with its subject fields",
 		},
+		"ErrEventSubjectOverlap/second event has subject fields": {
+			err: &parser.EventSubjectOverlapError{
+				Subject:       "chat",
+				TypeName:      "EventRoom",
+				FirstSubject:  "chat.room",
+				FirstTypeName: "EventChat",
+			},
+			want: "fix: Give EventChat a subject outside \"chat.\", which EventRoom occupies with its subject fields",
+		},
 
 		"ErrEventSubjectDuplicateSignal": {
 			err: &parser.EventSubjectDuplicateSignalError{
@@ -443,12 +467,22 @@ func TestSuggest(t *testing.T) {
 				SignalName: "has spaces",
 				TypeName:   "EventBad",
 			},
-			want: "fix: Use a valid signal name for SubjectInstance in EventBad (must start with a lowercase letter, then lowercase/digits/underscores/dots)",
+			want: "fix: Use a signal path for SubjectInstance in EventBad whose period-separated " +
+				"segments each match [A-Za-z_][A-Za-z0-9_]* and contain no __",
+		},
+
+		"ErrEventSubjectPrefixedField": {
+			err: &parser.EventSubjectPrefixedFieldError{
+				FieldName: "SubjectUser",
+				TypeName:  "EventBad",
+			},
+			want: "fix: Type SubjectUser in EventBad as datapages.Subject, .SubjectUser or" +
+				" .SubjectStateID, or rename it if it's a payload field",
 		},
 
 		"ErrEventSubjectUserSignal": {
 			err: &parser.EventSubjectUserSignalError{TypeName: "EventChat"},
-			want: "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
+			want: "fix: Remove the signal tag: a datapages.SubjectUser field" +
 				" is always bound to the authenticated user's ID",
 		},
 		"ErrEventSubjectContained": {

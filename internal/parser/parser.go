@@ -1286,20 +1286,22 @@ func attachHTTPHandler(
 		r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
 		h.Route = r
 
+		pagePath := ""
+		if pg != nil {
+			pagePath = pg.Route
+		}
 		switch {
 		case getOnly:
 		case !found:
-			pagePath := ""
-			if pg != nil {
-				pagePath = pg.Route
-			}
 			errs.ErrAt(pos,
 				&ActionMissingPathCommError{
 					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
 				})
 		case !valid:
 			errs.ErrAt(pos,
-				&ActionInvalidPathCommError{Recv: recv, MethodName: fd.Name.Name})
+				&ActionInvalidPathCommError{
+					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
+				})
 		case routepattern.EndsInWildcard(r):
 			errs.ErrAt(pos, &ActionRouteWildcardError{
 				Recv: recv, MethodName: fd.Name.Name, Route: r,

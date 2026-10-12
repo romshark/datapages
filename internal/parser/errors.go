@@ -597,6 +597,7 @@ func (e *PageIndexPathMustBeRootError) Unwrap() error { return ErrPageIndexPathM
 
 // ActionInvalidPathCommError is [ErrActionInvalidPathComm] with suggestion context.
 type ActionInvalidPathCommError struct {
+	PagePath   string // e.g. "/profile/" (empty for App-level actions)
 	Recv       string // e.g. "PageProfile" or "App"
 	MethodName string // e.g. "POSTFoo"
 }

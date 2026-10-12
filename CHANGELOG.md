@@ -92,6 +92,12 @@ Run `datapages gen` to apply these.
 - Check the `.templ` files of the packages that the app package imports from its module, such as `app/template`. Before, only the app package's own templates were checked. A wrong `href`, a form `action`, a hardcoded action URL or another page's action in those templates went unreported.
 - Reject an action that takes `datapages.SSE` and returns a body. Its HTML went into the open event stream as broken events, and with compression the browser could not read the stream at all. Send the body with `sse.PatchElement` instead.
 - Reject a page whose events need the same signal both as a value and as an object, such as an event field tagged `signal:"chat"` and another tagged `signal:"chat.room"`. `$chat.room` exists only when `$chat` is an object, and the stream of such a page never opened. Bind one of the fields to another signal.
+- Name the event whose subject must change in the fix for overlapping event subjects. When the event with subject fields sorted second, the fix named the other event.
+- Suggest the valid subject types, including `datapages.SubjectStateID`, for a payload field named like a subject field, such as `SubjectUser []string`. The fix named the nonexistent `datapages.Subjects` and `datapages.SubjectUsers` types.
+- Spell `datapages.SubjectUser` correctly in the fix for a `signal` tag on that field. It was written as `datapages.SubjectUser(s)`.
+- State the accepted syntax in the fix for an invalid `signal` tag: each period-separated segment must match `[A-Za-z_][A-Za-z0-9_]*` and contain no `__`. The fix incorrectly required a lowercase first letter.
+- Base the suggested route for an action with an invalid route comment on its page route. For a page at `/user/{name}`, the fix suggested `/user/follow` instead of `/user/{name}/follow`.
+- Base the suggested route for an action without a route comment on the route suggested for its page when the page also has no route comment. For `PageUser.POSTFollow`, the fix suggested `/follow` instead of `/user/follow`.
 
 #### Generated code
 
