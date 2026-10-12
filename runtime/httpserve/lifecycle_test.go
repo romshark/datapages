@@ -5,7 +5,6 @@
 package httpserve_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -21,7 +20,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,19 +27,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/runtime/httpserve"
 )
 
 // TestListenAndServe tests that the core binds the given address, answers a
 // request with what its mux routes it to, logs the address it listens on, and
-// returns nil once Shutdown ran.
+// returns nil once Shutdown ran. Nothing in that run logs a warning or an error.
 func TestListenAndServe(t *testing.T) {
 	t.Parallel()
 
-	var log buffer
-	c := mustCore(t, datapages.ServerConfig{
-		Logger: slog.New(slog.NewJSONHandler(&log, nil)),
-	}, "")
+	var log testlog.Buffer
+	defer log.RequireBelow(t, slog.LevelWarn)
+	c := mustCore(t, datapages.ServerConfig{Logger: log.Logger()}, "")
 	c.Mux().Handle("/", echoPath())
 	c.Build()
 
@@ -55,10 +53,9 @@ func TestListenAndServe(t *testing.T) {
 
 	shutdownAndWait(t, c, done, "ListenAndServe")
 
-	logged := log.String()
-	require.Contains(t, logged, "listening HTTP")
-	require.Contains(t, logged, addr)
-	require.Contains(t, logged, "server shutdown initiated")
+	log.RequireLogged(t,
+		`level=INFO msg="listening HTTP" addr=`+addr+" build="+c.BuildID())
+	log.RequireLogged(t, `level=INFO msg="server shutdown initiated"`)
 }
 
 // TestListenAndServeTLS tests that the core serves HTTPS with the given
@@ -108,10 +105,10 @@ func TestNetHTTPErrorsReachLogger(t *testing.T) {
 	metricsAddr := ln.Addr().String()
 	require.NoError(t, ln.Close())
 
-	var log buffer
+	var log testlog.Buffer
 	reg := prometheus.NewRegistry()
 	c := mustCore(t, datapages.ServerConfig{
-		Logger: slog.New(slog.NewJSONHandler(&log, nil)),
+		Logger: log.Logger(),
 		Prometheus: &datapages.PrometheusConfig{
 			Host: metricsAddr, Registerer: reg, Gatherer: reg,
 			Handler: panicWith("metrics"),
@@ -148,10 +145,8 @@ func TestNetHTTPErrorsReachLogger(t *testing.T) {
 	}
 
 	shutdownAndWait(t, c, done, "ListenAndServe")
-	logged := log.String()
 	for _, v := range []string{"app", "metrics"} {
-		require.Regexp(t,
-			`"level":"ERROR","msg":"http: panic serving [0-9.:]+: `+v+`\\n`, logged)
+		log.RequireMatch(t, `^level=ERROR msg="http: panic serving [0-9.:]+: `+v+`\\n`)
 	}
 }
 
@@ -257,24 +252,6 @@ func writePEM(t *testing.T, path, kind string, der []byte) {
 	require.NoError(t, os.WriteFile(path, b, 0o600))
 }
 
-// buffer collects log output written by the server goroutines.
-type buffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *buffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *buffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
 // TestShutdownTimeoutDefault tests the default and configured grace periods.
 func TestShutdownTimeoutDefault(t *testing.T) {
 	t.Parallel()
@@ -294,9 +271,9 @@ func TestShutdownTimeoutCapsWait(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan struct{})
 
-	var log buffer
+	var log testlog.Buffer
 	c := mustCore(t, datapages.ServerConfig{
-		Logger:          slog.New(slog.NewJSONHandler(&log, nil)),
+		Logger:          log.Logger(),
 		ShutdownTimeout: 200 * time.Millisecond,
 	}, "")
 	c.Mux().HandleFunc("/hold/", func(w http.ResponseWriter, _ *http.Request) {
@@ -338,5 +315,6 @@ func TestShutdownTimeoutCapsWait(t *testing.T) {
 	elapsed := time.Since(start)
 	require.Greater(t, elapsed, 100*time.Millisecond)
 	require.Less(t, elapsed, 3*time.Second)
-	require.Contains(t, log.String(), "shutting down")
+	log.RequireLogged(t,
+		`level=ERROR msg="shutting down" err="context deadline exceeded"`)
 }
