@@ -110,6 +110,7 @@ var (
 	ErrEventSubjectInvalid  = errors.New("event subject is invalid")
 	ErrEvHandDuplicate      = errors.New("duplicate event handler for event")
 	ErrEvHandDuplicateEmbed = errors.New("duplicate event handler for event in embedded")
+	ErrEvHandNameMismatch   = errors.New("event handler must be named after its event")
 
 	ErrEventFieldUnexported = errors.New("event field must be exported")
 	ErrEventFieldMissingTag = errors.New("event field must have json tag")
@@ -1058,6 +1059,21 @@ func (e *SignatureEvHandEventPointerError) Error() string {
 func (e *SignatureEvHandEventPointerError) Unwrap() error {
 	return ErrSignatureEvHandEventPointer
 }
+
+// EvHandNameMismatchError is [ErrEvHandNameMismatch] with the handler
+// and the event it takes.
+type EvHandNameMismatchError struct {
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "OnNewMessage"
+	EventType  string // without the qualifier, e.g. "EventMessageSent"
+}
+
+func (e *EvHandNameMismatchError) Error() string {
+	return fmt.Sprintf("%v: %s.%s handles %s",
+		ErrEvHandNameMismatch, e.Recv, e.MethodName, e.EventType)
+}
+
+func (e *EvHandNameMismatchError) Unwrap() error { return ErrEvHandNameMismatch }
 
 // EventTypeNameConflictError is [ErrEventTypeNameConflict] with context.
 // Generated code names an event by its type name alone, which is why 1

@@ -33,6 +33,7 @@ Releases up to v0.10.0 have their notes on
 - Reject page and action routes below the static-files URL prefix. `net/http` treats them as more specific, so matching asset requests reach the handler instead of the file server. Move the route outside the prefix.
 - Reject application code that imports a package under `github.com/romshark/datapages/runtime`, test files included. Those packages are for the generated code only, and any release may change them without notice. Use the `datapages` package or the generated packages instead.
 - Skip type-checking the function bodies of the standard library and of downloaded modules when loading the app package. `datapages lint` on `example/classifieds` takes 277ms instead of 406ms, and `datapages watch` regenerates sooner after each change to a Go file.
+- Reject an `OnXXX` handler that is not named after its event, as `OnNewMessage(event EventMessageSent, sse datapages.SSE)`. A page's `OnB` taking `EventA` hid an embedded `OnB` taking `EventB`, and the generated code did not compile. Rename the handler to `On` and the event name after `Event`, as `OnMessageSent`.
 
 #### Generated code
 
@@ -70,6 +71,7 @@ Run `datapages gen` to apply these.
 
 - Reject a page that reaches the same stream embed through 2 embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which shadows the embedded ones.
 - Reject a page or stream embed that embeds a type of another package, such as `sync.Mutex`. Declare handlers in the app package and move other fields to `App`.
+- Reject a file of the app package with a `//go:build` line or a name such as `probe_windows.go`, except a test file and a file under `//go:build ignore`. `datapages gen` left out its pages, actions and events without an error on a platform that excludes the file. Move the file to another package, or remove its constraint.
 - Reject an `OnXXX` handler that takes a second `datapages.SSE`, session or `datapages.StreamID` parameter, as every other handler does. A field with 2 names, such as `sse, sse2 datapages.SSE`, declares 2 parameters: they were read as one, and the generated call did not compile.
 - Reject an `OnXXX` handler that takes its event by pointer, as in `event *EventPing`. The generated code for it did not compile. Take the event by value.
 - Reject a route containing `"` or `\`. For such a route, `datapages gen` failed with a Go syntax error, or the generated server matched a different path when the backslash formed a Go escape such as `\u00e9`. Write the characters as `%22` and `%5C`, which `net/http` decodes before matching the route.

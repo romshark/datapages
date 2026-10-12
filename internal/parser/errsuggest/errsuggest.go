@@ -150,6 +150,18 @@ func Suggest(err error) string {
 		return fmt.Sprintf("fix: Take the event as `%s`, not `*%s`",
 			d.EventType, d.EventType)
 
+	case errors.Is(err, parser.ErrBuildConstrainedFile):
+		return "fix: Move the file to another package, or remove its //go:build line " +
+			"and the operating system or architecture its name ends in"
+
+	case errors.Is(err, parser.ErrEvHandNameMismatch):
+		var d *parser.EvHandNameMismatchError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Rename %s.%s to On%s",
+			d.Recv, d.MethodName, strings.TrimPrefix(d.EventType, "Event"))
+
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.PageMissingFieldAppError
 		if !errors.As(err, &d) {

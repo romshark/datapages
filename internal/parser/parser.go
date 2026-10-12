@@ -50,6 +50,9 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 		// packages.Error prints it as part of its own text.
 		errs.ErrAt(posFromPackagesError(pe), errors.New(pe.Msg))
 	}
+	// Run before the return on compiler errors, which a declaration
+	// in an excluded file causes in the code that uses it.
+	checkBuildConstraints(pkg, &errs)
 	if pkg.Types == nil || pkg.TypesInfo == nil {
 		errs.ErrAt(earliestPkgPos(pkg),
 			errors.New("missing source package type information"))
@@ -1107,6 +1110,16 @@ func validateAndAttachEventHandler(
 			))
 		} else {
 			m[evName] = fd.Name.Pos()
+			// A page replaces an embedded handler of the same event, and Go hides
+			// an embedded method behind a shallower one of the same name. Both
+			// pick the same handler only when the name follows from the event.
+			// Otherwise a page's OnB taking EventA hides an embedded OnB taking
+			// EventB, and the generated call passes EventB to the page's OnB.
+			if evParams == 1 && suffix != strings.TrimPrefix(evName, "Event") {
+				errs.ErrAt(pos, &EvHandNameMismatchError{
+					Recv: recv, MethodName: fd.Name.Name, EventType: evName,
+				})
+			}
 		}
 	}
 

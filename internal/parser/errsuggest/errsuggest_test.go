@@ -112,6 +112,21 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Take the event as `shared.EventBar`, not `*shared.EventBar`",
 		},
+		"ErrEvHandNameMismatch": {
+			err: &parser.EvHandNameMismatchError{
+				Recv: "PageFoo", MethodName: "OnNewMessage", EventType: "EventMessageSent",
+			},
+			want: "fix: Rename PageFoo.OnNewMessage to OnMessageSent",
+		},
+		"ErrBuildConstrainedFile": {
+			err: parser.ErrBuildConstrainedFile,
+			want: "fix: Move the file to another package, or remove its //go:build line " +
+				"and the operating system or architecture its name ends in",
+		},
+		"ErrEvHandNameMismatch/sentinel only": {
+			err:  parser.ErrEvHandNameMismatch,
+			want: "",
+		},
 
 		"ErrPageMissingFieldApp": {
 			err:  &parser.PageMissingFieldAppError{TypeName: "PageProfile"},

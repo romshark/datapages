@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/build/constraint"
 	"go/token"
 	"go/types"
 	"os"
@@ -221,22 +222,6 @@ func TestParse_Embed(t *testing.T) {
 		require.Empty(p.Actions)
 	}
 
-	// PageOverrideEvent
-	// - Own: OnNewA (handles A)
-	// - Level1: OnA (handles A) -> shadowed by Event Type
-	{
-		p := findPage(app, "PageOverrideEvent")
-		require.NotNil(p)
-
-		// Expectation: logic says "handledEvents[h.EventTypeName]".
-		// OnNewA handles A. So OnA should NOT be imported.
-		handlerNames := getHandlerNames(p.EventHandlers)
-		require.ElementsMatch([]string{"NewA"}, handlerNames)
-
-		require.NotNil(p.GET)
-		require.Empty(p.Actions)
-	}
-
 	// PageMulti
 	// - Level1: OnA
 	// - Level3: OnD
@@ -321,7 +306,7 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 
 		// Event handler MUST have SSE
 		evHandler := p.EventHandlers[0]
-		require.Equal("EventFoo", evHandler.Name)
+		require.Equal("Foo", evHandler.Name)
 		require.NotNil(evHandler.InputSSE)
 		require.Equal("sse", evHandler.InputSSE.Name)
 	}
@@ -921,7 +906,7 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrSignatureEvHandMissingEvent,   // OnArgWrongType: int is no event type
 		parser.ErrSignatureEvHandMissingSSE,     // OnArgWrongType: no SSE param
 		parser.ErrSignatureUnsupportedInput,     // OnArgWrongType: int is unsupported
-		parser.ErrSignatureEvHandMissingSSE,     // OnFirstDuplicate: no SSE param
+		parser.ErrSignatureEvHandMissingSSE,     // OnFoo: no SSE param
 		parser.ErrEvHandDuplicate,               // OnSecondDuplicate
 		parser.ErrSignatureEvHandMissingSSE,     // OnSecondDuplicate: no SSE param
 		parser.ErrSignatureEvHandMultipleEvents, // OnBoth: 2 event parameters
@@ -949,10 +934,10 @@ func TestParse_ErrEventHandler(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrSignatureEvHandMissingSSE, // OnEventQux: no SSE param
-		parser.ErrSignatureUnsupportedInput, // OnEventCorge: unknownParam
-		parser.ErrSignatureEvHandMissingSSE, // OnEventQuux: no SSE param
-		parser.ErrSignatureUnsupportedInput, // OnEventQuux: notSSE is unsupported
+		parser.ErrSignatureEvHandMissingSSE, // OnQux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnCorge: unknownParam
+		parser.ErrSignatureEvHandMissingSSE, // OnQuux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnQuux: notSSE is unsupported
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,
@@ -992,6 +977,96 @@ func TestParse_ErrEventPointer(t *testing.T) {
 	require.Equal(t, parser.SignatureEvHandEventPointerError{
 		Recv: "PageIndex", MethodName: "OnPing", EventType: "EventPing",
 	}, *d)
+}
+
+// TestParse_ErrBuildConstraint tests files of the app package that build
+// constraints restrict, which are reported on every platform: by its name at
+// the package clause, and by its //go:build line at that line.
+// A file under //go:build ignore and a test file are not reported.
+func TestParse_ErrBuildConstraint(t *testing.T) {
+	_, err := parse(t, "err_build_constraint")
+
+	requireParseErrors(t, err,
+		parser.ErrBuildConstrainedFile,
+		parser.ErrBuildConstrainedFile,
+	)
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "probe_windows.go", 3, 1, pos)
+	pos, _ = err.Entry(1)
+	requirePosEqual(t, "unix.go", 3, 1, pos)
+}
+
+// TestNameConstrained tests which file names restrict a file to an operating
+// system or an architecture. "unix" is a build tag only, and a word Go does not
+// know as either restricts nothing.
+func TestNameConstrained(t *testing.T) {
+	for name, want := range map[string]bool{
+		"app.go":               false,
+		"probe_windows.go":     true,
+		"probe_arm64.go":       true,
+		"probe_linux_amd64.go": true,
+		"probe_unix.go":        false,
+		"probe_win.go":         false,
+		"windows.go":           false,
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, want, parser.NameConstrained(filepath.Join("app", name)))
+		})
+	}
+}
+
+// TestNeverBuilt tests which //go:build lines exclude a file from every build.
+// No build sets "ignore", and any other tag may be set or not.
+func TestNeverBuilt(t *testing.T) {
+	for line, want := range map[string]bool{
+		"//go:build ignore":          true,
+		"//go:build ignore && linux": true,
+		"//go:build ignore || linux": false,
+		"//go:build !ignore":         false,
+		"//go:build linux":           false,
+		"//go:build !linux":          false,
+		"//go:build linux && !linux": true,
+		"// +build ignore":           true,
+	} {
+		t.Run(line, func(t *testing.T) {
+			x, err := constraint.Parse(line)
+			require.NoError(t, err)
+			require.Equal(t, want, parser.NeverBuilt(x))
+		})
+	}
+}
+
+// TestParse_ErrEventHandlerName tests event handlers whose names do not follow
+// from their events, on a stream embed and on pages. PageShadow.OnB takes EventA
+// and hides the embedded Base.OnB, which takes EventB.
+func TestParse_ErrEventHandlerName(t *testing.T) {
+	_, err := parse(t, "err_event_handler_name")
+
+	requireParseErrors(t, err,
+		parser.ErrEvHandNameMismatch,
+		parser.ErrEvHandNameMismatch,
+		parser.ErrEvHandNameMismatch,
+	)
+	for i, want := range []struct {
+		line, col int
+		err       parser.EvHandNameMismatchError
+	}{
+		{36, 13, parser.EvHandNameMismatchError{
+			Recv: "Base", MethodName: "OnPing", EventType: "EventMessageSent",
+		}},
+		{49, 18, parser.EvHandNameMismatchError{
+			Recv: "PageIndex", MethodName: "OnNewMessage", EventType: "EventMessageSent",
+		}},
+		{65, 19, parser.EvHandNameMismatchError{
+			Recv: "PageShadow", MethodName: "OnB", EventType: "EventA",
+		}},
+	} {
+		pos, e := err.Entry(i)
+		requirePosEqual(t, "app.go", want.line, want.col, pos)
+		var d *parser.EvHandNameMismatchError
+		require.ErrorAs(t, e, &d)
+		require.Equal(t, want.err, *d)
+	}
 }
 
 // TestParse_ErrEventSubjectUserNoSession tests a user-scoped event subject in an
@@ -2563,7 +2638,7 @@ func TestParse_ParamOrder(t *testing.T) {
 		)
 	}
 
-	// PageEventReversed - OnEventPing with SSE before event.
+	// PageEventReversed - OnPing with SSE before event.
 	{
 		p := findPage(app, "PageEventReversed")
 		require.NotNil(p)

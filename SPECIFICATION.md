@@ -55,7 +55,7 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `QUERYXXX`: handles `QUERY` action requests.
 - `StreamOpen`: runs when the page SSE stream opens.
 - `StreamClose`: runs when the page SSE stream closes.
-- `OnXXX`: subscribes to events in the SSE listener.
+- `OnXXX`: handles `EventXXX` in the SSE listener.
 
 An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
 
@@ -65,7 +65,7 @@ A `Page*` declaration must use a struct type literal. An alias to a struct liter
 
 A page type must declare exactly 1 named field: `App *App`. Embedded types are permitted under [Stream Embeds](#stream-embeds).
 
-URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux). A route must not contain `"`, `\`, `` ` ``, `?` or `#`, nor a `%` that does not start a percent-encoding. Write them as `%22`, `%5C`, `%60`, `%3F`, `%23` and `%25`, which ServeMux decodes before matching.
+URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux) on the first line of the doc comment, as `// PageUser is /user/{name}` for a page and `// POSTFollow is /user/{name}/follow` for an action. A description goes below it, after an empty `//` line. A route must not contain `"`, `\`, `` ` ``, `?` or `#`, nor a `%` that does not start a percent-encoding. Write them as `%22`, `%5C`, `%60`, `%3F`, `%23` and `%25`, which ServeMux decodes before matching.
 
 `PageIndex` is required for `/`, and no other page may use `/` or `/{$}`. `PageIndex` also answers every path that no other route matches.
 
@@ -173,7 +173,7 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-`OnXXX` requires exactly 1 event parameter and exactly 1 `sse datapages.SSE`, takes each optional parameter at most once, and must return exactly 1 `error`. The event parameter is identified by type and takes the event by value, as `EventXXX` and not `*EventXXX`. `XXX` must match the event type's name after `Event`. Parameter order and the event parameter's name are unrestricted.
+`OnXXX` handles the event type `EventXXX`. `XXX` must equal the type's name after `Event`, also for an event declared in another package, as `OnAnnouncement` for `events.EventAnnouncement`. The handler takes exactly 1 parameter of that type, by value and not as `*EventXXX`, and exactly 1 `sse datapages.SSE`. It takes each optional parameter at most once and must return exactly 1 `error`. Parameter order and parameter names are unrestricted.
 
 ```go
 func (PageIndex) OnSomethingHappened(
@@ -1036,7 +1036,7 @@ The href linter treats absolute URLs as external, including URLs on the applicat
 
 ### Build-Constrained Application Files
 
-The app package cannot contain build-constrained files. Pages, actions, and events are read for the host platform, so platform-specific declarations may disappear without an error on other platforms. `datapages.NewServer` calls are read from all files except those under `//go:build ignore` and may occur in platform-specific commands.
+The app package cannot contain build-constrained files, which have a `//go:build` line or a name ending in an operating system or architecture, such as `_windows.go`. Pages, actions, and events are read for the host platform, which would drop the declarations of such a file without an error. The generator rejects such a file on every platform, except a test file and a file under `//go:build ignore`. `datapages.NewServer` calls are read from all files except those under `//go:build ignore` and may occur in platform-specific commands.
 
 ## Service Worker
 

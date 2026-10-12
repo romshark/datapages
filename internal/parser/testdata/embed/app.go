@@ -98,26 +98,6 @@ func (PageOverride) OnA(
 	return nil
 }
 
-// PageOverrideEvent is /override-event
-//
-// This page embeds EmbedLevel1.
-// It handles EventA with a DIFFERENT method name.
-// Since PageOverrideEvent handles EventA, proper flattening should ignore Level1's handler for EventA.
-type PageOverrideEvent struct {
-	App *App
-	EmbedLevel1
-}
-
-func (PageOverrideEvent) GET(r *http.Request) (body datapages.Component, err error) {
-	return nil, nil
-}
-
-func (PageOverrideEvent) OnNewA(
-	event EventA, sse datapages.SSE,
-) error {
-	return nil
-}
-
 // EmbedLevel3 defines OnD.
 type EmbedLevel3 struct{ App *App }
 
