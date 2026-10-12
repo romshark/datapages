@@ -65,8 +65,8 @@ func (r *Reporter) getMetrics() Metrics {
 	return nil
 }
 
-// Option is 1 entry of an action expression. It is either an option of
-// the call or JavaScript that runs before or after it.
+// Option is 1 entry of an action expression.
+// It's either an option of the call or JavaScript that runs before or after it.
 type Option struct {
 	key   string
 	value string
@@ -78,21 +78,23 @@ type Option struct {
 //
 // WARNING: Use WithOption only when no typed helper is available.
 // Typed helpers provide compile-time safety:
-//   - WithContentType
-//   - WithFilterSignals
-//   - WithHeaders
-//   - WithOpenWhenHidden
-//   - WithPayload
-//   - WithSelector
-//   - WithRetry
-//   - WithRetryInterval
-//   - WithRetryScaler
-//   - WithRetryMaxWaitMs
-//   - WithRetryMaxCount
-//   - WithRequestCancellation
-//   - WithRequestCancellationController
+//   - [WithContentType]
+//   - [WithFilterSignals]
+//   - [WithHeaders]
+//   - [WithOpenWhenHidden]
+//   - [WithPayload]
+//   - [WithSelector]
+//   - [WithRetry]
+//   - [WithRetryInterval]
+//   - [WithRetryScaler]
+//   - [WithRetryMaxWaitMs]
+//   - [WithRetryMaxCount]
+//   - [WithRequestCancellation]
+//   - [WithRequestCancellationController]
 //
-// See https://data-star.dev/reference/actions#options
+// See [Datastar action options].
+//
+// [Datastar action options]: https://data-star.dev/reference/actions#options
 func WithOption(key, value string) Option {
 	return Option{key: key, value: value}
 }
@@ -111,7 +113,9 @@ func WithAfter(expr string) Option {
 
 // ContentType is the type of content to send with an action request.
 //
-// See https://data-star.dev/reference/actions#options
+// See [Datastar action options].
+//
+// [Datastar action options]: https://data-star.dev/reference/actions#options
 type ContentType string
 
 const (
@@ -147,7 +151,9 @@ func WithContentType(r *Reporter, ct ContentType) Option {
 // A pattern carrying a line terminator is dropped and warn-logged,
 // since no regex literal can hold one. An unescaped "/" is escaped.
 //
-// See https://data-star.dev/reference/actions#options
+// See [Datastar action options].
+//
+// [Datastar action options]: https://data-star.dev/reference/actions#options
 func WithFilterSignals(r *Reporter, include, exclude string) Option {
 	if hasLineTerminator(include) || hasLineTerminator(exclude) {
 		r.warnDropped("WithFilterSignals", include+" "+exclude)
@@ -231,7 +237,9 @@ func WithSelector(selector string) Option {
 
 // Retry determines when to retry requests.
 //
-// See https://data-star.dev/reference/actions#options
+// See [Datastar action options].
+//
+// [Datastar action options]: https://data-star.dev/reference/actions#options
 type Retry string
 
 const (
@@ -310,7 +318,9 @@ func WithRetryMaxCount(r *Reporter, count int) Option {
 
 // RequestCancellation controls request cancellation behavior.
 //
-// See https://data-star.dev/reference/actions#request-cancellation
+// See [Datastar request cancellation].
+//
+// [Datastar request cancellation]: https://data-star.dev/reference/actions#request-cancellation
 type RequestCancellation string
 
 const (
@@ -345,7 +355,9 @@ func WithRequestCancellation(r *Reporter, rc RequestCancellation) Option {
 // The expression should reference a signal holding an AbortController instance,
 // for example "$controller".
 //
-// See https://data-star.dev/reference/actions#request-cancellation
+// See [Datastar request cancellation].
+//
+// [Datastar request cancellation]: https://data-star.dev/reference/actions#request-cancellation
 func WithRequestCancellationController(expr string) Option {
 	return Option{key: "requestCancellation", value: expr}
 }

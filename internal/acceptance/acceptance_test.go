@@ -5,26 +5,34 @@
 //
 // Per case the runner regenerates it into a temporary directory and compares
 // the result with what is committed, which makes the code under test the code
-// the generator writes today. It then runs the case's own tests, with coverage
-// over its generated packages, and reports how much of that code the suite executes.
+// the generator writes today. It then runs the case's own tests.
+//
+// A case runs "go test" in its own module, which the -coverprofile of this package
+// doesn't measure. Instead, each case measures its generated packages and the
+// datapages packages they import, and the runner merges the profiles of all cases.
+// It prints the coverage of the generated code, which -cover.min can require.
+// -cover.out writes the merged profile, which CI uploads to Coveralls and
+// "mage coverage" reads.
 
 package acceptance_test
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
-	"sort"
-	"strconv"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/cover"
 
 	"github.com/romshark/datapages/internal/generator"
 	"github.com/romshark/datapages/internal/parser"
@@ -33,7 +41,8 @@ import (
 
 var (
 	flagCoverOut = flag.String("cover.out", "",
-		"write the merged coverage profile of the generated code to this file")
+		"write the merged coverage profile of the generated code "+
+			"and the datapages packages it imports to this file")
 	flagCoverMin = flag.Float64("cover.min", 0,
 		"fail if coverage of the generated code is below this percentage")
 )
@@ -105,7 +114,7 @@ func runCase(t *testing.T, name string) {
 func readCaseOptions(t *testing.T, name string) caseOptions {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(name, "acceptance.json"))
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return caseOptions{}
 	}
 	require.NoError(t, err)
@@ -164,13 +173,22 @@ func generateInto(t *testing.T, name, dst string) []serverscan.App {
 }
 
 // coverPkgs is the -coverpkg list of a case: the generated package of
-// every app it builds, which is the code the suite reports coverage of.
+// every app it builds, which is the code the suite reports coverage of,
+// and [importedPkgs].
 func coverPkgs(apps []serverscan.App) string {
-	pkgs := make([]string, len(apps))
-	for i, a := range apps {
-		pkgs[i] = "./" + filepath.ToSlash(a.GenDir) + "/..."
+	var pkgs []string
+	for _, a := range apps {
+		pkgs = append(pkgs, "./"+filepath.ToSlash(a.GenDir)+"/...")
 	}
-	return strings.Join(pkgs, ",")
+	return strings.Join(append(pkgs, importedPkgs...), ",")
+}
+
+// importedPkgs are the datapages packages that generated and application code import,
+// which the cases run over HTTP. -coverpkg matches only the ones a case imports.
+var importedPkgs = []string{
+	"github.com/romshark/datapages",
+	"github.com/romshark/datapages/modules/...",
+	"github.com/romshark/datapages/runtime/...",
 }
 
 // modulePath is the import path of a case module.
@@ -205,123 +223,79 @@ func compareTrees(t *testing.T, got, want string) {
 // readTree reads every file of a directory tree, keyed by its path within it.
 func readTree(t *testing.T, dir string) map[string]string {
 	t.Helper()
+	tree := os.DirFS(dir)
 	files := map[string]string{}
-	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+	err := fs.WalkDir(tree, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		b, err := os.ReadFile(p)
+		b, err := fs.ReadFile(tree, p)
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		files[filepath.ToSlash(rel)] = string(b)
+		files[p] = string(b)
 		return nil
 	})
 	require.NoError(t, err, "reading %s", dir)
 	return files
 }
 
-// coverage accumulates 1 coverage profile per acceptance case.
-var coverage coverageSet
-
-type coverageSet struct {
-	mu    sync.Mutex
-	cases map[string][]coverageBlock
+// coverage accumulates the coverage profiles of the acceptance cases.
+var coverage = coverageSet{
+	cases: map[string][]cover.ProfileBlock{},
+	all:   map[string]cover.ProfileBlock{},
 }
 
-// coverageBlock is 1 block of a Go coverage profile:
-// a source range, the number of statements in it, and how often it ran.
-type coverageBlock struct {
-	Location string // "<case>/<file>:startLine.col,endLine.col"
-	NumStmt  int
-	Count    int
+type coverageSet struct {
+	lock sync.Mutex
+	// cases holds the blocks of the generated code of each case.
+	cases map[string][]cover.ProfileBlock
+	// all holds every block of every case by its location in the profile,
+	// "<import path>/<file>:startLine.col,endLine.col". The cases share the
+	// blocks of [importedPkgs].
+	all map[string]cover.ProfileBlock
 }
 
 func (c *coverageSet) add(t *testing.T, name, profile string) {
 	t.Helper()
-	blocks, err := parseCoverProfile(profile, name)
+	// Each test binary of the case reports every package -coverpkg names.
+	// ParseProfiles merges the repeats of a block.
+	profiles, err := cover.ParseProfiles(profile)
 	require.NoError(t, err, "reading coverage profile of case %s", name)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.cases == nil {
-		c.cases = map[string][]coverageBlock{}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	var generated []cover.ProfileBlock
+	for _, p := range profiles {
+		// The generated packages are the only ones of -coverpkg in the case module.
+		isGenerated := strings.HasPrefix(p.FileName, modulePath(name)+"/")
+		for _, b := range p.Blocks {
+			if isGenerated {
+				generated = append(generated, b)
+			}
+			location := fmt.Sprintf("%s:%d.%d,%d.%d",
+				p.FileName, b.StartLine, b.StartCol, b.EndLine, b.EndCol)
+			b.Count += c.all[location].Count
+			c.all[location] = b
+		}
 	}
-	c.cases[name] = blocks
-}
-
-// parseCoverProfile reads a profile written by "go test -coverprofile" and
-// keys every block by the case it came from.
-//
-// "go test ./..." runs 1 test binary per package and each of them reports
-// every block of every package named by -coverpkg. The same block therefore
-// appears once per binary. Blocks are merged by location the way
-// "go tool cover" merges them. Counts add up and statements are counted once.
-func parseCoverProfile(profile, caseName string) ([]coverageBlock, error) {
-	b, err := os.ReadFile(profile)
-	if err != nil {
-		return nil, err
-	}
-	var blocks []coverageBlock
-	index := map[string]int{}
-	for line := range strings.Lines(string(b)) {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "mode:") {
-			continue
-		}
-		// <file>:<start>,<end> <numStmt> <count>
-		fields := strings.Fields(line)
-		if len(fields) != 3 {
-			return nil, fmt.Errorf("malformed profile line %q", line)
-		}
-		numStmt, err := strconv.Atoi(fields[1])
-		if err != nil {
-			return nil, fmt.Errorf("malformed statement count in %q: %w", line, err)
-		}
-		count, err := strconv.Atoi(fields[2])
-		if err != nil {
-			return nil, fmt.Errorf("malformed hit count in %q: %w", line, err)
-		}
-		location := path.Join(caseName, fields[0])
-		if i, ok := index[location]; ok {
-			blocks[i].Count += count
-			continue
-		}
-		index[location] = len(blocks)
-		blocks = append(blocks, coverageBlock{
-			Location: location,
-			NumStmt:  numStmt,
-			Count:    count,
-		})
-	}
-	return blocks, nil
+	c.cases[name] = generated
 }
 
 // report prints coverage of the generated code per case and in total,
-// writes the merged profile when asked for one,
 // and reports whether the total clears the floor.
 func (c *coverageSet) report(w *strings.Builder) (total float64, ok bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	if len(c.cases) == 0 {
 		return 0, true
 	}
 
-	names := make([]string, 0, len(c.cases))
-	for name := range c.cases {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(c.cases))
 
 	width := 0
 	for _, name := range names {
-		if len(name) > width {
-			width = len(name)
-		}
+		width = max(width, len(name))
 	}
 
 	var allStmt, allCovered int
@@ -353,30 +327,25 @@ func percent(covered, total int) float64 {
 	return float64(covered) / float64(total) * 100
 }
 
-// writeMerged writes every case's blocks as 1 profile. The file names carry
-// the case as their first path element, which keeps the blocks distinct.
+// writeMerged writes the blocks of every case as 1 profile, sorted by location.
+// The import path of each case module keeps its generated files apart.
+// A block of [importedPkgs] appears once, with the counts of all cases added up.
 func (c *coverageSet) writeMerged(dst string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	var b strings.Builder
 	b.WriteString("mode: set\n")
-	names := make([]string, 0, len(c.cases))
-	for name := range c.cases {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		for _, block := range c.cases[name] {
-			fmt.Fprintf(&b, "%s %d %d\n", block.Location, block.NumStmt, block.Count)
-		}
+	for _, location := range slices.Sorted(maps.Keys(c.all)) {
+		block := c.all[location]
+		fmt.Fprintf(&b, "%s %d %d\n", location, block.NumStmt, block.Count)
 	}
 	return os.WriteFile(dst, []byte(b.String()), 0o644)
 }
 
 // TestMain runs the cases and then reports the coverage they reached over the
-// generated code, merged across every case, optionally writing it to the profile
-// -coverout names.
+// generated code, merged across every case. With -cover.out it also writes the
+// merged profile of the generated code and [importedPkgs].
 func TestMain(m *testing.M) {
 	flag.Parse()
 	code := m.Run()

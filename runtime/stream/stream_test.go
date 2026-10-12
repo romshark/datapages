@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	msginmem "github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
@@ -138,10 +139,9 @@ func TestHandleEnds(t *testing.T) {
 			}
 			require.True(t, closed.Load(), "the close hook ran before the stream ended")
 			if tt.wantReload {
-				require.Contains(t, string(body), "location.reload()")
-				require.Contains(t, string(body), "retry: 5000")
+				require.Equal(t, reloadEvent, string(body))
 			} else {
-				require.NotContains(t, string(body), "location.reload()")
+				require.Empty(t, body)
 			}
 		})
 	}
@@ -229,6 +229,29 @@ func TestHandleClosesAfterPanic(t *testing.T) {
 	require.True(t, closed, "the close hook did not run after the panic")
 }
 
+// TestHandleCloseHookPanics tests a close hook that panics. No caller is left
+// to report it, which makes Handle log it with the stack of the panic and return.
+func TestHandleCloseHookPanics(t *testing.T) {
+	t.Parallel()
+
+	var log testlog.Buffer
+	core, err := httpserve.NewCore(datapages.ServerConfig{Logger: log.Logger()}, "")
+	require.NoError(t, err)
+	h := stream.NewHandler(core, msginmem.New(0), nil, nil, nil, failOnErr(t))
+	h.Handle(httptest.NewRecorder(), streamRequest(t.Context()),
+		"", "", time.Time{}, []string{"notice"}, nil,
+		func(datapages.StreamID) { panic("the close hook panicked") },
+		func(
+			datapages.StreamID,
+			*dpsse.Stream,
+			<-chan messaging.Message,
+		) {
+		})
+	log.RequireMatch(t, `^level=ERROR msg="recovered panic while closing a stream" `+
+		`panic="the close hook panicked" stream-id=1 stack="goroutine .*`+
+		`TestHandleCloseHookPanics\.func`)
+}
+
 // TestHandleClientGoneBeforeOpen tests disconnect during subscription setup.
 // Handle skips the open hook, closes the subscription and reports nothing.
 func TestHandleClientGoneBeforeOpen(t *testing.T) {
@@ -237,12 +260,7 @@ func TestHandleClientGoneBeforeOpen(t *testing.T) {
 	core, err := httpserve.NewCore(datapages.ServerConfig{}, "")
 	require.NoError(t, err)
 	b := &slowBroker{Broker: msginmem.New(0), entered: make(chan struct{})}
-	h := stream.NewHandler(core, b, nil, nil, nil, func(
-		_ http.ResponseWriter, _ *http.Request,
-		_ *dpsse.Stream, msg string, err error,
-	) {
-		t.Errorf("%s: %v", msg, err)
-	})
+	h := stream.NewHandler(core, b, nil, nil, nil, failOnErr(t))
 	panicked := make(chan any, 1)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +308,30 @@ func TestHandleWriterWithoutFlushPanics(t *testing.T) {
 	})
 }
 
+// TestReload tests that a guest on a stream that requires a session gets
+// the reload event and nothing else.
+func TestReload(t *testing.T) {
+	t.Parallel()
+
+	h, _, _ := newHandler(t, nil, nil)
+	w := httptest.NewRecorder()
+	h.Reload(w, streamRequest(t.Context()))
+	require.Equal(t, reloadEvent, w.Body.String())
+}
+
+// TestReloadClientGone tests a client that disconnects before the response head
+// reaches it. Reload writes nothing.
+func TestReloadClientGone(t *testing.T) {
+	t.Parallel()
+
+	h, _, _ := newHandler(t, nil, nil)
+	ctx, disconnect := context.WithCancel(t.Context())
+	disconnect()
+	w := httptest.NewRecorder()
+	h.Reload(goneWriter{w}, streamRequest(ctx))
+	require.Empty(t, w.Body.String())
+}
+
 // slowBroker holds Subscribe until the request is canceled, as a broker round
 // trip outlasts a client that leaves at once. It keeps the subscription in sub.
 type slowBroker struct {
@@ -308,6 +350,21 @@ func (b *slowBroker) Subscribe(
 	return sub, err
 }
 
+// reloadEvent is the SSE event that reloads the page. Its script waits 1s,
+// and its retry field holds off the reconnect for 5s, which lets the reload come first.
+const reloadEvent = "event: datastar-patch-elements\n" +
+	"retry: 5000\n" +
+	"data: selector body\n" +
+	"data: mode append\n" +
+	`data: elements <script data-effect="el.remove()">setTimeout(() => { ` +
+	`try { history.replaceState(history.state, "", location.href) } catch {} ` +
+	`location.reload() }, 1000)</script>` + "\n\n"
+
+// goneWriter is a disconnected client's response. Flushing it fails.
+type goneWriter struct{ http.ResponseWriter }
+
+func (goneWriter) FlushError() error { return errors.New("client gone") }
+
 // newHandler returns a handler that watches sessions with notifier, which may be nil.
 // A nil onErr fails the test on any error the handler reports.
 func newHandler(
@@ -323,14 +380,18 @@ func newHandler(
 		store = notifier
 	}
 	if onErr == nil {
-		onErr = func(
-			_ http.ResponseWriter, _ *http.Request,
-			_ *dpsse.Stream, msg string, err error,
-		) {
-			t.Errorf("%s: %v", msg, err)
-		}
+		onErr = failOnErr(t)
 	}
 	return stream.NewHandler(core, msginmem.New(0), nil, store, m, onErr), core, m
+}
+
+func failOnErr(t *testing.T) stream.ErrorHandler {
+	return func(
+		_ http.ResponseWriter, _ *http.Request,
+		_ *dpsse.Stream, msg string, err error,
+	) {
+		t.Errorf("%s: %v", msg, err)
+	}
 }
 
 // notifier reports each watched session as closed when the closed channel is closed.
