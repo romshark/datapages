@@ -1158,6 +1158,37 @@ func TestParse_ErrEmbedUnexported(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrPageEmbedUnexported)
 }
 
+// TestParse_ErrEmbedNotStreamEmbed tests that a page or a stream embed embedding
+// anything but a stream embed is refused: a type of the app package, and a type
+// of another package, by value, by pointer and instantiated.
+// Go promotes the handlers of an imported type to the page, and the parser,
+// which reads the app package only, would never serve them.
+func TestParse_ErrEmbedNotStreamEmbed(t *testing.T) {
+	_, err := parse(t, "err_embed_not_stream_embed")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrPageHasExtraFields,
+		parser.ErrPageHasExtraFields,
+		parser.ErrPageHasExtraFields,
+		parser.ErrPageHasExtraFields,
+		parser.ErrPageHasExtraFields,
+	)
+	msgs := make([]string, 0, err.Len())
+	for i := range err.Len() {
+		_, e := err.Entry(i)
+		msgs = append(msgs, e.Error())
+	}
+	const prefix = "page struct has unsupported fields: "
+	require.Equal(t, []string{
+		prefix + "Base embeds shared.Likes",
+		prefix + "PageIndex embeds Helper",
+		prefix + "PageForm embeds shared.Likes",
+		prefix + "PageForm embeds strings.Builder",
+		prefix + "PageForm embeds shared.Cache",
+	}, msgs)
+}
+
 // TestParse_ErrEventShared tests the ways an event declared outside the app
 // package is refused: a type name 2 packages both declare, which generated
 // code has 1 identifier for, a subject an event of the app package already claims,

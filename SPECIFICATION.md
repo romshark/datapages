@@ -257,7 +257,7 @@ Query parameters use the adjacent constructor: `href.App.Image(name, href.App.Im
 
 #### Stream Embeds
 
-A struct in the app package whose name does not start with `Page` and that declares `App *App` is a stream embed. Pages may embed it to share its `OnXXX` event handlers, `StreamOpen` and `StreamClose`. It cannot declare `GET` or actions.
+A struct in the app package whose name does not start with `Page` and that declares `App *App` is a stream embed. Pages may embed it to share its `OnXXX` event handlers, `StreamOpen` and `StreamClose`. It cannot declare `GET` or actions. A page or a stream embed may embed only stream embeds, never a type of another package.
 
 A handler the page declares for an event, `StreamOpen` or `StreamClose` replaces the embedded one. A page is rejected when 2 embedded types handle the same event or declare the same stream hook, or when it reaches a stream embed through 2 embedded fields at the same depth.
 

@@ -69,6 +69,7 @@ Run `datapages gen` to apply these.
 #### `datapages lint` and `datapages gen`
 
 - Reject a page that reaches the same stream embed through 2 embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which shadows the embedded ones.
+- Reject a page or stream embed that embeds a type of another package, such as `sync.Mutex`. Declare handlers in the app package and move other fields to `App`.
 - Reject an `OnXXX` handler that takes a second `datapages.SSE`, session or `datapages.StreamID` parameter, as every other handler does. A field with 2 names, such as `sse, sse2 datapages.SSE`, declares 2 parameters: they were read as one, and the generated call did not compile.
 - Reject an `OnXXX` handler that takes its event by pointer, as in `event *EventPing`. The generated code for it did not compile. Take the event by value.
 - Reject a route containing `"` or `\`. For such a route, `datapages gen` failed with a Go syntax error, or the generated server matched a different path when the backslash formed a Go escape such as `\u00e9`. Write the characters as `%22` and `%5C`, which `net/http` decodes before matching the route.
