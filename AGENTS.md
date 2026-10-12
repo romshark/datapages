@@ -41,6 +41,7 @@ Internal, used by the CLI and build tooling:
 - `internal/acceptance/` - 1 module per case: the application, its committed generated code and tests asserting behaviour over HTTP. `internal/acceptance/README.md` explains how they run and how to record a defect the framework has not fixed yet.
 - `internal/gotypes/` - go/types predicates and renderings that know nothing about Datapages. Shared by the parser and the generator.
 - `internal/logsample/` - the throttling `slog.Handler` behind `datapages.WithLogSampling`.
+- `internal/testlog/` - collects what code under test logs, 1 line per record without its time, for tests to compare exactly. Examples keep their own loggers because they model application code, which cannot import it.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.
 - `internal/structtag/` - the `path`, `query`, `json` and `reflectsignal` tags.
 - `internal/subject/` - broker subject rules: the token rule and which subjects an event claims.
@@ -146,29 +147,30 @@ Rules:
 
 - Prefer simple (near primitive) technical English.
 - Lead with the conclusion, then the facts that support it.
-- Name concrete things: files, lines, symbols, values, error codes. Write `internal/parser/parser.go:142`, not "the place where the parser reads it".
-- Write numbers as digits, counts, multiples and fractions included: `8 instances`, `2 times`, `1/5 of the time`, not `eight instances`, `twice`, `a fifth of the time`. This applies to code comments, docs, test names and error messages as well. It covers quantities only: idioms and prose written for tone keep their words, as in `one by one`, `halfway through`, `half-written` and `only half as awesome`.
+- Name concrete things, such as files, lines, symbols, values and error codes. Write `parser.go:142`, not "where the parser reads it".
+- Write quantities as digits, in code comments, docs, test names and error messages too. Write `8 instances`, `2 times` and `1/5`, not `eight instances`, `twice` and `a fifth`. Idioms and prose written for tone keep their words, as in `one by one` and `halfway through`.
 - End with what to do about it, or say plainly that nothing needs doing.
 - Don't paraphrase code changes, the diff already shows them. Name the file and what it does now. Prose is for the non-obvious what the diff can't show: why, what was left out, what could break.
 - Say what was verified and how: "`mage test` passes", "not run". Never imply a check that didn't happen.
 - Report failures, dead ends and skipped work as plainly as successes.
-- Answer at the length the question needs. "Is `Cache.Get` safe for concurrent use?" is answered by "No, it writes `c.entries` without holding `c.mu`." and nothing else. Don't pad a short answer out to look thorough, and don't compress a real explanation into three bullets.
+- Answer at the length the question needs. "Is `Cache.Get` safe for concurrent use?" gets "No, it writes `c.entries` without `c.lock`." and nothing else. Don't pad a short answer, and don't compress a real explanation into 3 bullets.
 - Stop when the information is delivered. No preamble, no restating the request, no closing summary of what was just said.
 
 Avoid:
 
 - Suspense and buildup: "here's where it gets interesting", "and this is the kicker", "the third one is the most instructive".
 - Hype and intensifiers: "not just X, it's THE Y", "load-bearing", "crucial", "powerful", "seamless", "robust", "comprehensive", "deep dive".
-- Counting the items instead of naming them. "Two things: X and Y" is "X and Y". "One dispatch, three streams: A, B and C" is "A, B and C". A teaser count with no items after it ("three things jumped out at me") is worse.
-- A verbless lead-in before a colon: "One dispatch, three streams: ...", "Two values, one subject: ...". In running text, the words before a colon must stand alone as a sentence. Labels such as `TODO:` and `BREAKING:`, and a line that introduces a code block or a list, are exempt.
-- Figurative language where a plain word fits: "buys", "drives", "unlocks", "wins", "kills", "shines", "leaves the reader hunting". These are examples, not the whole set. The test is whether the sentence says what literally happens: nothing buys, drives or hunts (unless it literally does). Write "a value receiver prevents mutation", not "a value receiver buys us immutability". Write "the pointer saves no allocation here", not "the pointer buys nothing here". Write "the tests that send it requests over HTTP", not "the tests that drive it over HTTP". Write "the reader cannot tell what is meant", not "it leaves the reader hunting for what was meant".
+- Counting the items instead of naming them. "Two things: X and Y" is "X and Y". A teaser count with no items after it ("three things jumped out at me") is worse.
+- Colons in running text, whether they join 2 clauses ("It stays on 1 line: slog quotes it."), hang a list off a sentence ("It tests 2 cases: A and B.") or follow a verbless lead-in ("One dispatch, three streams: ..."). Write 2 sentences, or join the clauses with "which" or "because". Labels such as `TODO:` and `BREAKING:`, the label that starts a list item, and a line that introduces a code block or a list are exempt.
+- Figurative language where a plain word fits, such as "buys", "drives", "unlocks", "wins", "kills", "shines" and "leaves the reader hunting". The test is whether the sentence says what literally happens. Write "prevents mutation", not "buys immutability", and "sends it requests", not "drives it".
 - Restating a general principle the facts already show. Start with the example.
-- Paraphrasing a standard or another document the reader can look up. Refer to it: "invalid according to RFC 3986", not "contains a character RFC 3986 does not allow, such as `{`, `|` or a non-ASCII letter".
+- Paraphrasing a standard or another document the reader can look up. Write "invalid according to RFC 3986", not "contains a character RFC 3986 forbids, such as `{`".
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth noting that", "as we can see".
 - Praise of the user or of the question: "great question", "you're absolutely right".
 - Typographic drama: spaced-out words, all-caps emphasis, exclamation marks, emoji, bold scattered over half the sentences.
-- Em-dashes and ", so ..." clauses. Use a full stop, "which ...", or a colon after a complete sentence.
+- Em-dashes. Use a full stop or "which ...".
+- ", so ..." as a reflex, chained ("X, so Y, so Z") or obvious ("It returns an error, so it can fail."). Keep it where the consequence is the point, as in "The flag is unset, so the default applies."
 - Non-ASCII characters where ASCII exists: curly quotes, ellipsis, arrows, non-breaking spaces. Write `'`, `"`, `...`, `->` and a plain space.
 - Stating what did not change, stayed, or was already correct.
 - Hedging where a check would settle it. Check, then state the answer.
@@ -191,10 +193,10 @@ Don't write:
 - Comments that repeat the next line: `// increment i` above `i++`, `// loop over users`, `// return the result`, `// error handling`.
 - Doc comments that only spell out the name: `// UserID is the user ID.`
 - Banners and dividers: `// --- helpers ---`, `// BEGIN`, `// END`.
-- History: `// added in v2`, `// fixed #142`, `// was int64 before`. All history is in Git. Comments must only explain current code at hand, unless history is crucial context, e.g. when the code makes no sense without it.
+- History: `// added in v2`, `// fixed #142`, `// was int64 before`. Git has it. Explain the current code, unless it makes no sense without its history.
 - Commented-out code. Delete it, git has it.
 - Comments written for the reviewer of the diff instead of the reader of the code: `// Note: now also handles nil`, `// Changed to a map for speed`, `// For simplicity we just skip this`.
-- Comments that teach Go or the standard library: `// mu guards concurrent access` above a plain mutex, `// defer closes the file`, `// ok is false when the key is missing`. Assume that the reader is a seasoned software engineer with good understanding of Go.
+- Comments that teach Go or the standard library: `// mu guards concurrent access` above a plain mutex, `// defer closes the file`, `// ok is false when the key is missing`. Assume the reader knows Go well.
 - File and line references: `// see decoder.go:212`. They break as soon as the code moves and nothing checks them. Name the symbol with a doc link instead: `[Decoder.Next]`.
 - Positional references: `// here and not above`, `// unlike the check below`, `// as mentioned earlier`. The reader cannot tell what is meant, and the words stop being true when the code moves. Name the symbol, or state the fact on its own.
 
