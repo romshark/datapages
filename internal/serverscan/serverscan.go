@@ -1,6 +1,7 @@
 // Package serverscan finds the datapages.NewServer calls of a module and reads
 // the app package, the session data type, the metrics mode and the destination
-// package out of their type arguments.
+// package out of their type arguments. It also refuses an import of a runtime
+// package in a file datapages didn't generate.
 //
 // It works on the AST alone. A type argument list needs no type information,
 // which is what lets the scan read a main.go naming a generated package that
@@ -29,6 +30,10 @@ import (
 
 // DatapagesImport is the import path of the datapages package.
 const DatapagesImport = "github.com/romshark/datapages"
+
+// RuntimeImport is the import path the runtime packages sit under.
+// Only generated code may import them.
+const RuntimeImport = DatapagesImport + "/runtime"
 
 // GeneratedHeader is the comment every generated file starts with.
 // It is what marks a package as one datapages wrote.
@@ -174,6 +179,9 @@ type Result struct {
 //
 // A module without a single call is not an error: Apps holds the default app
 // package alone and Fallback is true.
+//
+// A file datapages did not generate, a test file included,
+// must not import a package under [RuntimeImport].
 func Scan(moduleDir, modulePath string) (Result, error) {
 	var errs Errors
 	calls := scanDir(moduleDir, modulePath, moduleDir, &errs)
@@ -457,7 +465,8 @@ func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 		if neverBuilt(name) {
 			continue
 		}
-		f, err := parser.ParseFile(fset, name, nil, 0)
+		// The comments hold the header [isGenerated] reads.
+		f, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
 		if err != nil {
 			// Without this a file that does not parse looks like one holding no call.
 			// Scan then reports Fallback and gen rewrites
@@ -483,6 +492,9 @@ func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 	}
 	var calls []Call
 	for _, f := range files {
+		if !isGenerated(f) {
+			checkRuntimeImports(root, fset, f, errs)
+		}
 		dp, dot := importName(f, DatapagesImport)
 		if dot != nil {
 			pos := relTo(root, fset.Position(dot.Pos()))
@@ -507,12 +519,29 @@ func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 	return calls
 }
 
-// neverBuilt reports whether the //go:build line of the file at path excludes
-// it from every configuration, which is what "ignore" says. Every other tag is
-// one some build sets.
+// checkRuntimeImports refuses every import of a runtime package in f,
+// which datapages didn't generate. The runtime packages serve the generated code.
+// A release may change their API, and datapages gen updates only the code it wrote.
+func checkRuntimeImports(root string, fset *token.FileSet, f *ast.File, errs *Errors) {
+	for _, spec := range f.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil ||
+			path != RuntimeImport && !strings.HasPrefix(path, RuntimeImport+"/") {
+			continue
+		}
+		errs.addf(relTo(root, fset.Position(spec.Pos())),
+			"application code must not import %s", path)
+		errs.hint("fix: use the datapages package or the generated code, " +
+			"which datapages gen updates when the runtime packages change")
+	}
+}
+
+// neverBuilt reports whether the //go:build line of the file at path
+// excludes it from every configuration, which is what "ignore" says.
+// Every other tag is one some build sets.
 //
-// A file it cannot read is built: an unreadable file is reported where it is
-// parsed, not silently dropped.
+// A file it cannot read is built: an unreadable file is
+// reported where it's parsed, not silently dropped.
 func neverBuilt(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -535,8 +564,8 @@ func neverBuilt(path string) bool {
 		}
 		return !expr.Eval(func(tag string) bool { return tag != "ignore" })
 	}
-	// Also the answer when sc.Err() is set: a scan that stopped early,
-	// on a read error or a line past the buffer, has seen no constraint.
+	// A failed scan has seen no constraint either.
+	_ = sc.Err()
 	return false
 }
 

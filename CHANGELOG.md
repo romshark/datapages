@@ -31,6 +31,7 @@ Releases up to v0.10.0 have their notes on
 - Read an exported method on `App` named `QUERY` followed by an uppercase letter, such as `QUERYStats`, as an action. Such a method is rejected when it's a helper rather than an action: rename it.
 - Read an exported method on `App` named `GET` followed by an uppercase letter, such as `GETStats`, as a GET action. Such a method is rejected when it's a helper rather than an action: rename it.
 - Reject page and action routes below the static-files URL prefix. `net/http` treats them as more specific, so matching asset requests reach the handler instead of the file server. Move the route outside the prefix.
+- Reject application code that imports a package under `github.com/romshark/datapages/runtime`, test files included. Those packages are for the generated code only, and any release may change them without notice. Use the `datapages` package or the generated packages instead.
 - Skip type-checking the function bodies of the standard library and of downloaded modules when loading the app package. `datapages lint` on `example/classifieds` takes 277ms instead of 406ms, and `datapages watch` regenerates sooner after each change to a Go file.
 
 #### Generated code
