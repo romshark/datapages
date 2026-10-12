@@ -445,6 +445,37 @@ func main() {}
 			},
 			msg: "the datapages package must not be dot-imported",
 		},
+		"runtime import": {
+			files: map[string]string{
+				"app/app.go": `package app
+
+import _ "github.com/romshark/datapages/runtime/httpserve"
+`,
+			},
+			msg: filepath.Join("app", "app.go") + ":3:8: application code " +
+				"must not import github.com/romshark/datapages/runtime/httpserve",
+		},
+		"runtime package itself": {
+			files: map[string]string{
+				"app/app.go": `package app
+
+import _ "github.com/romshark/datapages/runtime"
+`,
+			},
+			msg: filepath.Join("app", "app.go") + ":3:8: application code " +
+				"must not import github.com/romshark/datapages/runtime\n",
+		},
+		"runtime import in a test": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"app/app_test.go": `package app_test
+
+import _ "github.com/romshark/datapages/runtime/httpserve"
+`,
+			},
+			msg: filepath.Join("app", "app_test.go") + ":3:8: application code " +
+				"must not import github.com/romshark/datapages/runtime/httpserve",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := write(t, tt.files)
@@ -455,6 +486,22 @@ func main() {}
 			require.NotContains(t, err.Error(), root)
 		})
 	}
+}
+
+// TestScanGeneratedCodeImportsRuntime tests that generated code may import
+// a runtime package, which is what the runtime packages serve.
+func TestScanGeneratedCodeImportsRuntime(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go": "package app\n",
+		"app/datapagesgen/href/href_gen.go": serverscan.GeneratedHeader + `
+
+package href
+
+import _ "github.com/romshark/datapages/runtime/hrefcheck"
+`,
+	})
+	_, err := serverscan.Scan(root, modulePath)
+	require.NoError(t, err)
 }
 
 // TestScanStubDestination tests a destination a failed run left as stubs.

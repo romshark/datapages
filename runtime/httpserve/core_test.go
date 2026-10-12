@@ -1,7 +1,6 @@
 package httpserve_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/runtime/httpserve"
 )
 
@@ -365,26 +366,29 @@ func TestLimitRequestBodyClosesTheConnection(t *testing.T) {
 func TestSampledLogger(t *testing.T) {
 	t.Parallel()
 
+	const a, b = "level=WARN msg=dropped value=a", "level=WARN msg=dropped value=b"
 	for name, tc := range map[string]struct {
 		conf *datapages.LogSamplingConfig
-		want int // lines for 10 warnings of one kind, then 10 of another
+		want []string // lines for 10 warnings of one kind, then 10 of another
 	}{
-		"default": {want: 2},
+		"default": {want: []string{a, b}},
 		"disabled": {
 			conf: &datapages.LogSamplingConfig{Disabled: true},
-			want: 20,
+			want: slices.Concat(
+				slices.Repeat([]string{a}, 10), slices.Repeat([]string{b}, 10),
+			),
 		},
 		"limit of 1": {
 			conf: &datapages.LogSamplingConfig{Limit: 1},
-			want: 1,
+			want: []string{a},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			var buf bytes.Buffer
+			var log testlog.Buffer
 			c := mustCore(t, datapages.ServerConfig{
-				Logger:      slog.New(slog.NewTextHandler(&buf, nil)),
+				Logger:      log.Logger(),
 				LogSampling: tc.conf,
 			}, "")
 
@@ -394,13 +398,15 @@ func TestSampledLogger(t *testing.T) {
 			for range 10 {
 				c.SampledLogger().Warn("dropped", slog.String("value", "b"))
 			}
-			require.Equal(t, tc.want, strings.Count(buf.String(), "dropped"))
+			log.RequireLines(t, tc.want...)
 
 			// What the application logs is never sampled.
 			for range 3 {
 				c.Logger().Warn("app")
 			}
-			require.Equal(t, 3, strings.Count(buf.String(), "app"))
+			log.RequireLines(t,
+				slices.Concat(tc.want,
+					slices.Repeat([]string{"level=WARN msg=app"}, 3))...)
 		})
 	}
 }
@@ -412,21 +418,22 @@ func TestSampledLoggerInterval(t *testing.T) {
 	t.Parallel()
 
 	const interval = 10 * time.Millisecond
-	var buf bytes.Buffer
+	var log testlog.Buffer
 	c := mustCore(t, datapages.ServerConfig{
-		Logger:      slog.New(slog.NewTextHandler(&buf, nil)),
+		Logger:      log.Logger(),
 		LogSampling: &datapages.LogSamplingConfig{Interval: interval},
 	}, "")
 
 	for range 5 {
 		c.SampledLogger().Warn("dropped")
 	}
-	require.Equal(t, 1, strings.Count(buf.String(), "dropped"))
+	log.RequireLines(t, "level=WARN msg=dropped")
 
 	time.Sleep(2 * interval)
 	c.SampledLogger().Warn("dropped")
-	require.Equal(t, 2, strings.Count(buf.String(), "dropped"))
-	require.Contains(t, buf.String(), "suppressed=4")
+	log.RequireLines(t,
+		"level=WARN msg=dropped",
+		"level=WARN msg=dropped suppressed=4")
 }
 
 // TestBuildDefaults tests what a core built from an empty config carries:
@@ -449,6 +456,7 @@ func TestBuildDefaults(t *testing.T) {
 // TestDatastarJSOption tests that a custom script URL replaces the
 // bundled one in the HTML prefix, which is where every page picks it up.
 // The URL is HTML-escaped there: RFC 3986 allows & and ' in it.
+// The tag is HTMLDatastarScript, which WriteHTML writes after a head prologue.
 func TestDatastarJSOption(t *testing.T) {
 	t.Parallel()
 
@@ -463,7 +471,8 @@ func TestDatastarJSOption(t *testing.T) {
 			c := mustCore(t, datapages.ServerConfig{DatastarJS: tc.src}, "")
 			c.Build()
 
-			require.Contains(t, c.HTMLPrefix(), tc.want)
+			require.Equal(t, c.HTMLPrefix(), c.HTMLHead()+c.HTMLDatastarScript())
+			require.Contains(t, c.HTMLDatastarScript(), tc.want)
 		})
 	}
 }

@@ -1,8 +1,6 @@
 package actionexpr_test
 
 import (
-	"bytes"
-	"log/slog"
 	"math"
 	"strings"
 	"sync"
@@ -10,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/runtime/actionexpr"
 )
 
@@ -29,25 +28,25 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 	for name, tc := range map[string]struct {
 		option func(r *actionexpr.Reporter) actionexpr.Option
 		want   string // rendered expression, "" when the option is dropped
-		logged string // substring of the warning, "" when nothing is logged
+		logged string // the warning, "" when nothing is logged
 	}{
 		"retry scaler positive infinity": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryScaler(r, math.Inf(1))
 			},
-			logged: "value=+Inf",
+			logged: droppedOptionLine("WithRetryScaler", "+Inf"),
 		},
 		"retry scaler negative infinity": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryScaler(r, math.Inf(-1))
 			},
-			logged: "value=-Inf",
+			logged: droppedOptionLine("WithRetryScaler", "-Inf"),
 		},
 		"retry scaler not a number": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryScaler(r, math.NaN())
 			},
-			logged: "value=NaN",
+			logged: droppedOptionLine("WithRetryScaler", "NaN"),
 		},
 		"retry scaler finite": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
@@ -59,7 +58,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetry(r, actionexpr.Retry("bogus"))
 			},
-			logged: "WithRetry",
+			logged: droppedOptionLine("WithRetry", "bogus"),
 		},
 		"retry known": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
@@ -71,7 +70,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithContentType(r, actionexpr.ContentType("xml"))
 			},
-			logged: "WithContentType",
+			logged: droppedOptionLine("WithContentType", "xml"),
 		},
 		"content type known": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
@@ -86,7 +85,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 					actionexpr.RequestCancellation("later"),
 				)
 			},
-			logged: "WithRequestCancellation",
+			logged: droppedOptionLine("WithRequestCancellation", "later"),
 		},
 		"request cancellation known": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
@@ -101,7 +100,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryInterval(r, -5)
 			},
-			logged: "value=-5",
+			logged: droppedOptionLine("WithRetryInterval", "-5"),
 		},
 		"retry interval 0": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
@@ -113,13 +112,19 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryMaxWaitMs(r, -1)
 			},
-			logged: "WithRetryMaxWaitMs",
+			logged: droppedOptionLine("WithRetryMaxWaitMs", "-1"),
+		},
+		"retry max wait 0": {
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryMaxWaitMs(r, 0)
+			},
+			want: ", {retryMaxWaitMs: 0}",
 		},
 		"retry max count negative": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryMaxCount(r, -1)
 			},
-			logged: "WithRetryMaxCount",
+			logged: droppedOptionLine("WithRetryMaxCount", "-1"),
 		},
 		"retry max count 0": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
@@ -133,7 +138,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithFilterSignals(r, "a\nb", "")
 			},
-			logged: "WithFilterSignals",
+			logged: droppedOptionLine("WithFilterSignals", `"a\nb "`),
 		},
 		// A "/" ends the literal too, but escaping keeps the pattern.
 		"filter signals slash": {
@@ -158,19 +163,24 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			var buf bytes.Buffer
+			var log testlog.Buffer
 			var r actionexpr.Reporter
-			r.SetLogger(slog.New(slog.NewTextHandler(&buf, nil)))
+			r.SetLogger(log.Logger())
 
 			require.Equal(t, tc.want,
 				writeOptions([]actionexpr.Option{tc.option(&r)}))
 			if tc.logged == "" {
-				require.Empty(t, buf.String(), "a valid value was logged")
+				log.RequireLines(t)
 				return
 			}
-			require.Contains(t, buf.String(), tc.logged)
+			log.RequireLines(t, tc.logged)
 		})
 	}
+}
+
+func droppedOptionLine(option, loggedValue string) string {
+	return `level=WARN msg="dropping an action option with an invalid value" ` +
+		"option=" + option + " value=" + loggedValue
 }
 
 // countingMetrics records what the expression writer refuses.
@@ -211,15 +221,15 @@ func TestDroppedOptionIsCounted(t *testing.T) {
 func TestReportersAreIndependent(t *testing.T) {
 	t.Parallel()
 
-	var bufA, bufB bytes.Buffer
+	var logA, logB testlog.Buffer
 	var repA, repB actionexpr.Reporter
-	repA.SetLogger(slog.New(slog.NewTextHandler(&bufA, nil)))
-	repB.SetLogger(slog.New(slog.NewTextHandler(&bufB, nil)))
+	repA.SetLogger(logA.Logger())
+	repB.SetLogger(logB.Logger())
 
 	actionexpr.WithRetryInterval(&repA, -1)
 
-	require.Contains(t, bufA.String(), "WithRetryInterval")
-	require.Empty(t, bufB.String())
+	logA.RequireLines(t, droppedOptionLine("WithRetryInterval", "-1"))
+	logB.RequireLines(t)
 }
 
 // TestWithHeadersIsStable tests that 1 call renders 1 string.
