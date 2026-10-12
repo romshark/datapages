@@ -108,20 +108,6 @@ jobs:
         working-directory: ${{ matrix.project.path }}
         run: go test -timeout 15m -covermode=atomic -coverprofile=coverage.out ./...
 
-      # The editor of example/docs merges concurrent changes in the browser.
-      # Node runs its TypeScript tests without a build step from version 24.
-      - name: Install Node.js
-        if: matrix.project.name == 'docs'
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-      - name: Test the editor of example/docs
-        if: matrix.project.name == 'docs'
-        working-directory: example/docs/web
-        run: |
-          npm ci
-          npm test
-
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@v2.3.8
         with:
@@ -138,6 +124,31 @@ jobs:
       - name: Compile
         working-directory: ${{ matrix.project.path }}
         run: go build -o /dev/null ./...
+
+  # The editor of example/docs merges concurrent changes in the browser.
+  # Node runs its TypeScript tests without a build step from version 24.
+  test-docs-editor:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: example/docs/web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Node strips the types without checking them.
+      - name: Check types
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
 
   # Tests the root module against the newest release of every dependency.
   # The result depends on upstream releases, not on the commit, which is why
