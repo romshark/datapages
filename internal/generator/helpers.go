@@ -119,12 +119,44 @@ func pageHasStream(p *model.Page) bool {
 		p.StreamClose != nil || p.State != nil
 }
 
+// streamCompressionField returns the Server field that holds the compression
+// the StreamConfig method of p sets.
+func streamCompressionField(p *model.Page) string {
+	return "streamCompression" + p.TypeName
+}
+
+// streamConfigPerStream reports whether the StreamConfig method of p takes
+// request inputs, which makes it run for each stream instead of once in Init.
+func streamConfigPerStream(p *model.Page) bool {
+	return p.StreamConfig != nil && len(p.StreamConfig.OrderedInputs) > 0
+}
+
+// streamCompressionExpr returns the compression the stream of p opens with:
+// the one its StreamConfig method sets, or the server's. The local compression
+// holds it for a method that runs for each stream.
+func streamCompressionExpr(p *model.Page) string {
+	if streamConfigPerStream(p) {
+		return "compression"
+	}
+	return reloadCompressionExpr(p)
+}
+
+// reloadCompressionExpr returns the compression of the reload answer of the
+// stream of p, which goes out before a per-stream StreamConfig method runs.
+func reloadCompressionExpr(p *model.Page) string {
+	if p.StreamConfig != nil && !streamConfigPerStream(p) {
+		return "s." + streamCompressionField(p)
+	}
+	return "s.SSECompression()"
+}
+
 // pageStreamCallsPage returns true if the page's stream handler calls a method
 // on the page value. A stateful page with no hook and no event handler gets a
 // stream purely to bound its instance lifetime and never touches the page,
 // which would leave the constructed value unused.
 func pageStreamCallsPage(p *model.Page) bool {
-	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil ||
+		streamConfigPerStream(p)
 }
 
 // pageStreamNeedsAuth returns true if handling the page's SSE stream requires
@@ -140,7 +172,7 @@ func pageStreamNeedsAuth(
 			return true
 		}
 	}
-	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose, p.StreamConfig} {
 		if h == nil {
 			continue
 		}

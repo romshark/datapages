@@ -188,6 +188,11 @@ func IsDisableRefreshType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "DisableRefreshAfterHidden")
 }
 
+// IsStreamConfigType reports whether expr resolves to datapages.StreamConfig.
+func IsStreamConfigType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "StreamConfig")
+}
+
 // IsStreamIDType reports whether expr resolves to datapages.StreamID.
 func IsStreamIDType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "StreamID")

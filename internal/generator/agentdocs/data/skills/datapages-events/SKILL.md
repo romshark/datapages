@@ -96,6 +96,16 @@ func (PageIndex) StreamOpen(
 
 Use `State[T]` for filters, sort order and other per-tab values. Use stream hooks to acquire and release resources for a stream. `streamID` is internal and must not be sent to a client.
 
+`StreamConfig` sets a page's SSE stream apart from the rest of the server and returns `(datapages.StreamConfig, error)`. Its `Compression` replaces `datapages.WithSSECompression` for that stream, such as a larger window for a page that re-renders a large fragment. Nil keeps the server's. Without parameters it runs once, when `NewServer` builds the server, and its error or an invalid configuration fails `NewServer`. With `r *http.Request`, and optionally `session`, `path` and `signals`, it runs for each stream request before the stream opens, and its error or an invalid configuration ends the request as a failed broker subscription does. Return 1 of a few fixed configurations, not 1 built from client input. Only a page with a stream may declare it, not a stream embed.
+
+```go
+func (PageDashboard) StreamConfig() (datapages.StreamConfig, error) {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}, nil
+}
+```
+
 Datapages serves the stream at the page route plus `_$/`. A page with both public and user-addressed events has a second stream at `_$/anon/`.
 
 Share a handler across pages by embedding: see `datapages-pages`.

@@ -94,6 +94,17 @@ func (PageIndex) POSTRedirect(
 	return datapages.Redirect{URL: "/"}, nil
 }
 
+// POSTRedirectFail is /redirect-write-fail
+//
+// Queues a body that fails to render and redirects. The writes are left out
+// of the redirect script, and the navigation still goes out.
+func (PageIndex) POSTRedirectFail(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) (redirect datapages.Redirect, err error) {
+	pageCache.Set("/", failingBody, 5)
+	return datapages.Redirect{URL: "/"}, nil
+}
+
 // PageError404 is /not-found
 //
 // This handler tests cache writes from the inline 404 response.

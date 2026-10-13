@@ -121,7 +121,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[struct{}],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[struct{}],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -134,7 +134,7 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -680,7 +680,7 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackground(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackground(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -738,7 +738,7 @@ func (s pageBackgroundHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Req
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackground(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackground(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -847,7 +847,7 @@ func (s pageBackgroundPostHandlers) GETStream(w http.ResponseWriter, r *http.Req
 	p := dpapp.PageBackgroundPost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -905,7 +905,7 @@ func (s pageBackgroundPostHandlers) GETStreamAnon(w http.ResponseWriter, r *http
 	p := dpapp.PageBackgroundPost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1031,7 +1031,7 @@ func (s pagePanicHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePanic(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePanic(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
@@ -1098,7 +1098,7 @@ func (s pagePanicHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePanic(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePanic(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
@@ -1232,7 +1232,7 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PagePost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePost(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1290,7 +1290,7 @@ func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 	p := dpapp.PagePost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePost(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1397,7 +1397,7 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
 		nil,
 		nil,
 		func(
@@ -1468,7 +1468,7 @@ func (s pageRoomsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
 		nil,
 		nil,
 		func(
@@ -1651,7 +1651,7 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageTabs{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageTabs(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
@@ -1752,7 +1752,7 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 	p := dpapp.PageTabs{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageTabs(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,

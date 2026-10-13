@@ -85,7 +85,7 @@ var (
 	ErrAppUnsupportedMethod = errors.New(
 		"unsupported method on App; App takes Head, RecoverError and " +
 			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions). " +
-			"GET, On* and StreamOpen/StreamClose belong on a page",
+			"GET, On*, StreamOpen/StreamClose and StreamConfig belong on a page",
 	)
 
 	ErrStreamEmbedUnsupportedMethod = errors.New(
@@ -97,7 +97,17 @@ var (
 	ErrUnsupportedMethod = errors.New(
 		"unsupported public method on page type; " +
 			"use GET, GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions), " +
-			"On* (event handlers), or StreamOpen/StreamClose (stream hooks)",
+			"On* (event handlers), StreamOpen/StreamClose (stream hooks) " +
+			"or StreamConfig",
+	)
+
+	ErrStreamConfigSignature = errors.New(
+		"StreamConfig must return (datapages.StreamConfig, error) and take nothing, " +
+			"or *http.Request with an optional session, path and signals",
+	)
+	ErrStreamConfigNoStream = errors.New(
+		"StreamConfig requires a page with a stream: " +
+			"add an event handler, a stream hook or state",
 	)
 
 	ErrActionNameMissing      = errors.New("action handler must have a name")

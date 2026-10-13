@@ -3,6 +3,7 @@ package sse
 import (
 	"cmp"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"math/bits"
 	"strings"
@@ -33,41 +34,68 @@ type Compression struct {
 
 // NewCompression returns the compression conf configures, nil when conf disables it.
 // A nil conf selects the defaults of [datapages.SSECompressionConfig].
-// conf must have passed [datapages.WithSSECompression].
+// conf must have passed [datapages.SSECompressionConfig.Validate].
 func NewCompression(conf *datapages.SSECompressionConfig) *Compression {
+	c, ok := resolve(conf)
+	if !ok {
+		return nil
+	}
+	comp := new(Compression)
+	for _, name := range c.Codings {
+		switch name {
+		case datapages.SSECodingZstd:
+			comp.codings = append(comp.codings, newZstdCoding(c.ZstdLevel, c.ZstdWindow))
+		case datapages.SSECodingBrotli:
+			comp.codings = append(comp.codings,
+				newBrotliCoding(c.BrotliQuality, c.BrotliWindow))
+		case datapages.SSECodingGzip:
+			comp.codings = append(comp.codings, newGzipCoding(c.GzipLevel))
+		}
+	}
+	return comp
+}
+
+// CompressionKey returns what tells apart how configurations compress,
+// "" for one that disables compression. A zero field and the default
+// it selects give the same key.
+func CompressionKey(conf *datapages.SSECompressionConfig) string {
+	c, ok := resolve(conf)
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	for _, name := range c.Codings {
+		b.WriteString(string(name))
+		b.WriteByte(',')
+	}
+	fmt.Fprintf(&b, "%d,%d,%d,%d,%d",
+		c.ZstdLevel, c.ZstdWindow, c.BrotliQuality, c.BrotliWindow, c.GzipLevel)
+	return b.String()
+}
+
+// resolve returns conf with the defaults in place of its zero fields,
+// and false when conf disables compression.
+func resolve(
+	conf *datapages.SSECompressionConfig,
+) (datapages.SSECompressionConfig, bool) {
 	var c datapages.SSECompressionConfig
 	if conf != nil {
 		c = *conf
 	}
 	if c.Disabled {
-		return nil
+		return c, false
 	}
-	names := c.Codings
-	if len(names) == 0 {
-		names = []datapages.SSECoding{
+	if len(c.Codings) == 0 {
+		c.Codings = []datapages.SSECoding{
 			datapages.SSECodingZstd, datapages.SSECodingBrotli, datapages.SSECodingGzip,
 		}
 	}
-	comp := new(Compression)
-	for _, name := range names {
-		switch name {
-		case datapages.SSECodingZstd:
-			comp.codings = append(comp.codings, newZstdCoding(
-				cmp.Or(c.ZstdLevel, datapages.DefaultSSEZstdLevel),
-				cmp.Or(c.ZstdWindow, datapages.DefaultSSEZstdWindow),
-			))
-		case datapages.SSECodingBrotli:
-			comp.codings = append(comp.codings, newBrotliCoding(
-				cmp.Or(c.BrotliQuality, datapages.DefaultSSEBrotliQuality),
-				cmp.Or(c.BrotliWindow, datapages.DefaultSSEBrotliWindow),
-			))
-		case datapages.SSECodingGzip:
-			comp.codings = append(comp.codings, newGzipCoding(
-				cmp.Or(c.GzipLevel, datapages.DefaultSSEGzipLevel),
-			))
-		}
-	}
-	return comp
+	c.ZstdLevel = cmp.Or(c.ZstdLevel, datapages.DefaultSSEZstdLevel)
+	c.ZstdWindow = cmp.Or(c.ZstdWindow, datapages.DefaultSSEZstdWindow)
+	c.BrotliQuality = cmp.Or(c.BrotliQuality, datapages.DefaultSSEBrotliQuality)
+	c.BrotliWindow = cmp.Or(c.BrotliWindow, datapages.DefaultSSEBrotliWindow)
+	c.GzipLevel = cmp.Or(c.GzipLevel, datapages.DefaultSSEGzipLevel)
+	return c, true
 }
 
 // coding pools encoders. A stream takes one only when it sends its first event.
@@ -168,8 +196,8 @@ func (c *coding) put(e *pooledEncoder) {
 	c.pool.Put(e)
 }
 
-// negotiate returns the first coding of c that the Accept-Encoding values
-// accept, nil for none. A wildcard enables gzip only.
+// negotiate returns the first coding of c that the Accept-Encoding
+// values accept, nil for none. A wildcard enables gzip only.
 func (c *Compression) negotiate(values []string) *coding {
 	if c == nil {
 		return nil
@@ -198,10 +226,10 @@ const (
 	acceptStar
 )
 
-// accepted reads the values of an Accept-Encoding header, see
-// [RFC 9110, section 12.5.3]. For each of zstd, br, gzip and *, it returns 0
-// when the values do not mention it, 1 when they accept it and -1 when they
-// refuse it. The first mention counts.
+// accepted reads the values of an Accept-Encoding header,
+// see [RFC 9110, section 12.5.3]. For each of zstd, br, gzip and *,
+// it returns 0 when the values do not mention it, 1 when they accept it
+// and -1 when they refuse it. The first mention counts.
 //
 // [RFC 9110, section 12.5.3]: https://www.rfc-editor.org/rfc/rfc9110#section-12.5.3
 func accepted(values []string) (acc [4]int8) {

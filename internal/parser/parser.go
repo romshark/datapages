@@ -80,6 +80,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	finalizePages(&ctx)
 	finalizeStates(&ctx, &errs)
 	validateRefreshOutputs(&ctx, &errs)
+	validateStreamConfigs(&ctx, &errs)
 	validateErrorPageSessionOutputs(&ctx, &errs)
 	checkPageSubjectKinds(&ctx, &errs)
 	checkPageSignalPaths(&ctx, &errs)
@@ -337,6 +338,7 @@ func collectSessionType(ctx *parseCtx, errs *Errors) {
 		}
 		noteHandler(p.StreamOpen)
 		noteHandler(p.StreamClose)
+		noteHandler(p.StreamConfig)
 		for _, h := range p.Actions {
 			noteHandler(h)
 		}
@@ -1013,6 +1015,8 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			switch kind {
 			case methodkind.StreamOpenHook, methodkind.StreamCloseHook:
 				validateAndAttachStreamHook(ctx, errs, recv, fd, pg, se, kind)
+			case methodkind.StreamConfigMethod:
+				validateAndAttachStreamConfig(ctx, errs, recv, fd, pg)
 			case methodkind.EventHandler:
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
@@ -1244,6 +1248,86 @@ func validateAndAttachStreamHook(
 	} else {
 		se.StreamClose = h
 	}
+}
+
+// validateAndAttachStreamConfig attaches the StreamConfig method of a page,
+// which returns datapages.StreamConfig and error. Without parameters it runs
+// once, when the server is built, on a page with only App set.
+// With the request, and optionally the session, the path and the signals of
+// the stream request, it runs for each stream.
+func validateAndAttachStreamConfig(
+	ctx *parseCtx, errs *Errors, recv string, fd *ast.FuncDecl, pg *model.Page,
+) {
+	info := ctx.pkg.TypesInfo
+	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+	refuse := func() {
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.StreamConfig", ErrStreamConfigSignature, recv))
+	}
+	var results []*ast.Field
+	if fd.Type.Results != nil {
+		results = expandFieldList(fd.Type.Results.List)
+	}
+	if len(results) != 2 ||
+		!typecheck.IsStreamConfigType(results[0].Type, info) ||
+		!typecheck.IsError(info.TypeOf(results[1].Type)) {
+		refuse()
+		return
+	}
+	h := &model.Handler{Expr: fd.Name, Name: fd.Name.Name}
+	if fd.Type.Params != nil {
+		for _, f := range expandFieldList(fd.Type.Params.List) {
+			switch {
+			case typecheck.IsPtrToNetHTTPReq(f.Type, info) && h.InputRequest == nil:
+				h.InputRequest = parseInput(f, f.Type, info)
+				h.InputRequest.Kind = model.InputKindRequest
+				h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
+			case paramvalidation.IsSessionParam(f, info) && h.InputSession == nil:
+				h.InputSession = parseInput(f, f.Type, info)
+				h.InputSession.Kind = model.InputKindSession
+				h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
+			case paramvalidation.IsPathParam(f, info) && h.InputPath == nil:
+				values, _ := typecheck.PathValuesType(f.Type, info)
+				err := paramvalidation.ValidatePathStruct(values, recv, fd.Name.Name)
+				if err != nil {
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), err)
+					return
+				}
+				h.InputPath = parseValuesInput(f, values)
+				h.InputPath.Kind = model.InputKindPath
+				h.OrderedInputs = append(h.OrderedInputs, h.InputPath)
+			case paramvalidation.IsSignalsParam(f, info) && h.InputSignals == nil:
+				values, _ := typecheck.SignalsValuesType(f.Type, info)
+				err := paramvalidation.ValidateSignalsStruct(values, recv, fd.Name.Name)
+				if err != nil {
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), err)
+					return
+				}
+				h.InputSignals = parseValuesInput(f, values)
+				h.InputSignals.Kind = model.InputKindSignals
+				h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
+			default:
+				refuse()
+				return
+			}
+		}
+	}
+	// The request marks the method that runs for each stream, as on GET.
+	if len(h.OrderedInputs) > 0 && h.InputRequest == nil {
+		refuse()
+		return
+	}
+	// The stream route extends the page route, which gives the stream request
+	// the variables of the page. A path struct covers them all, as on GET.
+	if h.InputPath != nil {
+		h.Route = pg.Route
+		err := paramvalidation.ValidatePathAgainstRoute(h, recv, fd.Name.Name)
+		if err != nil {
+			reportErrorsWithFset(errs, ctx.pkg.Fset,
+				ctx.pkg.Fset.Position(h.InputPath.Expr.Pos()), err)
+			return
+		}
+	}
+	pg.StreamConfig = h
 }
 
 func eventHandlerReturnsOnlyError(fd *ast.FuncDecl, info *types.Info) bool {
@@ -1736,6 +1820,20 @@ func validateRefreshOutputs(ctx *parseCtx, errs *Errors) {
 			errs.ErrAt(ctx.pkg.Fset.Position(o.out.Expr.Pos()),
 				fmt.Errorf("%w in %s.GET", o.err, name))
 		}
+	}
+}
+
+// validateStreamConfigs rejects the StreamConfig method of a page without
+// a stream, which nothing would call. Like validateRefreshOutputs, it runs after
+// finalizeStates.
+func validateStreamConfigs(ctx *parseCtx, errs *Errors) {
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
+		pg := ctx.pages[name]
+		if pg.StreamConfig == nil || pageHasStream(pg) {
+			continue
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(pg.StreamConfig.Expr.Pos()),
+			fmt.Errorf("%w: %s.StreamConfig", ErrStreamConfigNoStream, name))
 	}
 }
 

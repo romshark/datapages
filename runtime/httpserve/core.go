@@ -62,8 +62,11 @@ type Core struct {
 	// Empty when the application serves none.
 	assetsURLPrefix string
 
-	shutdownCh   chan struct{} // Closed when shutting down.
-	shutdownOnce sync.Once
+	// shutdown is canceled when the shutdown begins. A context rather than
+	// a channel lets [Core.AfterShutdown] register a stream without a goroutine.
+	shutdown       context.Context
+	cancelShutdown context.CancelFunc
+	shutdownOnce   sync.Once
 	// lockRun guards runCancel against a signal goroutine
 	// calling Shutdown while ListenAndServe runs.
 	lockRun   sync.Mutex
@@ -92,6 +95,12 @@ type Core struct {
 	fileSendTimeout  time.Duration
 	sseCompression   *sse.Compression
 
+	// streamCompressions holds the compression of each configuration that
+	// a StreamConfig method returned, by [sse.CompressionKey].
+	// The streams of 1 configuration share its encoders.
+	lockStreamCompressions sync.Mutex
+	streamCompressions     map[string]*sse.Compression
+
 	// An empty buildID disables build checks.
 	buildID       string
 	htmlBuildMeta string
@@ -110,7 +119,7 @@ type Core struct {
 	// stateLiveInstances counts the live per-page-instance states of every state type.
 	// They share the memory and the budget in
 	// [datapages.StateConfig.MaxConcurrentInstances].
-	// Each Core has its own counter. Servers in 1 process do not share it.
+	// Each Core has its own counter. Servers in 1 process don't share it.
 	stateLiveInstances atomic.Int64
 }
 
@@ -121,7 +130,6 @@ type Core struct {
 func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
 	c := &Core{
 		assetsURLPrefix: assetsURLPrefix,
-		shutdownCh:      make(chan struct{}),
 		mux:             http.NewServeMux(),
 		middleware:      cfg.Middleware,
 		outermost:       cfg.OutermostMiddleware,
@@ -138,6 +146,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		fileSendTimeout: cfg.FileSendTimeout,
 		sseCompression:  sse.NewCompression(cfg.SSECompression),
 	}
+	c.shutdown, c.cancelShutdown = context.WithCancel(context.Background())
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
 	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
 		c.maxStateInstances = cfg.State.MaxConcurrentInstances
@@ -351,7 +360,13 @@ func (c *Core) CheckSameOrigin(w http.ResponseWriter, r *http.Request) (ok bool)
 }
 
 // ShutdownCh is closed when the shutdown begins.
-func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdownCh }
+func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdown.Done() }
+
+// AfterShutdown calls f in its own goroutine once the shutdown begins, at once
+// when it has begun. stop keeps f from being called, see [context.AfterFunc].
+func (c *Core) AfterShutdown(f func()) (stop func() bool) {
+	return context.AfterFunc(c.shutdown, f)
+}
 
 // htmlDoctype and htmlHeadStart keep the prologue in pieces so
 // [Core.htmlOpening] can add a nonce without duplicating the markup.
@@ -437,7 +452,7 @@ func (c *Core) ReleaseStateInstance() {
 }
 
 // StateLiveInstances is how many per-tab state instances this server holds,
-// across all state types. It is what [datapages.StateConfig.MaxConcurrentInstances] caps.
+// across all state types. It's what [datapages.StateConfig.MaxConcurrentInstances] caps.
 //
 // A server built with Prometheus exports the same number as datapages_state_instances.
 // This reads it without one, for an application that reports its own health.
@@ -453,10 +468,55 @@ func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 // an action that declares Signals is read.
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 
-// OpenSSE starts the event stream of a response, compressed as
-// [datapages.WithSSECompression] configures, see [sse.Open].
+// OpenSSE starts the event stream of a response,
+// compressed as [datapages.WithSSECompression] configures, see [sse.Open].
 func (c *Core) OpenSSE(w http.ResponseWriter, r *http.Request) *sse.Stream {
 	return sse.Open(w, r, c.sseCompression)
+}
+
+// SSECompression returns the compression [datapages.WithSSECompression]
+// configures, nil when it disables compression.
+func (c *Core) SSECompression() *sse.Compression { return c.sseCompression }
+
+// maxStreamCompressions limits the configurations whose encoders are shared.
+// A StreamConfig method that builds its configuration from what a request
+// carries could otherwise grow the map without a limit.
+// The stream of another configuration gets encoders of its own.
+const maxStreamCompressions = 64
+
+// StreamCompression returns the compression of the stream of a page whose
+// StreamConfig method returned conf and err, which generated code passes as the call.
+// It returns err when it is not nil, the server's compression when conf sets none,
+// and an error for a configuration that [datapages.WithSSECompression] refuses.
+func (c *Core) StreamCompression(
+	conf datapages.StreamConfig, err error,
+) (*sse.Compression, error) {
+	if err != nil {
+		return nil, err
+	}
+	if conf.Compression == nil {
+		return c.sseCompression, nil
+	}
+	if err := conf.Compression.Validate(); err != nil {
+		return nil, fmt.Errorf("compression: %w", err)
+	}
+	key := sse.CompressionKey(conf.Compression)
+	if key == "" {
+		return nil, nil
+	}
+	c.lockStreamCompressions.Lock()
+	defer c.lockStreamCompressions.Unlock()
+	if comp, ok := c.streamCompressions[key]; ok {
+		return comp, nil
+	}
+	comp := sse.NewCompression(conf.Compression)
+	if len(c.streamCompressions) < maxStreamCompressions {
+		if c.streamCompressions == nil {
+			c.streamCompressions = make(map[string]*sse.Compression)
+		}
+		c.streamCompressions[key] = comp
+	}
+	return comp, nil
 }
 
 // ShutdownTimeout returns the grace period used by [Core.ListenAndServe].
@@ -485,7 +545,7 @@ func (c *Core) Addr() string {
 // tracked records whether any of the response body went out. A body cannot be
 // taken back: an error page appended to a half-written page is 2 documents.
 //
-// The status alone does not count. A handler that wrote one and nothing else
+// The status alone doesn't count. A handler that wrote one and nothing else
 // still has a body to write, which is what the error path writes into.
 //
 // In the response of a file, see [limitFileWrites], tracked also gives each
@@ -554,13 +614,13 @@ func (t *tracked) keepDeadline() {
 	_ = http.NewResponseController(t.ResponseWriter).SetWriteDeadline(t.deadline)
 }
 
-// ReadFrom is how http.ServeContent copies a file into the response. Without
-// it, io.Copy allocates a copy buffer per response.
+// ReadFrom is how http.ServeContent copies a file into the response.
+// Without it, io.Copy allocates a copy buffer per response.
 //
 // A source the kernel can send goes to the ReadFrom of the writer underneath,
 // where net/http sends a file with sendfile and a socket with splice.
-// Any other source is copied through Write with a pooled buffer. Over plain TCP,
-// net/http copies such a source with a new buffer per response
+// Any other source is copied through Write with a pooled buffer.
+// Over plain TCP, net/http copies such a source with a new buffer per response
 // and more allocations than Write takes.
 //
 // wroteBody is set before the copy: 0 bytes for an empty file is
@@ -585,7 +645,9 @@ const sendChunk = 64 << 10
 
 // readFromInChunks is ReadFrom for a file being sent from a source the kernel copies.
 // It hands the source to rf a chunk at a time.
-func (t *tracked) readFromInChunks(rf io.ReaderFrom, src io.Reader) (n int64, err error) {
+func (t *tracked) readFromInChunks(
+	rf io.ReaderFrom, src io.Reader,
+) (n int64, err error) {
 	lr, ok := src.(*io.LimitedReader)
 	if !ok {
 		lr = &io.LimitedReader{R: src, N: math.MaxInt64}
@@ -777,7 +839,7 @@ func (c *Core) listenAndServe(
 ) error {
 	if datapages.IsDevMode() {
 		// Assets come from the source tree here,
-		// which a deployment that inherited the variable does not have.
+		// which a deployment that inherited the variable doesn't have.
 		c.logger.Warn("dev mode is on",
 			slog.String("env", datapages.EnvVarDevMode+"/TEMPL_DEV_MODE"))
 	}
@@ -798,11 +860,9 @@ func (c *Core) listenAndServe(
 	c.lockRun.Lock()
 	c.runCancel = cancel
 	c.lockRun.Unlock()
-	// Shutdown may have closed shutdownCh before runCancel existed.
-	select {
-	case <-c.shutdownCh:
+	// Shutdown may have begun before runCancel existed.
+	if c.shutdown.Err() != nil {
 		cancel()
-	default:
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -840,7 +900,7 @@ func (c *Core) listenAndServe(
 	g.Go(func() error {
 		select {
 		case <-gctx.Done():
-		case <-c.shutdownCh:
+		case <-c.shutdown.Done():
 			// Nothing cancels gctx when Shutdown ran before runCancel existed.
 		}
 
@@ -870,8 +930,8 @@ func (c *Core) Shutdown(ctx context.Context) error {
 		if cancel != nil {
 			cancel()
 		}
-		// Closed even when runCancel is nil. listenAndServe checks it.
-		close(c.shutdownCh)
+		// Canceled even when runCancel is nil. listenAndServe checks it.
+		c.cancelShutdown()
 	})
 	var errs []error
 	if c.metricsServer != nil {

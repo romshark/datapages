@@ -55,6 +55,7 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `QUERYXXX`: handles `QUERY` action requests.
 - `StreamOpen`: runs when the page SSE stream opens.
 - `StreamClose`: runs when the page SSE stream closes.
+- `StreamConfig`: configures the page SSE stream; see [StreamConfig](#streamconfig).
 - `OnXXX`: handles `EventXXX` in the SSE listener.
 
 An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
@@ -225,6 +226,36 @@ func (PageIndex) StreamClose(
 	// ...
 }
 ```
+
+#### StreamConfig
+
+`StreamConfig` sets the SSE stream of a page apart from the rest of the server. It returns `(datapages.StreamConfig, error)` and takes either nothing or the stream request:
+
+- Without parameters, it runs once, when `NewServer` builds the server, before any request. It can read the fields of `App`. Its error, and a configuration that `datapages.WithSSECompression` refuses, fail `NewServer` with an error naming the page.
+- With `r *http.Request`, and optionally `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, it runs for each stream request before the stream opens and before `StreamOpen`. The stream route extends the page route, which gives `path` the variables of the page, as on `GET`. On the anonymous stream the session is that of a guest. Its error, and a configuration that `datapages.WithSSECompression` refuses, end the request as a failed subscription to the message broker does. With `RecoverError`, it answers on a stream that ends with the 5s reconnect delay. Without it, the request gets the error status.
+
+```go
+func (PageDashboard) StreamConfig() (datapages.StreamConfig, error) {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}, nil
+}
+
+func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	if r.Header.Get("Save-Data") != "on" {
+		return datapages.StreamConfig{}, nil
+	}
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}, nil
+}
+```
+
+`Compression` replaces what `datapages.WithSSECompression` sets, for both stream endpoints of the page, `_$/` and `_$/anon/`. A page that re-renders a large fragment can take a larger window, and a page with many visitors a smaller one. Nil keeps the compression of the server. The actions of the page keep it too.
+
+Streams with the same configuration share encoders, up to 64 distinct configurations. Return 1 of a few fixed configurations. One built from what the request carries could let a client choose one that holds tens of MiB per stream.
+
+Only a page that has a stream may declare `StreamConfig`, and a stream embed may not.
 
 #### GET Actions
 
@@ -507,7 +538,7 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 `PatchElementAt` and `RemoveElement` reject selectors containing `\r` or `\n` with `datapages.ErrSelectorLineBreak`.
 
-An SSE response is compressed with the first of zstd, brotli and gzip that the request accepts, zstd and brotli with a 1 MiB window. A stream takes an encoder on its first event and holds it until the stream ends, about 1.5 MiB with zstd. `datapages.WithSSECompression` sets the codings, their order, levels and windows, or turns compression off behind a proxy that compresses responses. `Codings: []datapages.SSECoding{datapages.SSECodingGzip}` compresses with gzip only, and `{datapages.SSECodingZstd, datapages.SSECodingBrotli}` with zstd, else brotli. A client that accepts none of the listed codings gets an uncompressed stream. Unless compression is disabled, an SSE response carries `Vary: Accept-Encoding`. `Disabled: true` sends uncompressed streams to a proxy that compresses them, which must forward each event as it arrives.
+An SSE response is compressed with the first of zstd, brotli and gzip that the request accepts by name, zstd and brotli with a 1 MiB window. A request that accepts none of them by name but accepts `*` gets gzip. A re-render compresses against its previous render only while that render lies within the window, which a fragment over 1 MiB never does. zstd at level 1 also re-encodes about 1 render per window of stream in full, which makes up most of its bytes for a 100 KB fragment. A stream takes an encoder on its first event and holds it until the stream ends, about 1.5 MiB with zstd. `datapages.WithSSECompression` sets the codings, their order, levels and windows, or turns compression off behind a proxy that compresses responses. The [`StreamConfig`](#streamconfig) method of a page sets them for the stream of that page. `Codings: []datapages.SSECoding{datapages.SSECodingGzip}` compresses with gzip only, and `{datapages.SSECodingZstd, datapages.SSECodingBrotli}` with zstd, else brotli. A request that accepts none of the listed codings by name gets an uncompressed stream, or gzip when it accepts `*` and gzip is listed. Unless compression is disabled, an SSE response carries `Vary: Accept-Encoding`. `Disabled: true` sends uncompressed streams to a proxy that compresses them, which must forward each event as it arrives.
 
 See [datapages.go](datapages.go) for method definitions.
 
@@ -564,6 +595,8 @@ page method and an action declared on `App`:
 - Action with a redirect: sends the writes in the `text/javascript` response. Navigation waits up to 500ms for the worker to apply them. This rule also applies when the action can return a body.
 - Action with only a body: embeds the writes in the rendered document.
 - Action with neither: sends the writes over an SSE stream opened by Datapages.
+
+A cached body that returns an error while it renders is logged, and the writes of that request are left out. The response goes out as it would without them. A cached body that panics takes the path of a panic in the handler, see [Return Value `error`](#return-value-error-or-err-error).
 
 An action taking `datapages.PageCacheWriter` answers a request without `Datastar-Request: true` with 406 Not Acceptable. Datapages could answer a plain form submission to an action that redirects only with an HTTP redirect, which carries no writes.
 

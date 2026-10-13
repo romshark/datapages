@@ -54,10 +54,11 @@ type Stream struct {
 }
 
 // Open starts and flushes an event stream. It selects the first coding of c
-// that r accepts, and none when c is nil. The caller must call [Stream.Close].
+// that r accepts by name, else gzip when r accepts *, and none when c is nil.
+// The caller must call [Stream.Close].
 // The headers and the first flush follow the [SDK specification].
 //
-// Open panics if w does not support flushing because events would wait for the
+// Open panics if w doesn't support flushing because events would wait for the
 // handler to return. [Stream.Err] and later events report other flush failures.
 //
 // [SDK specification]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#construction--initialization
@@ -338,10 +339,10 @@ var controlEscapes = func() (t [0x20]string) {
 	return t
 }()
 
-// writeJSONStringBody writes s inside a JSON string, which is also a JavaScript
-// string, in a single-line script. It escapes JSON syntax, controls and '<' to
-// prevent line breaks, </script> and <!--. Every escape is a constant, which
-// lets it write into an event without a buffer.
+// writeJSONStringBody writes s inside a JSON string, which is also a JavaScript string,
+// in a single-line script. It escapes JSON syntax, controls and '<' to prevent
+// line breaks, </script> and <!--. Every escape is a constant,
+// which lets it write into an event without a buffer.
 func writeJSONStringBody(w io.StringWriter, s string) {
 	last := 0
 	for i := 0; i < len(s); i++ {

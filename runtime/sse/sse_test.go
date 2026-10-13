@@ -6,10 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -608,6 +613,70 @@ func TestScriptAndRedirect(t *testing.T) {
 	require.Contains(t, got, "/b/")
 }
 
+// TestConcurrentWritersAndClose tests 8 goroutines that send events while
+// another closes the stream after the 10th event. Every event whose send
+// returned nil arrives whole, and no other event arrives.
+func TestConcurrentWritersAndClose(t *testing.T) {
+	t.Parallel()
+
+	for _, coding := range append([]string{"identity"}, codings...) {
+		t.Run(coding, func(t *testing.T) {
+			t.Parallel()
+			for range 5 {
+				w := &recorder{h: make(http.Header)}
+				s := sse.Open(w, codingRequest(coding), compression)
+				var lock sync.Mutex
+				sent := make(map[string]bool)
+				tenth := make(chan struct{})
+				var wg sync.WaitGroup
+				for g := range 8 {
+					wg.Go(func() {
+						for i := range 20 {
+							id := fmt.Sprintf("g%di%d", g, i)
+							// Up to 100 KB, which spans 2 frames.
+							size := (g*997 + i*7919) % (100 << 10)
+							body := `<p id="` + id + `">` + strings.Repeat("y", size) +
+								"\r\nend</p>"
+							if s.PatchElement(templ.Raw(body)) == nil {
+								lock.Lock()
+								sent[id] = true
+								if len(sent) == 10 {
+									close(tenth)
+								}
+								lock.Unlock()
+							}
+						}
+					})
+				}
+				wg.Go(func() {
+					<-tenth
+					s.Close()
+				})
+				wg.Wait()
+
+				out := w.buf.String()
+				if coding != "identity" {
+					out = decode(t, coding, w.buf.Bytes())
+				}
+				events := strings.SplitAfter(out, "\n\n")
+				require.Empty(t, events[len(events)-1], "the stream ends mid-event")
+				events = events[:len(events)-1]
+				require.Len(t, events, len(sent))
+				for _, e := range events {
+					head, rest, ok := strings.Cut(e,
+						"\ndata: elements end</p>\n\n")
+					require.True(t, ok, "a mangled event: %.80q", e)
+					require.Empty(t, rest)
+					id, _, _ := strings.Cut(strings.TrimPrefix(head,
+						"event: datastar-patch-elements\ndata: elements <p id=\""), `"`)
+					require.True(t, sent[id], "event %q arrived, but its send failed",
+						id)
+				}
+			}
+		})
+	}
+}
+
 // TestClose tests repeated Close calls and an event after Close.
 func TestClose(t *testing.T) {
 	t.Parallel()
@@ -704,8 +773,8 @@ func TestCompressedWithoutEvents(t *testing.T) {
 }
 
 // TestCompressionConfig tests streams of a server configured with
-// [datapages.WithSSECompression]: the coding each request gets, and the
-// stream it decodes from at each setting.
+// [datapages.WithSSECompression]: the coding each request gets,
+// and the stream it decodes from at each setting.
 func TestCompressionConfig(t *testing.T) {
 	t.Parallel()
 
@@ -793,8 +862,8 @@ func TestCompressionConfig(t *testing.T) {
 	}
 }
 
-// TestOpenWithoutCompression tests a stream of a server that compresses
-// nothing. Its response does not vary with Accept-Encoding.
+// TestOpenWithoutCompression tests a stream of a server that compresses nothing.
+// Its response doesn't vary with Accept-Encoding.
 func TestOpenWithoutCompression(t *testing.T) {
 	t.Parallel()
 
@@ -888,8 +957,8 @@ func TestReadSignals(t *testing.T) {
 	}
 }
 
-// TestPatchElementAllocs tests warm pooled writes with every coding, of an
-// event in 1 frame and of 1 that spans 4.
+// TestPatchElementAllocs tests warm pooled writes with every coding,
+// of an event in 1 frame and of 1 that spans 4.
 func TestPatchElementAllocs(t *testing.T) {
 	if raceEnabled {
 		t.Skip("the race detector makes sync.Pool drop values")
@@ -1105,6 +1174,119 @@ func BenchmarkPatchElement(b *testing.B) {
 			})
 		}
 	}
+}
+
+// BenchmarkReRender measures the re-renders a live update sends.
+// Each renders a list on 1 line with 1 more item changed, and none repeats.
+// It reports the bytes on the wire per re-render, their share of the list
+// and the heap the stream holds. The figures in the docs of
+// [datapages.SSECompressionConfig] come from it.
+func BenchmarkReRender(b *testing.B) {
+	for _, size := range []struct {
+		name string
+		n    int
+	}{
+		{"8KB", 8_000},
+		{"100KB", 100_000},
+		{"400KB", 400_000},
+	} {
+		items := listItems(size.n)
+		for _, tc := range []struct {
+			name, coding string
+			conf         *datapages.SSECompressionConfig
+		}{
+			{"zstd", "zstd", nil},
+			{"br", "br", nil},
+			{"gzip", "gzip", nil},
+			{"zstd-4MiB", "zstd", &datapages.SSECompressionConfig{ZstdWindow: 4 << 20}},
+			{"zstd-level10", "zstd", &datapages.SSECompressionConfig{ZstdLevel: 10}},
+			{"br-quality9", "br", &datapages.SSECompressionConfig{BrotliQuality: 9}},
+		} {
+			b.Run(size.name+"/"+tc.name, func(b *testing.B) {
+				comp := sse.NewCompression(tc.conf)
+				w := &countingWriter{discard: discard{h: make(http.Header)}}
+				versions := make([]int, len(items))
+				// 2 collections empty the pools of the previous runs.
+				var before, after runtime.MemStats
+				runtime.GC()
+				runtime.GC()
+				runtime.ReadMemStats(&before)
+				s := sse.Open(w, codingRequest(tc.coding), comp)
+				defer s.Close()
+				// The 1st render has no earlier one to refer to.
+				if err := s.PatchElement(listRender(items, versions)); err != nil {
+					b.Fatal(err)
+				}
+				first, renders := w.n, 0
+				for b.Loop() {
+					renders++
+					versions[renders%len(items)] = renders
+					if err := s.PatchElement(listRender(items, versions)); err != nil {
+						b.Fatal(err)
+					}
+				}
+				runtime.GC()
+				runtime.GC()
+				runtime.ReadMemStats(&after)
+				perRender := float64(w.n-first) / float64(renders)
+				b.ReportMetric(perRender, "wireB/op")
+				b.ReportMetric(perRender/float64(size.n)*100, "%raw")
+				b.ReportMetric(float64(after.HeapAlloc-before.HeapAlloc)/(1<<20), "heapMiB")
+			})
+		}
+	}
+}
+
+// countingWriter counts the bytes of a response and discards them.
+type countingWriter struct {
+	discard
+	n int
+}
+
+func (c *countingWriter) Write(b []byte) (int, error) {
+	c.n += len(b)
+	return len(b), nil
+}
+
+// listItems returns the items of a list of about n bytes.
+// Their words come from a fixed seed, which makes the items differ as real ones do.
+func listItems(n int) []string {
+	r := rand.New(rand.NewPCG(3, 4))
+	words := strings.Fields("alpha bravo charlie delta echo foxtrot golf " +
+		"hotel india juliet kilo lima mike november oscar papa quebec romeo " +
+		"sierra tango uniform victor whiskey xray yankee zulu")
+	var items []string
+	for size := 0; size < n; {
+		var b strings.Builder
+		b.WriteString(`<li id="item-` + strconv.Itoa(len(items)) +
+			`"><input type="checkbox">`)
+		for range 3 + r.IntN(4) {
+			b.WriteString(" " + words[r.IntN(len(words))])
+		}
+		b.WriteString("</li>")
+		items = append(items, b.String())
+		size += b.Len()
+	}
+	return items
+}
+
+// listRender renders the list of items. An item with a version other than 0
+// shows the version instead of its text.
+func listRender(items []string, versions []int) templ.Component {
+	return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
+		_, _ = io.WriteString(w, `<ul id="list">`)
+		for i, it := range items {
+			if versions[i] == 0 {
+				_, _ = io.WriteString(w, it)
+				continue
+			}
+			_, _ = io.WriteString(w, `<li id="item-`+strconv.Itoa(i)+
+				`"><input type="checkbox" checked> changed in render `+
+				strconv.Itoa(versions[i])+`</li>`)
+		}
+		_, err := io.WriteString(w, `</ul>`)
+		return err
+	})
 }
 
 // BenchmarkHTTPEvent measures 1 uncompressed event per request over loopback

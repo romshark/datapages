@@ -1140,7 +1140,7 @@ func (w *Writer) writePageGETStreamHandler(
 			// stream was disconnected. See [stream.Handler.Reload].
 			w.Line(0, "")
 			w.Line(1, `if sess.UserID() == "" {`)
-			w.Line(2, "s.streams.Reload(w, r)")
+			w.Linef(2, "s.streams.Reload(w, r, %s)", reloadCompressionExpr(p))
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
@@ -1163,6 +1163,7 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+	w.writeStreamConfigInputsRead(p, m)
 
 	if p.StreamOpen != nil {
 		w.writeDispatchers(p.StreamOpen, "dispatchOpen",
@@ -1190,10 +1191,11 @@ func (w *Writer) writePageGETStreamHandler(
 		w.writePageConstructor(p, appPkg)
 		w.Byte('\n')
 	}
+	w.writeStreamConfigCall(p)
 
 	// evSubj call.
 	evSubjName := "evSubj" + p.TypeName
-	w.Raw("\ts.handleStreamRequest(w, r,")
+	w.Raw("\ts.handleStreamRequest(w, r, " + streamCompressionExpr(p) + ",")
 	if needsAuth {
 		w.Raw(" sessToken, sess,")
 	} else if w.usage.streamAuth {
@@ -1590,6 +1592,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+	w.writeStreamConfigInputsRead(p, m)
 	if p.StreamOpen != nil {
 		w.writeDispatchers(p.StreamOpen, "dispatchOpen",
 			"context.WithoutCancel(r.Context())")
@@ -1617,11 +1620,13 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.writePageConstructor(p, appPkg)
 		w.Byte('\n')
 	}
+	w.writeStreamConfigCall(p)
 
 	// evSubj call. The client holds no session. The user id is empty and only
 	// public subjects come back, though a page that scopes by signals still
 	// subscribes by their values.
-	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
+	w.Raw("\ts.handleStreamRequest(w, r, " + streamCompressionExpr(p) +
+		", sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
 	w.Raw("(sess.UserID()")
 	for _, sel := range signalSels {
@@ -2220,4 +2225,56 @@ func (w *Writer) writeStringConv(t types.Type, inner func()) {
 	w.Byte('(')
 	inner()
 	w.Byte(')')
+}
+
+// writeStreamConfigInputsRead reads the path and the signals of a StreamConfig
+// method that runs for each stream. The signals have a variable of their own,
+// since StreamOpen may take signals of another type.
+func (w *Writer) writeStreamConfigInputsRead(p *model.Page, m *model.App) {
+	if !streamConfigPerStream(p) {
+		return
+	}
+	if p.StreamConfig.InputPath != nil {
+		w.writeReadPath(p.StreamConfig.InputPath, m, p.Route)
+	}
+	if p.StreamConfig.InputSignals != nil {
+		w.Line(0, "")
+		w.Raw("\tvar streamConfigSignals ")
+		w.Raw(w.renderSignalsType(p.StreamConfig.InputSignals, m))
+		w.Byte('\n')
+		w.Line(1, "if err := dpsse.ReadSignals(r, &streamConfigSignals.Values); err != nil {")
+		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
+		w.Line(2, "return")
+		w.Line(1, "}")
+	}
+}
+
+// writeStreamConfigCall emits the call of a StreamConfig method that runs for
+// each stream, which sets the local compression. Its error, or a configuration
+// the server refuses, ends the request the way a failed subscription does.
+func (w *Writer) writeStreamConfigCall(p *model.Page) {
+	if !streamConfigPerStream(p) {
+		return
+	}
+	args := make([]string, 0, len(p.StreamConfig.OrderedInputs))
+	for _, in := range p.StreamConfig.OrderedInputs {
+		switch in.Kind {
+		case model.InputKindRequest:
+			args = append(args, "r")
+		case model.InputKindSession:
+			args = append(args, "sess")
+		case model.InputKindPath:
+			args = append(args, "path")
+		case model.InputKindSignals:
+			args = append(args, "streamConfigSignals")
+		}
+	}
+	w.Raw("\tcompression, err := s.StreamCompression(")
+	w.writeCallExpr("p", "StreamConfig", args)
+	w.Raw(")\n")
+	w.Line(1, "if err != nil {")
+	w.Linef(2, "s.streams.Fail(w, r, s.SSECompression(), %q, err)",
+		"handling "+p.TypeName+".StreamConfig")
+	w.Line(2, "return")
+	w.Line(1, "}")
 }

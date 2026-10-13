@@ -52,11 +52,7 @@ func httpRedirectOffline(
 
 	if httpserve.IsDatastarRequest(r.Header) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		js, err := oc.redirectScript(redirect.URL)
-		if err != nil {
-			js = fmt.Sprintf("window.location = %q;", redirect.URL)
-		}
-		_, _ = w.Write([]byte(js))
+		_, _ = io.WriteString(w, oc.redirectScript(redirect.URL))
 		return true
 	}
 
@@ -286,24 +282,20 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 
 // redirectScript returns JavaScript that sends queued writes to the worker and
 // then navigates to target. Redirect actions return this JavaScript instead of
-// an SSE stream.
+// an SSE stream. A payload that fails to render is logged and omitted,
+// as in embedInto.
 //
 // Navigation waits for the worker to apply the writes because that worker also
 // serves the destination. The 500ms timeout supports older workers that do not
 // acknowledge the message.
-func (c *pageCacheWriter) redirectScript(target string) (string, error) {
-	tj, err := json.Marshal(target)
-	if err != nil {
-		return "", err
-	}
+func (c *pageCacheWriter) redirectScript(target string) string {
+	// Marshaling a string cannot fail.
+	tj, _ := json.Marshal(target)
 	nav := "window.location=" + string(tj) + ";"
 
-	payload, err := c.payload()
-	if err != nil {
-		return "", err
-	}
+	payload := c.loggedPayload()
 	if payload == "" {
-		return nav, nil
+		return nav
 	}
 
 	var b strings.Builder
@@ -318,7 +310,7 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	b.WriteString("w.postMessage(")
 	b.WriteString(payload)
 	b.WriteString(",[ch.port2]);},once);setTimeout(once,500);})();")
-	return b.String(), nil
+	return b.String()
 }
 
 func (s *Server) writeHTML(
@@ -344,7 +336,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[dpapp.SessionData],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[dpapp.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -357,7 +349,7 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -860,7 +852,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageIndex(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -919,7 +911,7 @@ func (s pageIndexHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageIndex(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1289,7 +1281,7 @@ func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -1309,7 +1301,7 @@ func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageRoom{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRoom(sess.UserID(), subjSignals.CalcID),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageRoom(sess.UserID(), subjSignals.CalcID),
 		nil,
 		nil,
 		func(

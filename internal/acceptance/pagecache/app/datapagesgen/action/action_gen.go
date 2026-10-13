@@ -257,6 +257,7 @@ var PageIndex pageIndex
 type pageIndex struct {
 	Branch         pageIndex_Branch
 	Redirect       pageIndex_Redirect
+	RedirectFail   pageIndex_RedirectFail
 	Stream         pageIndex_Stream
 	StreamFail     pageIndex_StreamFail
 	StreamRedirect pageIndex_StreamRedirect
@@ -338,6 +339,24 @@ func (pageIndex_Redirect) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/redirect-write/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/redirect-write/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_RedirectFail struct{}
+
+// POST references /redirect-write-fail/
+func (pageIndex_RedirectFail) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/redirect-write-fail/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/redirect-write-fail/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/redirect-write-fail/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

@@ -116,7 +116,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -129,7 +129,7 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -558,7 +558,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(stateID),
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageIndex(stateID),
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
@@ -725,7 +725,7 @@ func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, evSubjPageOther(stateID),
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageOther(stateID),
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,

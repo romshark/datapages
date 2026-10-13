@@ -266,14 +266,16 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 		"X-Datapages-Offline-Version")
 }
 
-// TestFailingCachedBodyIsLogged tests a cached body that fails to
-// render in the response of an action that answers with an event stream.
-// The writes are left out, as from a page, and the error is logged.
+// TestFailingCachedBodyIsLogged tests a cached body that fails to render
+// in the response of an action that answers with an event stream or with
+// a redirect script. The writes are left out, as from a page,
+// and the error is logged.
 func TestFailingCachedBodyIsLogged(t *testing.T) {
 	t.Parallel()
 	for name, path := range map[string]string{
 		"own stream": "/stream-write-fail/",
 		"new stream": "/app-precache-fail/",
+		"redirect":   "/redirect-write-fail/",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

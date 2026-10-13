@@ -137,7 +137,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[struct{}],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[struct{}],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -150,7 +150,7 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -835,7 +835,7 @@ func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -845,7 +845,7 @@ func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) 
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageError404(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageError404(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -971,7 +971,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -981,7 +981,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageIndex(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1187,7 +1187,7 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -1221,7 +1221,7 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageMessages(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageMessages(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
@@ -1538,7 +1538,7 @@ func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -1548,7 +1548,7 @@ func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageMyPosts(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageMyPosts(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1654,7 +1654,7 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -1664,7 +1664,7 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePost(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1855,7 +1855,7 @@ func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -1865,7 +1865,7 @@ func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSearch(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageSearch(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -1995,7 +1995,7 @@ func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -2005,7 +2005,7 @@ func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSettings(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageSettings(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -2237,7 +2237,7 @@ func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
@@ -2247,7 +2247,7 @@ func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageUser(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageUser(sess.UserID()),
 		nil,
 		nil,
 		func(

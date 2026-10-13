@@ -1,10 +1,12 @@
 package stream_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,7 +66,7 @@ func TestHandleSessionExpiry(t *testing.T) {
 				done := make(chan struct{})
 				go func() {
 					defer close(done)
-					h.Handle(httptest.NewRecorder(), streamRequest(ctx),
+					h.Handle(httptest.NewRecorder(), streamRequest(ctx), compression,
 						"token", "alice", expiresAt,
 						[]string{"notice.alice"}, nil, nil, drain)
 					ended = time.Now()
@@ -90,7 +92,7 @@ func TestHandleEnds(t *testing.T) {
 	t.Parallel()
 
 	for name, tt := range map[string]struct {
-		expiresIn    time.Duration // 0: the session does not expire
+		expiresIn    time.Duration // 0: the session doesn't expire
 		closeSession bool
 		wantErr      error
 		wantReload   bool
@@ -111,7 +113,7 @@ func TestHandleEnds(t *testing.T) {
 					if tt.expiresIn != 0 {
 						expiresAt = time.Now().Add(tt.expiresIn)
 					}
-					h.Handle(w, r, "token", "alice", expiresAt,
+					h.Handle(w, r, compression, "token", "alice", expiresAt,
 						[]string{"notice.alice"}, nil,
 						func(datapages.StreamID) { closed.Store(true) }, drain)
 				},
@@ -119,7 +121,8 @@ func TestHandleEnds(t *testing.T) {
 			defer srv.Close()
 
 			req := streamRequest(t.Context())
-			req.URL.Scheme, req.URL.Host, req.RequestURI = "http", srv.Listener.Addr().String(), ""
+			req.URL.Scheme, req.URL.Host, req.RequestURI =
+				"http", srv.Listener.Addr().String(), ""
 			resp, err := srv.Client().Do(req)
 			require.NoError(t, err)
 			defer func() { _ = resp.Body.Close() }()
@@ -190,13 +193,17 @@ func TestHandleFailedOpenDelaysReconnect(t *testing.T) {
 			})
 
 			w := httptest.NewRecorder()
-			h.Handle(w, streamRequest(t.Context()), "token", "alice", time.Time{},
-				[]string{"notice.alice"}, tt.onOpen, nil, drain)
+			h.Handle(
+				w, streamRequest(t.Context()),
+				compression, "token", "alice", time.Time{},
+				[]string{"notice.alice"}, tt.onOpen, nil, drain,
+			)
 
 			require.Equal(t, []string{tt.wantMsg}, msgs)
 			body := w.Body.String()
 			i := strings.Index(body, `"error":true`)
-			require.GreaterOrEqual(t, i, 0, "the error handler's event is missing:\n%s", body)
+			require.GreaterOrEqual(t, i, 0,
+				"the error handler's event is missing:\n%s", body)
 			require.Contains(t, body[i:], "retry: 5000",
 				"the reconnect delay does not follow the error handler's event")
 		})
@@ -229,11 +236,12 @@ func TestHandleFailedSubscribe(t *testing.T) {
 						w.WriteHeader(http.StatusServiceUnavailable)
 						return
 					}
-					require.NoError(t, sse.PatchSignals(json.RawMessage(`{"error":true}`)))
+					require.NoError(t,
+						sse.PatchSignals(json.RawMessage(`{"error":true}`)))
 				}, errOnStream)
 
 			w := httptest.NewRecorder()
-			h.Handle(w, streamRequest(t.Context()), "", "", time.Time{},
+			h.Handle(w, streamRequest(t.Context()), compression, "", "", time.Time{},
 				[]string{"notice"}, nil, nil, drain)
 
 			require.Equal(t, []string{"subscribing to message broker"}, msgs)
@@ -245,7 +253,8 @@ func TestHandleFailedSubscribe(t *testing.T) {
 			}
 			require.Equal(t, http.StatusOK, w.Code)
 			i := strings.Index(body, `"error":true`)
-			require.GreaterOrEqual(t, i, 0, "the error handler's event is missing:\n%s", body)
+			require.GreaterOrEqual(t, i, 0,
+				"the error handler's event is missing:\n%s", body)
 			require.Contains(t, body[i:], "retry: 5000",
 				"the reconnect delay does not follow the error handler's event")
 		})
@@ -254,8 +263,8 @@ func TestHandleFailedSubscribe(t *testing.T) {
 
 // TestHandleShutdownWithBlockedWrite tests that shutdown aborts a stream while
 // another goroutine is blocked writing to it, as to a client that stopped
-// reading. Waiting for that write would hold the stream until the shutdown
-// timeout, since only the abort closes the connection.
+// reading, when the writer takes no write deadline. Waiting for that write
+// would hold the stream until the shutdown timeout.
 func TestHandleShutdownWithBlockedWrite(t *testing.T) {
 	t.Parallel()
 
@@ -269,7 +278,7 @@ func TestHandleShutdownWithBlockedWrite(t *testing.T) {
 	done := make(chan any, 1)
 	go func() {
 		defer func() { done <- recover() }()
-		h.Handle(w, streamRequest(t.Context()), "", "", time.Time{},
+		h.Handle(w, streamRequest(t.Context()), compression, "", "", time.Time{},
 			[]string{"notice"},
 			func(_ datapages.StreamID, sse *dpsse.Stream) error {
 				go func() { _ = sse.PatchSignals(json.RawMessage(`{}`)) }()
@@ -289,6 +298,197 @@ func TestHandleShutdownWithBlockedWrite(t *testing.T) {
 	}
 }
 
+// TestHandleShutdownWithStalledClient tests shutdown while a write blocks on
+// a client that stopped reading, over a real connection. net/http's abort does
+// not end that write. http.Server.Shutdown would wait for its timeout,
+// and a blocked message loop would keep the close hook from running.
+func TestHandleShutdownWithStalledClient(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		http2 bool
+		// loop makes the message loop write instead of a goroutine
+		// that the open hook starts.
+		loop bool
+	}{
+		"goroutine":           {},
+		"message loop":        {loop: true},
+		"goroutine HTTP/2":    {http2: true},
+		"message loop HTTP/2": {http2: true, loop: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h, core, _ := newHandler(t, nil, nil)
+			var writes atomic.Int64
+			writeErr := make(chan error, 1)
+			write := func(sse *dpsse.Stream) {
+				script := strings.Repeat("x", 8<<10)
+				for {
+					if err := sse.ExecuteScript(script); err != nil {
+						writeErr <- err
+						return
+					}
+					writes.Add(1)
+				}
+			}
+			closed := make(chan struct{})
+			handled := make(chan any, 1)
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					defer func() {
+						v := recover()
+						handled <- v
+						if v != nil {
+							panic(v)
+						}
+					}()
+					h.Handle(w, r, compression, "", "", time.Time{}, []string{"notice"},
+						func(_ datapages.StreamID, sse *dpsse.Stream) error {
+							if !tc.loop {
+								go write(sse)
+							}
+							return nil
+						},
+						func(datapages.StreamID) { close(closed) },
+						func(id datapages.StreamID, sse *dpsse.Stream,
+							ch <-chan messaging.Message,
+						) {
+							if tc.loop {
+								write(sse)
+							}
+							drain(id, sse, ch)
+						})
+				},
+			))
+			if tc.http2 {
+				srv.EnableHTTP2 = true
+				srv.StartTLS()
+			} else {
+				srv.Start()
+			}
+			t.Cleanup(srv.Close)
+			stallClient(t, srv, tc.http2)
+
+			// The writes block once the buffers between the 2 ends are full.
+			for last := int64(-1); ; {
+				time.Sleep(100 * time.Millisecond)
+				n := writes.Load()
+				if n == last {
+					break
+				}
+				last = n
+			}
+
+			_ = core.Shutdown(t.Context())
+			select {
+			case v := <-handled:
+				require.Equal(t, http.ErrAbortHandler, v)
+			case <-time.After(2 * time.Second):
+				t.Fatal("Handle has not ended 2s after shutdown")
+			}
+			select {
+			case err := <-writeErr:
+				require.Error(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("the write still blocks 2s after shutdown")
+			}
+			require.True(t, isClosed(closed), "the close hook did not run")
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			require.NoError(t, srv.Config.Shutdown(ctx),
+				"the connection is still open")
+		})
+	}
+}
+
+// stallClient opens a stream on srv and stops reading after the response head.
+func stallClient(t *testing.T, srv *httptest.Server, http2 bool) {
+	t.Helper()
+	if http2 {
+		req := streamRequest(t.Context())
+		req.URL.Scheme, req.URL.Host, req.RequestURI =
+			"https", srv.Listener.Addr().String(), ""
+		req.Header.Set("Accept-Encoding", "identity")
+		resp, err := srv.Client().Do(req)
+		require.NoError(t, err)
+		require.Equal(t, 2, resp.ProtoMajor)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		return
+	}
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	// A small receive buffer makes the server's writes block sooner.
+	require.NoError(t, conn.(*net.TCPConn).SetReadBuffer(4<<10))
+	_, err = io.WriteString(conn, "GET /_$/ HTTP/1.1\r\nHost: x\r\n"+
+		"Datastar-Request: true\r\nAccept-Encoding: identity\r\n\r\n")
+	require.NoError(t, err)
+	line, err := bufio.NewReaderSize(conn, 16).ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "HTTP/1.1 200 OK\r\n", line)
+}
+
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// TestHandleShutdownWhileWriting tests shutdown while a goroutine that the open
+// hook started keeps writing to a client that reads. Once the handler aborts,
+// net/http tears the connection down and pools its buffered writer, and a write
+// from that goroutine would race it. The race detector reports such a write.
+// With 1 CPU it crashed the process with a nil pointer dereference.
+func TestHandleShutdownWhileWriting(t *testing.T) {
+	t.Parallel()
+
+	for range 20 {
+		h, core, _ := newHandler(t, nil, nil)
+		writeErr := make(chan error, 1)
+		started := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				h.Handle(w, r, compression, "", "", time.Time{}, []string{"notice"},
+					func(_ datapages.StreamID, sse *dpsse.Stream) error {
+						go func() {
+							close(started)
+							for {
+								err := sse.PatchSignals(json.RawMessage(`{"a":1}`))
+								if err != nil {
+									writeErr <- err
+									return
+								}
+							}
+						}()
+						return nil
+					}, nil, drain)
+			},
+		))
+		req := streamRequest(t.Context())
+		req.URL.Scheme, req.URL.Host, req.RequestURI =
+			"http", srv.Listener.Addr().String(), ""
+		req.Header.Set("Accept-Encoding", "identity")
+		resp, err := srv.Client().Do(req)
+		require.NoError(t, err)
+		go func() { _, _ = io.Copy(io.Discard, resp.Body) }()
+		<-started
+		time.Sleep(10 * time.Millisecond)
+		_ = core.Shutdown(t.Context())
+		select {
+		case err := <-writeErr:
+			require.Error(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("the goroutine still writes 2s after shutdown")
+		}
+		_ = resp.Body.Close()
+		srv.Close()
+	}
+}
+
 // TestHandleClosesAfterPanic tests a stream whose message loop panics.
 // The panic leaves Handle for its caller, net/http in a server, and the close
 // hook runs on the way: it gives back what the open hook took.
@@ -298,7 +498,7 @@ func TestHandleClosesAfterPanic(t *testing.T) {
 	h, _, _ := newHandler(t, nil, nil)
 	opened, closed := false, false
 	require.PanicsWithValue(t, "the message loop panicked", func() {
-		h.Handle(httptest.NewRecorder(), streamRequest(t.Context()),
+		h.Handle(httptest.NewRecorder(), streamRequest(t.Context()), compression,
 			"", "", time.Time{}, []string{"notice"},
 			func(datapages.StreamID, *dpsse.Stream) error {
 				opened = true
@@ -324,7 +524,7 @@ func TestHandleCloseHookPanics(t *testing.T) {
 	core, err := httpserve.NewCore(datapages.ServerConfig{Logger: log.Logger()}, "")
 	require.NoError(t, err)
 	h := stream.NewHandler(core, msginmem.New(0), nil, nil, nil, failOnErr(t), false)
-	h.Handle(httptest.NewRecorder(), streamRequest(t.Context()),
+	h.Handle(httptest.NewRecorder(), streamRequest(t.Context()), compression,
 		"", "", time.Time{}, []string{"notice"}, nil,
 		func(datapages.StreamID) { panic("the close hook panicked") },
 		func(
@@ -351,7 +551,7 @@ func TestHandleClientGoneBeforeOpen(t *testing.T) {
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			defer func() { panicked <- recover() }()
-			h.Handle(w, r, "", "", time.Time{}, []string{"notice"},
+			h.Handle(w, r, compression, "", "", time.Time{}, []string{"notice"},
 				func(datapages.StreamID, *dpsse.Stream) error {
 					t.Error("the open hook ran for a client that is gone")
 					return nil
@@ -367,7 +567,8 @@ func TestHandleClientGoneBeforeOpen(t *testing.T) {
 
 	ctx, disconnect := context.WithCancel(t.Context())
 	req := streamRequest(ctx)
-	req.URL.Scheme, req.URL.Host, req.RequestURI = "https", srv.Listener.Addr().String(), ""
+	req.URL.Scheme, req.URL.Host, req.RequestURI =
+		"https", srv.Listener.Addr().String(), ""
 	go func() {
 		if resp, err := srv.Client().Do(req); err == nil {
 			_ = resp.Body.Close()
@@ -389,8 +590,8 @@ func TestHandleWriterWithoutFlushPanics(t *testing.T) {
 	h, _, _ := newHandler(t, nil, nil)
 	require.Panics(t, func() {
 		h.Handle(struct{ http.ResponseWriter }{httptest.NewRecorder()},
-			streamRequest(t.Context()), "", "", time.Time{}, []string{"notice"},
-			nil, nil, drain)
+			streamRequest(t.Context()), compression, "", "", time.Time{},
+			[]string{"notice"}, nil, nil, drain)
 	})
 }
 
@@ -401,7 +602,7 @@ func TestReload(t *testing.T) {
 
 	h, _, _ := newHandler(t, nil, nil)
 	w := httptest.NewRecorder()
-	h.Reload(w, streamRequest(t.Context()))
+	h.Reload(w, streamRequest(t.Context()), compression)
 	require.Equal(t, reloadEvent, w.Body.String())
 }
 
@@ -414,7 +615,7 @@ func TestReloadClientGone(t *testing.T) {
 	ctx, disconnect := context.WithCancel(t.Context())
 	disconnect()
 	w := httptest.NewRecorder()
-	h.Reload(goneWriter{w}, streamRequest(ctx))
+	h.Reload(goneWriter{w}, streamRequest(ctx), compression)
 	require.Empty(t, w.Body.String())
 }
 
@@ -478,6 +679,9 @@ const reloadEvent = "event: datastar-patch-elements\n" +
 type goneWriter struct{ http.ResponseWriter }
 
 func (goneWriter) FlushError() error { return errors.New("client gone") }
+
+// compression is the default compression of a server.
+var compression = dpsse.NewCompression(nil)
 
 // newHandler returns a handler that watches sessions with notifier, which may be nil.
 // A nil onErr fails the test on any error the handler reports.

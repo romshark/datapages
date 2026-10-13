@@ -59,7 +59,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -72,7 +72,7 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -326,7 +326,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageItem,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageItem,
 		nil,
 		nil,
 		func(
@@ -438,7 +438,7 @@ func (s pageQuotedHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageQuoted{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageQuoted,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageQuoted,
 		nil,
 		nil,
 		func(
@@ -578,7 +578,7 @@ func (s pageQuotedItemHandlers) GETStream(w http.ResponseWriter, r *http.Request
 	p := dpapp.PageQuotedItem{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageQuotedItem,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageQuotedItem,
 		nil,
 		nil,
 		func(

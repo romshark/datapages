@@ -218,6 +218,48 @@ type EnableBackgroundStreaming bool
 // Only a page that has a stream refreshes and may return it.
 type DisableRefreshAfterHidden bool
 
+// StreamConfig is returned by the StreamConfig method of a page, together with
+// an error. It sets the SSE stream of that page apart from the rest of the
+// server. The zero value keeps the settings of the server. Only a page that has
+// a stream may declare the method.
+//
+// A method that takes nothing runs once, when [NewServer] builds the server.
+// Its error, and a configuration that [WithSSECompression] refuses,
+// fail NewServer:
+//
+//	func (PageDashboard) StreamConfig() (datapages.StreamConfig, error) {
+//		return datapages.StreamConfig{
+//			Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+//		}, nil
+//	}
+//
+// A method that takes the *http.Request, and optionally the session, the path
+// and the signals of the stream request, runs for each stream before the stream
+// opens. Its error, and a configuration that WithSSECompression refuses, end
+// the request as a failed subscription to the message broker does:
+//
+//	func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+//		if r.Header.Get("Save-Data") != "on" {
+//			return datapages.StreamConfig{}, nil
+//		}
+//		return datapages.StreamConfig{
+//			Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+//		}, nil
+//	}
+//
+// Streams with the same configuration share encoders. Return 1 of a few fixed
+// configurations rather than 1 built from what the request carries, which
+// could let a client choose one that holds tens of MiB per stream.
+// The encoders of at most 64 configurations are shared.
+type StreamConfig struct {
+	// Compression replaces what [WithSSECompression] sets, for the stream of
+	// the page. A page that re-renders a large fragment can take a larger
+	// window, and a page with many visitors a smaller one.
+	//
+	// Optional. Nil keeps the compression of the server.
+	Compression *SSECompressionConfig
+}
+
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //

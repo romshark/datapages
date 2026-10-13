@@ -85,6 +85,7 @@ func NewHandler(
 
 // Handle serves the stream of 1 request, subscribed to subjects,
 // and returns once fn does. onOpen and onClose may be nil; fn must not be nil.
+// compression is what the stream negotiates its coding from, nil for none.
 //
 // sessionKey names the session the stream belongs to.
 // It's watched only when userID is non-empty and the handler was given a session store.
@@ -101,12 +102,13 @@ func NewHandler(
 // The page reconnects its stream whenever the stream ends. On shutdown, Handle runs
 // onClose and then aborts the stream with [http.ErrAbortHandler]:
 // pages from earlier Datapages releases reconnect only a stream that fails, and the
-// new process can then reload a page from an old build. When the session ends,
+// new process can then reload a page from an old build. Shutdown also fails every
+// write to the stream, see [interrupter]. When the session ends,
 // Handle sends [reloadScript]. When onOpen or the session watcher fails,
 // the last event carries [reconnectDelay]. So does the stream that answers
-// a failed subscription when the handler is errOnStream.
+// a failed subscription when the handler is errOnStream, see [Handler.Fail].
 func (h *Handler) Handle(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	sessionKey, userID string, expiresAt time.Time,
 	subjects []string,
 	onOpen func(
@@ -131,7 +133,7 @@ func (h *Handler) Handle(
 	ctx := r.Context()
 	sub, err := h.broker.Subscribe(ctx, h.brokerMetrics, subjects...)
 	if err != nil {
-		h.subscribeFailed(w, r, err)
+		h.Fail(w, r, compression, "subscribing to message broker", err)
 		return
 	}
 
@@ -144,11 +146,20 @@ func (h *Handler) Handle(
 		}
 	}()
 
-	sse := h.core.OpenSSE(w, r)
+	sse := dpsse.Open(w, r, compression)
+	intr := &interrupter{rc: http.NewResponseController(w)}
+	stopInterrupt := h.core.AfterShutdown(func() { intr.interrupt() })
+	// Registered before the deferred Close, which makes it run after Close.
+	// Close may wait for a write that only the deadline ends.
+	defer func() {
+		stopInterrupt()
+		intr.retire()
+	}()
 	aborting := false
 	defer func() {
-		// Close waits for a write in progress. A write to a client that stopped
-		// reading ends only when the connection closes, which the abort does.
+		// An abort without a write deadline leaves the stream open.
+		// Close would wait for a write to a client that stopped reading,
+		// which ends only when the connection closes.
 		if !aborting {
 			sse.Close()
 		}
@@ -201,7 +212,7 @@ func (h *Handler) Handle(
 	var shutdown, sessionEnded atomic.Bool
 	handedOff = true
 	go func() {
-		// [sessions.CloseNotifier.NotifyClosed] does not report expiry.
+		// [sessions.CloseNotifier.NotifyClosed] doesn't report expiry.
 		// A store may retain an expired session until a later request or
 		// [sessions.ExpiredDeleter.DeleteExpired].
 		var expired <-chan time.Time
@@ -235,6 +246,11 @@ func (h *Handler) Handle(
 
 	switch {
 	case shutdown.Load():
+		// A goroutine that still holds the stream would otherwise write while net/http
+		// tears the connection down. The deadline ends a write that Close waits for.
+		if intr.interrupt() {
+			sse.Close()
+		}
 		aborting = true
 		// net/http resets the connection and logs nothing for this value.
 		panic(http.ErrAbortHandler)
@@ -243,16 +259,51 @@ func (h *Handler) Handle(
 	}
 }
 
-// subscribeFailed reports a failed subscription. Nothing has been written yet,
-// which lets onErr answer with a status. A stream that onErr opened itself
-// would end without [reconnectDelay], so for errOnStream it opens here.
-func (h *Handler) subscribeFailed(w http.ResponseWriter, r *http.Request, err error) {
-	const msg = "subscribing to message broker"
+// interrupter fails the writes of a response with a write deadline in the past,
+// the writes in progress and every later one. Only a deadline ends a write to
+// a client that stopped reading. net/http's abort doesn't: on HTTP/1.1 its
+// final flush waits behind that write for the connection's write lock,
+// and on HTTP/2 its reset waits behind the stream's flow-controlled data.
+// A writer without an Unwrap method between w and net/http hides the deadline,
+// which leaves the writes unbounded.
+type interrupter struct {
+	rc      *http.ResponseController
+	mu      sync.Mutex
+	set     bool
+	retired bool // net/http may reuse the writer once Handle has returned.
+}
+
+// interrupt sets the deadline and reports whether it's set.
+func (i *interrupter) interrupt() bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if !i.set && !i.retired {
+		i.set = i.rc.SetWriteDeadline(time.Now()) == nil
+	}
+	return i.set
+}
+
+// retire keeps interrupt from touching the writer after Handle returns.
+func (i *interrupter) retire() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.retired = true
+}
+
+// Fail answers a stream request that fails before its stream opens, as one
+// whose broker subscription or StreamConfig method fails. msg says what failed.
+// Nothing has been written yet, which lets onErr answer with a status.
+// A stream that onErr opened itself would end without [reconnectDelay],
+// so for errOnStream Fail opens it, compressed with compression.
+func (h *Handler) Fail(
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+	msg string, err error,
+) {
 	if !h.errOnStream {
 		h.onErr(w, r, nil, msg, err)
 		return
 	}
-	sse := h.core.OpenSSE(w, r)
+	sse := dpsse.Open(w, r, compression)
 	defer sse.Close()
 	h.onErr(w, r, sse, msg, err)
 	_ = sse.DelayReconnect(reconnectDelay)
@@ -265,24 +316,26 @@ func (h *Handler) subscribeFailed(w http.ResponseWriter, r *http.Request, err er
 // the stream was disconnected, which Handle could not report.
 // A refusal would leave the page showing that session,
 // and the page retries a refused stream without a limit.
-func (h *Handler) Reload(w http.ResponseWriter, r *http.Request) {
+// compression is that of the stream, as for [Handler.Handle].
+func (h *Handler) Reload(
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+) {
 	h.core.Logger().Debug("stream request from a page whose session ended",
 		slog.String("path", r.URL.Path))
-	sse := h.core.OpenSSE(w, r)
+	sse := dpsse.Open(w, r, compression)
 	defer sse.Close()
 	_ = sse.ExecuteScriptRetry(reloadScript, reconnectDelay)
 }
 
-// reconnectDelay is how long the page waits to reconnect a stream whose open
-// failed or whose session ended. Handle and [Handler.Reload] send it as the
-// SSE retry field.
+// reconnectDelay is how long the page waits to reconnect a stream whose open failed
+// or whose session ended. Handle and [Handler.Reload] send it as the SSE retry field.
 //
 // Datastar waits 1s before it reconnects a stream that ended, and every 200
 // resets its backoff. Without the delay, a StreamOpen that keeps failing runs
 // every second for each open tab. 5s limits it to 12 runs a minute.
 // It also exceeds the 1s delay of [reloadScript], which lets a page reload before
-// it reconnects. Datastar keeps the value until the page loads again, which makes
-// it the first wait after a later shutdown too.
+// it reconnects. Datastar keeps the value until the page loads again,
+// which makes it the first wait after a later shutdown too.
 const reconnectDelay = 5 * time.Second
 
 // reloadScript reloads the page for the session the browser now holds.
@@ -291,7 +344,7 @@ const reconnectDelay = 5 * time.Second
 // Its stream ends when the action closes the session, before the redirect
 // arrives, and a reload would replace that navigation.
 // history.replaceState changes a form POST history entry to GET so that
-// location.reload does not submit the form again.
+// location.reload doesn't submit the form again.
 const reloadScript = `setTimeout(() => { ` +
 	`try { history.replaceState(history.state, "", location.href) } catch {} ` +
 	`location.reload() }, 1000)`

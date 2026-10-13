@@ -6,8 +6,8 @@ package methodkind
 
 import "strings"
 
-// Kind is what a method name makes of a method: an HTTP handler, a stream hook
-// or an event handler. The zero value is an ordinary method.
+// Kind is what a method name makes of a method: an HTTP handler, a stream hook,
+// the stream configuration or an event handler. The zero value is an ordinary method.
 type Kind int8
 
 const (
@@ -21,6 +21,7 @@ const (
 	ActionQUERYHandler
 	StreamOpenHook
 	StreamCloseHook
+	StreamConfigMethod
 	EventHandler
 )
 
@@ -90,6 +91,8 @@ func Classify(name string) (kind Kind, suffix string) {
 		return StreamOpenHook, ""
 	case name == "StreamClose":
 		return StreamCloseHook, ""
+	case name == "StreamConfig":
+		return StreamConfigMethod, ""
 	case strings.HasPrefix(name, "On"):
 		return EventHandler, name[len("On"):]
 	default:

@@ -61,7 +61,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[struct{}],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[struct{}],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -74,7 +74,7 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -549,14 +549,14 @@ func (s pageInboxHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
 	p := dpapp.PageInbox{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageInbox(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageInbox(sess.UserID()),
 		nil,
 		nil,
 		func(

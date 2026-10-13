@@ -35,7 +35,8 @@ func (a *App) RecoverError(
 		kind = "not found"
 	case errors.Is(err, errUnrecoverable):
 		// Returning an error from RecoverError is how an application says it
-		// could not show anything. The server then falls back to a status.
+		// could not show anything. The server logs it and leaves the response
+		// as written, a 200 event stream here.
 		return errors.New("cannot render a toast for this")
 	case errors.Is(err, errRecoverPanics):
 		panic("RecoverError panicked")

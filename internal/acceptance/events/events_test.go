@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/events/app"
 	"github.com/romshark/datapages/internal/acceptance/events/app/datapagesgen"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -672,6 +674,160 @@ func (b *initializingBroker) InitStreams(subjects []string) error {
 	b.calls++
 	b.subjects = append([]string(nil), subjects...)
 	return b.err
+}
+
+// TestStreamConfigCompression tests the compression a page sets for its stream
+// with a StreamConfig method that runs once, next to the stream of PageOther,
+// which keeps the server's.
+func TestStreamConfigCompression(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		conf *datapages.SSECompressionConfig
+		want string
+	}{
+		"server's": {want: "zstd"},
+		"gzip only": {
+			conf: &datapages.SSECompressionConfig{
+				Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+			},
+			want: "gzip",
+		},
+		"disabled": {conf: &datapages.SSECompressionConfig{Disabled: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(mustNewServer(t,
+				&app.App{CompressedStream: tc.conf},
+				inmem.New(messaging.DefaultBrokerChanBuffer)))
+			t.Cleanup(srv.Close)
+			requireStream(t, srv.URL+"/compressed/_$/", nil, tc.want)
+			requireStream(t, srv.URL+"/other/_$/", nil, "zstd")
+		})
+	}
+}
+
+// TestStreamConfigFailsNewServer tests that NewServer fails, naming the method,
+// when a StreamConfig method that runs once fails or returns a configuration
+// that WithSSECompression refuses.
+func TestStreamConfigFailsNewServer(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		app  *app.App
+		want string
+	}{
+		"error": {
+			app:  &app.App{CompressedStreamErr: errors.New("no configuration")},
+			want: "PageCompressed.StreamConfig: no configuration",
+		},
+		"refused": {
+			app: &app.App{
+				CompressedStream: &datapages.SSECompressionConfig{ZstdWindow: 3},
+			},
+			want: "PageCompressed.StreamConfig: compression: " +
+				"zstd window (3) must be a power of 2 from 1 KiB to 8 MiB",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := datapages.NewServer[
+				app.App,
+				datapages.DisableSessions,
+				datapages.DisablePrometheus,
+				datapagesgen.Server,
+			](tc.app, inmem.New(messaging.DefaultBrokerChanBuffer))
+			require.EqualError(t, err, tc.want)
+		})
+	}
+}
+
+// TestStreamConfigPerStream tests a StreamConfig method that takes the request
+// and runs for each stream. Its error, and a configuration WithSSECompression
+// refuses, end the request as a failed broker subscription does. Without
+// RecoverError, that is status 500 and the error in the log.
+func TestStreamConfigPerStream(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		query   string
+		header  http.Header
+		status  int
+		coding  string
+		logLine string
+	}{
+		"server's": {status: http.StatusOK, coding: "zstd"},
+		"save data": {
+			header: http.Header{"Save-Data": {"on"}},
+			status: http.StatusOK, coding: "gzip",
+		},
+		"error": {
+			query:  "?fail",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfig" ` +
+				`err="the stream configuration failed"`,
+		},
+		"refused": {
+			query:  "?invalid",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfig" ` +
+				`err="compression: zstd window (3) must be a power of 2 from 1 KiB to 8 MiB"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(log.Logger())))
+			t.Cleanup(srv.Close)
+
+			status, coding := streamResponse(t, srv.URL+"/adaptive/_$/"+tc.query, tc.header)
+			require.Equal(t, tc.status, status)
+			require.Equal(t, tc.coding, coding)
+			if tc.logLine != "" {
+				log.RequireLogged(t, tc.logLine)
+			}
+		})
+	}
+}
+
+// TestStreamConfigPath tests a StreamConfig method that takes the path of the
+// stream request, which carries the variables of the page route.
+func TestStreamConfigPath(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	t.Cleanup(srv.Close)
+	requireStream(t, srv.URL+"/board/big/_$/", nil, "gzip")
+	requireStream(t, srv.URL+"/board/small/_$/", nil, "zstd")
+}
+
+// requireStream requires the stream at url to open with coding,
+// requested as a current browser does with header added.
+func requireStream(t *testing.T, url string, header http.Header, coding string) {
+	t.Helper()
+	status, got := streamResponse(t, url, header)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, coding, got, "the coding of %s", url)
+}
+
+// streamResponse opens a stream the way a current browser does, with header
+// added, and returns the status and the content coding of the response.
+func streamResponse(t *testing.T, url string, header http.Header) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode, resp.Header.Get("Content-Encoding")
 }
 
 // TestPageWithoutStream tests a page that handles no events.

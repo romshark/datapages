@@ -440,24 +440,20 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 
 // redirectScript returns JavaScript that sends queued writes to the worker and
 // then navigates to target. Redirect actions return this JavaScript instead of
-// an SSE stream.
+// an SSE stream. A payload that fails to render is logged and omitted,
+// as in embedInto.
 //
 // Navigation waits for the worker to apply the writes because that worker also
 // serves the destination. The 500ms timeout supports older workers that do not
 // acknowledge the message.
-func (c *pageCacheWriter) redirectScript(target string) (string, error) {
-	tj, err := json.Marshal(target)
-	if err != nil {
-		return "", err
-	}
+func (c *pageCacheWriter) redirectScript(target string) string {
+	// Marshaling a string cannot fail.
+	tj, _ := json.Marshal(target)
 	nav := "window.location=" + string(tj) + ";"
 
-	payload, err := c.payload()
-	if err != nil {
-		return "", err
-	}
+	payload := c.loggedPayload()
 	if payload == "" {
-		return nav, nil
+		return nav
 	}
 
 	var b strings.Builder
@@ -472,7 +468,7 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	b.WriteString("w.postMessage(")
 	b.WriteString(payload)
 	b.WriteString(",[ch.port2]);},once);setTimeout(once,500);})();")
-	return b.String(), nil
+	return b.String()
 }
 `)
 }
@@ -599,11 +595,7 @@ func httpRedirectOffline(
 
 	if httpserve.IsDatastarRequest(r.Header) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		js, err := oc.redirectScript(redirect.URL)
-		if err != nil {
-			js = fmt.Sprintf("window.location = %q;", redirect.URL)
-		}
-		_, _ = w.Write([]byte(js))
+		_, _ = io.WriteString(w, oc.redirectScript(redirect.URL))
 		return true
 	}
 
@@ -627,7 +619,7 @@ func httpRedirectOffline(
 func (w *Writer) writeAppHandleStreamRequest() {
 	w.Raw(`
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,`)
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,`)
 	if w.usage.streamAuth {
 		w.Raw(` sessKey string, sess `)
 		w.Raw(w.sessionType)
@@ -646,7 +638,7 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, `)
+	s.streams.Handle(w, r, compression, `)
 	if w.usage.streamAuth {
 		w.Raw(`sessKey, sess.UserID(), sess.ExpiresAt()`)
 	} else {
@@ -669,6 +661,11 @@ type Server struct {
 	if w.usage.stream {
 		w.Raw(`	streams              *stream.Handler
 `)
+		for _, p := range m.Pages {
+			if p.StreamConfig != nil && !streamConfigPerStream(p) && pageHasStream(p) {
+				w.Linef(1, "%s *dpsse.Compression", streamCompressionField(p))
+			}
+		}
 	}
 	w.Raw(`	app                  *`)
 	w.Raw(appPkg)
@@ -692,6 +689,25 @@ type Server struct {
 	w.Raw(`
 }
 `)
+}
+
+// writeStreamConfigs emits into Init the call of each StreamConfig method that
+// takes no input, which runs once. A configuration it refuses fails NewServer.
+func (w *Writer) writeStreamConfigs(m *model.App, appPkg string) {
+	for _, p := range m.Pages {
+		if p.StreamConfig == nil || streamConfigPerStream(p) || !pageHasStream(p) {
+			continue
+		}
+		w.Raw("\t{\n\t\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+		w.Linef(2, "s.%s, err = s.StreamCompression(p.StreamConfig())",
+			streamCompressionField(p))
+		w.Line(2, "if err != nil {")
+		w.Linef(3, `return fmt.Errorf("%s.StreamConfig: %%w", err)`, p.TypeName)
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
 }
 
 func (w *Writer) writeAppInit(m *model.App, appPkg string) {
@@ -854,6 +870,7 @@ func (s *Server) Init(
 		%t,
 	)
 `, m.RecoverError != nil)
+		w.writeStreamConfigs(m, appPkg)
 	}
 	w.Raw(`
 	setupHandlers(s)

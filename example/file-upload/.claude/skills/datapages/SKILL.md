@@ -83,6 +83,7 @@ The parser reads names and doc comments. Both decide behaviour.
 | event | `Event` + uppercase + alnum | `// EventX is "subject.name"` |
 | event handler | `On` + the event name after `Event`: `OnFoo` for `EventFoo` | none |
 | stream hook | `StreamOpen`, `StreamClose` | none |
+| stream config | `StreamConfig` | none |
 | assets | any `embed.FS` variable | `// StaticFS is /static/` |
 
 Do not use underscores or a lowercase letter after the prefix. The word `is` is required. Quote event subjects but not routes. If a route comment has more text, add a blank `//` line after its first line.
@@ -110,4 +111,4 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:6f263549c674d42a -->
+<!-- written by datapages sha256:3887cfc22fc6dc2e -->
