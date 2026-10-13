@@ -440,9 +440,45 @@ func TestRedirectCarriesNoTag(t *testing.T) {
 
 	require.NotContains(t, got, "</script><img",
 		"the target ended the script element:\n%s", got)
-	require.Contains(t, got, `\u003c/script\u003e`,
+	require.Contains(t, got, `\u003c/script>`,
 		"the target is not encoded:\n%s", got)
 	require.Contains(t, got, "window.location.href")
+}
+
+// FuzzRedirect tests that arbitrary targets stay inside the string of the script.
+// Valid UTF-8 targets round-trip unchanged.
+func FuzzRedirect(f *testing.F) {
+	for _, seed := range []string{
+		"/a/",
+		`/x</script><img src=x onerror=alert(1)>`,
+		"/u/<!--<script>",
+		"/x\r\ny",
+		`"\`,
+		"\x00\x1f\x7f",
+		"/\u00e4\u2028/",
+		"\xff\xfe",
+	} {
+		f.Add(seed)
+	}
+	const head = `<script data-effect="el.remove()">setTimeout(() => window.location.href = `
+	f.Fuzz(func(t *testing.T, target string) {
+		el := patchedElements(t, frame(t, func(s *sse.Stream) error {
+			return s.Redirect(target)
+		}))
+		lit, ok := strings.CutPrefix(el, head)
+		require.True(t, ok, "not a redirect script:\n%s", el)
+		lit, ok = strings.CutSuffix(lit, ")</script>")
+		require.True(t, ok, "the target ended the script:\n%s", el)
+		// Escaping every '<' prevents </script> and <!-- from changing the element.
+		require.NotContains(t, lit, "<")
+		require.NotContains(t, lit, "\n")
+		var got string
+		require.NoError(t, json.Unmarshal([]byte(lit), &got),
+			"the target is not a string literal:\n%s", lit)
+		if utf8.ValidString(target) {
+			require.Equal(t, target, got)
+		}
+	})
 }
 
 func signalsOf(t *testing.T, event string) string {
@@ -696,19 +732,27 @@ func TestCompressionConfig(t *testing.T) {
 			acceptEncoding: "gzip, br",
 		},
 		"zstd smallest window": {
-			conf:           datapages.SSECompressionConfig{ZstdLevel: 22, ZstdWindow: 1 << 10},
+			conf: datapages.SSECompressionConfig{
+				ZstdLevel: 22, ZstdWindow: 1 << 10,
+			},
 			acceptEncoding: "zstd", want: "zstd",
 		},
 		"zstd largest window": {
-			conf:           datapages.SSECompressionConfig{ZstdLevel: 1, ZstdWindow: 8 << 20},
+			conf: datapages.SSECompressionConfig{
+				ZstdLevel: 1, ZstdWindow: 8 << 20,
+			},
 			acceptEncoding: "zstd", want: "zstd",
 		},
 		"brotli smallest window": {
-			conf:           datapages.SSECompressionConfig{BrotliQuality: 11, BrotliWindow: 1 << 10},
+			conf: datapages.SSECompressionConfig{
+				BrotliQuality: 11, BrotliWindow: 1 << 10,
+			},
 			acceptEncoding: "br", want: "br",
 		},
 		"brotli largest window": {
-			conf:           datapages.SSECompressionConfig{BrotliQuality: 1, BrotliWindow: 16 << 20},
+			conf: datapages.SSECompressionConfig{
+				BrotliQuality: 1, BrotliWindow: 16 << 20,
+			},
 			acceptEncoding: "br", want: "br",
 		},
 		"gzip best": {
@@ -726,10 +770,14 @@ func TestCompressionConfig(t *testing.T) {
 			var cfg datapages.ServerConfig
 			require.NoError(t, opt(&cfg))
 
-			el := templ.Raw(`<ul id="l">` + strings.Repeat("\n<li>item</li>", 300) + "\n</ul>")
+			el := templ.Raw(`<ul id="l">` +
+				strings.Repeat("\n<li>item</li>", 300) +
+				"\n</ul>")
 			want := frame(t, func(s *sse.Stream) error { return s.PatchElement(el) })
 			w := &recorder{h: make(http.Header)}
-			s := sse.Open(w, codingRequest(tc.acceptEncoding), sse.NewCompression(cfg.SSECompression))
+			s := sse.Open(w,
+				codingRequest(tc.acceptEncoding),
+				sse.NewCompression(cfg.SSECompression))
 			require.NoError(t, s.PatchElement(el))
 			require.NoError(t, s.PatchElement(el))
 			s.Close()
@@ -840,21 +888,93 @@ func TestReadSignals(t *testing.T) {
 	}
 }
 
-// TestPatchElementAllocs tests warm pooled writes with every coding.
+// TestPatchElementAllocs tests warm pooled writes with every coding, of an
+// event in 1 frame and of 1 that spans 4.
 func TestPatchElementAllocs(t *testing.T) {
-	for _, coding := range append([]string{"identity"}, codings...) {
-		t.Run(coding, func(t *testing.T) {
-			el := templ.Raw(`<ul id="l">` +
-				strings.Repeat("\n<li>item</li>", 200) +
-				"\n</ul>")
-			s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding), compression)
+	for name, items := range map[string]int{"small": 200, "large": 8000} {
+		el := templ.Raw(`<ul id="l">` +
+			strings.Repeat("\n<li>item</li>", items) +
+			"\n</ul>")
+		for _, coding := range append([]string{"identity"}, codings...) {
+			t.Run(name+"/"+coding, func(t *testing.T) {
+				s := sse.Open(
+					&discard{h: make(http.Header)},
+					codingRequest(coding),
+					compression,
+				)
+				defer s.Close()
+				require.NoError(t, s.PatchElement(el))
+				require.Zero(t, testing.AllocsPerRun(100, func() {
+					if err := s.PatchElement(el); err != nil {
+						t.Fatal(err)
+					}
+				}))
+			})
+		}
+	}
+}
+
+// TestScriptAllocs tests that Redirect and Prefetch write into the event
+// without allocating, also when a URL needs escaping.
+func TestScriptAllocs(t *testing.T) {
+	urls := []string{"/listing/42/", "/listing/43/", "/search/?q=bike&page=2"}
+	escaped := []string{`/x"</script>`, "/a\\b\x00"}
+	for name, call := range map[string]func(s *sse.Stream) error{
+		"redirect":         func(s *sse.Stream) error { return s.Redirect(urls[2]) },
+		"redirect escaped": func(s *sse.Stream) error { return s.Redirect(escaped[0]) },
+		"prefetch":         func(s *sse.Stream) error { return s.Prefetch(urls...) },
+		"prefetch escaped": func(s *sse.Stream) error { return s.Prefetch(escaped...) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := sse.Open(&discard{h: make(http.Header)}, streamRequest(), compression)
 			defer s.Close()
-			require.NoError(t, s.PatchElement(el))
+			require.NoError(t, call(s))
 			require.Zero(t, testing.AllocsPerRun(100, func() {
-				if err := s.PatchElement(el); err != nil {
+				if err := call(s); err != nil {
 					t.Fatal(err)
 				}
 			}))
+		})
+	}
+}
+
+// TestLargeEvents tests events of up to 3 MiB, which span up to 56 frames,
+// between small events. Each carries its own content, whole, in the frames
+// the one before used.
+func TestLargeEvents(t *testing.T) {
+	t.Parallel()
+
+	content := func(size int, fill byte) string {
+		line := strings.Repeat(string(fill), 99) + "\n"
+		return strings.Repeat(line, size/len(line)+1)[:size]
+	}
+	errRender := errors.New("render failed")
+	for name, component := range map[string]func(s string) templ.Component{
+		"1 write": func(s string) templ.Component { return templ.Raw(s) },
+		"2 writes": func(s string) templ.Component {
+			return chunks(s, len(s)/2)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for i, size := range []int{
+				100, 70 << 10, 300 << 10, 2 << 20, 50, 100 << 10,
+				64 << 10, 64<<10 + 1, 3 << 20, 10,
+			} {
+				s := content(size, byte('a'+i))
+				got := frame(t, func(x *sse.Stream) error {
+					err := x.PatchElement(templ.ComponentFunc(
+						func(_ context.Context, w io.Writer) error {
+							_, _ = io.WriteString(w, s)
+							return errRender
+						},
+					))
+					require.ErrorIs(t, err, errRender)
+					return x.PatchElement(component(s))
+				})
+				require.Equal(t, s, patchedElements(t, got),
+					"event %d of %d bytes", i, size)
+			}
 		})
 	}
 }
@@ -951,12 +1071,18 @@ func (d *discard) Write(b []byte) (int, error) { return len(b), nil }
 func (d *discard) WriteHeader(int)             {}
 func (d *discard) Flush()                      {}
 
-// BenchmarkPatchElement measures 2 element sizes with every coding.
+// BenchmarkPatchElement measures 4 element sizes with every coding.
+// The 2 largest span several frames.
 func BenchmarkPatchElement(b *testing.B) {
 	for _, size := range []struct {
 		name string
 		n    int
-	}{{"200B", 200}, {"8KiB", 8 << 10}} {
+	}{
+		{"200B", 200},
+		{"8KiB", 8 << 10},
+		{"100KiB", 100 << 10},
+		{"1MiB", 1 << 20},
+	} {
 		el := templ.Raw(`<ul id="l">` +
 			strings.Repeat("<li>item text</li>\n", size.n/19) +
 			`</ul>`)
@@ -971,6 +1097,53 @@ func BenchmarkPatchElement(b *testing.B) {
 					}
 				}
 			})
+		}
+	}
+}
+
+// BenchmarkHTTPEvent measures 1 uncompressed event per request over loopback
+// HTTP/1.1, cleartext and TLS, read whole by the client. Unlike the discarding
+// writer of the other benchmarks, it counts the writes of each frame.
+func BenchmarkHTTPEvent(b *testing.B) {
+	for name, el := range map[string]templ.Component{
+		"100KiB-lines": templ.Raw(strings.Repeat("<li>item text</li>\n", (100<<10)/19)),
+		"2MB-1line":    templ.Raw(strings.Repeat("x", 2_000_000)),
+	} {
+		h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s := sse.Open(w, r, nil)
+			defer s.Close()
+			_ = s.PatchElement(el)
+		})
+		for _, scheme := range []string{"http", "https"} {
+			b.Run(name+"/"+scheme, func(b *testing.B) {
+				srv := httptest.NewUnstartedServer(h)
+				if scheme == "https" {
+					srv.StartTLS()
+				} else {
+					srv.Start()
+				}
+				defer srv.Close()
+				client := srv.Client()
+				for b.Loop() {
+					resp, err := client.Get(srv.URL)
+					if err != nil {
+						b.Fatal(err)
+					}
+					_, _ = io.Copy(io.Discard, resp.Body)
+					_ = resp.Body.Close()
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkRedirect measures a redirect to an href-generated URL.
+func BenchmarkRedirect(b *testing.B) {
+	s := sse.Open(&discard{h: make(http.Header)}, streamRequest(), compression)
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := s.Redirect("/search/?q=bike&page=2"); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

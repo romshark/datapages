@@ -12,8 +12,17 @@ import (
 
 var bodyBufs = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
+// maxPooledBuf matches fmt's limit, which keeps a rare large body from
+// staying in bodyBufs. See [Go issue 23199].
+//
+// [Go issue 23199]: https://go.dev/issue/23199
+const maxPooledBuf = 64 << 10
+
 // ReadSignals decodes Datastar signals into v. GET and DELETE use the datastar
-// query parameter; other methods use the body. A missing query leaves v unchanged.
+// query parameter; other methods use the body, as the [SDK specification] lists.
+// A missing query leaves v unchanged.
+//
+// [SDK specification]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#readsignals
 func ReadSignals(r *http.Request, v any) error {
 	if r.Method == http.MethodGet || r.Method == http.MethodDelete {
 		q := httpread.QueryValue(r.URL.RawQuery, "datastar")

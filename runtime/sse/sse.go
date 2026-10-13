@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,12 +18,21 @@ import (
 	"github.com/romshark/datapages"
 )
 
+// The event types of the Datastar SDK specification, at the client version that
+// [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc] loads.
+// See [datastar-patch-elements] and [datastar-patch-signals].
+//
+// [datastar-patch-elements]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchelements
+// [datastar-patch-signals]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchsignals
 const (
 	eventPatchElements = "datastar-patch-elements"
 	eventPatchSignals  = "datastar-patch-signals"
 )
 
 // scriptOpen starts a script element that removes itself after execution.
+// [ExecuteScript] specifies it, along with the selector body and mode append.
+//
+// [ExecuteScript]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorexecutescript
 const scriptOpen = `<script data-effect="el.remove()">`
 
 var errClosed = errors.New("sse: stream closed")
@@ -37,7 +47,7 @@ type Stream struct {
 	rc     *http.ResponseController
 	coding *coding // Nil without compression.
 
-	mu     sync.Mutex
+	lock   sync.Mutex
 	enc    *pooledEncoder // Taken from coding by the first event.
 	err    error          // The first failed write, which every later event returns.
 	closed bool
@@ -45,9 +55,12 @@ type Stream struct {
 
 // Open starts and flushes an event stream. It selects the first coding of c
 // that r accepts, and none when c is nil. The caller must call [Stream.Close].
+// The headers and the first flush follow the [SDK specification].
 //
 // Open panics if w does not support flushing because events would wait for the
 // handler to return. [Stream.Err] and later events report other flush failures.
+//
+// [SDK specification]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#construction--initialization
 func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 	s := &Stream{ctx: r.Context(), w: w, rc: http.NewResponseController(w)}
 	h := w.Header()
@@ -74,16 +87,16 @@ func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 
 // Err returns the error of the first write or flush that failed, if any.
 func (s *Stream) Err() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	return s.err
 }
 
 // Close finishes compression and releases the encoder. [Stream.Err] reports a
 // final write failure. Close is idempotent; later events return an error.
 func (s *Stream) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	if s.closed {
 		return
 	}
@@ -135,7 +148,7 @@ func (s *Stream) patchElements(
 	if mode != "" {
 		e.field("mode ", string(mode))
 	}
-	e.key = "elements "
+	e.prefix = "data: elements "
 	if err := c.Render(s.ctx, e); err != nil {
 		e.free()
 		return fmt.Errorf("rendering elements: %w", err)
@@ -180,7 +193,7 @@ func newScriptEvent(retry time.Duration) *event {
 	e.retry(retry)
 	e.field("selector ", "body")
 	e.field("mode ", "append")
-	e.key = "elements "
+	e.prefix = "data: elements "
 	_, _ = e.WriteString(scriptOpen)
 	return e
 }
@@ -215,7 +228,7 @@ func (s *Stream) patchSignals(j []byte, onlyIfMissing bool, retry time.Duration)
 	if onlyIfMissing {
 		e.field("onlyIfMissing ", "true")
 	}
-	e.key = "signals "
+	e.prefix = "data: signals "
 	_, _ = e.Write(j)
 	return s.send(e)
 }
@@ -237,24 +250,21 @@ func marshalSignals(v any) ([]byte, error) {
 
 func (s *Stream) Redirect(target string) error {
 	// The redirect travels as a <script> element. A "</script>" in the target
-	// would end that element and leave the rest of it in the DOM as markup,
-	// which is why the target goes in JSON-encoded: encoding/json writes
-	// "<" as \u003c, and JavaScript reads it back as "<".
-	enc, err := json.Marshal(target)
-	if err != nil {
-		return fmt.Errorf("encoding redirect target: %w", err)
-	}
+	// would end that element and leave the rest of it in the DOM as markup.
+	// [writeJSONStringBody] writes "<" as \u003c, which JavaScript reads back as "<".
 	e := newScriptEvent(0)
-	_, _ = e.WriteString("setTimeout(() => window.location.href = ")
-	_, _ = e.Write(enc)
-	_, _ = e.WriteString(")</script>")
+	_, _ = e.WriteString(`setTimeout(() => window.location.href = "`)
+	writeJSONStringBody(e, target)
+	_, _ = e.WriteString(`")</script>`)
 	return s.send(e)
 }
 
-// Prefetch appends rules in a retained script element.
-// Removing it [unregisters the rules].
+// Prefetch appends [speculation rules] in a retained script element.
+// Removing it [unregisters the rules]. The URLs go in as JSON strings,
+// escaped for the script without changing percent-encoding.
 //
-// [unregister the rules]: https://html.spec.whatwg.org/multipage/webappapis.html#unregister-speculation-rules
+// [speculation rules]: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/speculationrules
+// [unregisters the rules]: https://html.spec.whatwg.org/multipage/webappapis.html#unregister-speculation-rules
 func (s *Stream) Prefetch(urls ...string) error {
 	if len(urls) == 0 {
 		return nil
@@ -262,10 +272,17 @@ func (s *Stream) Prefetch(urls ...string) error {
 	e := newEvent(eventPatchElements)
 	e.field("selector ", "body")
 	e.field("mode ", "append")
-	e.key = "elements "
-	_, _ = e.WriteString(`<script type="speculationrules">`)
-	_, _ = e.WriteString(speculationRules(urls))
-	_, _ = e.WriteString("</script>")
+	e.prefix = "data: elements "
+	_, _ = e.WriteString(
+		`<script type="speculationrules">{"prefetch":[{"source":"list","urls":["`,
+	)
+	for i, u := range urls {
+		if i > 0 {
+			_, _ = e.WriteString(`","`)
+		}
+		writeJSONStringBody(e, u)
+	}
+	_, _ = e.WriteString(`"]}]}</script>`)
 	return s.send(e)
 }
 
@@ -273,8 +290,8 @@ func (s *Stream) Prefetch(urls ...string) error {
 func (s *Stream) send(e *event) error {
 	defer e.free()
 	e.end()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	switch {
 	case s.err != nil:
 		return s.err
@@ -284,16 +301,17 @@ func (s *Stream) send(e *event) error {
 	if err := s.ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.write(e.b); err != nil {
+	if err := s.write(e); err != nil {
 		s.err = err
 		return err
 	}
 	return nil
 }
 
-func (s *Stream) write(b []byte) error {
+// write writes the frames of e and flushes them once, at the end of the event.
+func (s *Stream) write(e *event) error {
 	if s.coding == nil {
-		if _, err := s.w.Write(b); err != nil {
+		if err := e.writeFrames(s.w); err != nil {
 			return err
 		}
 		return s.rc.Flush()
@@ -301,7 +319,7 @@ func (s *Stream) write(b []byte) error {
 	if s.enc == nil {
 		s.enc = s.coding.take(s.w)
 	}
-	if _, err := s.enc.Write(b); err != nil {
+	if err := e.writeFrames(s.enc); err != nil {
 		return err
 	}
 	if err := s.enc.Flush(); err != nil {
@@ -310,58 +328,39 @@ func (s *Stream) write(b []byte) error {
 	return s.rc.Flush()
 }
 
-// speculationRules returns a JSON body of [speculation rules] that prefetches URLs.
-// It escapes script content without changing percent-encoded URLs.
-//
-// [speculation rules]: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/speculationrules
-func speculationRules(urls []string) string {
-	var b strings.Builder
-	b.Grow(speculationRulesLen(urls))
-	b.WriteString(rulesHead)
-	for i, u := range urls {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteByte('"')
-		writeJSONStringBody(&b, u)
-		b.WriteByte('"')
-	}
-	b.WriteString(rulesTail)
-	return b.String()
-}
-
-const rulesHead, rulesTail = `{"prefetch":[{"source":"list","urls":[`, `]}]}`
-
-// speculationRulesLen returns the exact rules length when no URL needs escaping.
-func speculationRulesLen(urls []string) int {
-	n := len(rulesHead) + len(rulesTail) + len(urls) - 1 // the commas
-	for _, u := range urls {
-		n += len(`""`) + len(u)
-	}
-	return n
-}
-
 const hexDigits = "0123456789abcdef"
 
-// writeJSONStringBody writes s inside a JSON string in a single-line script. It
-// escapes JSON syntax, controls and '<' to prevent line breaks, </script> and <!--.
-func writeJSONStringBody(b *strings.Builder, s string) {
+// controlEscapes holds the JSON escape of each control byte.
+var controlEscapes = func() (t [0x20]string) {
+	for c := range t {
+		t[c] = `\u00` + hexDigits[c>>4:c>>4+1] + hexDigits[c&0xf:c&0xf+1]
+	}
+	return t
+}()
+
+// writeJSONStringBody writes s inside a JSON string, which is also a JavaScript
+// string, in a single-line script. It escapes JSON syntax, controls and '<' to
+// prevent line breaks, </script> and <!--. Every escape is a constant, which
+// lets it write into an event without a buffer.
+func writeJSONStringBody(w io.StringWriter, s string) {
 	last := 0
 	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 0x20 && c != '"' && c != '\\' && c != '<' {
+		var esc string
+		switch c := s[i]; {
+		case c < 0x20:
+			esc = controlEscapes[c]
+		case c == '"':
+			esc = `\"`
+		case c == '\\':
+			esc = `\\`
+		case c == '<':
+			esc = `\u003c`
+		default:
 			continue
 		}
-		b.WriteString(s[last:i])
-		if c == '"' || c == '\\' {
-			b.WriteByte('\\')
-			b.WriteByte(c)
-		} else {
-			b.WriteString(`\u00`)
-			b.WriteByte(hexDigits[c>>4])
-			b.WriteByte(hexDigits[c&0xf])
-		}
+		_, _ = w.WriteString(s[last:i])
+		_, _ = w.WriteString(esc)
 		last = i + 1
 	}
-	b.WriteString(s[last:])
+	_, _ = w.WriteString(s[last:])
 }
