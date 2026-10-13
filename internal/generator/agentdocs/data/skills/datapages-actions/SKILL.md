@@ -145,7 +145,7 @@ func (*App) RecoverError(err error, sse datapages.SSE) error {
 }
 ```
 
-Only Datastar requests call this hook. It receives every handler error, including sentinels. Use `errors.Is` to identify sentinels. The response has status 200 whatever the error. For a page load, Datapages renders `PageError404` for a 404 and `PageError500` for a 500 if the app defines them. Otherwise it writes the status and its standard text if the response has not started. The hook writes an event stream, so do not use it as a page response.
+Only Datastar requests call this hook. It receives the errors of actions and `StreamOpen`, including sentinels, and the panics of `On` handlers. Datapages only logs an error that an `On` handler or `StreamClose` returns. Use `errors.Is` to identify sentinels. The response has status 200 whatever the error. For a page load, Datapages renders `PageError404` for a 404 and `PageError500` for a 500 if the app defines them. Otherwise it writes the status and its standard text if the response has not started. The hook writes an event stream, so do not use it as a page response.
 
 A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.PanicError`. It contains the panic value and stack. Use `errors.As` to inspect it. Datapages logs the stack before it calls the hook, then ends the request.
 

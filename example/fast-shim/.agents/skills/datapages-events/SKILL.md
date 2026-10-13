@@ -52,6 +52,8 @@ func (PageChat) OnMessageSent(
 
 The event and `sse` are required. `On` handlers cannot accept signals. Put required data on the event, or use `datapages.State[T]` for per-tab data.
 
+Datapages logs an error that an `On` handler returns and keeps the stream open. It does not call `RecoverError`, so send feedback with `sse` before returning. A panic reaches `RecoverError` as a `datapages.PanicError` and closes the stream.
+
 ## Subjects
 
 A subject field must have the exact type `datapages.Subject` or `datapages.SubjectUser`. The generator rejects a defined type such as `type Recipient datapages.SubjectUser`, and a field that holds a subject type, such as `[]datapages.SubjectUser`, which would route nothing. Subject fields must be exported and must precede payload fields. Their values extend the base subject in field order, separated by periods. `EventDirectMessage{Recipient: "u1"}` publishes to `messaging.direct.u1`. A subject field must not be tagged `json:"-"`: the payload carries its value, the subject only routes the event.
@@ -98,4 +100,4 @@ Datapages serves the stream at the page route plus `_$/`. A page with both publi
 
 Share a handler across pages by embedding: see `datapages-pages`.
 
-<!-- written by datapages sha256:f9722b10e39527cc -->
+<!-- written by datapages sha256:e4db0a889e9116f7 -->
