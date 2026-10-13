@@ -34,9 +34,10 @@ func newGenCmd(stderr io.Writer, version string) *cobra.Command {
   - Type-safe action helpers (action package)
   - Server entry point (cmd package, created only if missing)
 
-The app package and the destination are read from the type arguments of the
-datapages.NewServer call. A module without one is generated with the defaults
-(./app and ./datapagesgen) and gets a cmd/server/main.go written for it.
+The app package is read from the type arguments of the datapages.NewServer
+call, and the code is generated into datapagesgen directly below it.
+A module without a call is generated for ./app into ./app/datapagesgen and
+gets a cmd/server/main.go written for it.
 
 Prometheus is read from the Metrics type argument of the same call.
 The generated main.go names datapages.EnablePrometheus, the same as
