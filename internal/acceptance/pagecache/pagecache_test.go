@@ -51,6 +51,19 @@ func TestGETEmbedsQueuedWrites(t *testing.T) {
 		"the entry carries the rendered body, not the live one")
 }
 
+// TestCachedBodyWriterTakesStrings tests that the writer a cached body renders
+// into has WriteString. The document frame of the entry is written to it with
+// io.WriteString, which copies each string into a new slice without it.
+func TestCachedBodyWriterTakesStrings(t *testing.T) {
+	t.Parallel()
+	v := serve(t).Visitor(t)
+
+	resp := v.Get(t, "/writer-probe")
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, resp.Body, applyType)
+	require.Contains(t, resp.Body, "string writer: true")
+}
+
 func TestGETReadsTheHeldVersion(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)

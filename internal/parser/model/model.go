@@ -33,7 +33,7 @@ type App struct {
 	Actions []*Handler // App-level POST/PUT/PATCH/DELETE/QUERY actions.
 
 	// States are all state types the source package declares, keyed by type name.
-	// Pages reference them directly or through embedded abstract pages.
+	// Pages reference them directly or through stream embeds.
 	// Several pages may share 1 state type.
 	States map[string]*StateType
 }
@@ -105,31 +105,30 @@ type Page struct {
 	StreamOpen    *Handler
 	StreamClose   *Handler
 	EventHandlers []*EventHandler
-	Embeds        []*AbstractPage
+	Embeds        []*StreamEmbed
 
-	// EmbedTypes maps an embedded abstract page type name to the type
+	// EmbedTypes maps the name of a stream embed to the type
 	// written at the embed site, keyed by base name.
-	// For a generic abstract the type is the instantiation, e.g. "Base" maps to
+	// For a generic stream embed the type is the instantiation, e.g. "Base" maps to
 	// Base[StateFoo]. Needed to construct the embed in generated code.
 	EmbedTypes map[string]Type
 
 	// State is the state type referenced by any stateful handler on
-	// this page (or its embedded abstract pages). Nullable.
+	// this page (or its stream embeds). Nullable.
 	State *StateType
 }
 
-type AbstractPage struct {
+type StreamEmbed struct {
 	Expr     ast.Expr
 	TypeName string
 
-	Methods       []*Handler
 	StreamOpen    *Handler
 	StreamClose   *Handler
 	EventHandlers []*EventHandler
-	Embeds        []*AbstractPage
+	Embeds        []*StreamEmbed
 
 	// State is the state type referenced by any stateful handler on
-	// this abstract page. Nullable.
+	// this stream embed. Nullable.
 	State *StateType
 }
 

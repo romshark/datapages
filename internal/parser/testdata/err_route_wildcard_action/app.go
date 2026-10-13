@@ -1,6 +1,5 @@
-// Package app gives a page ending in a wildcard 4 actions: one past the
-// wildcard, one at the page route, one without a path comment and one
-// adopted from an embedded type.
+// Package app gives a page ending in a wildcard 3 actions: one past the
+// wildcard, one at the page route and one without a path comment.
 //
 // The parser is expected to report each of them once.
 package app
@@ -20,19 +19,8 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
-// Archiver declares an action that PageFiles adopts.
-type Archiver struct{ App *App }
-
-// POSTArchive is /files/archive
-func (Archiver) POSTArchive(r *http.Request) error {
-	return nil
-}
-
 // PageFiles is /files/{rest...}
-type PageFiles struct {
-	App *App
-	Archiver
-}
+type PageFiles struct{ App *App }
 
 func (PageFiles) GET(
 	r *http.Request,

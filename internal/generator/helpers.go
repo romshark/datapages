@@ -362,7 +362,7 @@ type appUsage struct {
 	streamAuth  bool
 	pageCache   bool
 	offlinePage bool
-	// stateRuntime: whether any page (including via embedded abstract pages)
+	// stateRuntime: whether any page (including via stream embeds)
 	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
 	// actions: whether the application defines any action the action package
@@ -568,18 +568,18 @@ func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
 
 // writeEmbedInit recursively appends an embed field initialization.
 func (w *Writer) writeEmbedInit(
-	p *model.Page, ap *model.AbstractPage, appPkg, indent string,
+	p *model.Page, se *model.StreamEmbed, appPkg, indent string,
 	parent types.Type,
 ) {
 	w.Raw(indent)
-	w.Raw(ap.TypeName)
+	w.Raw(se.TypeName)
 	w.Raw(": ")
-	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	expr, embedded := w.embedLiteralExpr(p, se, appPkg, parent)
 	w.Raw(expr)
 	w.Raw("{\n")
 	w.Raw(indent)
 	w.Raw("\tApp: s.app,\n")
-	for _, sub := range ap.Embeds {
+	for _, sub := range se.Embeds {
 		w.writeEmbedInit(p, sub, appPkg, indent+"\t", embedded)
 	}
 	w.Raw(indent)
@@ -587,7 +587,7 @@ func (w *Writer) writeEmbedInit(
 }
 
 // embedTypeExpr returns the type to use in the embed's composite literal.
-// A generic abstract page must be instantiated with the type arguments
+// A generic stream embed must be instantiated with the type arguments
 // written at the embed site, e.g. "app.Base[app.StateFoo]".
 // embedLiteralExpr returns the composite literal prefix for an embed and
 // whether the field is a pointer.
@@ -596,19 +596,19 @@ func (w *Writer) writeEmbedInit(
 // "*app.Base", which is not a type a composite literal can be written of: the
 // literal is of the element type and its address is taken.
 func (w *Writer) embedLiteralExpr(
-	p *model.Page, ap *model.AbstractPage, appPkg string, parent types.Type,
+	p *model.Page, se *model.StreamEmbed, appPkg string, parent types.Type,
 ) (expr string, embedded types.Type) {
-	name := appPkg + "." + ap.TypeName
+	name := appPkg + "." + se.TypeName
 	var resolved types.Type
 	switch {
 	case parent != nil:
 		// An embed of an embed: its type comes from the parent's, already
 		// instantiated. The Base inside Mid[StateA] is Base[StateA].
-		if t, ok := embedFieldType(parent, ap.TypeName); ok {
+		if t, ok := embedFieldType(parent, se.TypeName); ok {
 			resolved = t
 		}
 	default:
-		if t, ok := p.EmbedTypes[ap.TypeName]; ok && t.Resolved != nil {
+		if t, ok := p.EmbedTypes[se.TypeName]; ok && t.Resolved != nil {
 			resolved = t.Resolved
 		}
 	}

@@ -122,7 +122,7 @@ func (PageEventReversed) GET(r *http.Request) (body datapages.Component, err err
 
 // Event handler with SSE before the event (reversed from conventional)
 // and an event parameter of its own name.
-func (PageEventReversed) OnEventPing(
+func (PageEventReversed) OnPing(
 	sse datapages.SSE,
 	session Session,
 	ping EventPing,

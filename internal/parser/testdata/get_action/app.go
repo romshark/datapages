@@ -53,10 +53,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 }
 
 // PageDoc is /doc/{id}
-type PageDoc struct {
-	App *App
-	Downloads
-}
+type PageDoc struct{ App *App }
 
 func (PageDoc) GET(
 	r *http.Request,
@@ -75,14 +72,5 @@ func (PageDoc) GETExport(
 		ID string `path:"id"`
 	}],
 ) (file datapages.File, err error) {
-	return file, nil
-}
-
-// Downloads is an abstract page. Every page embedding it serves its GET action,
-// and its GET action is not the GET of that page.
-type Downloads struct{ App *App }
-
-// GETManual is /manual.pdf
-func (Downloads) GETManual(r *http.Request) (file datapages.File, err error) {
 	return file, nil
 }

@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -47,6 +49,74 @@ func TestGenWatcherCmd(t *testing.T) {
 			out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
 			require.NoError(t, err, "%s", out)
 			require.Equal(t, "ran gen\n", string(out))
+		})
+	}
+}
+
+// TestNewWatchLogger tests the levels the watch engine logs at for each
+// watch.log.level: erronly logs errors, verbose adds info and warnings,
+// and debug adds debug.
+func TestNewWatchLogger(t *testing.T) {
+	all := []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError}
+	for name, tc := range map[string]struct {
+		level config.LogLevel
+		want  []slog.Level
+	}{
+		"erronly": {level: config.LogLevelErrOnly, want: all[3:]},
+		"verbose": {level: config.LogLevelVerbose, want: all[1:]},
+		"debug":   {level: config.LogLevelDebug, want: all},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := newWatchLogger(tc.level, io.Discard)
+			var got []slog.Level
+			for _, lvl := range all {
+				if l.Enabled(context.Background(), lvl) {
+					got = append(got, lvl)
+				}
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestParseAppHost tests that the app host needs an http or https scheme
+// and a host, which "localhost:8080" lacks.
+func TestParseAppHost(t *testing.T) {
+	for name, tc := range map[string]struct {
+		in       string
+		wantHost string
+		wantErr  string
+	}{
+		"http":  {in: "http://localhost:8080", wantHost: "localhost:8080"},
+		"https": {in: "https://example.test:8443", wantHost: "example.test:8443"},
+		"no scheme": {
+			in: "localhost:8080",
+			wantErr: `watch.app-host "localhost:8080" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"other scheme": {
+			in: "ftp://localhost:21",
+			wantErr: `watch.app-host "ftp://localhost:21" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"no host": {
+			in: "http:///app",
+			wantErr: `watch.app-host "http:///app" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"unparsable": {
+			in:      "http://[::1",
+			wantErr: `parsing watch.app-host: parse "http://[::1": missing ']' in host`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			u, err := parseAppHost(tc.in)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantHost, u.Host)
 		})
 	}
 }
@@ -407,14 +477,19 @@ func TestRemoteURLToModulePath(t *testing.T) {
 }
 
 // TestSelectApp tests picking the application to act on. 1 application needs
-// no --app flag, several do, and the error names them so the developer can pick.
+// no --app flag, several do, and the error lists their directories.
+// The flag takes the directory of the app package, not its last element.
 func TestSelectApp(t *testing.T) {
 	one := serverscan.Result{Apps: []serverscan.App{
-		{Name: "app", Dir: "app"},
+		{Dir: "app"},
 	}}
 	two := serverscan.Result{Apps: []serverscan.App{
-		{Name: "admin", Dir: filepath.Join("app", "admin")},
-		{Name: "frontend", Dir: filepath.Join("app", "frontend")},
+		{Dir: filepath.Join("app", "admin")},
+		{Dir: filepath.Join("app", "frontend")},
+	}}
+	shared := serverscan.Result{Apps: []serverscan.App{
+		{Dir: filepath.Join("admin", "app")},
+		{Dir: filepath.Join("web", "app")},
 	}}
 	for name, tt := range map[string]struct {
 		result  serverscan.Result
@@ -425,26 +500,31 @@ func TestSelectApp(t *testing.T) {
 		"1 app needs no flag": {
 			result: one, wantDir: "app",
 		},
-		"1 app named anyway": {
+		"1 app passed anyway": {
 			result: one, flag: "app", wantDir: "app",
 		},
 		"2 apps need the flag": {
 			result: two,
-			wantErr: "this module builds 2 applications (admin, frontend), " +
-				"name the one to run with --app",
-		},
-		"2 apps by name": {
-			result: two, flag: "frontend",
-			wantDir: filepath.Join("app", "frontend"),
+			wantErr: "this module builds 2 applications (app/admin, app/frontend), " +
+				"pass the directory of the one to run with --app",
 		},
 		"2 apps by directory": {
 			result: two, flag: "app/admin",
 			wantDir: filepath.Join("app", "admin"),
 		},
-		"unknown name": {
-			result: two, flag: "nope",
-			wantErr: `no app package "nope" in this module, ` +
-				"it builds: admin, frontend",
+		"last element": {
+			result: two, flag: "frontend",
+			wantErr: `no app package in "frontend", ` +
+				"the module builds: app/admin, app/frontend",
+		},
+		"shared last element": {
+			result: shared, flag: "app",
+			wantErr: `no app package in "app", ` +
+				"the module builds: admin/app, web/app",
+		},
+		"shared last element by directory": {
+			result: shared, flag: "web/app",
+			wantDir: filepath.Join("web", "app"),
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

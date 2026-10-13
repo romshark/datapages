@@ -1,6 +1,7 @@
 package serverscan_test
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,42 @@ func genPkg(header bool) string {
 		h = serverscan.GeneratedHeader + "\n\n"
 	}
 	return h + "package datapagesgen\n\ntype Server struct{}\n"
+}
+
+// TestCheckAppDir tests the report of an app package whose directory doesn't exist:
+// the default app of a module without a datapages.NewServer call, with the fix,
+// and the app package of a call, at the call.
+func TestCheckAppDir(t *testing.T) {
+	root := write(t, map[string]string{"web/web.go": "package web\n"})
+	call := serverscan.Call{
+		Pos: token.Position{Filename: "cmd/site/main.go", Line: 12, Column: 3},
+	}
+	for name, tc := range map[string]struct {
+		app  serverscan.App
+		want string
+	}{
+		"exists": {app: serverscan.App{Dir: "web"}},
+		"default": {
+			app: serverscan.App{Dir: "app"},
+			want: "app: no such directory, the default app package " +
+				"of a module without a datapages.NewServer call\n" +
+				"  fix: run datapages init",
+		},
+		"from a call": {
+			app: serverscan.App{Dir: "site", Calls: []serverscan.Call{call}},
+			want: "cmd/site/main.go:12:3: " +
+				"the app package site of datapages.NewServer does not exist",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := serverscan.CheckAppDir(root, tc.app)
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.want)
+		})
+	}
 }
 
 // TestScan tests finding the app package and the generated package from the
@@ -160,7 +197,6 @@ func main() {}
 
 			a := r.Apps[0]
 			require.Equal(t, tt.appDirs[0], a.Dir)
-			require.Equal(t, filepath.Base(tt.appDirs[0]), a.Name)
 			require.Equal(t,
 				filepath.Join(tt.appDirs[0], serverscan.GenSubdir), a.GenDir)
 			require.Equal(t,
@@ -261,9 +297,9 @@ func TestScanMultipleApps(t *testing.T) {
 	r, err := serverscan.Scan(root, modulePath)
 	require.NoError(t, err)
 	require.False(t, r.Fallback)
-	require.Equal(t, []string{"admin", "frontend"}, r.Names())
+	require.Equal(t, []string{"app/admin", "app/frontend"}, r.Dirs())
 
-	admin, ok := r.Find("admin")
+	admin, ok := r.Find("app/admin")
 	require.True(t, ok)
 	require.Equal(t, filepath.Join("app", "admin"), admin.Dir)
 	require.False(t, admin.HasSession)
@@ -271,16 +307,39 @@ func TestScanMultipleApps(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, filepath.Join("cmd", "admin"), cmd)
 
-	// The directory addresses an app just as its name does.
 	front, ok := r.Find("app/frontend")
 	require.True(t, ok)
 	require.True(t, front.HasSession)
 	require.Equal(t, "frontend.SessionData", front.SessionData.Src)
 	require.Equal(t,
 		modulePath+"/app/frontend/datapagesgen", front.GenImport)
+}
 
-	_, ok = r.Find("nothing")
-	require.False(t, ok)
+// TestFind tests that the command line addresses an app by the directory of
+// its package, written with "./" or a trailing slash too, and never by the
+// last element of the directory, which web/app and admin/app share.
+func TestFind(t *testing.T) {
+	r := serverscan.Result{Apps: []serverscan.App{
+		{Dir: filepath.Join("admin", "app")},
+		{Dir: filepath.Join("web", "app")},
+	}}
+	for name, tc := range map[string]struct {
+		dir  string
+		want string
+	}{
+		"directory":      {dir: "web/app", want: "web/app"},
+		"dot slash":      {dir: "./web/app", want: "web/app"},
+		"trailing slash": {dir: "web/app/", want: "web/app"},
+		"last element":   {dir: "app"},
+		"unknown":        {dir: "nothing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, ok := r.Find(tc.dir)
+			require.Equal(t, tc.want != "", ok)
+			require.Equal(t, tc.want, filepath.ToSlash(a.Dir))
+		})
+	}
+	require.Equal(t, []string{"admin/app", "web/app"}, r.Dirs())
 }
 
 // TestScanErr tests what the scan refuses: a destination package datapages did not write,
@@ -654,20 +713,22 @@ func TestScanPrometheusPerApp(t *testing.T) {
 		"app/frontend/app.go":                  "package frontend\n",
 		"app/frontend/datapagesgen/app_gen.go": genPkg(true),
 		"cmd/admin/main.go": mainGo("app/admin",
-			"admin.App, datapages.DisableSessions, datapages.EnablePrometheus, gen.Server",
+			"admin.App, datapages.DisableSessions, "+
+				"datapages.EnablePrometheus, gen.Server",
 			", datapages.WithPrometheus(datapages.PrometheusConfig{})"),
 		"cmd/frontend/main.go": mainGo("app/frontend",
-			"frontend.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server", ""),
+			"frontend.App, datapages.DisableSessions, "+
+				"datapages.DisablePrometheus, gen.Server", ""),
 	})
 	r, err := serverscan.Scan(root, modulePath)
 	require.NoError(t, err)
 
-	admin, ok := r.Find("admin")
+	admin, ok := r.Find("app/admin")
 	require.True(t, ok)
 	require.True(t, admin.Prometheus)
 	require.Equal(t, "datapages.EnablePrometheus", admin.Metrics.Src)
 
-	front, ok := r.Find("frontend")
+	front, ok := r.Find("app/frontend")
 	require.True(t, ok)
 	require.False(t, front.Prometheus)
 	require.Equal(t, "datapages.DisablePrometheus", front.Metrics.Src)

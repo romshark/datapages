@@ -241,7 +241,11 @@ func (p *pageCacheBuf) Header() http.Header {
 	return p.h
 }
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
-func (p *pageCacheBuf) WriteHeader(int)             {}
+
+// WriteString takes the strings writeHTML writes the document frame with,
+// which [io.WriteString] copies into a new slice for a writer without it.
+func (p *pageCacheBuf) WriteString(s string) (int, error) { return p.b.WriteString(s) }
+func (p *pageCacheBuf) WriteHeader(int)                   {}
 `)
 	// 1 cached document serves every visitor, so pageCacheHead uses no session.
 	w.Raw("\nfunc (s *Server) pageCacheHead(r *http.Request) datapages.Head {\n\treturn ")
@@ -1813,19 +1817,19 @@ func (w *Writer) writePageConstructorStmt(varName string, p *model.Page, appPkg 
 }
 
 func (w *Writer) writeEmbedInitStmt(
-	p *model.Page, ap *model.AbstractPage, appPkg string, indent int,
+	p *model.Page, se *model.StreamEmbed, appPkg string, indent int,
 	parent types.Type,
 ) {
 	for range indent {
 		w.Byte('\t')
 	}
-	w.Raw(ap.TypeName)
+	w.Raw(se.TypeName)
 	w.Raw(": ")
-	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	expr, embedded := w.embedLiteralExpr(p, se, appPkg, parent)
 	w.Raw(expr)
 	w.Raw("{\n")
 	w.Line(indent+1, "App: s.app,")
-	for _, sub := range ap.Embeds {
+	for _, sub := range se.Embeds {
 		w.writeEmbedInitStmt(p, sub, appPkg, indent+1, embedded)
 	}
 	w.Line(indent, "},")

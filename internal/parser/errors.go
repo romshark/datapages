@@ -18,6 +18,7 @@ import (
 )
 
 var (
+	ErrAppDirMissing           = errors.New("app package directory does not exist")
 	ErrAppMissingTypeApp       = errors.New(`missing required type "App"`)
 	ErrAppMissingPageIndex     = errors.New(`missing required page type "PageIndex"`)
 	ErrSignatureMissingReq     = errors.New(`missing the *http.Request parameter`)
@@ -70,22 +71,27 @@ var (
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)
-	ErrPageConflictingGETEmbed = errors.New("conflicting GET handlers in embedded")
 	ErrPageAmbiguousEmbed      = errors.New("ambiguous handler in embedded")
 	ErrPageNameInvalid         = errors.New("page has invalid name")
 	ErrPageMissingPathComm     = errors.New("page is missing path comment")
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
 	ErrPageIndexPathMustBeRoot = errors.New(`PageIndex path must be "/"`)
 
-	ErrPageEmbedUnexported = errors.New("embedded abstract page must be exported")
+	ErrPageEmbedUnexported = errors.New("stream embed must be exported")
 	ErrPageEmbedPointer    = errors.New(
-		"embedded abstract page must not be a pointer",
+		"stream embed must not be a pointer",
 	)
 
 	ErrAppUnsupportedMethod = errors.New(
 		"unsupported method on App; App takes Head, RecoverError and " +
 			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions). " +
 			"GET, On* and StreamOpen/StreamClose belong on a page",
+	)
+
+	ErrStreamEmbedUnsupportedMethod = errors.New(
+		"unsupported method on stream embed; it takes On* and " +
+			"StreamOpen/StreamClose. GET belongs on a page, " +
+			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions) on a page or App",
 	)
 
 	ErrUnsupportedMethod = errors.New(
@@ -105,6 +111,7 @@ var (
 	ErrEventSubjectInvalid  = errors.New("event subject is invalid")
 	ErrEvHandDuplicate      = errors.New("duplicate event handler for event")
 	ErrEvHandDuplicateEmbed = errors.New("duplicate event handler for event in embedded")
+	ErrEvHandNameMismatch   = errors.New("event handler must be named after its event")
 
 	ErrEventFieldUnexported = errors.New("event field must be exported")
 	ErrEventFieldMissingTag = errors.New("event field must have json tag")
@@ -597,6 +604,7 @@ func (e *PageIndexPathMustBeRootError) Unwrap() error { return ErrPageIndexPathM
 
 // ActionInvalidPathCommError is [ErrActionInvalidPathComm] with suggestion context.
 type ActionInvalidPathCommError struct {
+	PagePath   string // e.g. "/profile/" (empty for App-level actions)
 	Recv       string // e.g. "PageProfile" or "App"
 	MethodName string // e.g. "POSTFoo"
 }
@@ -1052,6 +1060,21 @@ func (e *SignatureEvHandEventPointerError) Error() string {
 func (e *SignatureEvHandEventPointerError) Unwrap() error {
 	return ErrSignatureEvHandEventPointer
 }
+
+// EvHandNameMismatchError is [ErrEvHandNameMismatch] with the handler
+// and the event it takes.
+type EvHandNameMismatchError struct {
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "OnNewMessage"
+	EventType  string // without the qualifier, e.g. "EventMessageSent"
+}
+
+func (e *EvHandNameMismatchError) Error() string {
+	return fmt.Sprintf("%v: %s.%s handles %s",
+		ErrEvHandNameMismatch, e.Recv, e.MethodName, e.EventType)
+}
+
+func (e *EvHandNameMismatchError) Unwrap() error { return ErrEvHandNameMismatch }
 
 // EventTypeNameConflictError is [ErrEventTypeNameConflict] with context.
 // Generated code names an event by its type name alone, which is why 1

@@ -82,7 +82,7 @@ Start with the generated `PageIndex`. Add 1 feature at a time and let `datapages
 
 As the page model grows, use these reference sections:
 
-- [Abstract page types](SPECIFICATION.md#abstract-page-types) for shared page behavior.
+- [Stream embeds](SPECIFICATION.md#stream-embeds) for event handlers and stream hooks that pages share.
 - [`body`](SPECIFICATION.md#return-value-body-datapagescomponent) and [`head`](SPECIFICATION.md#return-value-head-datapageshead) for rendered output.
 - [`redirect`](SPECIFICATION.md#return-value-redirect-datapagesredirect) for navigation.
 - [Background streaming](SPECIFICATION.md#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming) and [refresh control](SPECIFICATION.md#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden)
@@ -351,8 +351,10 @@ offline.WithServiceWorker("", offline.Config{
 1 Go module can contain several application packages and entry points. Each `datapages.NewServer` call connects an app package to its generated package. `datapages gen` processes all of them; select one for development with:
 
 ```sh
-datapages watch --app frontend
+datapages watch --app app/frontend
 ```
+
+`--app` takes the directory of the app package relative to the module root.
 
 Put an event type in a shared package when applications exchange that event. The specification for [events outside the application package](SPECIFICATION.md#events-declared-outside-the-application-package) defines discovery and subject ownership.
 

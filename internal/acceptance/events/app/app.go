@@ -324,7 +324,7 @@ func (p PagePanicOnClose) OnTick(event EventTick, sse datapages.SSE) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(`<div id="ticked">%d</div>`, event.N)))
 }
 
-// Notifier is an abstract type: a handler written once and embedded by the
+// Notifier is a stream embed: a handler written once and embedded by the
 // pages that want it. It is not a page and has no route.
 type Notifier struct{ App *App }
 

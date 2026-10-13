@@ -4,7 +4,7 @@
 
 The generator requires an application source package containing `App` and `type PageIndex struct`.
 
-`App`, page, abstract page, and event types must not have type parameters. The generator rejects them with "type parameters are not supported". Other package types may have type parameters.
+`App`, page, stream embed, and event types must not have type parameters. The generator rejects them with "type parameters are not supported". Other package types may have type parameters.
 
 ### App
 
@@ -21,9 +21,9 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written.
+`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written. An error that `OnXXX` or `StreamClose` returns is only logged and doesn't reach `RecoverError`.
 
-A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error path. When `RecoverError` handles it, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
+A panic in `GET`, an action, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
 A panic during page writing is logged. A plain page load retains its status and truncated body. On a Datastar request, a defined `RecoverError` appends any SSE frames it writes to the truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
@@ -55,7 +55,7 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `QUERYXXX`: handles `QUERY` action requests.
 - `StreamOpen`: runs when the page SSE stream opens.
 - `StreamClose`: runs when the page SSE stream closes.
-- `OnXXX`: subscribes to events in the SSE listener.
+- `OnXXX`: handles `EventXXX` in the SSE listener.
 
 An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
 
@@ -63,9 +63,9 @@ An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]`
 
 A `Page*` declaration must use a struct type literal. An alias to a struct literal is recognized as a page; an alias to a named type or a non-struct type is rejected.
 
-A page type must declare exactly 1 named field: `App *App`. Embedded types are permitted under [Abstract Page Types](#abstract-page-types).
+A page type must declare exactly 1 named field: `App *App`. Embedded types are permitted under [Stream Embeds](#stream-embeds).
 
-URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux). A route must not contain `"`, `\`, `` ` ``, `?` or `#`, nor a `%` that does not start a percent-encoding. Write them as `%22`, `%5C`, `%60`, `%3F`, `%23` and `%25`, which ServeMux decodes before matching.
+URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux) on the first line of the doc comment, as `// PageUser is /user/{name}` for a page and `// POSTFollow is /user/{name}/follow` for an action. A description goes below it, after an empty `//` line. A route must not contain `"`, `\`, `` ` ``, `?` or `#`, nor a `%` that does not start a percent-encoding. Write them as `%22`, `%5C`, `%60`, `%3F`, `%23` and `%25`, which ServeMux decodes before matching.
 
 `PageIndex` is required for `/`, and no other page may use `/` or `/{$}`. `PageIndex` also answers every path that no other route matches.
 
@@ -173,7 +173,7 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-`OnXXX` requires exactly 1 event parameter and exactly 1 `sse datapages.SSE`, takes each optional parameter at most once, and must return exactly 1 `error`. The event parameter is identified by type and takes the event by value, as `EventXXX` and not `*EventXXX`. `XXX` must match the event type's name after `Event`. Parameter order and the event parameter's name are unrestricted.
+`OnXXX` handles the event type `EventXXX`. `XXX` must equal the type's name after `Event`, also for an event declared in another package, as `OnAnnouncement` for `events.EventAnnouncement`. The handler takes exactly 1 parameter of that type, by value and not as `*EventXXX`, and exactly 1 `sse datapages.SSE`. It takes each optional parameter at most once and must return exactly 1 `error`. Parameter order and parameter names are unrestricted.
 
 ```go
 func (PageIndex) OnSomethingHappened(
@@ -230,7 +230,7 @@ func (PageIndex) StreamClose(
 
 A `GETXXX` action serves a [`datapages.File`](#return-value-datapagesfile) for `GET` and `HEAD`, such as an image, download or feed. Requests from an `img` element, link or script carry neither signals nor `Datastar-Request`. GET actions skip cross-origin and CSRF checks and must not change server state.
 
-A GET action may belong to `*App`, a page or an abstract page. It does not replace a page's `GET` and accepts only these parameters:
+A GET action may belong to `*App` or a page. It does not replace a page's `GET` and accepts only these parameters:
 
 ```go
 // GETImage is /images/{name}
@@ -255,11 +255,11 @@ A path value holds its segment unescaped: `%2F` arrives as `/` and `%2E%2E` as `
 
 Query parameters use the adjacent constructor: `href.App.Image(name, href.App.ImageQuery(width))`. A GET action name must not match another GET action's query constructor on the same owner. The `action` package provides no GET action helper.
 
-#### Abstract Page Types
+#### Stream Embeds
 
-A struct in the app package whose name does not start with `Page` and that declares `App *App` is an abstract page type. Pages may embed it to share its handlers.
+A struct in the app package whose name does not start with `Page` and that declares `App *App` is a stream embed. Pages may embed it to share its `OnXXX` event handlers, `StreamOpen` and `StreamClose`. It cannot declare `GET` or actions. A page or a stream embed may embed only stream embeds, never a type of another package.
 
-A handler declared by the page shadows an embedded one with the same method name. A page declaring `POSTSave` keeps an embedded `PUTSave`. An action embedded at a shallower depth shadows one with the same method name at a deeper depth, as Go's promoted methods do. A page is rejected when 2 types embedded at the same depth declare the same action, or when it reaches an abstract page through 2 embedded fields at the same depth. Go reports both selectors as ambiguous.
+A handler the page declares for an event, `StreamOpen` or `StreamClose` replaces the embedded one. A page is rejected when 2 embedded types handle the same event or declare the same stream hook, or when it reaches a stream embed through 2 embedded fields at the same depth.
 
 #### Parameter: `datapages.State[T]`
 
@@ -291,7 +291,7 @@ func (PageIndex) StreamOpen(r *http.Request, state datapages.State[StateIndex]) 
 - `T` must be an exported struct declared at the source package level.
 - The parameter name is unrestricted. `T` must directly name the app package's struct. Pointers, struct literals, and types from other packages are rejected.
 - All handlers on a page, including those of embedded types, must use the same `T`.
-- State used by an abstract page binds every page that embeds it.
+- State used by a stream embed binds every page that embeds it.
 - Global `*App` actions may take `datapages.State[T]`. The caller must be bound to a page using the same `T`; otherwise the action receives `409 Conflict` with `Datapages-Retry: reconnect`. A global action callable from every page must be stateless.
 - `GET` cannot take state because no instance exists at render time.
 - A page using state gets an SSE stream even without stream hooks or `OnXXX`. Connect allocates the state slot; disconnect releases it.
@@ -859,7 +859,7 @@ Sentinels:
 
 Do not wrap multiple sentinels into 1 error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
-Sentinels may be returned directly or wrapped. `RecoverError` handles errors from Datastar requests when defined, and the response keeps status 200. If the response has not started, other requests get `PageError404` for status 404 and `PageError500` for status 500 when defined. In every other case where the response has not started, the server writes the status and its standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
+Sentinels may be returned directly or wrapped. `RecoverError` handles the errors of actions and `StreamOpen` on Datastar requests when defined, and the response keeps status 200. If the response has not started, other requests get `PageError404` for status 404 and `PageError500` for status 500 when defined. In every other case where the response has not started, the server writes the status and its standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 #### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 
@@ -1036,7 +1036,7 @@ The href linter treats absolute URLs as external, including URLs on the applicat
 
 ### Build-Constrained Application Files
 
-The app package cannot contain build-constrained files. Pages, actions, and events are read for the host platform, so platform-specific declarations may disappear without an error on other platforms. `datapages.NewServer` calls are read from all files except those under `//go:build ignore` and may occur in platform-specific commands.
+The app package cannot contain build-constrained files, which have a `//go:build` line or a name ending in an operating system or architecture, such as `_windows.go`. Pages, actions, and events are read for the host platform, which would drop the declarations of such a file without an error. The generator rejects such a file on every platform, except a test file and a file under `//go:build ignore`. `datapages.NewServer` calls are read from all files except those under `//go:build ignore` and may occur in platform-specific commands.
 
 ## Service Worker
 

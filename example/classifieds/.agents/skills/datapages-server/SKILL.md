@@ -24,7 +24,7 @@ s, err := datapages.NewServer[
 ](&a, broker, opts...) // the app is passed by pointer
 ```
 
-Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. 1 module can contain several apps. Run one with `datapages watch --app frontend`.
+Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. 1 module can contain several apps. Run one with `datapages watch --app app/frontend`, the directory of its app package.
 
 `datapages.EnablePrometheus` requires `WithPrometheus`, `DisablePrometheus` rejects it.
 
@@ -115,4 +115,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:37cdbe0bd680e575 -->
+<!-- written by datapages sha256:327401c1778a409d -->

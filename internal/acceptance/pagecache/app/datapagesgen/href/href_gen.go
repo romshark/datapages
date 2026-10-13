@@ -105,3 +105,6 @@ type QueryPageList struct {
 
 // PageOffline references /offline/{$}
 func PageOffline() string { return "/offline/" }
+
+// PageWriterProbe references /writer-probe/{$}
+func PageWriterProbe() string { return "/writer-probe/" }

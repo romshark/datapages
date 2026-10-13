@@ -3,6 +3,8 @@
 package app
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -33,6 +35,26 @@ func (PageIndex) GET(
 	}
 	return echo("held", strconv.FormatUint(held, 10)), nil
 }
+
+// PageWriterProbe is /writer-probe
+//
+// Its cached body reports whether the writer it renders into takes strings.
+// The document frame of a cached entry is written to that writer with
+// [io.WriteString], which copies each string for a writer without WriteString.
+type PageWriterProbe struct{ App *App }
+
+func (PageWriterProbe) GET(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) (body datapages.Component, err error) {
+	pageCache.Set("/writer-probe", writerProbe, 1)
+	return echo("probe", "live"), nil
+}
+
+var writerProbe = templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
+	_, ok := w.(io.StringWriter)
+	_, err := io.WriteString(w, "string writer: "+strconv.FormatBool(ok))
+	return err
+})
 
 // POSTStream is /stream-write
 //

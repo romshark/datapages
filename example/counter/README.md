@@ -25,9 +25,9 @@ go run ./cmd/fancy    # http://localhost:8081/
 
 ## Develop
 
-1 dev server runs 1 application, so name the one to run:
+1 dev server runs 1 application, so pass the directory of the one to run:
 
 ```sh
-datapages watch --app simple
-datapages watch --app fancy
+datapages watch --app app/simple
+datapages watch --app app/fancy
 ```
