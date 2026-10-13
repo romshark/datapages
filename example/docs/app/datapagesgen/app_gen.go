@@ -253,6 +253,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		true,
 	)
 
 	setupHandlers(s)
@@ -523,11 +524,15 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
+		if httpserve.ResponseBodyWritten(w) {
+			// Events after a half-written response would land in its body.
+			return
+		}
 		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
 		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
-	errRecover := s.app.RecoverError(err, sse)
+	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
 		return
 	}
@@ -536,6 +541,25 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+}
+
+// callRecoverError calls RecoverError and returns a panic in it as an error.
+// Left to recoverPanic, the panic would run RecoverError again, on a second
+// stream when httpErrIntern opened the first.
+func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", "App.RecoverError"),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		errRecover = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return s.app.RecoverError(err, sse)
 }
 
 func (s *Server) httpErrFile(

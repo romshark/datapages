@@ -71,7 +71,7 @@ For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 
 A command should normally mutate state and dispatch an event. The event says that something changed; it is not the authoritative state. Subscribers read the current state, render the page and send the result over SSE.
 
-Render 1 template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small DOM patches only to reduce transferred HTML. SSE streams use Brotli compression.
+Render 1 template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small DOM patches only to reduce transferred HTML. SSE streams are compressed, with zstd for current browsers. The compressor keeps the last 1 MiB of a stream and encodes a re-render as references to the previous render. A re-render of an 8 KB list with 1 changed item takes about 70 B. `datapages.WithSSECompression` sets the codings or turns compression off.
 
 Each stream update must contain enough current state to restore the UI after a missed event or interrupted connection. Send complete current state when a missed incremental update would make the client incorrect.
 

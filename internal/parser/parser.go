@@ -1040,7 +1040,7 @@ func validateAndAttachEventHandler(
 
 	// Invariants for OnXXX handlers:
 	//   - Must have exactly 1 parameter of an EventXXX type
-	//   - Must have a *datastar.ServerSentEventGenerator parameter
+	//   - Must have a datapages.SSE parameter
 	//   - Only 1 handler per EventXXX per receiver type
 	//   - Parameters may be in any order
 	params := fd.Type.Params

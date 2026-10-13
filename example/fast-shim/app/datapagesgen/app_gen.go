@@ -38,15 +38,14 @@ const (
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
-func newPageCache(
-	w http.ResponseWriter, s *Server, r *http.Request,
-	sse *dpsse.Stream,
-) *pageCacheWriter {
+// newPageCache must run before the response head goes out, which an
+// event stream sends when it opens.
+func newPageCache(w http.ResponseWriter, s *Server, r *http.Request) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
 	// one client's page and its embedded cache write to another.
 	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
-	return &pageCacheWriter{s: s, r: r, sse: sse}
+	return &pageCacheWriter{s: s, r: r}
 }
 
 // pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
@@ -74,10 +73,8 @@ func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 }
 
 type pageCacheWriter struct {
-	s *Server
-	r *http.Request
-	// sse is nil, unless the handler takes [datapages.SSE].
-	sse      *dpsse.Stream
+	s        *Server
+	r        *http.Request
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -188,29 +185,38 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-func (c *pageCacheWriter) flush() error {
-	if c.sse == nil {
-		return nil
+// flush sends the queued writes on the stream of a handler that takes one.
+// A payload that fails to render is logged and omitted, as in embedInto.
+func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
+	payload := c.loggedPayload()
+	if payload == "" {
+		return
 	}
-	payload, err := c.payload()
-	if err != nil || payload == "" {
-		return err
-	}
-	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // flushToNewStream answers with an SSE stream carrying the queued writes, for a
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
-	payload, err := c.payload()
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
+	payload := c.loggedPayload()
 	sse := c.s.OpenSSE(w, c.r)
 	defer sse.Close()
-	if err != nil || payload == "" {
-		return err
+	if payload == "" {
+		return
 	}
-	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// loggedPayload returns the payload, or "" with the error logged.
+func (c *pageCacheWriter) loggedPayload() string {
+	payload, err := c.payload()
+	if err != nil {
+		c.s.LogErr("rendering page cache writes", err)
+		return ""
+	}
+	return payload
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -226,11 +232,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 				return err
 			}
 		}
-		payload, err := c.payload()
-		if err != nil {
-			c.s.LogErr("rendering page cache writes", err)
-			return nil
-		}
+		payload := c.loggedPayload()
 		if payload == "" {
 			return nil
 		}
@@ -240,7 +242,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
 			return err
 		}
-		_, err = io.WriteString(w, "</script>")
+		_, err := io.WriteString(w, "</script>")
 		return err
 	})
 }
@@ -434,7 +436,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -502,7 +504,7 @@ func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageSubpageHandlers struct{ *Server }
 
 func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 	p := dpapp.PageSubpage{
 		App: s.app,
 	}

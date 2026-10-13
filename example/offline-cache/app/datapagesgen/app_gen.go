@@ -88,15 +88,14 @@ func httpRedirectOffline(
 	return true
 }
 
-func newPageCache(
-	w http.ResponseWriter, s *Server, r *http.Request,
-	sse *dpsse.Stream,
-) *pageCacheWriter {
+// newPageCache must run before the response head goes out, which an
+// event stream sends when it opens.
+func newPageCache(w http.ResponseWriter, s *Server, r *http.Request) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
 	// one client's page and its embedded cache write to another.
 	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
-	return &pageCacheWriter{s: s, r: r, sse: sse}
+	return &pageCacheWriter{s: s, r: r}
 }
 
 // pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
@@ -124,10 +123,8 @@ func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 }
 
 type pageCacheWriter struct {
-	s *Server
-	r *http.Request
-	// sse is nil, unless the handler takes [datapages.SSE].
-	sse      *dpsse.Stream
+	s        *Server
+	r        *http.Request
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -238,29 +235,38 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-func (c *pageCacheWriter) flush() error {
-	if c.sse == nil {
-		return nil
+// flush sends the queued writes on the stream of a handler that takes one.
+// A payload that fails to render is logged and omitted, as in embedInto.
+func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
+	payload := c.loggedPayload()
+	if payload == "" {
+		return
 	}
-	payload, err := c.payload()
-	if err != nil || payload == "" {
-		return err
-	}
-	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // flushToNewStream answers with an SSE stream carrying the queued writes, for a
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
-	payload, err := c.payload()
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
+	payload := c.loggedPayload()
 	sse := c.s.OpenSSE(w, c.r)
 	defer sse.Close()
-	if err != nil || payload == "" {
-		return err
+	if payload == "" {
+		return
 	}
-	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// loggedPayload returns the payload, or "" with the error logged.
+func (c *pageCacheWriter) loggedPayload() string {
+	payload, err := c.payload()
+	if err != nil {
+		c.s.LogErr("rendering page cache writes", err)
+		return ""
+	}
+	return payload
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -276,11 +282,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 				return err
 			}
 		}
-		payload, err := c.payload()
-		if err != nil {
-			c.s.LogErr("rendering page cache writes", err)
-			return nil
-		}
+		payload := c.loggedPayload()
 		if payload == "" {
 			return nil
 		}
@@ -290,7 +292,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
 			return err
 		}
-		_, err = io.WriteString(w, "</script>")
+		_, err := io.WriteString(w, "</script>")
 		return err
 	})
 }
@@ -564,11 +566,15 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
+		if httpserve.ResponseBodyWritten(w) {
+			// Events after a half-written response would land in its body.
+			return
+		}
 		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
 		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
-	errRecover := s.app.RecoverError(err, sse)
+	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
 		return
 	}
@@ -577,6 +583,25 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+}
+
+// callRecoverError calls RecoverError and returns a panic in it as an error.
+// Left to recoverPanic, the panic would run RecoverError again, on a second
+// stream when httpErrIntern opened the first.
+func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", "App.RecoverError"),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		errRecover = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return s.app.RecoverError(err, sse)
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
@@ -619,7 +644,7 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "App.SignOut")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 	closeSession, redirect, err := s.app.POSTSignOut(r, sess, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
@@ -708,7 +733,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[dpapp.SearchParams]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -789,7 +814,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Next string `query:"next"`
 	}]
 	query.Values.Next = httpread.QueryValue(r.URL.RawQuery, "next")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageLogin{
 		App: s.app,
@@ -833,8 +858,8 @@ func (s pageLoginHandlers) POSTSubmit(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
+	pageCache := newPageCache(w, s.Server, r)
 	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
-	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
@@ -938,8 +963,8 @@ func (s pagePurchaseHandlers) POSTConfirm(
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
+	pageCache := newPageCache(w, s.Server, r)
 	defer s.recoverPanic(w, r, nil, "PagePurchase.Confirm")
-	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PagePurchase{
 		App: s.app,
 		Base: dpapp.Base{
@@ -968,7 +993,7 @@ func (s pageShowHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageShow{
 		App: s.app,
@@ -1004,7 +1029,7 @@ func (s pageTicketHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageTicket{
 		App: s.app,
@@ -1038,7 +1063,7 @@ func (s pageTicketsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageTickets{
 		App: s.app,

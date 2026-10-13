@@ -224,6 +224,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)

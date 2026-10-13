@@ -891,6 +891,9 @@ func TestReadSignals(t *testing.T) {
 // TestPatchElementAllocs tests warm pooled writes with every coding, of an
 // event in 1 frame and of 1 that spans 4.
 func TestPatchElementAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector makes sync.Pool drop values")
+	}
 	for name, items := range map[string]int{"small": 200, "large": 8000} {
 		el := templ.Raw(`<ul id="l">` +
 			strings.Repeat("\n<li>item</li>", items) +
@@ -917,6 +920,9 @@ func TestPatchElementAllocs(t *testing.T) {
 // TestScriptAllocs tests that Redirect and Prefetch write into the event
 // without allocating, also when a URL needs escaping.
 func TestScriptAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector makes sync.Pool drop values")
+	}
 	urls := []string{"/listing/42/", "/listing/43/", "/search/?q=bike&page=2"}
 	escaped := []string{`/x"</script>`, "/a\\b\x00"}
 	for name, call := range map[string]func(s *sse.Stream) error{

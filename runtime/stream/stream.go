@@ -51,6 +51,7 @@ type Handler struct {
 	sessions      sessions.CloseNotifier
 	metrics       Metrics
 	onErr         ErrorHandler
+	errOnStream   bool
 	seq           atomic.Uint64
 }
 
@@ -58,6 +59,10 @@ type Handler struct {
 //
 // sessions ends a stream when the session it belongs to is closed.
 // It may be nil, in which case no stream watches its session. metrics may be nil.
+//
+// errOnStream reports whether onErr answers a Datastar request on an event stream,
+// which it opens when sse is nil. The error handler of an application
+// with RecoverError does.
 func NewHandler(
 	core *httpserve.Core,
 	broker messaging.Broker,
@@ -65,6 +70,7 @@ func NewHandler(
 	sessions sessions.CloseNotifier,
 	metrics Metrics,
 	onErr ErrorHandler,
+	errOnStream bool,
 ) *Handler {
 	return &Handler{
 		core:          core,
@@ -73,6 +79,7 @@ func NewHandler(
 		sessions:      sessions,
 		metrics:       metrics,
 		onErr:         onErr,
+		errOnStream:   errOnStream,
 	}
 }
 
@@ -96,7 +103,8 @@ func NewHandler(
 // pages from earlier Datapages releases reconnect only a stream that fails, and the
 // new process can then reload a page from an old build. When the session ends,
 // Handle sends [reloadScript]. When onOpen or the session watcher fails,
-// the last event carries [reconnectDelay].
+// the last event carries [reconnectDelay]. So does the stream that answers
+// a failed subscription when the handler is errOnStream.
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request,
 	sessionKey, userID string, expiresAt time.Time,
@@ -123,8 +131,7 @@ func (h *Handler) Handle(
 	ctx := r.Context()
 	sub, err := h.broker.Subscribe(ctx, h.brokerMetrics, subjects...)
 	if err != nil {
-		// Nothing has been written yet, which lets the error carry a status.
-		h.onErr(w, r, nil, "subscribing to message broker", err)
+		h.subscribeFailed(w, r, err)
 		return
 	}
 
@@ -138,7 +145,14 @@ func (h *Handler) Handle(
 	}()
 
 	sse := h.core.OpenSSE(w, r)
-	defer sse.Close()
+	aborting := false
+	defer func() {
+		// Close waits for a write in progress. A write to a client that stopped
+		// reading ends only when the connection closes, which the abort does.
+		if !aborting {
+			sse.Close()
+		}
+	}()
 	if sse.Err() != nil {
 		// The client left before the response headers were flushed.
 		return
@@ -221,11 +235,27 @@ func (h *Handler) Handle(
 
 	switch {
 	case shutdown.Load():
+		aborting = true
 		// net/http resets the connection and logs nothing for this value.
 		panic(http.ErrAbortHandler)
 	case sessionEnded.Load():
 		_ = sse.ExecuteScriptRetry(reloadScript, reconnectDelay)
 	}
+}
+
+// subscribeFailed reports a failed subscription. Nothing has been written yet,
+// which lets onErr answer with a status. A stream that onErr opened itself
+// would end without [reconnectDelay], so for errOnStream it opens here.
+func (h *Handler) subscribeFailed(w http.ResponseWriter, r *http.Request, err error) {
+	const msg = "subscribing to message broker"
+	if !h.errOnStream {
+		h.onErr(w, r, nil, msg, err)
+		return
+	}
+	sse := h.core.OpenSSE(w, r)
+	defer sse.Close()
+	h.onErr(w, r, sse, msg, err)
+	_ = sse.DelayReconnect(reconnectDelay)
 }
 
 // Reload answers a stream request with [reloadScript].

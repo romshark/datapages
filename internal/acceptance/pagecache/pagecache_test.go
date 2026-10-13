@@ -13,6 +13,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/offline"
@@ -249,9 +250,10 @@ func TestShimKeepsItsQuery(t *testing.T) {
 			" lets it answer one whose prefetch it lost")
 }
 
-// TestPageCacheVariesByHeldVersion tests that a page whose handler reads the
-// held version declares it, which keeps a shared cache from serving one
-// client's copy and its embedded write to another.
+// TestPageCacheVariesByHeldVersion tests that a response whose handler reads
+// the held version declares it, which keeps a shared cache from serving one
+// client's copy and its embedded write to another. An action on its own
+// stream declares it before the stream sends the response head.
 func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -259,6 +261,32 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	require.Equal(t, "X-Datapages-Offline-Version", c.Get(t, "/").Header.Get("Vary"))
 	require.Empty(t, c.Get(t, "/offline/").Header.Get("Vary"),
 		"a page that never touches the cache does not vary")
+	require.Contains(t,
+		c.Action(t, http.MethodPost, "/stream-write/", "").Header.Values("Vary"),
+		"X-Datapages-Offline-Version")
+}
+
+// TestFailingCachedBodyIsLogged tests a cached body that fails to
+// render in the response of an action that answers with an event stream.
+// The writes are left out, as from a page, and the error is logged.
+func TestFailingCachedBodyIsLogged(t *testing.T) {
+	t.Parallel()
+	for name, path := range map[string]string{
+		"own stream": "/stream-write-fail/",
+		"new stream": "/app-precache-fail/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			c := newClient(t, datapages.WithLogger(log.Logger()))
+
+			resp := c.Action(t, http.MethodPost, path, "")
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.NotContains(t, resp.Body, applyType)
+			log.RequireLogged(t, `level=ERROR msg="rendering page cache writes" `+
+				`err="rendering page cache body for /: the cached body failed"`)
+		})
+	}
 }
 
 // TestBranchingActionDeliversOnBothPaths tests an action that picks between a

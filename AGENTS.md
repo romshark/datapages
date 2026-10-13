@@ -171,7 +171,6 @@ Avoid:
 - Typographic drama: spaced-out words, all-caps emphasis, exclamation marks, emoji, bold scattered over 1/2 the sentences.
 - Em-dashes. Use a full stop or "which ...".
 - ", so ..." as a reflex, chained ("X, so Y, so Z") or obvious ("It returns an error, so it can fail."). Keep it where the consequence is the point, as in "The flag is unset, so the default applies."
-
 - Non-ASCII characters where ASCII exists: curly quotes, ellipsis, arrows, non-breaking spaces. Write `'`, `"`, `...`, `->` and a plain space.
 - Stating what did not change, stayed, or was already correct.
 - Hedging where a check would settle it. Check, then state the answer.

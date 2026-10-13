@@ -37,13 +37,18 @@ func (a *App) RecoverError(
 		// Returning an error from RecoverError is how an application says it
 		// could not show anything. The server then falls back to a status.
 		return errors.New("cannot render a toast for this")
+	case errors.Is(err, errRecoverPanics):
+		panic("RecoverError panicked")
 	}
 	return sse.PatchElement(
 		templ.Raw(`<div id="toast">` + kind + `</div>`),
 	)
 }
 
-var errUnrecoverable = errors.New("unrecoverable")
+var (
+	errUnrecoverable = errors.New("unrecoverable")
+	errRecoverPanics = errors.New("RecoverError panics on this")
+)
 
 // PageIndex is /
 type PageIndex struct{ App *App }
@@ -82,6 +87,11 @@ func (PageIndex) POSTUnrecoverable(_ *http.Request) error {
 // POSTPanic is /panic
 func (PageIndex) POSTPanic(_ *http.Request) error {
 	panic("the action panicked")
+}
+
+// POSTRecoverPanic is /recover-panic
+func (PageIndex) POSTRecoverPanic(_ *http.Request) error {
+	return errRecoverPanics
 }
 
 // PagePanic is /panic-page

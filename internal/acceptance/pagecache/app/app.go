@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -66,6 +67,21 @@ func (PageIndex) POSTStream(
 	return sse.PatchElement(echo("out", "done"))
 }
 
+// POSTStreamFail is /stream-write-fail
+//
+// Queues a body that fails to render. The writes are left out of the stream,
+// and the action's own patch still goes out.
+func (PageIndex) POSTStreamFail(
+	_ *http.Request, sse datapages.SSE, pageCache datapages.PageCacheWriter,
+) error {
+	pageCache.Set("/", failingBody, 4)
+	return sse.PatchElement(echo("out", "done"))
+}
+
+var failingBody = templ.ComponentFunc(func(context.Context, io.Writer) error {
+	return errors.New("the cached body failed")
+})
+
 // POSTRedirect is /redirect-write
 //
 // An action that returns a redirect has no stream. Its response sends cache
@@ -107,6 +123,16 @@ func (*App) POSTAppPrecache(
 	_ *http.Request, pageCache datapages.PageCacheWriter,
 ) error {
 	pageCache.Set("/", echo("cached", "written by an app-level action"), 11)
+	return nil
+}
+
+// POSTAppPrecacheFail is /app-precache-fail
+//
+// Queues a body that fails to render on the stream the framework opens.
+func (*App) POSTAppPrecacheFail(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) error {
+	pageCache.Set("/", failingBody, 13)
 	return nil
 }
 

@@ -622,9 +622,8 @@ type SSECompressionConfig struct {
 //
 //	datapages.WithSSECompression(datapages.SSECompressionConfig{Disabled: true})
 //
-// Compress with gzip only, which every client decodes and which holds the
-// least memory per stream, 1 MiB. Its 32 KiB window misses the previous render
-// of a larger fragment:
+// Compress with gzip only, which every client decodes and which holds 1 MiB per stream.
+// Its 32 KiB window misses the previous render of a larger fragment:
 //
 //	datapages.WithSSECompression(datapages.SSECompressionConfig{
 //		Codings: []datapages.SSECoding{datapages.SSECodingGzip},

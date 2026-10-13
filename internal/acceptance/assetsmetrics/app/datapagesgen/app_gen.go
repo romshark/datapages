@@ -169,6 +169,7 @@ func (s *Server) Init(
 		nil,
 		prom.StreamMetrics{},
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)

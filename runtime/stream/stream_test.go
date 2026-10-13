@@ -203,6 +203,92 @@ func TestHandleFailedOpenDelaysReconnect(t *testing.T) {
 	}
 }
 
+// TestHandleFailedSubscribe tests the answer to a stream whose subscription fails.
+// An error handler that answers on a stream gets one that ends with a reconnect delay,
+// as after a failed open. Datastar would otherwise reconnect the 200 after 1s.
+// Any other error handler gets no stream, which leaves it the status to write.
+func TestHandleFailedSubscribe(t *testing.T) {
+	t.Parallel()
+
+	for name, errOnStream := range map[string]bool{"status": false, "stream": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			core, err := httpserve.NewCore(datapages.ServerConfig{}, "")
+			require.NoError(t, err)
+			errBroker := errors.New("broker down")
+			var msgs []string
+			h := stream.NewHandler(core, failingBroker{err: errBroker}, nil, nil, nil,
+				func(
+					w http.ResponseWriter, _ *http.Request,
+					sse *dpsse.Stream, msg string, err error,
+				) {
+					require.ErrorIs(t, err, errBroker)
+					msgs = append(msgs, msg)
+					if sse == nil {
+						w.WriteHeader(http.StatusServiceUnavailable)
+						return
+					}
+					require.NoError(t, sse.PatchSignals(json.RawMessage(`{"error":true}`)))
+				}, errOnStream)
+
+			w := httptest.NewRecorder()
+			h.Handle(w, streamRequest(t.Context()), "", "", time.Time{},
+				[]string{"notice"}, nil, nil, drain)
+
+			require.Equal(t, []string{"subscribing to message broker"}, msgs)
+			body := w.Body.String()
+			if !errOnStream {
+				require.Equal(t, http.StatusServiceUnavailable, w.Code)
+				require.Empty(t, body)
+				return
+			}
+			require.Equal(t, http.StatusOK, w.Code)
+			i := strings.Index(body, `"error":true`)
+			require.GreaterOrEqual(t, i, 0, "the error handler's event is missing:\n%s", body)
+			require.Contains(t, body[i:], "retry: 5000",
+				"the reconnect delay does not follow the error handler's event")
+		})
+	}
+}
+
+// TestHandleShutdownWithBlockedWrite tests that shutdown aborts a stream while
+// another goroutine is blocked writing to it, as to a client that stopped
+// reading. Waiting for that write would hold the stream until the shutdown
+// timeout, since only the abort closes the connection.
+func TestHandleShutdownWithBlockedWrite(t *testing.T) {
+	t.Parallel()
+
+	h, core, _ := newHandler(t, nil, nil)
+	w := &blockingWriter{
+		ResponseRecorder: httptest.NewRecorder(),
+		entered:          make(chan struct{}),
+		release:          make(chan struct{}),
+	}
+	defer close(w.release)
+	done := make(chan any, 1)
+	go func() {
+		defer func() { done <- recover() }()
+		h.Handle(w, streamRequest(t.Context()), "", "", time.Time{},
+			[]string{"notice"},
+			func(_ datapages.StreamID, sse *dpsse.Stream) error {
+				go func() { _ = sse.PatchSignals(json.RawMessage(`{}`)) }()
+				<-w.entered
+				return nil
+			}, nil, drain)
+	}()
+	<-w.entered
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	_ = core.Shutdown(ctx)
+	select {
+	case v := <-done:
+		require.Equal(t, http.ErrAbortHandler, v)
+	case <-time.After(time.Second):
+		t.Fatal("Handle has not aborted 1s after shutdown")
+	}
+}
+
 // TestHandleClosesAfterPanic tests a stream whose message loop panics.
 // The panic leaves Handle for its caller, net/http in a server, and the close
 // hook runs on the way: it gives back what the open hook took.
@@ -237,7 +323,7 @@ func TestHandleCloseHookPanics(t *testing.T) {
 	var log testlog.Buffer
 	core, err := httpserve.NewCore(datapages.ServerConfig{Logger: log.Logger()}, "")
 	require.NoError(t, err)
-	h := stream.NewHandler(core, msginmem.New(0), nil, nil, nil, failOnErr(t))
+	h := stream.NewHandler(core, msginmem.New(0), nil, nil, nil, failOnErr(t), false)
 	h.Handle(httptest.NewRecorder(), streamRequest(t.Context()),
 		"", "", time.Time{}, []string{"notice"}, nil,
 		func(datapages.StreamID) { panic("the close hook panicked") },
@@ -260,7 +346,7 @@ func TestHandleClientGoneBeforeOpen(t *testing.T) {
 	core, err := httpserve.NewCore(datapages.ServerConfig{}, "")
 	require.NoError(t, err)
 	b := &slowBroker{Broker: msginmem.New(0), entered: make(chan struct{})}
-	h := stream.NewHandler(core, b, nil, nil, nil, failOnErr(t))
+	h := stream.NewHandler(core, b, nil, nil, nil, failOnErr(t), false)
 	panicked := make(chan any, 1)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -350,6 +436,34 @@ func (b *slowBroker) Subscribe(
 	return sub, err
 }
 
+// failingBroker fails every subscription with err.
+type failingBroker struct {
+	messaging.Broker
+	err error
+}
+
+func (b failingBroker) Subscribe(
+	context.Context, messaging.Metrics, ...string,
+) (messaging.Subscription, error) {
+	return nil, b.err
+}
+
+// blockingWriter blocks its first Write until release is closed, as a client
+// that stopped reading does. It closes entered when the Write blocks.
+type blockingWriter struct {
+	*httptest.ResponseRecorder
+	entered, release chan struct{}
+	n                atomic.Int32
+}
+
+func (b *blockingWriter) Write(p []byte) (int, error) {
+	if b.n.Add(1) == 1 {
+		close(b.entered)
+		<-b.release
+	}
+	return b.ResponseRecorder.Write(p)
+}
+
 // reloadEvent is the SSE event that reloads the page. Its script waits 1s,
 // and its retry field holds off the reconnect for 5s, which lets the reload come first.
 const reloadEvent = "event: datastar-patch-elements\n" +
@@ -382,7 +496,7 @@ func newHandler(
 	if onErr == nil {
 		onErr = failOnErr(t)
 	}
-	return stream.NewHandler(core, msginmem.New(0), nil, store, m, onErr), core, m
+	return stream.NewHandler(core, msginmem.New(0), nil, store, m, onErr, false), core, m
 }
 
 func failOnErr(t *testing.T) stream.ErrorHandler {

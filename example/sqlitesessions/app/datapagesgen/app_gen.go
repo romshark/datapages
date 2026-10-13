@@ -166,6 +166,7 @@ func (s *Server) Init(
 		s.SessionManager(),
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)

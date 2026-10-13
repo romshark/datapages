@@ -85,15 +85,14 @@ func httpRedirectOffline(
 	return true
 }
 
-func newPageCache(
-	w http.ResponseWriter, s *Server, r *http.Request,
-	sse *dpsse.Stream,
-) *pageCacheWriter {
+// newPageCache must run before the response head goes out, which an
+// event stream sends when it opens.
+func newPageCache(w http.ResponseWriter, s *Server, r *http.Request) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
 	// one client's page and its embedded cache write to another.
 	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
-	return &pageCacheWriter{s: s, r: r, sse: sse}
+	return &pageCacheWriter{s: s, r: r}
 }
 
 // pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
@@ -121,10 +120,8 @@ func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 }
 
 type pageCacheWriter struct {
-	s *Server
-	r *http.Request
-	// sse is nil, unless the handler takes [datapages.SSE].
-	sse      *dpsse.Stream
+	s        *Server
+	r        *http.Request
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -235,29 +232,38 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-func (c *pageCacheWriter) flush() error {
-	if c.sse == nil {
-		return nil
+// flush sends the queued writes on the stream of a handler that takes one.
+// A payload that fails to render is logged and omitted, as in embedInto.
+func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
+	payload := c.loggedPayload()
+	if payload == "" {
+		return
 	}
-	payload, err := c.payload()
-	if err != nil || payload == "" {
-		return err
-	}
-	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // flushToNewStream answers with an SSE stream carrying the queued writes, for a
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
-	payload, err := c.payload()
+func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
+	payload := c.loggedPayload()
 	sse := c.s.OpenSSE(w, c.r)
 	defer sse.Close()
-	if err != nil || payload == "" {
-		return err
+	if payload == "" {
+		return
 	}
-	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// loggedPayload returns the payload, or "" with the error logged.
+func (c *pageCacheWriter) loggedPayload() string {
+	payload, err := c.payload()
+	if err != nil {
+		c.s.LogErr("rendering page cache writes", err)
+		return ""
+	}
+	return payload
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -273,11 +279,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 				return err
 			}
 		}
-		payload, err := c.payload()
-		if err != nil {
-			c.s.LogErr("rendering page cache writes", err)
-			return nil
-		}
+		payload := c.loggedPayload()
 		if payload == "" {
 			return nil
 		}
@@ -287,7 +289,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
 			return err
 		}
-		_, err = io.WriteString(w, "</script>")
+		_, err := io.WriteString(w, "</script>")
 		return err
 	})
 }
@@ -464,6 +466,9 @@ func setupHandlers(s *Server) {
 		"POST /app-precache/{$}",
 		appHandlers{s}.POSTAppPrecache)
 	s.Mux().HandleFunc(
+		"POST /app-precache-fail/{$}",
+		appHandlers{s}.POSTAppPrecacheFail)
+	s.Mux().HandleFunc(
 		"POST /app-body/{$}",
 		appHandlers{s}.POSTAppBody)
 	s.Mux().HandleFunc(
@@ -472,6 +477,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /stream-write/{$}",
 		pageIndexHandlers{s}.POSTStream)
+	s.Mux().HandleFunc(
+		"POST /stream-write-fail/{$}",
+		pageIndexHandlers{s}.POSTStreamFail)
 	s.Mux().HandleFunc(
 		"POST /redirect-write/{$}",
 		pageIndexHandlers{s}.POSTRedirect)
@@ -530,7 +538,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(w, s, r, nil)
+	pageCache := newPageCache(w, s, r)
 	p := dpapp.PageError404{
 		App: s.app,
 	}
@@ -557,13 +565,28 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "App.AppPrecache")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 	err := s.app.POSTAppPrecache(r, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppPrecache", err)
 		return
 	}
-	_ = pageCache.flushToNewStream(w)
+	pageCache.flushToNewStream(w)
+}
+
+func (s appHandlers) POSTAppPrecacheFail(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.AppPrecacheFail")
+	pageCache := newPageCache(w, s.Server, r)
+	err := s.app.POSTAppPrecacheFail(r, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.AppPrecacheFail", err)
+		return
+	}
+	pageCache.flushToNewStream(w)
 }
 
 func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
@@ -572,7 +595,7 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "App.AppBody")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 	body, err := s.app.POSTAppBody(r, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppBody", err)
@@ -592,7 +615,7 @@ func (s appHandlers) POSTAppRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "App.AppRedirect")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 	redirect, err := s.app.POSTAppRedirect(r, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppRedirect", err)
@@ -606,7 +629,7 @@ func (s appHandlers) POSTAppRedirect(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 	p := dpapp.PageError404{
 		App: s.app,
 	}
@@ -632,7 +655,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		s.render404(w, r)
 		return
 	}
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -658,11 +681,11 @@ func (s pageIndexHandlers) POSTStream(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
+	pageCache := newPageCache(w, s.Server, r)
 
 	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Stream")
-	pageCache := newPageCache(w, s.Server, r, sse)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -671,7 +694,29 @@ func (s pageIndexHandlers) POSTStream(
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Stream", err)
 		return
 	}
-	_ = pageCache.flush()
+	pageCache.flush(sse)
+}
+
+func (s pageIndexHandlers) POSTStreamFail(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	pageCache := newPageCache(w, s.Server, r)
+
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageIndex.StreamFail")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTStreamFail(r, sse, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamFail", err)
+		return
+	}
+	pageCache.flush(sse)
 }
 
 func (s pageIndexHandlers) POSTRedirect(
@@ -680,8 +725,8 @@ func (s pageIndexHandlers) POSTRedirect(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
+	pageCache := newPageCache(w, s.Server, r)
 	defer s.recoverPanic(w, r, nil, "PageIndex.Redirect")
-	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -701,11 +746,11 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
+	pageCache := newPageCache(w, s.Server, r)
 
 	sse := s.OpenSSE(w, r)
 	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.StreamRedirect")
-	pageCache := newPageCache(w, s.Server, r, sse)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -715,13 +760,13 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 		return
 	}
 	if redirect.URL != "" {
-		_ = pageCache.flush()
+		pageCache.flush(sse)
 		if err := sse.Redirect(redirect.URL); err != nil {
 			s.httpErrIntern(w, r, sse, "redirecting", err)
 		}
 		return
 	}
-	_ = pageCache.flush()
+	pageCache.flush(sse)
 }
 
 func (s pageIndexHandlers) POSTBranch(
@@ -735,8 +780,8 @@ func (s pageIndexHandlers) POSTBranch(
 		Redirect string `query:"redirect"`
 	}]
 	query.Values.Redirect = httpread.QueryValue(r.URL.RawQuery, "redirect")
+	pageCache := newPageCache(w, s.Server, r)
 	defer s.recoverPanic(w, r, nil, "PageIndex.Branch")
-	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -764,7 +809,7 @@ func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Page string `query:"page"`
 	}]
 	query.Values.Page = httpread.QueryValue(r.URL.RawQuery, "page")
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageList{
 		App: s.app,
@@ -808,7 +853,7 @@ func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageWriterProbeHandlers struct{ *Server }
 
 func (s pageWriterProbeHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 	p := dpapp.PageWriterProbe{
 		App: s.app,
 	}

@@ -174,9 +174,10 @@ func WithRequestCancellationController(expr string) Option {
 var App app
 
 type app struct {
-	AppBody     app_AppBody
-	AppPrecache app_AppPrecache
-	AppRedirect app_AppRedirect
+	AppBody         app_AppBody
+	AppPrecache     app_AppPrecache
+	AppPrecacheFail app_AppPrecacheFail
+	AppRedirect     app_AppRedirect
 }
 
 type app_AppBody struct{}
@@ -215,6 +216,24 @@ func (app_AppPrecache) POST(options ...Option) string {
 	return b.String()
 }
 
+type app_AppPrecacheFail struct{}
+
+// POST references /app-precache-fail/
+func (app_AppPrecacheFail) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/app-precache-fail/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/app-precache-fail/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/app-precache-fail/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 type app_AppRedirect struct{}
 
 // POST references /app-redirect/
@@ -239,6 +258,7 @@ type pageIndex struct {
 	Branch         pageIndex_Branch
 	Redirect       pageIndex_Redirect
 	Stream         pageIndex_Stream
+	StreamFail     pageIndex_StreamFail
 	StreamRedirect pageIndex_StreamRedirect
 }
 
@@ -336,6 +356,24 @@ func (pageIndex_Stream) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/stream-write/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/stream-write/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_StreamFail struct{}
+
+// POST references /stream-write-fail/
+func (pageIndex_StreamFail) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/stream-write-fail/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/stream-write-fail/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/stream-write-fail/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

@@ -337,7 +337,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 
 	if h.InputPageCache != nil {
 		// The receiver embeds the server rather than being it.
-		w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
+		w.Line(1, "pageCache := newPageCache(w, s.Server, r)")
 	}
 
 	// Stateful page: mint the Datapages-Instance header so the client can
@@ -1757,6 +1757,9 @@ func (w *Writer) writePageActionHandler(
 	// Dispatch closures.
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
+	// The page cache adds its Vary header before OpenSSE sends the head.
+	w.writeDatapagesHandles(h)
+
 	// SSE for actions that take it. An action that takes none and delivers its
 	// page cache over a stream opens it after the call, see flushToNewStream.
 	// A redirect or HTML body sends its offline writes in that response.
@@ -1772,8 +1775,6 @@ func (w *Writer) writePageActionHandler(
 		w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
 	}
 
-	w.writeDatapagesHandles(h)
-
 	// Page constructor.
 	w.Raw("\tp := ")
 	w.writePageConstructor(p, appPkg)
@@ -1786,9 +1787,9 @@ func (w *Writer) writePageActionHandler(
 	// Redirect and HTML delivery occur while those responses are written.
 	if pageCacheViaStream(h) {
 		if h.InputSSE != nil {
-			w.Line(1, "_ = pageCache.flush()")
+			w.Line(1, "pageCache.flush(sse)")
 		} else {
-			w.Line(1, "_ = pageCache.flushToNewStream(w)")
+			w.Line(1, "pageCache.flushToNewStream(w)")
 		}
 	}
 
@@ -1843,11 +1844,7 @@ func (w *Writer) writePageCacheBodyArg(h *model.Handler) {
 // writeDatapagesHandles emits the requested page cache handle.
 func (w *Writer) writeDatapagesHandles(h *model.Handler) {
 	if h.InputPageCache != nil {
-		if h.InputSSE != nil {
-			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
-		} else {
-			w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
-		}
+		w.Line(1, "pageCache := newPageCache(w, s.Server, r)")
 	}
 }
 

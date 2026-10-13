@@ -170,6 +170,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		true,
 	)
 
 	setupHandlers(s)
@@ -236,6 +237,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /panic/{$}",
 		pageIndexHandlers{s}.POSTPanic)
+	s.Mux().HandleFunc(
+		"POST /recover-panic/{$}",
+		pageIndexHandlers{s}.POSTRecoverPanic)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -268,11 +272,15 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
+		if httpserve.ResponseBodyWritten(w) {
+			// Events after a half-written response would land in its body.
+			return
+		}
 		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
 		sse = s.OpenSSE(w, r)
 		defer sse.Close()
 	}
-	errRecover := s.app.RecoverError(err, sse)
+	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
 		return
 	}
@@ -281,6 +289,25 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+}
+
+// callRecoverError calls RecoverError and returns a panic in it as an error.
+// Left to recoverPanic, the panic would run RecoverError again, on a second
+// stream when httpErrIntern opened the first.
+func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", "App.RecoverError"),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		errRecover = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return s.app.RecoverError(err, sse)
 }
 
 type pageBoomHandlers struct{ *Server }
@@ -437,6 +464,23 @@ func (s pageIndexHandlers) POSTPanic(
 	err := p.POSTPanic(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Panic", err)
+		return
+	}
+}
+
+func (s pageIndexHandlers) POSTRecoverPanic(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.RecoverPanic")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTRecoverPanic(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.RecoverPanic", err)
 		return
 	}
 }
