@@ -407,14 +407,19 @@ func TestRemoteURLToModulePath(t *testing.T) {
 }
 
 // TestSelectApp tests picking the application to act on. 1 application needs
-// no --app flag, several do, and the error names them so the developer can pick.
+// no --app flag, several do, and the error lists their directories.
+// The flag takes the directory of the app package, not its last element.
 func TestSelectApp(t *testing.T) {
 	one := serverscan.Result{Apps: []serverscan.App{
-		{Name: "app", Dir: "app"},
+		{Dir: "app"},
 	}}
 	two := serverscan.Result{Apps: []serverscan.App{
-		{Name: "admin", Dir: filepath.Join("app", "admin")},
-		{Name: "frontend", Dir: filepath.Join("app", "frontend")},
+		{Dir: filepath.Join("app", "admin")},
+		{Dir: filepath.Join("app", "frontend")},
+	}}
+	shared := serverscan.Result{Apps: []serverscan.App{
+		{Dir: filepath.Join("admin", "app")},
+		{Dir: filepath.Join("web", "app")},
 	}}
 	for name, tt := range map[string]struct {
 		result  serverscan.Result
@@ -425,26 +430,31 @@ func TestSelectApp(t *testing.T) {
 		"1 app needs no flag": {
 			result: one, wantDir: "app",
 		},
-		"1 app named anyway": {
+		"1 app passed anyway": {
 			result: one, flag: "app", wantDir: "app",
 		},
 		"2 apps need the flag": {
 			result: two,
-			wantErr: "this module builds 2 applications (admin, frontend), " +
-				"name the one to run with --app",
-		},
-		"2 apps by name": {
-			result: two, flag: "frontend",
-			wantDir: filepath.Join("app", "frontend"),
+			wantErr: "this module builds 2 applications (app/admin, app/frontend), " +
+				"pass the directory of the one to run with --app",
 		},
 		"2 apps by directory": {
 			result: two, flag: "app/admin",
 			wantDir: filepath.Join("app", "admin"),
 		},
-		"unknown name": {
-			result: two, flag: "nope",
-			wantErr: `no app package "nope" in this module, ` +
-				"it builds: admin, frontend",
+		"last element": {
+			result: two, flag: "frontend",
+			wantErr: `no app package in "frontend", ` +
+				"the module builds: app/admin, app/frontend",
+		},
+		"shared last element": {
+			result: shared, flag: "app",
+			wantErr: `no app package in "app", ` +
+				"the module builds: admin/app, web/app",
+		},
+		"shared last element by directory": {
+			result: shared, flag: "web/app",
+			wantDir: filepath.Join("web", "app"),
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

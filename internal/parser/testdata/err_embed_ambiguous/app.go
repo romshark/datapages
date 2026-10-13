@@ -1,5 +1,5 @@
-// Package app has pages that inherit handlers through more than 1 embedded
-// field at the same depth. Go treats these selectors as ambiguous.
+// Package app has a page that reaches 1 embedded type through 2 embedded
+// fields at the same depth. Go treats the selectors of its handlers as ambiguous.
 package app
 
 import (
@@ -17,34 +17,9 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
-type SaverA struct{ App *App }
-
-// POSTSave is /two/save
-func (SaverA) POSTSave(r *http.Request) error { return nil }
-
-type SaverB struct{ App *App }
-
-// POSTSave is /two/save
-func (SaverB) POSTSave(r *http.Request) error { return nil }
-
-// PageTwo is /two
-//
-// 2 embedded types at the same depth define the same action.
-type PageTwo struct { /* ErrPageAmbiguousEmbed */
-	App *App
-	SaverA
-	SaverB
-}
-
-func (PageTwo) GET(r *http.Request) (body datapages.Component, err error) {
-	return nil, nil
-}
-
 type Base struct{ App *App }
 
-func (Base) GET(r *http.Request) (body datapages.Component, err error) {
-	return nil, nil
-}
+func (Base) StreamOpen(r *http.Request, id datapages.StreamID) error { return nil }
 
 type Left struct {
 	App *App
@@ -65,25 +40,6 @@ type PageDiamond struct { /* ErrPageAmbiguousEmbed */
 	Right
 }
 
-type Shallow struct{ App *App }
-
-// POSTSave is /shadowed/save
-func (Shallow) POSTSave(r *http.Request) error { return nil }
-
-type Deep struct {
-	App *App
-	SaverA
-}
-
-// PageShadowed is /shadowed
-//
-// A shallower definition shadows the deeper one, which Go accepts.
-type PageShadowed struct {
-	App *App
-	Shallow
-	Deep
-}
-
-func (PageShadowed) GET(r *http.Request) (body datapages.Component, err error) {
+func (PageDiamond) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }

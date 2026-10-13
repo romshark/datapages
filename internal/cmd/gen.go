@@ -96,12 +96,30 @@ func runGen(
 		return err
 	}
 
-	if err := upgradeGoMod(moduleDir, version); err != nil {
+	// An older CLI may misread a newer module,
+	// which makes its version the first thing to check.
+	if err := checkGoModVersion(moduleDir, version); err != nil {
 		return err
 	}
 
 	scan, err := serverscan.Scan(moduleDir, modulePath)
 	if err != nil {
+		return err
+	}
+
+	// A missing app package leaves nothing to generate.
+	// Checking it before the go.mod upgrade keeps the run from writing anything.
+	var missing []error
+	for _, app := range scan.Apps {
+		if err := serverscan.CheckAppDir(moduleDir, app); err != nil {
+			missing = append(missing, err)
+		}
+	}
+	if len(missing) > 0 {
+		return errors.Join(missing...)
+	}
+
+	if err := upgradeGoMod(moduleDir, version); err != nil {
 		return err
 	}
 

@@ -122,9 +122,9 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 
 ## Sharing handlers
 
-To share a `GET`, stream hook or event handler, define it on a type without the `Page` prefix and embed that type in each page. The embedded type is not a page and has no route. It needs the same `App *App` field. Its handlers use the route of each page that embeds it.
+To share a stream hook or event handler, define it on a stream embed, a type without the `Page` prefix, and embed that type in each page. A stream embed is not a page and has no route. It needs the same `App *App` field. Its handlers run for each page that embeds it.
 
-Do not share an action by embedding it. Its doc comment defines 1 absolute route, so embedding it in a second page causes a route conflict. Put a shared action on `*App`, or define a separate action for each page.
+A stream embed cannot declare `GET` or actions. Give each page its own `GET`, which can call a shared function. Put an action that several pages call on `*App`, or define a separate action for each page.
 
 ```go
 type Base struct{ App *App }

@@ -61,19 +61,57 @@ If the only reason you're going for a JavaScript SPA is a larger ecosystem and f
 
 Templating benchmark source: [`internal/templatingbench/`](internal/templatingbench/)
 
+Each iteration does all the work of 1 request, from passing the data to the engine
+to writing the markup. `html/template` and Jet parse their templates once beforehand,
+as a server does at startup. The table below is the
+[benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat) summary of 10 runs,
+with the median and its 95% confidence interval.
+
 ```
-goos: darwin
-goarch: arm64
+goos: linux
+goarch: amd64
 pkg: github.com/romshark/datapages/internal/templatingbench
-cpu: Apple M4 Pro
-BenchmarkTemplatingStd-14                3781242               302.1 ns/op           256 B/op          8 allocs/op
-BenchmarkTemplatingTempl-14             13310950                90.89 ns/op          165 B/op          5 allocs/op
-BenchmarkTemplatingQuicktemplate-14     53826442                22.41 ns/op            0 B/op          0 allocs/op
-BenchmarkTemplatingGomponents-14        19847491                60.69 ns/op            0 B/op          0 allocs/op
-BenchmarkTemplatingJet-14               16934940                70.05 ns/op           24 B/op          1 allocs/op
-PASS
-ok      github.com/romshark/datapages/internal/templatingbench  6.173s
+cpu: Intel(R) Xeon(R) w5-2455X
+                           │  go1.27.2   │
+                           │   sec/op    │
+TemplatingStd-24             748.5n ± 4%
+TemplatingTempl-24           246.4n ± 3%
+TemplatingQuicktemplate-24   33.80n ± 1%
+TemplatingGomponents-24      427.1n ± 1%
+TemplatingJet-24             196.5n ± 2%
+geomean                      220.6n
+
+                           │   go1.27.2   │
+                           │     B/op     │
+TemplatingStd-24             256.0 ± 0%
+TemplatingTempl-24           165.0 ± 0%
+TemplatingQuicktemplate-24   0.000 ± 0%
+TemplatingGomponents-24      296.0 ± 0%
+TemplatingJet-24             40.00 ± 0%
+geomean                                 ¹
+¹ summaries must be >0 to compute geomean
+
+                           │   go1.27.2   │
+                           │  allocs/op   │
+TemplatingStd-24             8.000 ± 0%
+TemplatingTempl-24           5.000 ± 0%
+TemplatingQuicktemplate-24   0.000 ± 0%
+TemplatingGomponents-24      9.000 ± 0%
+TemplatingJet-24             2.000 ± 0%
+geomean                                 ¹
+¹ summaries must be >0 to compute geomean
 ```
+
+<details>
+<summary>Command</summary>
+
+```sh
+cd internal/templatingbench
+go test -run='^$' -bench=. -benchmem -count=10 > bench.txt
+benchstat go1.27.2=bench.txt
+```
+
+</details>
 
 Shoutout to the
 [templ developers and contributors](https://github.com/a-h/templ/graphs/contributors),

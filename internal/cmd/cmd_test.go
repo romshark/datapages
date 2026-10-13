@@ -815,6 +815,54 @@ func TestGenGoModUpgrade(t *testing.T) {
 	}
 }
 
+// TestNoAppPackage tests gen and lint in a module that holds no app package:
+// no datapages.NewServer call and no app directory, next to a root package.
+// Both report the missing directory instead of parsing the root package as
+// the app, and gen writes nothing: no stubs, no main.go and no go.mod upgrade.
+func TestNoAppPackage(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+
+	for name, args := range map[string][]string{
+		"gen":  {"datapages", "gen"},
+		"lint": {"datapages", "lint"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			gomod := "module testproject\n\ngo 1.26\n\n" +
+				"require github.com/romshark/datapages v0.7.0\n\n" +
+				"replace github.com/romshark/datapages => " + repoRoot + "\n"
+			require.NoError(t, os.WriteFile(
+				filepath.Join(dir, "go.mod"), []byte(gomod), 0o644))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(dir, "lib.go"), []byte("package lib\n"), 0o644))
+
+			// findModuleDir reads os.Getwd, which this has to chdir for.
+			origDir, err := os.Getwd()
+			require.NoError(t, err)
+			require.NoError(t, os.Chdir(dir))
+			t.Cleanup(func() { require.NoError(t, os.Chdir(origDir)) })
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), args,
+				nil, &stdout, &stderr,
+				"0.8.0", "xxxxxxx", "2026-2-23",
+			)
+			require.Equal(t, 1, code, "stderr: %s", stderr.String())
+			require.Contains(t, stderr.String(), "app: no such directory")
+			require.Contains(t, stderr.String(), "fix: run datapages init")
+			require.NotContains(t, stderr.String(), "missing required type")
+
+			require.NoDirExists(t, filepath.Join(dir, "app"))
+			require.NoDirExists(t, filepath.Join(dir, "cmd"))
+			b, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+			require.NoError(t, err)
+			require.Equal(t, gomod, string(b))
+		})
+	}
+}
+
 // TestGenFailureLeavesGeneratedCode covers what a failed run does to code that
 // was already generated.
 //

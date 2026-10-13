@@ -119,7 +119,7 @@ type EventFoo struct {
 }
 
 // Event handler WITH SSE - required for event handlers
-func (PageActions) OnEventFoo(
+func (PageActions) OnFoo(
 	event EventFoo,
 	sse datapages.SSE,
 ) error {

@@ -1813,19 +1813,19 @@ func (w *Writer) writePageConstructorStmt(varName string, p *model.Page, appPkg 
 }
 
 func (w *Writer) writeEmbedInitStmt(
-	p *model.Page, ap *model.AbstractPage, appPkg string, indent int,
+	p *model.Page, se *model.StreamEmbed, appPkg string, indent int,
 	parent types.Type,
 ) {
 	for range indent {
 		w.Byte('\t')
 	}
-	w.Raw(ap.TypeName)
+	w.Raw(se.TypeName)
 	w.Raw(": ")
-	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	expr, embedded := w.embedLiteralExpr(p, se, appPkg, parent)
 	w.Raw(expr)
 	w.Raw("{\n")
 	w.Line(indent+1, "App: s.app,")
-	for _, sub := range ap.Embeds {
+	for _, sub := range se.Embeds {
 		w.writeEmbedInitStmt(p, sub, appPkg, indent+1, embedded)
 	}
 	w.Line(indent, "},")

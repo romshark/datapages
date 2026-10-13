@@ -39,6 +39,8 @@ Run `datapages gen` to apply these.
 - Reject page and action routes below the static-files URL prefix. `net/http` treats them as more specific, so matching asset requests reach the handler instead of the file server. Move the route outside the prefix.
 - Reject application code that imports a package under `github.com/romshark/datapages/runtime`, test files included. Those packages are for the generated code only, and any release may change them without notice. Use the `datapages` package or the generated packages instead.
 - Skip type-checking the function bodies of the standard library and of downloaded modules when loading the app package. `datapages lint` on `example/classifieds` takes 277ms instead of 406ms, and `datapages watch` regenerates sooner after each change to a Go file.
+- Reject an `OnXXX` handler that is not named after its event, as `OnNewMessage(event EventMessageSent, sse datapages.SSE)`. A page's `OnB` taking `EventA` hid an embedded `OnB` taking `EventB`, and the generated code did not compile. Rename the handler to `On` and the event name after `Event`, as `OnMessageSent`.
+- Require the app package directory in `datapages watch --app`, as `--app app/frontend` instead of `--app frontend`. With `web/app` and `admin/app`, `--app app` was ambiguous and ran one of them.
 
 #### Generated code
 
@@ -65,11 +67,20 @@ Run `datapages gen` to apply these.
 - Teach generated AI instructions to use isolated Web Components for browser libraries or client logic too complex for Datastar expressions. The earlier instructions did not say where such JavaScript belongs. Run `datapages init` in an existing project to update them.
 - Generate a new project's templates with templ v0.3.1070 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
 
+### Removed
+
+#### `datapages lint` and `datapages gen`
+
+- Disallow `GET` and actions on stream embeds, formerly abstract page types. They may still share `OnXXX`, `StreamOpen` and `StreamClose`. Move `GET` to each page, using a shared helper for common code. Move actions to one page or to `*App` when several pages use them.
+
 ### Fixed
 
 #### `datapages lint` and `datapages gen`
 
-- Reject a page that embeds 2 types declaring the same action at the same depth, or that reaches the same abstract page through 2 embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which shadows the embedded ones.
+- Reject a page that reaches the same stream embed through 2 embedded types at the same depth. The generated code for such a page did not compile: Go reported an ambiguous selector. Declare the handler on the page, which shadows the embedded ones.
+- Reject a page or stream embed that embeds a type of another package, such as `sync.Mutex`. Declare handlers in the app package and move other fields to `App`.
+- Reject a file of the app package with a `//go:build` line or a name such as `probe_windows.go`, except a test file and a file under `//go:build ignore`. `datapages gen` left out its pages, actions and events without an error on a platform that excludes the file. Move the file to another package, or remove its constraint.
+- Report a missing app package directory, such as `./app` in a module without a `datapages.NewServer` call. The package of the parent directory was read as the app instead, and `datapages gen` wrote stubs into the missing directory.
 - Reject an `OnXXX` handler that takes a second `datapages.SSE`, session or `datapages.StreamID` parameter, as every other handler does. A field with 2 names, such as `sse, sse2 datapages.SSE`, declares 2 parameters: they were read as one, and the generated call did not compile.
 - Reject an `OnXXX` handler that takes its event by pointer, as in `event *EventPing`. The generated code for it did not compile. Take the event by value.
 - Reject a route containing `"` or `\`. For such a route, `datapages gen` failed with a Go syntax error, or the generated server matched a different path when the backslash formed a Go escape such as `\u00e9`. Write the characters as `%22` and `%5C`, which `net/http` decodes before matching the route.
@@ -84,7 +95,6 @@ Run `datapages gen` to apply these.
 - Report the errors of a struct type that several events share, such as a field without a `json` tag, in the same order on every run: by event name.
 - Accept a handler parameter typed with an alias of `datapages.Path`, `datapages.Query`, `datapages.Signals` or `datapages.State`, as in `type FormSignals = datapages.Signals[struct{...}]`. The check read the `Values` field of the wrapper instead of its type argument and reported errors located in `datapages.go`, and refused an alias of `datapages.State` as not a struct.
 - Report an action route that ends in a `{name...}` wildcard, as in `// POSTUpload is /upload/{path...}`, with an error saying that an action route cannot end in a wildcard. The error was a route conflict on `POST /upload/{path...}/{$}`, a pattern the app does not declare. Pass the value in a query parameter or a signal instead.
-- Stop reporting "GET handler must return body datapages.Component" next to the actual error when a `GET` declared on an embedded type has an invalid parameter.
 - Reject an assets URL prefix that contains `%`, as in `// StaticFS is /my%20files/`. The server answered 404 to every request under such a prefix. Write the prefix without percent-encoding, such as `/my-files/`.
 - Accept in an assets URL prefix the characters its error message lists, ASCII letters, digits, `-`, `.`, `_`, `~` and `/`, and no others. Quotes and other punctuation the message did not list were accepted, and a segment starting with a dot, such as `/.well-known/`, was refused.
 - Reject a `//go:embed` pattern on the assets variable that is a glob or names a single file, as in `//go:embed static/*.css` or `//go:embed static/app.css`. The server used the pattern as the directory to serve and answered 404 for every asset. Embed the directory, as in `//go:embed static` or `//go:embed static/*`.
@@ -99,6 +109,12 @@ Run `datapages gen` to apply these.
 - Check the `.templ` files of the packages that the app package imports from its module, such as `app/template`. Before, only the app package's own templates were checked. A wrong `href`, a form `action`, a hardcoded action URL or another page's action in those templates went unreported.
 - Reject an action that takes `datapages.SSE` and returns a body. Its HTML went into the open event stream as broken events, and with compression the browser could not read the stream at all. Send the body with `sse.PatchElement` instead.
 - Reject a page whose events need the same signal both as a value and as an object, such as an event field tagged `signal:"chat"` and another tagged `signal:"chat.room"`. `$chat.room` exists only when `$chat` is an object, and the stream of such a page never opened. Bind one of the fields to another signal.
+- Name the event whose subject must change in the fix for overlapping event subjects. When the event with subject fields sorted second, the fix named the other event.
+- Suggest the valid subject types, including `datapages.SubjectStateID`, for a payload field named like a subject field, such as `SubjectUser []string`. The fix named the nonexistent `datapages.Subjects` and `datapages.SubjectUsers` types.
+- Spell `datapages.SubjectUser` correctly in the fix for a `signal` tag on that field. It was written as `datapages.SubjectUser(s)`.
+- State the accepted syntax in the fix for an invalid `signal` tag: each period-separated segment must match `[A-Za-z_][A-Za-z0-9_]*` and contain no `__`. The fix incorrectly required a lowercase first letter.
+- Base the suggested route for an action with an invalid route comment on its page route. For a page at `/user/{name}`, the fix suggested `/user/follow` instead of `/user/{name}/follow`.
+- Base the suggested route for an action without a route comment on the route suggested for its page when the page also has no route comment. For `PageUser.POSTFollow`, the fix suggested `/follow` instead of `/user/follow`.
 
 #### Generated code
 
@@ -113,7 +129,6 @@ Run `datapages gen` to apply these.
 - Generate code that compiles when `PageError404.GET` takes a path, query, signals or dispatcher parameter. For a URL that no route matches, the handler receives that URL's query and signals and a zero path.
 - Generate code that compiles when a path, query or signals field type comes from a package named `path`, `query`, `signals` or after another variable the generated handlers declare.
 - Answer a page load whose handler returns `datapages.ErrBadRequest`, `datapages.ErrForbidden`, `datapages.ErrNotFound` or `datapages.ErrConflict` with that status in an app that defines `PageError500`, as every app created by `datapages init` does. Such a page load got `PageError500` with status 500, and no page could answer 404. `PageError500` now renders for status 500 only. Other statuses get their status text, except 404 in an app that defines `PageError404`.
-- Keep the action of an embedded type when the page, or the embedded type, declares an action with the same suffix for another HTTP method, such as an embedded `PUTSave` next to `POSTSave`. The embedded action was dropped: the server did not route it and the `action` package had no builder for it.
 - Keep the SSE streams of a page with both public and user-addressed events open while the tab is hidden when its `GET` returns `enableBackgroundStreaming` set to `true`, for signed-in visitors and guests alike. Such a page dropped its reload on visibility but still closed its stream, which left it without the events published while the tab was hidden.
 - Escape a `'` in a route, as in `// PageAuthor is /o'reilly`, where the generated code writes the route into JavaScript strings: the page's stream URL, its action expressions and the URL a `reflectsignal` query field rewrites. The quote ended the string, which left the stream and the actions of such a page failing with a syntax error in the browser.
 - Recover a panic in an `OnXXX` handler on the stream that a page with both public and user-addressed events serves to signed-out visitors, as the stream of signed-in visitors does. The panic dropped the connection, skipped `StreamClose` and never reached `RecoverError`, which leaked per-tab state that `StreamOpen` registered for every such guest.

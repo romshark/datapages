@@ -16,7 +16,7 @@ type TabContext struct {
 	Counter int
 }
 
-// Base is an abstract page. Both pages below inherit its stateful handlers,
+// Base is a stream embed. Both pages below inherit its stateful handlers,
 // which binds them to the same state type.
 type Base struct{ App *App }
 

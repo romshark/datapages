@@ -30,7 +30,7 @@ func (PageIndex) OnLocalDup(event EventLocalDup, sse datapages.SSE) error {
 	return nil
 }
 
-func (PageIndex) OnDupA(event eventsa.EventDup, sse datapages.SSE) error {
+func (PageIndex) OnDup(event eventsa.EventDup, sse datapages.SSE) error {
 	return nil
 }
 

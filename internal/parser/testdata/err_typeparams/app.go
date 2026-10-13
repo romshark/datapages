@@ -11,7 +11,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct {
 	App *App
-	AbstractHelper[int]
+	EmbedHelper[int]
 }
 
 func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
@@ -25,9 +25,9 @@ func (PageAct[T]) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
-type AbstractHelper[T any] struct{ App *App } /* ErrTypeParams */
+type EmbedHelper[T any] struct{ App *App } /* ErrTypeParams */
 
-func (AbstractHelper[T]) StreamOpen(
+func (EmbedHelper[T]) StreamOpen(
 	r *http.Request, streamID datapages.StreamID,
 ) error {
 	return nil
