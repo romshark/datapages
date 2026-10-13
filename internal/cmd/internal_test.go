@@ -51,6 +51,48 @@ func TestGenWatcherCmd(t *testing.T) {
 	}
 }
 
+// TestParseAppHost tests that the app host needs an http or https scheme
+// and a host, which "localhost:8080" lacks.
+func TestParseAppHost(t *testing.T) {
+	for name, tc := range map[string]struct {
+		in       string
+		wantHost string
+		wantErr  string
+	}{
+		"http":  {in: "http://localhost:8080", wantHost: "localhost:8080"},
+		"https": {in: "https://example.test:8443", wantHost: "example.test:8443"},
+		"no scheme": {
+			in: "localhost:8080",
+			wantErr: `watch.app-host "localhost:8080" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"other scheme": {
+			in: "ftp://localhost:21",
+			wantErr: `watch.app-host "ftp://localhost:21" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"no host": {
+			in: "http:///app",
+			wantErr: `watch.app-host "http:///app" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"unparsable": {
+			in:      "http://[::1",
+			wantErr: `parsing watch.app-host: parse "http://[::1": missing ']' in host`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			u, err := parseAppHost(tc.in)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantHost, u.Host)
+		})
+	}
+}
+
 // TestSplitFlags tests splitting a flags string from the config into argv.
 // Runs of whitespace collapse and an empty string yields no arguments,
 // not 1 empty one, which the go tool would reject.

@@ -131,9 +131,9 @@ func runWatch(
 		w.AppHost = "http://localhost:8080"
 	}
 
-	appHost, err := url.Parse(w.AppHost)
+	appHost, err := parseAppHost(w.AppHost)
 	if err != nil {
-		return fmt.Errorf("parsing app-host URL: %w", err)
+		return err
 	}
 
 	dirWork := moduleDir
@@ -227,6 +227,19 @@ func runWatch(
 			host)
 	}
 	return err
+}
+
+// parseAppHost parses watch.app-host, the URL the dev server proxies to.
+func parseAppHost(s string) (*url.URL, error) {
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, fmt.Errorf("parsing watch.app-host: %w", err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("watch.app-host %q must be an http or https URL "+
+			"with a host, such as http://localhost:8080", s)
+	}
+	return u, nil
 }
 
 // genWatcher is the custom watcher that re-runs gen on a file change.
