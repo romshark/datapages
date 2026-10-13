@@ -141,17 +141,6 @@ func runWatch(
 		dirWork = filepath.Join(moduleDir, w.DirWork)
 	}
 
-	// Templier v0.11.7 stores conf.Log.Level but never applies it to its
-	// slog logger, so setting `watch.log.level: debug` in datapages.yaml
-	// has no effect on its own. Configure slog.Default() here so templier's
-	// logger.Debug calls (which tell us what the file-watcher/reload
-	// broadcaster are doing) actually render.
-	if w.Log.Level == config.LogLevelDebug {
-		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		})))
-	}
-
 	engineConf := engine.Config{
 		App: engine.AppConfig{
 			DirSrcRoot: moduleDir,
@@ -214,7 +203,9 @@ func runWatch(
 		return fmt.Errorf("setting templ watch root: %w", err)
 	}
 
-	e, err := engine.New(engineConf, engine.Options{})
+	e, err := engine.New(engineConf, engine.Options{
+		Logger: newWatchLogger(w.Log.Level, stderr),
+	})
 	if err != nil {
 		return fmt.Errorf("initializing watch engine: %w", err)
 	}
@@ -227,6 +218,20 @@ func runWatch(
 			host)
 	}
 	return err
+}
+
+// newWatchLogger returns the logger of the watch engine at the level of
+// watch.log.level, mapped as the templier CLI maps it. The engine reads no
+// level of its own and falls back to [slog.Default], which logs info.
+func newWatchLogger(level config.LogLevel, w io.Writer) *slog.Logger {
+	l := slog.LevelError
+	switch level {
+	case config.LogLevelVerbose:
+		l = slog.LevelInfo
+	case config.LogLevelDebug:
+		l = slog.LevelDebug
+	}
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: l}))
 }
 
 // parseAppHost parses watch.app-host, the URL the dev server proxies to.

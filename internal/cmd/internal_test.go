@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -47,6 +49,32 @@ func TestGenWatcherCmd(t *testing.T) {
 			out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
 			require.NoError(t, err, "%s", out)
 			require.Equal(t, "ran gen\n", string(out))
+		})
+	}
+}
+
+// TestNewWatchLogger tests the levels the watch engine logs at for each
+// watch.log.level: erronly logs errors, verbose adds info and warnings,
+// and debug adds debug.
+func TestNewWatchLogger(t *testing.T) {
+	all := []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError}
+	for name, tc := range map[string]struct {
+		level config.LogLevel
+		want  []slog.Level
+	}{
+		"erronly": {level: config.LogLevelErrOnly, want: all[3:]},
+		"verbose": {level: config.LogLevelVerbose, want: all[1:]},
+		"debug":   {level: config.LogLevelDebug, want: all},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := newWatchLogger(tc.level, io.Discard)
+			var got []slog.Level
+			for _, lvl := range all {
+				if l.Enabled(context.Background(), lvl) {
+					got = append(got, lvl)
+				}
+			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
