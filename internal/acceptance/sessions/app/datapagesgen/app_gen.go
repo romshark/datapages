@@ -100,7 +100,11 @@ func (p *pageCacheBuf) Header() http.Header {
 	return p.h
 }
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
-func (p *pageCacheBuf) WriteHeader(int)             {}
+
+// WriteString takes the strings writeHTML writes the document frame with,
+// which [io.WriteString] copies into a new slice for a writer without it.
+func (p *pageCacheBuf) WriteString(s string) (int, error) { return p.b.WriteString(s) }
+func (p *pageCacheBuf) WriteHeader(int)                   {}
 
 func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 	return s.app.Head(datapages.Session[dpapp.SessionData]{}, r)

@@ -110,7 +110,11 @@ func (p *pageCacheBuf) Header() http.Header {
 	return p.h
 }
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
-func (p *pageCacheBuf) WriteHeader(int)             {}
+
+// WriteString takes the strings writeHTML writes the document frame with,
+// which [io.WriteString] copies into a new slice for a writer without it.
+func (p *pageCacheBuf) WriteString(s string) (int, error) { return p.b.WriteString(s) }
+func (p *pageCacheBuf) WriteHeader(int)                   {}
 
 func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 	return nil
@@ -454,6 +458,9 @@ func setupHandlers(s *Server) {
 		"GET /offline/{$}",
 		pageOfflineHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /writer-probe/{$}",
+		pageWriterProbeHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"POST /app-precache/{$}",
 		appHandlers{s}.POSTAppPrecache)
 	s.Mux().HandleFunc(
@@ -794,6 +801,28 @@ func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageOffline", err)
+		return
+	}
+}
+
+type pageWriterProbeHandlers struct{ *Server }
+
+func (s pageWriterProbeHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	pageCache := newPageCache(w, s.Server, r, nil)
+	p := dpapp.PageWriterProbe{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageWriterProbe.GET")
+	body, err := p.GET(r, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageWriterProbe.GET", err)
+		return
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, nil, pageCache.embedInto(body), nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageWriterProbe", err)
 		return
 	}
 }
