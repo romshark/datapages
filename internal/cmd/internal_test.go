@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -47,6 +49,74 @@ func TestGenWatcherCmd(t *testing.T) {
 			out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
 			require.NoError(t, err, "%s", out)
 			require.Equal(t, "ran gen\n", string(out))
+		})
+	}
+}
+
+// TestNewWatchLogger tests the levels the watch engine logs at for each
+// watch.log.level: erronly logs errors, verbose adds info and warnings,
+// and debug adds debug.
+func TestNewWatchLogger(t *testing.T) {
+	all := []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError}
+	for name, tc := range map[string]struct {
+		level config.LogLevel
+		want  []slog.Level
+	}{
+		"erronly": {level: config.LogLevelErrOnly, want: all[3:]},
+		"verbose": {level: config.LogLevelVerbose, want: all[1:]},
+		"debug":   {level: config.LogLevelDebug, want: all},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := newWatchLogger(tc.level, io.Discard)
+			var got []slog.Level
+			for _, lvl := range all {
+				if l.Enabled(context.Background(), lvl) {
+					got = append(got, lvl)
+				}
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestParseAppHost tests that the app host needs an http or https scheme
+// and a host, which "localhost:8080" lacks.
+func TestParseAppHost(t *testing.T) {
+	for name, tc := range map[string]struct {
+		in       string
+		wantHost string
+		wantErr  string
+	}{
+		"http":  {in: "http://localhost:8080", wantHost: "localhost:8080"},
+		"https": {in: "https://example.test:8443", wantHost: "example.test:8443"},
+		"no scheme": {
+			in: "localhost:8080",
+			wantErr: `watch.app-host "localhost:8080" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"other scheme": {
+			in: "ftp://localhost:21",
+			wantErr: `watch.app-host "ftp://localhost:21" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"no host": {
+			in: "http:///app",
+			wantErr: `watch.app-host "http:///app" must be an http or https URL ` +
+				"with a host, such as http://localhost:8080",
+		},
+		"unparsable": {
+			in:      "http://[::1",
+			wantErr: `parsing watch.app-host: parse "http://[::1": missing ']' in host`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			u, err := parseAppHost(tc.in)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantHost, u.Host)
 		})
 	}
 }

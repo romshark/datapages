@@ -21,9 +21,9 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written.
+`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written. An error that `OnXXX` or `StreamClose` returns is only logged and doesn't reach `RecoverError`.
 
-A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error path. When `RecoverError` handles it, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
+A panic in `GET`, an action, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
 A panic during page writing is logged. A plain page load retains its status and truncated body. On a Datastar request, a defined `RecoverError` appends any SSE frames it writes to the truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
@@ -861,7 +861,7 @@ Sentinels:
 
 Do not wrap multiple sentinels into 1 error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
-Sentinels may be returned directly or wrapped. `RecoverError` handles errors from Datastar requests when defined, and the response keeps status 200. If the response has not started, other requests get `PageError404` for status 404 and `PageError500` for status 500 when defined. In every other case where the response has not started, the server writes the status and its standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
+Sentinels may be returned directly or wrapped. `RecoverError` handles the errors of actions and `StreamOpen` on Datastar requests when defined, and the response keeps status 200. If the response has not started, other requests get `PageError404` for status 404 and `PageError500` for status 500 when defined. In every other case where the response has not started, the server writes the status and its standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 #### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 
