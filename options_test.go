@@ -13,7 +13,9 @@ import (
 )
 
 // TestWithDatastarJS tests the URLs the page shell may load the Datastar
-// bundle from: http, https and relative URLs according to RFC 3986.
+// bundle from: http, https and relative URLs according to [RFC 3986].
+//
+// [RFC 3986]: https://www.rfc-editor.org/rfc/rfc3986
 func TestWithDatastarJS(t *testing.T) {
 	t.Parallel()
 
@@ -146,8 +148,12 @@ func TestWithSSECompression(t *testing.T) {
 		conf    datapages.SSECompressionConfig
 		wantErr string
 	}{
-		"zero":     {},
-		"disabled": {conf: datapages.SSECompressionConfig{Disabled: true}},
+		"zero":            {},
+		"balanced":        {conf: datapages.SSECompressionBalanced()},
+		"low memory":      {conf: datapages.SSECompressionLowMemory()},
+		"low bandwidth":   {conf: datapages.SSECompressionLowBandwidth()},
+		"large fragments": {conf: datapages.SSECompressionLargeFragments()},
+		"disabled":        {conf: datapages.SSECompressionConfig{Disabled: true}},
 		"disabled ignores the rest": {conf: datapages.SSECompressionConfig{
 			Disabled: true, ZstdLevel: 99,
 		}},

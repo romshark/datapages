@@ -85,6 +85,7 @@ As the page model grows, use these reference sections:
 - [Stream embeds](SPECIFICATION.md#stream-embeds) for event handlers and stream hooks that pages share.
 - [`body`](SPECIFICATION.md#return-value-body-datapagescomponent) and [`head`](SPECIFICATION.md#return-value-head-datapageshead) for rendered output.
 - [`redirect`](SPECIFICATION.md#return-value-redirect-datapagesredirect) for navigation.
+- [`StreamConfig`](SPECIFICATION.md#streamconfig) for the compression of a page's stream or an action's response.
 - [Background streaming](SPECIFICATION.md#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming) and [refresh control](SPECIFICATION.md#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden)
   for tab-visibility behavior.
 
@@ -199,9 +200,62 @@ Keep application decisions in Go. Use templates for markup and Datastar attribut
 
 `cmd/server/main.go` is ordinary Go. Construct repositories and clients there, put long-lived dependencies on `App`, configure the broker and session manager, then pass server options to `datapages.NewServer`.
 
-Common options configure logging, middleware, HTTP timeouts, sessions, static assets, request limits, graceful shutdown, metrics, per-tab state, CSP nonces, and the Datastar bundle. Use the [`ServerOption` documentation](https://pkg.go.dev/github.com/romshark/datapages#ServerOption) for the option API. Read the [Content Security Policy](SPECIFICATION.md#content-security-policy) section before setting a CSP.
+Common options configure logging, middleware, HTTP timeouts, sessions, static assets, request limits, graceful shutdown, metrics, per-tab state, CSP nonces, SSE compression, and the Datastar bundle. Use the [`ServerOption` documentation](https://pkg.go.dev/github.com/romshark/datapages#ServerOption) for the option API. Read the [Content Security Policy](SPECIFICATION.md#content-security-policy) section before setting a CSP.
 
 The generated server implements `http.Handler`. Standard Go middleware and HTTP tooling can serve it.
+
+## Tune SSE compression
+
+By default, Datapages enables the best possible SSE compression available and tries to optimize for server CPU time and memory, because each stream holds an encoder of its own. However, sometimes the default configuration Datapages applies may not suit your application well.
+
+Start from a preset:
+
+- `datapages.SSECompressionLowMemory()` holds about half the memory per stream, for many open streams whose fragments stay below about 100 KB.
+- `datapages.SSECompressionLowBandwidth()` prefers brotli and sends the fewest bytes, for few streams with slow or metered clients.
+- `datapages.SSECompressionLargeFragments()` raises the windows to 4 MiB, for fragments above about 1 MB, which the other presets send in full on every update.
+- `datapages.SSECompressionBalanced()` returns the defaults.
+
+Pass a preset to `datapages.NewServer` to apply it to every stream:
+
+```go
+datapages.WithSSECompression(datapages.SSECompressionLowMemory()),
+```
+
+A page that needs other settings for its stream declares `StreamConfig`:
+
+```go
+func (PageReport) StreamConfig() datapages.StreamConfig {
+	c := datapages.SSECompressionLargeFragments()
+	return datapages.StreamConfig{Compression: &c}
+}
+```
+
+An action configures its own response with `StreamConfig` followed by its method name:
+
+```go
+func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
+}
+```
+
+Either method can take the request and decide per request, for example for mobile clients:
+
+```go
+func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	// Mobile browsers include "Mobi" in their user agent.
+	if !strings.Contains(r.UserAgent(), "Mobi") {
+		return datapages.StreamConfig{}, nil // The server's setting.
+	}
+	c := datapages.SSECompressionLowBandwidth()
+	return datapages.StreamConfig{Compression: &c}, nil
+}
+```
+
+A method's settings replace the server's, and fields left zero take the defaults. Behind a proxy that compresses responses, pass `datapages.SSECompressionConfig{Disabled: true}`.
+
+The [`SSECompressionConfig` documentation](https://pkg.go.dev/github.com/romshark/datapages#SSECompressionConfig) compares the settings. The [`StreamConfig` specification](SPECIFICATION.md#streamconfig) defines the method forms, their inputs and their failure behavior.
 
 ## Choose modules for the deployment
 

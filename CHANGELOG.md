@@ -20,7 +20,7 @@ Releases up to v0.10.0 have their notes on
 
 Run `datapages gen` to apply these.
 
-- Add `datapages.WithSSECompression` to configure or disable SSE compression.
+- Add `datapages.WithSSECompression` to configure or disable SSE compression. The presets `datapages.SSECompressionBalanced`, `datapages.SSECompressionLowMemory`, `datapages.SSECompressionLowBandwidth` and `datapages.SSECompressionLargeFragments` cover common trade-offs.
 
 #### Runtime and modules
 

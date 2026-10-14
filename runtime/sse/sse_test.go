@@ -1186,8 +1186,13 @@ func BenchmarkReRender(b *testing.B) {
 		{"8KB", 8_000},
 		{"100KB", 100_000},
 		{"400KB", 400_000},
+		{"2MB", 2_000_000},
 	} {
 		items := listItems(size.n)
+		lowMemory := datapages.SSECompressionLowMemory()
+		lowBandwidth := datapages.SSECompressionLowBandwidth()
+		largeFragments := datapages.SSECompressionLargeFragments()
+		const browser = "gzip, deflate, br, zstd"
 		for _, tc := range []struct {
 			name, coding string
 			conf         *datapages.SSECompressionConfig
@@ -1198,6 +1203,11 @@ func BenchmarkReRender(b *testing.B) {
 			{"zstd-4MiB", "zstd", &datapages.SSECompressionConfig{ZstdWindow: 4 << 20}},
 			{"zstd-level10", "zstd", &datapages.SSECompressionConfig{ZstdLevel: 10}},
 			{"br-quality9", "br", &datapages.SSECompressionConfig{BrotliQuality: 9}},
+			{"low-memory", browser, &lowMemory},
+			{"low-memory-br", "br", &lowMemory},
+			{"low-bandwidth", browser, &lowBandwidth},
+			{"large-fragments", browser, &largeFragments},
+			{"large-fragments-br", "br", &largeFragments},
 		} {
 			b.Run(size.name+"/"+tc.name, func(b *testing.B) {
 				comp := sse.NewCompression(tc.conf)

@@ -558,7 +558,7 @@ By default, an SSE response uses the first coding explicitly accepted by the req
 
 Each stream has an encoder, so CPU and memory scale with open streams. The defaults minimize both but send more bytes; [`datapages.SSECompressionConfig`](options.go) compares alternatives.
 
-`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. `datapages.SSECompressionBalanced` returns the defaults, `datapages.SSECompressionLowMemory` 256 KiB windows for many streams with small fragments, `datapages.SSECompressionLowBandwidth` brotli first for slow or metered clients, and `datapages.SSECompressionLargeFragments` 4 MiB windows for fragments above about 1 MB. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
 
 See [datapages.go](datapages.go) for method definitions.
 

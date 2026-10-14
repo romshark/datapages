@@ -557,14 +557,17 @@ const (
 // Each stream holds an encoder after its first event, so CPU and memory scale
 // with open streams. The defaults favor both over wire size; enlarging ZstdWindow
 // or preferring brotli trades both for fewer bytes. A fragment larger than its
-// window cannot reuse its previous render.
+// window cannot reuse its previous render, so every update sends it at its full
+// compressed size. [SSECompressionLowMemory], [SSECompressionLowBandwidth] and
+// [SSECompressionLargeFragments] return presets for other trade-offs.
 // BenchmarkReRender in runtime/sse re-renders a 100 KB list with 1 item changed:
 //
-//	                         sent per re-render   heap per stream   time
-//	defaults (zstd)          1.0% of the list     1.6 MiB           1x
-//	ZstdWindow: 4 << 20      0.33%                4.6 MiB           1.5x
-//	brotli first in Codings  0.06%                3.5 MiB           3x
-//	gzip, 32 KiB window      12.9%                1.0 MiB           3.5x
+//	                              sent per re-render   heap per stream   time
+//	SSECompressionBalanced        1.0% of the list     1.6 MiB           1x
+//	SSECompressionLowMemory       3.0%                 0.9 MiB           0.9x
+//	SSECompressionLowBandwidth    0.06%                3.5 MiB           2.6x
+//	SSECompressionLargeFragments  0.33%                4.6 MiB           1.6x
+//	gzip, 32 KiB window           12.9%                1.0 MiB           3.8x
 type SSECompressionConfig struct {
 	// Disabled sends SSE responses uncompressed and ignores the other fields.
 	Disabled bool
@@ -603,6 +606,35 @@ type SSECompressionConfig struct {
 
 	// GzipLevel is from 1 to 9. 0 selects [DefaultSSEGzipLevel].
 	GzipLevel int
+}
+
+// SSECompressionBalanced returns the zero value, which selects zstd with 1 MiB windows.
+// It keeps CPU time and memory per stream low and sends more bytes
+// than brotli, for fragments up to about 1 MB.
+func SSECompressionBalanced() SSECompressionConfig { return SSECompressionConfig{} }
+
+// SSECompressionLowMemory returns 256 KiB windows, which halve the memory per stream.
+// Use it for many streams with fragments below about 100 KB. Larger ones send more bytes,
+// and those above 256 KiB their full compressed size in 2 to 4 times the time.
+func SSECompressionLowMemory() SSECompressionConfig {
+	return SSECompressionConfig{ZstdWindow: 256 << 10, BrotliWindow: 256 << 10}
+}
+
+// SSECompressionLowBandwidth prefers brotli, which sends the fewest bytes for
+// fragments up to about 1 MB, in about 3 times zstd's time and with 2 to 3 times
+// its memory per stream. Use it for few streams with slow or metered clients.
+func SSECompressionLowBandwidth() SSECompressionConfig {
+	return SSECompressionConfig{
+		Codings: []SSECoding{SSECodingBrotli, SSECodingZstd, SSECodingGzip},
+	}
+}
+
+// SSECompressionLargeFragments returns 4 MiB windows, which fragments above about
+// 1 MB need to reuse their previous render. For a 2 MB list, zstd then sends
+// 2% of it per re-render instead of 14% and runs faster,
+// but holds 3 times the memory per stream. brotli holds 14 MiB.
+func SSECompressionLargeFragments() SSECompressionConfig {
+	return SSECompressionConfig{ZstdWindow: 4 << 20, BrotliWindow: 4 << 20}
 }
 
 // WithSSECompression sets how SSE responses are compressed.
