@@ -234,7 +234,7 @@ func (PageIndex) StreamClose(
 
 A page may declare `StreamConfig` only if it has an SSE stream. A stream embed must not declare it. The method must use 1 of these forms:
 
-- The static form takes no parameters and returns `datapages.StreamConfig`. `NewServer` calls it once. An invalid compression configuration makes `NewServer` return an error naming the page.
+- The static form takes no parameters and returns `datapages.StreamConfig`. `NewServer` calls it once. An invalid compression configuration makes `NewServer` return an error naming the method.
 - The request-scoped form takes `r *http.Request`, may also take `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, and returns `(datapages.StreamConfig, error)`. The server calls it before each stream opens and before `StreamOpen`. `path` contains the page route variables. An anonymous stream receives a guest session. An error or invalid compression configuration follows the broker subscription error path.
 
 ```go
@@ -256,7 +256,7 @@ func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
 
 A 4 MiB zstd window sends about 1/3 as much per 100 KB list re-render and holds about 3 times as much memory as the default.
 
-`Compression` overrides `datapages.WithSSECompression` for the page's `_$/` and `_$/anon/` stream endpoints. Nil uses the server configuration. The page's actions use the server configuration or their own `StreamConfigXXX`. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
+`Compression` replaces the `datapages.WithSSECompression` configuration for the page's `_$/` and `_$/anon/` stream endpoints, or for an action's response. Its zero fields select the package defaults, not the server's values. A method that sets only `ZstdWindow` uses zstd even when the server sets `Disabled: true` or allows only gzip. Nil uses the server configuration. The page's actions use the server configuration or their own `StreamConfigXXX`. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
 
 An action configures its SSE response with a method on the same page or `App` named `StreamConfig` followed by the action's method name. It takes the 2 forms above. The request-scoped form may take `path` and `signals` only of the types the action takes, since it receives the action's values. The action must answer with an SSE stream, which means it takes `datapages.SSE`, or it takes `datapages.PageCacheWriter` and returns neither a body nor a redirect. The server calls the request-scoped form before the action. Its error, its panic or an invalid compression configuration takes the action's error path, and the action does not run.
 

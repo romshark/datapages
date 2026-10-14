@@ -231,7 +231,8 @@ type DisableRefreshAfterHidden bool
 // Per-request methods should return a bounded set of configurations.
 // Encoders are shared for at most 64 distinct configurations.
 type StreamConfig struct {
-	// Compression overrides [WithSSECompression].
+	// Compression replaces the [WithSSECompression] configuration.
+	// Its zero fields select the defaults, not the server's values.
 	// Nil uses the server configuration.
 	Compression *SSECompressionConfig
 }
