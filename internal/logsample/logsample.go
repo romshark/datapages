@@ -163,7 +163,9 @@ func (s *state) track(key string, t int64, limit int, interval time.Duration) bo
 	}
 	e := &entry{}
 	e.written.Store(t)
-	if _, loaded := s.seen.LoadOrStore(key, e); loaded {
+	if v, loaded := s.seen.LoadOrStore(key, e); loaded {
+		// A concurrent first record stored the key. Count this one as a repeat.
+		v.(*entry).suppressed.Add(1)
 		return false
 	}
 	s.count++

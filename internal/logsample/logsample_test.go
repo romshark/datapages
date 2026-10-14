@@ -111,10 +111,12 @@ func TestFullSetRecovers(t *testing.T) {
 }
 
 // TestConcurrentUse tests what every request path does to it at once.
+// 1 record of the burst is written, and the next one counts the other 49.
 func TestConcurrentUse(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		log, buf := newLogger(t, 0)
+		const line = "level=WARN msg=dropped value=x"
 
 		var wg sync.WaitGroup
 		for range 50 {
@@ -123,7 +125,11 @@ func TestConcurrentUse(t *testing.T) {
 			})
 		}
 		wg.Wait()
-		buf.RequireLines(t, "level=WARN msg=dropped value=x")
+		buf.RequireLines(t, line)
+
+		time.Sleep(interval)
+		log.Warn("dropped", slog.String("value", "x"))
+		buf.RequireLines(t, line, line+" suppressed=49")
 	})
 }
 

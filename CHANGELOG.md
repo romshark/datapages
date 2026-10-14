@@ -177,6 +177,7 @@ Run `datapages gen` to apply these.
 - Stop `offline.Middleware` from adding its scripts to a range response, status 206, of an HTML file, such as a static asset that a download manager resumes. The body was longer than its `Content-Range` said, and the saved file was corrupt.
 - Stop rounding an `offline.Config.WorkerVersion` above 2^53 in the browser. A version rounded down added the registration script to every page.
 - Treat `/tickets` and `/tickets/` as the same page in the offline cache, as the server does. A visit to `/tickets` missed the copy cached for `/tickets/`, so the page didn't load offline, and the server sent the copy again on every online visit.
+- Count in `suppressed` every record that `datapages.WithLogSampling` holds back. A record logged at the same moment as the first one of its kind was dropped uncounted.
 
 #### `datapages init`
 
