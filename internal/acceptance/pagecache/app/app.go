@@ -1,9 +1,10 @@
-// Package app defines handlers for page cache acceptance tests. Each handler
-// renders its inputs so tests can verify the HTTP response.
+// Package app defines handlers for page cache acceptance tests.
+// Each handler renders its inputs so tests can verify the HTTP response.
 package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -66,6 +67,20 @@ func (PageIndex) POSTStream(
 	return sse.PatchElement(echo("out", "done"))
 }
 
+// POSTStreamFail is /stream-write-fail
+//
+// The cache body fails while the action patch succeeds.
+func (PageIndex) POSTStreamFail(
+	_ *http.Request, sse datapages.SSE, pageCache datapages.PageCacheWriter,
+) error {
+	pageCache.Set("/", failingBody, 4)
+	return sse.PatchElement(echo("out", "done"))
+}
+
+var failingBody = templ.ComponentFunc(func(context.Context, io.Writer) error {
+	return errors.New("the cached body failed")
+})
+
 // POSTRedirect is /redirect-write
 //
 // An action that returns a redirect has no stream. Its response sends cache
@@ -75,6 +90,16 @@ func (PageIndex) POSTRedirect(
 ) (redirect datapages.Redirect, err error) {
 	pageCache.ClearAll()
 	pageCache.Set("/", echo("cached", "written by a redirect"), 3)
+	return datapages.Redirect{URL: "/"}, nil
+}
+
+// POSTRedirectFail is /redirect-write-fail
+//
+// The cache body fails while the redirect succeeds.
+func (PageIndex) POSTRedirectFail(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) (redirect datapages.Redirect, err error) {
+	pageCache.Set("/", failingBody, 5)
 	return datapages.Redirect{URL: "/"}, nil
 }
 
@@ -108,6 +133,33 @@ func (*App) POSTAppPrecache(
 ) error {
 	pageCache.Set("/", echo("cached", "written by an app-level action"), 11)
 	return nil
+}
+
+func (*App) StreamConfigPOSTAppPrecache(
+	r *http.Request,
+) (datapages.StreamConfig, error) {
+	if r.Header.Get("Save-Data") != "on" {
+		return datapages.StreamConfig{}, nil
+	}
+	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
+		Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+	}}, nil
+}
+
+// POSTAppPrecacheFail is /app-precache-fail
+//
+// The cache body fails on the generated stream.
+func (*App) POSTAppPrecacheFail(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) error {
+	pageCache.Set("/", failingBody, 13)
+	return nil
+}
+
+func (*App) StreamConfigPOSTAppPrecacheFail() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
 }
 
 // POSTAppBody is /app-body

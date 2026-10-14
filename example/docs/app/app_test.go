@@ -174,8 +174,7 @@ func (tb *tab) action(t *testing.T, method, path, body string) (int, string) {
 		req.Header.Set("Datapages-Instance", tb.instance)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// The transport asks for gzip by default, but the SSE writer never ends
-	// the gzip stream and reading fails with an unexpected EOF.
+	// Keep assertions against the uncompressed handler output.
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := tb.s.srv.Client().Do(req)
 	require.NoError(t, err)

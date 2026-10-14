@@ -441,7 +441,13 @@ func (w writeOnly) Write(p []byte) (int, error) { return w.iw.Write(p) }
 
 // Flush supports streaming responses such as Datastar SSE.
 // [Middleware] doesn't buffer them.
+//
+// Decide before forwarding the first flush. Otherwise the first write sends a
+// second status, which net/http logs as superfluous.
 func (iw *injectingWriter) Flush() {
+	if !iw.decided {
+		iw.decide(nil)
+	}
 	if iw.inject {
 		return
 	}

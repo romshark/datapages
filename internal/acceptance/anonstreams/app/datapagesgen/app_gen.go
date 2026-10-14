@@ -31,8 +31,6 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/anonstreams/app"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -123,26 +121,29 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[struct{}],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+	sessKey string, sess datapages.Session[struct{}],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		sessKey, sess.UserID(), sess.ExpiresAt(),
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -155,6 +156,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 type Server struct {
@@ -230,6 +245,7 @@ func (s *Server) Init(
 		s.SessionManager(),
 		nil,
 		s.httpErrIntern,
+		true,
 	)
 
 	setupHandlers(s)
@@ -559,7 +575,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
@@ -570,10 +586,15 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
-		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		if httpserve.ResponseBodyWritten(w) {
+			// Events after a half-written response would land in its body.
+			return
+		}
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
+		defer sse.Close()
 	}
-	errRecover := s.app.RecoverError(err, dpsse.New(sse))
+	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
 		return
 	}
@@ -582,6 +603,23 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+}
+
+// callRecoverError converts a RecoverError panic into an error.
+func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", "App.RecoverError"),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		errRecover = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return s.app.RecoverError(err, sse)
 }
 
 type pageBackgroundHandlers struct{ *Server }
@@ -657,12 +695,12 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackground(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackground(sess.UserID()),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageBackground stream")
 			var eventTicked dpapp.EventTicked
@@ -677,7 +715,7 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnTicked(
 						eventTicked,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackground.OnTicked", err)
 					}
@@ -689,7 +727,7 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnNoticed(
 						eventNoticed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackground.OnNoticed", err)
 					}
@@ -715,12 +753,12 @@ func (s pageBackgroundHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Req
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackground(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackground(sess.UserID()),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageBackground anonymous stream")
 			var eventTicked dpapp.EventTicked
@@ -734,7 +772,7 @@ func (s pageBackgroundHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Req
 					}
 					if err := p.OnTicked(
 						eventTicked,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackground.OnTicked", err)
 					}
@@ -760,7 +798,10 @@ func (s pageBackgroundPostHandlers) GET(w http.ResponseWriter, r *http.Request) 
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageBackgroundPost.GET")
-	body, enableBackgroundStreaming, err := p.GET(r, path)
+	body, enableBackgroundStreaming, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBackgroundPost.GET", err)
 		return
@@ -824,12 +865,12 @@ func (s pageBackgroundPostHandlers) GETStream(w http.ResponseWriter, r *http.Req
 	p := dpapp.PageBackgroundPost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageBackgroundPost stream")
 			var eventTicked dpapp.EventTicked
@@ -844,7 +885,7 @@ func (s pageBackgroundPostHandlers) GETStream(w http.ResponseWriter, r *http.Req
 					}
 					if err := p.OnTicked(
 						eventTicked,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackgroundPost.OnTicked", err)
 					}
@@ -856,7 +897,7 @@ func (s pageBackgroundPostHandlers) GETStream(w http.ResponseWriter, r *http.Req
 					}
 					if err := p.OnNoticed(
 						eventNoticed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackgroundPost.OnNoticed", err)
 					}
@@ -882,12 +923,12 @@ func (s pageBackgroundPostHandlers) GETStreamAnon(w http.ResponseWriter, r *http
 	p := dpapp.PageBackgroundPost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageBackgroundPost(sess.UserID()),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageBackgroundPost anonymous stream")
 			var eventTicked dpapp.EventTicked
@@ -901,7 +942,7 @@ func (s pageBackgroundPostHandlers) GETStreamAnon(w http.ResponseWriter, r *http
 					}
 					if err := p.OnTicked(
 						eventTicked,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackgroundPost.OnTicked", err)
 					}
@@ -927,7 +968,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -1008,21 +1052,28 @@ func (s pagePanicHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePanic(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePanic(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			return p.StreamOpen(r, streamID)
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PagePanic.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+			)
 		},
 		func(streamID datapages.StreamID) {
-			if err := p.StreamClose(r, streamID); err != nil {
+			if err := p.StreamClose(
+				r,
+				streamID,
+			); err != nil {
 				s.LogErr("handling PagePanic.StreamClose", err)
 			}
 		},
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PagePanic stream")
 			var eventFaulted dpapp.EventFaulted
@@ -1037,7 +1088,7 @@ func (s pagePanicHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnFaulted(
 						eventFaulted,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PagePanic.OnFaulted", err)
 					}
@@ -1049,7 +1100,7 @@ func (s pagePanicHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnNoticed(
 						eventNoticed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PagePanic.OnNoticed", err)
 					}
@@ -1075,21 +1126,28 @@ func (s pagePanicHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePanic(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePanic(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			return p.StreamOpen(r, streamID)
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PagePanic.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+			)
 		},
 		func(streamID datapages.StreamID) {
-			if err := p.StreamClose(r, streamID); err != nil {
+			if err := p.StreamClose(
+				r,
+				streamID,
+			); err != nil {
 				s.LogErr("handling PagePanic.StreamClose", err)
 			}
 		},
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PagePanic anonymous stream")
 			var eventFaulted dpapp.EventFaulted
@@ -1103,7 +1161,7 @@ func (s pagePanicHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 					}
 					if err := p.OnFaulted(
 						eventFaulted,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PagePanic.OnFaulted", err)
 					}
@@ -1128,7 +1186,10 @@ func (s pagePanicHandlers) POSTFault(
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	err := p.POSTFault(r, dispatchFaulted)
+	err := p.POSTFault(
+		r,
+		dispatchFaulted,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PagePanic.Fault", err)
 		return
@@ -1152,7 +1213,11 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePost.GET")
-	body, err := p.GET(r, path, sess)
+	body, err := p.GET(
+		r,
+		path,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
 		return
@@ -1209,12 +1274,12 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PagePost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePost(sess.UserID()),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PagePost stream")
 			var eventTicked dpapp.EventTicked
@@ -1229,7 +1294,7 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnTicked(
 						eventTicked,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PagePost.OnTicked", err)
 					}
@@ -1241,7 +1306,7 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnNoticed(
 						eventNoticed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PagePost.OnNoticed", err)
 					}
@@ -1267,12 +1332,12 @@ func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 	p := dpapp.PagePost{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPagePost(sess.UserID()),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PagePost anonymous stream")
 			var eventTicked dpapp.EventTicked
@@ -1286,7 +1351,7 @@ func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 					}
 					if err := p.OnTicked(
 						eventTicked,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PagePost.OnTicked", err)
 					}
@@ -1361,7 +1426,7 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	var subjSignals struct {
 		Room string `json:"room"`
 	}
-	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
+	if err := dpsse.ReadSignals(r, &subjSignals); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -1374,12 +1439,12 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageRooms stream")
 			var eventRoomPosted dpapp.EventRoomPosted
@@ -1394,7 +1459,7 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnRoomPosted(
 						eventRoomPosted,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageRooms.OnRoomPosted", err)
 					}
@@ -1406,7 +1471,7 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnNoticed(
 						eventNoticed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageRooms.OnNoticed", err)
 					}
@@ -1432,7 +1497,7 @@ func (s pageRoomsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 	var subjSignals struct {
 		Room string `json:"room"`
 	}
-	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
+	if err := dpsse.ReadSignals(r, &subjSignals); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -1445,12 +1510,12 @@ func (s pageRoomsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageRooms anonymous stream")
 			var eventRoomPosted dpapp.EventRoomPosted
@@ -1464,7 +1529,7 @@ func (s pageRoomsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 					}
 					if err := p.OnRoomPosted(
 						eventRoomPosted,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageRooms.OnRoomPosted", err)
 					}
@@ -1488,7 +1553,7 @@ func (s pageRoomsHandlers) POSTPost(
 		Room string `json:"room"`
 		Text string `json:"text"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -1498,7 +1563,11 @@ func (s pageRoomsHandlers) POSTPost(
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTPost(r, signals, dispatchRoomPosted)
+	err := p.POSTPost(
+		r,
+		signals,
+		dispatchRoomPosted,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Post", err)
 		return
@@ -1520,7 +1589,7 @@ func (s pageRoomsHandlers) POSTNotice(
 		User string `json:"user"`
 		Text string `json:"text"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -1530,7 +1599,11 @@ func (s pageRoomsHandlers) POSTNotice(
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTNotice(r, signals, dispatchNoticed)
+	err := p.POSTNotice(
+		r,
+		signals,
+		dispatchNoticed,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Notice", err)
 		return
@@ -1628,21 +1701,26 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageTabs{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageTabs(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageTabs.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				streamID,
+				datapages.State[dpapp.StateTab]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateTab(instanceID, slot)
 		},
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageTabs stream")
 			var eventTicked dpapp.EventTicked
@@ -1664,7 +1742,7 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						defer slot.mu.Unlock()
 						if err := p.OnTicked(
 							eventTicked,
-							dpsse.New(sse),
+							sse,
 							datapages.State[dpapp.StateTab]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageTabs.OnTicked", err)
@@ -1685,7 +1763,7 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						defer slot.mu.Unlock()
 						if err := p.OnNoticed(
 							eventNoticed,
-							dpsse.New(sse),
+							sse,
 							datapages.State[dpapp.StateTab]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageTabs.OnNoticed", err)
@@ -1729,21 +1807,26 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 	p := dpapp.PageTabs{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageTabs(sess.UserID()),
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageTabs.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				streamID,
+				datapages.State[dpapp.StateTab]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateTab(instanceID, slot)
 		},
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageTabs anonymous stream")
 			var eventTicked dpapp.EventTicked
@@ -1764,7 +1847,7 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 						defer slot.mu.Unlock()
 						if err := p.OnTicked(
 							eventTicked,
-							dpsse.New(sse),
+							sse,
 							datapages.State[dpapp.StateTab]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageTabs.OnTicked", err)
@@ -1810,7 +1893,11 @@ func (s pageTabsHandlers) POSTBump(
 	p := dpapp.PageTabs{
 		App: s.app,
 	}
-	err := p.POSTBump(r, datapages.State[dpapp.StateTab]{Values: slot.state}, dispatchTicked)
+	err := p.POSTBump(
+		r,
+		datapages.State[dpapp.StateTab]{Values: slot.state},
+		dispatchTicked,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageTabs.Bump", err)
 		return

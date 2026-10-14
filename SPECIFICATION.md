@@ -21,11 +21,11 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written. An error that `OnXXX` or `StreamClose` returns is only logged and doesn't reach `RecoverError`.
+`RecoverError` receives errors from Datastar requests, including Datapages sentinels, and may write an SSE response. It does not receive page-load errors. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` returns an error or panics, the server logs it and retains the response already written. Errors returned by `OnXXX` and `StreamClose` are logged and do not reach `RecoverError`.
 
-A panic in `GET`, an action, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
+A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A panic during page writing is logged. A plain page load retains its status and truncated body. On a Datastar request, a defined `RecoverError` appends any SSE frames it writes to the truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
+A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
 Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. It starts when the context passed to `ListenAndServe` is canceled. Cancel that context on SIGTERM as well as SIGINT: container runtimes and systemd stop a process with SIGTERM, whose default action ends the process without a graceful shutdown. The `cmd/server/main.go` that `datapages init` writes calls `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
@@ -55,6 +55,8 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `QUERYXXX`: handles `QUERY` action requests.
 - `StreamOpen`: runs when the page SSE stream opens.
 - `StreamClose`: runs when the page SSE stream closes.
+- `StreamConfig`: configures the page SSE stream; see [StreamConfig](#streamconfig).
+- `StreamConfigXXX`: configures the SSE response of the action `XXX`, as `StreamConfigPOSTSave` does for `POSTSave`; see [StreamConfig](#streamconfig).
 - `OnXXX`: handles `EventXXX` in the SSE listener.
 
 An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
@@ -118,6 +120,8 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
+
+`App` may configure the SSE response of its actions with `StreamConfigXXX`; see [StreamConfig](#streamconfig).
 
 Page action handlers (`POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, `QUERYXXX`) require
 `r *http.Request` and permit these optional parameters. A handler returning
@@ -188,7 +192,7 @@ func (PageIndex) OnSomethingHappened(
 }
 ```
 
-`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. The stream then closes, and the page reconnects after 5s, which runs `StreamOpen` again. The page keeps the 5s as the first wait of its later reconnects. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
+`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops and `RecoverError` handles the error when defined; otherwise the server uses its internal-error path. The stream closes with a 5s reconnect delay. A broker subscription failure follows the same path. Without `RecoverError`, a broker subscription failure returns its error status and Datastar applies exponential reconnect delays up to 30s. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
 
 `datapages.StreamID` identifies an SSE stream within a process. Its parameter name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and must not be exposed to clients.
 
@@ -223,6 +227,49 @@ func (PageIndex) StreamClose(
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
+}
+```
+
+#### StreamConfig
+
+A page may declare `StreamConfig` only if it has an SSE stream. A stream embed must not declare it. The method must use 1 of these forms:
+
+- The static form takes no parameters and returns `datapages.StreamConfig`. `NewServer` calls it once. An invalid compression configuration makes `NewServer` return an error naming the method.
+- The request-scoped form takes `r *http.Request`, may also take `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, and returns `(datapages.StreamConfig, error)`. The server calls it before each stream opens and before `StreamOpen`. `path` contains the page route variables. An anonymous stream receives a guest session. An error or invalid compression configuration follows the broker subscription error path.
+
+```go
+func (PageDashboard) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}
+}
+
+func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	if r.Header.Get("Save-Data") != "on" {
+		return datapages.StreamConfig{}, nil
+	}
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}, nil
+}
+```
+
+A 4 MiB zstd window sends about 1/3 as much per 100 KB list re-render and holds about 3 times as much memory as the default.
+
+`Compression` replaces the `datapages.WithSSECompression` configuration for the page's `_$/` and `_$/anon/` stream endpoints, or for an action's response. Its zero fields select the package defaults, not the server's values. A method that sets only `ZstdWindow` uses zstd even when the server sets `Disabled: true` or allows only gzip. Nil uses the server configuration. The page's actions use the server configuration or their own `StreamConfigXXX`. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
+
+An action configures its SSE response with a method on the same page or `App` named `StreamConfig` followed by the action's method name. It takes the 2 forms above. The request-scoped form may take `path` and `signals` only of the types the action takes, since it receives the action's values. The action must answer with an SSE stream, which means it takes `datapages.SSE`, or it takes `datapages.PageCacheWriter` and returns neither a body nor a redirect. The server calls the request-scoped form before the action. Its error, its panic or an invalid compression configuration takes the action's error path, and the action does not run.
+
+```go
+// POSTSave is /save
+func (PageEditor) POSTSave(r *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(savedBadge())
+}
+
+func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
 }
 ```
 
@@ -507,6 +554,12 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 `PatchElementAt` and `RemoveElement` reject selectors containing `\r` or `\n` with `datapages.ErrSelectorLineBreak`.
 
+By default, an SSE response uses the first coding explicitly accepted by the request in the order zstd, brotli, gzip. A wildcard selects gzip only. If no configured coding is accepted, the response is uncompressed. The default zstd and brotli windows are 1 MiB.
+
+Each stream has an encoder, so CPU and memory scale with open streams. The defaults minimize both but send more bytes; [`datapages.SSECompressionConfig`](options.go) compares alternatives.
+
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. `datapages.SSECompressionBalanced` returns the defaults, `datapages.SSECompressionLowMemory` 256 KiB windows for many streams with small fragments, `datapages.SSECompressionLowBandwidth` brotli first for slow or metered clients, and `datapages.SSECompressionLargeFragments` 4 MiB windows for fragments above about 1 MB. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
+
 See [datapages.go](datapages.go) for method definitions.
 
 #### Parameter: `pageCache datapages.PageCacheWriter`
@@ -562,6 +615,8 @@ page method and an action declared on `App`:
 - Action with a redirect: sends the writes in the `text/javascript` response. Navigation waits up to 500ms for the worker to apply them. This rule also applies when the action can return a body.
 - Action with only a body: embeds the writes in the rendered document.
 - Action with neither: sends the writes over an SSE stream opened by Datapages.
+
+If a cached body returns an error while rendering, the server logs the error and omits the queued cache writes. A panic follows the handler panic path; see [Return Value `error`](#return-value-error-or-err-error).
 
 An action taking `datapages.PageCacheWriter` answers a request without `Datastar-Request: true` with 406 Not Acceptable. Datapages could answer a plain form submission to an action that redirects only with an HTTP redirect, which carries no writes.
 

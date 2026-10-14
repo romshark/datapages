@@ -3,7 +3,10 @@
 package acceptance_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +15,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -35,6 +40,22 @@ func post(t *testing.T, srv *httptest.Server, path string) (int, string) {
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := srv.Client().Do(req)
 	require.NoError(t, err, "POST %s", path)
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading %s", path)
+	return resp.StatusCode, string(b)
+}
+
+func getStream(t *testing.T, srv *httptest.Server, path string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+path, nil,
+	)
+	require.NoError(t, err, "building GET %s", path)
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "GET %s", path)
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err, "reading %s", path)
@@ -95,23 +116,55 @@ func TestRecoveredPanics(t *testing.T) {
 		require.NotContains(t, body, "the component panicked")
 	})
 
-	// A panic in StreamOpen reaches RecoverError instead of aborting the  connection.
+	// A panic in StreamOpen reaches RecoverError instead of aborting the connection,
+	// and logs its stack.
 	t.Run("stream open", func(t *testing.T) {
-		srv := newServer(t)
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodGet, srv.URL+"/stream-panic/_$/", nil)
-		require.NoError(t, err, "building the stream request")
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Accept-Encoding", "identity")
-		resp, err := srv.Client().Do(req)
-		require.NoError(t, err, "GET the stream")
-		defer func() { _ = resp.Body.Close() }()
-		b, err := io.ReadAll(resp.Body)
-		require.NoError(t, err, "reading the stream")
-
-		require.Contains(t, string(b), `<div id="toast">panic</div>`)
-		require.NotContains(t, string(b), "the stream open hook panicked",
+		var log testlog.Buffer
+		srv := httptest.NewServer(mustNewServer(t, &app.App{},
+			inmem.New(messaging.DefaultBrokerChanBuffer),
+			datapages.WithLogger(log.Logger())))
+		t.Cleanup(srv.Close)
+		_, body := getStream(t, srv, "/stream-panic/_$/")
+		require.Contains(t, body, `<div id="toast">panic</div>`)
+		require.NotContains(t, body, "the stream open hook panicked",
 			"the panic value reached the client")
+		log.RequireMatch(t, `^level=ERROR msg="recovered panic" `+
+			`handler=PageStreamPanic\.StreamOpen `+
+			`panic="the stream open hook panicked" stack=`)
+	})
+
+	// A request-scoped StreamConfig panic reaches RecoverError and logs its stack.
+	t.Run("stream config", func(t *testing.T) {
+		var log testlog.Buffer
+		srv := httptest.NewServer(mustNewServer(t, &app.App{},
+			inmem.New(messaging.DefaultBrokerChanBuffer),
+			datapages.WithLogger(log.Logger())))
+		t.Cleanup(srv.Close)
+		_, body := getStream(t, srv, "/stream-panic/_$/?config-panic")
+		require.Contains(t, body, `<div id="toast">panic</div>`)
+		require.NotContains(t, body, "the stream config panicked",
+			"the panic value reached the client")
+		log.RequireMatch(t, `^level=ERROR msg="recovered panic" `+
+			`handler=PageStreamPanic\.StreamConfig `+
+			`panic="the stream config panicked" stack=`)
+	})
+
+	// A panicking action StreamConfig reaches RecoverError instead of the action.
+	t.Run("action stream config", func(t *testing.T) {
+		var log testlog.Buffer
+		srv := httptest.NewServer(mustNewServer(t, &app.App{},
+			inmem.New(messaging.DefaultBrokerChanBuffer),
+			datapages.WithLogger(log.Logger())))
+		t.Cleanup(srv.Close)
+		status, body := post(t, srv, "/config-panic/")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.Contains(t, body, `<div id="toast">panic</div>`)
+		require.NotContains(t, body, ">ran<", "the action ran")
+		require.NotContains(t, body, "the action stream config panicked",
+			"the panic value reached the client")
+		log.RequireMatch(t, `^level=ERROR msg="recovered panic" `+
+			`handler=PageIndex\.StreamConfigPOSTConfigPanic `+
+			`panic="the action stream config panicked" stack=`)
 	})
 
 	t.Run("page load", func(t *testing.T) {
@@ -127,6 +180,101 @@ func TestRecoveredPanics(t *testing.T) {
 		require.NotContains(t, string(b), "the page panicked",
 			"the panic value reached the visitor")
 	})
+}
+
+// TestHalfWrittenPageGetsNoEvents tests that recovery does not append SSE to HTML.
+func TestHalfWrittenPageGetsNoEvents(t *testing.T) {
+	t.Parallel()
+
+	for _, coding := range []string{"identity", "gzip"} {
+		t.Run(coding, func(t *testing.T) {
+			srv := newServer(t)
+			req, err := http.NewRequestWithContext(context.Background(),
+				http.MethodGet, srv.URL+"/render-panic/", nil)
+			require.NoError(t, err, "building the request")
+			req.Header.Set("Datastar-Request", "true")
+			req.Header.Set("Accept-Encoding", coding)
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "GET /render-panic/")
+			defer func() { _ = resp.Body.Close() }()
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading body")
+
+			body := string(b)
+			require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
+			require.Empty(t, resp.Header.Get("Content-Encoding"))
+			require.Contains(t, body, "<!DOCTYPE html>")
+			require.NotContains(t, body, "event:", "RecoverError wrote into the page")
+			require.NotContains(t, body, "\x1f\x8b",
+				"a gzip stream was appended to the page")
+		})
+	}
+}
+
+// TestPanickingRecoverErrorRunsOnce tests that its panic is logged once with a stack.
+func TestPanickingRecoverErrorRunsOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, coding := range []string{"identity", "gzip"} {
+		t.Run(coding, func(t *testing.T) {
+			var log testlog.Buffer
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(log.Logger())))
+			t.Cleanup(srv.Close)
+
+			req, err := http.NewRequestWithContext(context.Background(),
+				http.MethodPost, srv.URL+"/recover-panic/", nil)
+			require.NoError(t, err, "building the request")
+			req.Header.Set("Datastar-Request", "true")
+			req.Header.Set("Accept-Encoding", coding)
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "POST /recover-panic/")
+			defer func() { _ = resp.Body.Close() }()
+			raw, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading body")
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			body := raw
+			if coding == "gzip" {
+				require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+				r := bytes.NewReader(raw)
+				zr, err := gzip.NewReader(r)
+				require.NoError(t, err, "reading the gzip header")
+				zr.Multistream(false)
+				body, err = io.ReadAll(zr)
+				require.NoError(t, err, "decoding the stream")
+				require.Zero(t, r.Len(), "the response holds more than 1 gzip member")
+			}
+			require.Empty(t, string(body), "RecoverError wrote after its panic")
+			log.RequireMatch(t, `^level=ERROR msg="recovered panic" `+
+				`handler=App\.RecoverError panic="RecoverError panicked" stack=`)
+		})
+	}
+}
+
+// TestFailedSubscribeDelaysReconnect tests the recovery stream's retry field.
+func TestFailedSubscribeDelaysReconnect(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(mustNewServer(t, &app.App{},
+		failingBroker{inmem.New(messaging.DefaultBrokerChanBuffer)}))
+	t.Cleanup(srv.Close)
+
+	status, body := getStream(t, srv, "/stream-panic/_$/")
+	require.Equal(t, http.StatusOK, status)
+	i := strings.Index(body, `<div id="toast">unknown</div>`)
+	require.GreaterOrEqual(t, i, 0, "RecoverError did not answer:\n%s", body)
+	require.Contains(t, body[i:], "retry: 5000",
+		"the reconnect delay does not follow the RecoverError event")
+}
+
+// failingBroker fails every subscription.
+type failingBroker struct{ messaging.Broker }
+
+func (failingBroker) Subscribe(
+	context.Context, messaging.Metrics, ...string,
+) (messaging.Subscription, error) {
+	return nil, errors.New("broker down")
 }
 
 // TestUnrecoveredActionErrorStillAnswers tests the case RecoverError itself

@@ -23,8 +23,6 @@ import (
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/getoptions/app"
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -59,26 +57,28 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -157,6 +157,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)
@@ -225,7 +226,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -283,12 +284,12 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageBackground,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageBackground,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageBackground stream")
 			var eventPing dpapp.EventPing
@@ -302,7 +303,7 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackground.OnPing", err)
 					}
@@ -399,12 +400,12 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageLive{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageLive,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageLive,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageLive stream")
 			var eventPing dpapp.EventPing
@@ -418,7 +419,7 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageLive.OnPing", err)
 					}
@@ -449,7 +450,10 @@ func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageMaybe.GET")
-	body, redirect, err := p.GET(r, query)
+	body, redirect, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMaybe.GET", err)
 		return
@@ -506,12 +510,12 @@ func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 	p := dpapp.PageNoRefresh{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageNoRefresh,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageNoRefresh,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageNoRefresh stream")
 			var eventPing dpapp.EventPing
@@ -525,7 +529,7 @@ func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageNoRefresh.OnPing", err)
 					}

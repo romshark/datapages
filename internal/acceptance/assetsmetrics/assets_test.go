@@ -434,8 +434,7 @@ func TestRefusedStreamStaysARequest(t *testing.T) {
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := srv.Client().Do(req)
 	require.NoError(t, err, "opening stream")
-	// 200: datastar.NewSSE writes the head before StreamOpen runs,
-	// which is why the refusal travels as an SSE error rather than a status.
+	// The stream commits 200 before StreamOpen can refuse it.
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// To EOF, not just Close: the middleware records after the handler returns,

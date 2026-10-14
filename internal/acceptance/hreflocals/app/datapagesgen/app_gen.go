@@ -16,12 +16,11 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/hreflocals/app"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -68,7 +67,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -212,7 +211,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -238,7 +237,10 @@ func (s pageExprHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageExpr.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageExpr.GET", err)
 		return
@@ -267,7 +269,10 @@ func (s pageExprHandlers) POSTRun(
 	p := dpapp.PageExpr{
 		App: s.app,
 	}
-	err := p.POSTRun(r, path)
+	err := p.POSTRun(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageExpr.Run", err)
 		return
@@ -307,7 +312,10 @@ func (s pageImportsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageImports.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageImports.GET", err)
 		return
@@ -361,7 +369,11 @@ func (s pageImportsHandlers) POSTSave(
 	p := dpapp.PageImports{
 		App: s.app,
 	}
-	err := p.POSTSave(r, path, query)
+	err := p.POSTSave(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageImports.Save", err)
 		return
@@ -415,7 +427,10 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
 		return
@@ -442,7 +457,10 @@ func (s pageLenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLen.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLen.GET", err)
 		return
@@ -477,7 +495,10 @@ func (s pageLocalsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLocals.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLocals.GET", err)
 		return
@@ -514,7 +535,10 @@ func (s pageLocalsHandlers) POSTSave(
 	p := dpapp.PageLocals{
 		App: s.app,
 	}
-	err := p.POSTSave(r, path)
+	err := p.POSTSave(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLocals.Save", err)
 		return
@@ -570,7 +594,11 @@ func (s pageMixHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageMix.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMix.GET", err)
 		return
@@ -624,7 +652,11 @@ func (s pageMixHandlers) POSTStore(
 	p := dpapp.PageMix{
 		App: s.app,
 	}
-	err := p.POSTStore(r, path, query)
+	err := p.POSTStore(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMix.Store", err)
 		return
@@ -651,7 +683,11 @@ func (s pageParamsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageParams.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageParams.GET", err)
 		return
@@ -682,7 +718,10 @@ func (s pageParamsHandlers) POSTSave(
 	p := dpapp.PageParams{
 		App: s.app,
 	}
-	err := p.POSTSave(r, path)
+	err := p.POSTSave(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageParams.Save", err)
 		return
@@ -713,7 +752,10 @@ func (s pageTagsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageTags.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageTags.GET", err)
 		return
@@ -751,7 +793,10 @@ func (s pageTagsHandlers) POSTSelect(
 	p := dpapp.PageTags{
 		App: s.app,
 	}
-	err := p.POSTSelect(r, query)
+	err := p.POSTSelect(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageTags.Select", err)
 		return

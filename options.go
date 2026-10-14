@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -95,6 +96,10 @@ type ServerConfig struct {
 	// FileSendTimeout is what [WithFileSendTimeout] carries.
 	// 0 selects httpserve.DefaultFileSendTimeout.
 	FileSendTimeout time.Duration
+
+	// SSECompression is what [WithSSECompression] carries.
+	// Nil selects the defaults of [SSECompressionConfig].
+	SSECompression *SSECompressionConfig
 
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
@@ -528,6 +533,162 @@ func WithFileSendTimeout(d time.Duration) ServerOption {
 	}
 }
 
+// SSECoding is a content coding an SSE response can be compressed with.
+type SSECoding string
+
+// The content codings of [SSECompressionConfig.Codings].
+const (
+	SSECodingZstd   SSECoding = "zstd"
+	SSECodingBrotli SSECoding = "br"
+	SSECodingGzip   SSECoding = "gzip"
+)
+
+// The defaults of [SSECompressionConfig].
+const (
+	DefaultSSEZstdLevel     = 1
+	DefaultSSEZstdWindow    = 1 << 20
+	DefaultSSEBrotliQuality = 4
+	DefaultSSEBrotliWindow  = 1 << 20
+	DefaultSSEGzipLevel     = 6
+)
+
+// SSECompressionConfig configures SSE compression. Its zero value selects the defaults.
+//
+// Each stream holds an encoder after its first event, so CPU and memory scale
+// with open streams. The defaults favor both over wire size; enlarging ZstdWindow
+// or preferring brotli trades both for fewer bytes. A fragment larger than its
+// window cannot reuse its previous render, so every update sends it at its full
+// compressed size. [SSECompressionLowMemory], [SSECompressionLowBandwidth] and
+// [SSECompressionLargeFragments] return presets for other trade-offs.
+// BenchmarkReRender in runtime/sse re-renders a 100 KB list with 1 item changed:
+//
+//	                              sent per re-render   heap per stream   time
+//	SSECompressionBalanced        1.0% of the list     1.6 MiB           1x
+//	SSECompressionLowMemory       3.0%                 0.9 MiB           0.9x
+//	SSECompressionLowBandwidth    0.06%                3.5 MiB           2.6x
+//	SSECompressionLargeFragments  0.33%                4.6 MiB           1.6x
+//	gzip, 32 KiB window           12.9%                1.0 MiB           3.8x
+type SSECompressionConfig struct {
+	// Disabled sends SSE responses uncompressed and ignores the other fields.
+	Disabled bool
+
+	// Codings lists the content codings a response may use, in the order the
+	// server prefers them. A response uses the first one its request accepts
+	// by name. A request that accepts none of them by name but accepts * gets
+	// gzip, when Codings lists it. * never selects zstd or brotli. Any other
+	// request gets an uncompressed response.
+	//
+	// The default is zstd, brotli and gzip.
+	Codings []SSECoding
+
+	// ZstdLevel is from 1 to 22. 0 selects [DefaultSSEZstdLevel].
+	// At level 10 and above, BenchmarkReRender in runtime/sse
+	// retains about 35 MiB per stream.
+	ZstdLevel int
+
+	// ZstdWindow is how far back zstd finds repeated data, a power of 2 from
+	// 1 KiB to 8 MiB. 0 selects [DefaultSSEZstdWindow]. See [RFC 9659].
+	//
+	// [RFC 9659]: https://www.rfc-editor.org/rfc/rfc9659
+	ZstdWindow int
+
+	// BrotliQuality is from 1 to 11. 0 selects [DefaultSSEBrotliQuality].
+	// At quality 9, BenchmarkReRender in runtime/sse
+	// retains about 38 MiB per stream.
+	BrotliQuality int
+
+	// BrotliWindow is how far back brotli finds repeated data, a power of 2
+	// from 1 KiB to 16 MiB. 0 selects [DefaultSSEBrotliWindow].
+	// See [RFC 7932 section 9.1].
+	//
+	// [RFC 7932 section 9.1]: https://www.rfc-editor.org/rfc/rfc7932#section-9.1
+	BrotliWindow int
+
+	// GzipLevel is from 1 to 9. 0 selects [DefaultSSEGzipLevel].
+	GzipLevel int
+}
+
+// SSECompressionBalanced returns the zero value, which selects zstd with 1 MiB windows.
+// It keeps CPU time and memory per stream low and sends more bytes
+// than brotli, for fragments up to about 1 MB.
+func SSECompressionBalanced() SSECompressionConfig { return SSECompressionConfig{} }
+
+// SSECompressionLowMemory returns 256 KiB windows, which halve the memory per stream.
+// Use it for many streams with fragments below about 100 KB. Larger ones send more bytes,
+// and those above 256 KiB their full compressed size in 2 to 4 times the time.
+func SSECompressionLowMemory() SSECompressionConfig {
+	return SSECompressionConfig{ZstdWindow: 256 << 10, BrotliWindow: 256 << 10}
+}
+
+// SSECompressionLowBandwidth prefers brotli, which sends the fewest bytes for
+// fragments up to about 1 MB, in about 3 times zstd's time and with 2 to 3 times
+// its memory per stream. Use it for few streams with slow or metered clients.
+func SSECompressionLowBandwidth() SSECompressionConfig {
+	return SSECompressionConfig{
+		Codings: []SSECoding{SSECodingBrotli, SSECodingZstd, SSECodingGzip},
+	}
+}
+
+// SSECompressionLargeFragments returns 4 MiB windows, which fragments above about
+// 1 MB need to reuse their previous render. For a 2 MB list, zstd then sends
+// 2% of it per re-render instead of 14% and runs faster,
+// but holds 3 times the memory per stream. brotli holds 14 MiB.
+func SSECompressionLargeFragments() SSECompressionConfig {
+	return SSECompressionConfig{ZstdWindow: 4 << 20, BrotliWindow: 4 << 20}
+}
+
+// WithSSECompression sets how SSE responses are compressed.
+//
+// By default, a response uses the first accepted coding among zstd, brotli and gzip.
+// A page's or an action's [StreamConfig] method replaces it.
+func WithSSECompression(conf SSECompressionConfig) ServerOption {
+	return func(c *ServerConfig) error {
+		if err := conf.Validate(); err != nil {
+			return fmt.Errorf("WithSSECompression: %w", err)
+		}
+		conf.Codings = slices.Clone(conf.Codings)
+		c.SSECompression = &conf
+		return nil
+	}
+}
+
+// Validate reports the first field of conf that [WithSSECompression] refuses.
+// A disabled conf is valid whatever its other fields hold.
+func (conf SSECompressionConfig) Validate() error {
+	if conf.Disabled {
+		return nil
+	}
+	for i, coding := range conf.Codings {
+		switch coding {
+		case SSECodingZstd, SSECodingBrotli, SSECodingGzip:
+		default:
+			return fmt.Errorf("unknown coding %q", coding)
+		}
+		if slices.Contains(conf.Codings[:i], coding) {
+			return fmt.Errorf("coding %q listed 2 times", coding)
+		}
+	}
+	switch {
+	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
+		return fmt.Errorf("zstd level (%d) must be from 1 to 22", conf.ZstdLevel)
+	case conf.ZstdWindow != 0 && !powerOf2In(conf.ZstdWindow, 1<<10, 8<<20):
+		return fmt.Errorf("zstd window (%d) must be a power of 2 from 1 KiB to 8 MiB",
+			conf.ZstdWindow)
+	case conf.BrotliQuality != 0 && (conf.BrotliQuality < 1 || conf.BrotliQuality > 11):
+		return fmt.Errorf("brotli quality (%d) must be from 1 to 11", conf.BrotliQuality)
+	case conf.BrotliWindow != 0 && !powerOf2In(conf.BrotliWindow, 1<<10, 16<<20):
+		return fmt.Errorf("brotli window (%d) must be a power of 2 from 1 KiB to 16 MiB",
+			conf.BrotliWindow)
+	case conf.GzipLevel != 0 && (conf.GzipLevel < 1 || conf.GzipLevel > 9):
+		return fmt.Errorf("gzip level (%d) must be from 1 to 9", conf.GzipLevel)
+	}
+	return nil
+}
+
+func powerOf2In(n, lo, hi int) bool {
+	return n >= lo && n <= hi && n&(n-1) == 0
+}
+
 // maxBuildIDLen limits IDs accepted by [WithBuildID].
 const maxBuildIDLen = 128
 
@@ -673,8 +834,8 @@ type StateConfig struct {
 	// A stream over the limit receives 503 with Retry-After. The generated page
 	// configures Datastar to retry the connection 10 times over about 3 minutes.
 	//
-	// Reaching the limit does not notify application code. Read 1 server's live
-	// count with
+	// Reaching the limit does not notify application code.
+	// Read 1 server's live count with
 	// [github.com/romshark/datapages/runtime/httpserve.Core.StateLiveInstances],
 	// which the generated server embeds. Servers built with [EnablePrometheus]
 	// also add their counts to the datapages_state_instances process gauge.

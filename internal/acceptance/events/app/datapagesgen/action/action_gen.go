@@ -170,6 +170,49 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var PageAdaptive pageAdaptive
+
+type pageAdaptive struct {
+	Adapt pageAdaptive_Adapt
+	Gzip  pageAdaptive_Gzip
+}
+
+type pageAdaptive_Adapt struct{}
+
+// POST references /adaptive/adapt/
+func (pageAdaptive_Adapt) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/adaptive/adapt/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/adaptive/adapt/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/adaptive/adapt/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageAdaptive_Gzip struct{}
+
+// POST references /adaptive/gzip/
+func (pageAdaptive_Gzip) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/adaptive/gzip/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/adaptive/gzip/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/adaptive/gzip/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PageChat pageChat
 
 type pageChat struct {

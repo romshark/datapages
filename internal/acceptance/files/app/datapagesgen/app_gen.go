@@ -20,8 +20,6 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/files/app"
 	"github.com/romshark/datapages/internal/acceptance/files/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/files/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -58,7 +56,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -242,7 +240,7 @@ func (s *Server) httpErr404(
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
@@ -262,10 +260,15 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
-		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		if httpserve.ResponseBodyWritten(w) {
+			// Events after a half-written response would land in its body.
+			return
+		}
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
+		defer sse.Close()
 	}
-	errRecover := s.app.RecoverError(err, dpsse.New(sse))
+	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
 		return
 	}
@@ -274,6 +277,23 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+}
+
+// callRecoverError converts a RecoverError panic into an error.
+func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", "App.RecoverError"),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		errRecover = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return s.app.RecoverError(err, sse)
 }
 
 func (s *Server) httpErrFile(
@@ -340,7 +360,11 @@ func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.Name = r.PathValue("name")
 	defer s.recoverPanicFile(w, r, "App.File")
-	file, err := s.app.GETFile(r, path, query)
+	file, err := s.app.GETFile(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrFile(w, r, "handling action App.File", err)
 		return
@@ -379,7 +403,10 @@ func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageDoc.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageDoc.GET", err)
 		return
@@ -405,7 +432,10 @@ func (s pageDocHandlers) GETExport(
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	file, err := p.GETExport(r, path)
+	file, err := p.GETExport(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrFile(w, r, "handling action PageDoc.Export", err)
 		return

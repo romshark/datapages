@@ -35,15 +35,21 @@ func (a *App) RecoverError(
 		kind = "not found"
 	case errors.Is(err, errUnrecoverable):
 		// Returning an error from RecoverError is how an application says it
-		// could not show anything. The server then falls back to a status.
+		// could not show anything. The server logs it and leaves the response
+		// as written, a 200 event stream here.
 		return errors.New("cannot render a toast for this")
+	case errors.Is(err, errRecoverPanics):
+		panic("RecoverError panicked")
 	}
 	return sse.PatchElement(
 		templ.Raw(`<div id="toast">` + kind + `</div>`),
 	)
 }
 
-var errUnrecoverable = errors.New("unrecoverable")
+var (
+	errUnrecoverable = errors.New("unrecoverable")
+	errRecoverPanics = errors.New("RecoverError panics on this")
+)
 
 // PageIndex is /
 type PageIndex struct{ App *App }
@@ -84,6 +90,22 @@ func (PageIndex) POSTPanic(_ *http.Request) error {
 	panic("the action panicked")
 }
 
+// POSTRecoverPanic is /recover-panic
+func (PageIndex) POSTRecoverPanic(_ *http.Request) error {
+	return errRecoverPanics
+}
+
+// POSTConfigPanic is /config-panic
+func (PageIndex) POSTConfigPanic(_ *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(`<div id="toast">ran</div>`))
+}
+
+func (PageIndex) StreamConfigPOSTConfigPanic(
+	_ *http.Request,
+) (datapages.StreamConfig, error) {
+	panic("the action stream config panicked")
+}
+
 // PagePanic is /panic-page
 type PagePanic struct{ App *App }
 
@@ -117,6 +139,13 @@ type PageStreamPanic struct{ App *App }
 
 func (PageStreamPanic) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">stream panic</pre>`), nil
+}
+
+func (PageStreamPanic) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	if r.URL.Query().Has("config-panic") {
+		panic("the stream config panicked")
+	}
+	return datapages.StreamConfig{}, nil
 }
 
 func (PageStreamPanic) StreamOpen(_ *http.Request, _ datapages.StreamID) error {

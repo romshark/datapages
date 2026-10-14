@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/events/app"
 	"github.com/romshark/datapages/internal/acceptance/events/app/datapagesgen"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -672,6 +674,199 @@ func (b *initializingBroker) InitStreams(subjects []string) error {
 	b.calls++
 	b.subjects = append([]string(nil), subjects...)
 	return b.err
+}
+
+// TestStreamConfigCompression tests page and server compression settings.
+func TestStreamConfigCompression(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		conf *datapages.SSECompressionConfig
+		want string
+	}{
+		"server's": {want: "zstd"},
+		"gzip only": {
+			conf: &datapages.SSECompressionConfig{
+				Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+			},
+			want: "gzip",
+		},
+		"disabled": {conf: &datapages.SSECompressionConfig{Disabled: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(mustNewServer(t,
+				&app.App{CompressedStream: tc.conf},
+				inmem.New(messaging.DefaultBrokerChanBuffer)))
+			t.Cleanup(srv.Close)
+			requireStream(t, srv.URL+"/compressed/_$/", nil, tc.want)
+			requireStream(t, srv.URL+"/other/_$/", nil, "zstd")
+		})
+	}
+}
+
+// TestStreamConfigFailsNewServer tests static configuration validation.
+func TestStreamConfigFailsNewServer(t *testing.T) {
+	t.Parallel()
+
+	_, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](&app.App{
+		CompressedStream: &datapages.SSECompressionConfig{ZstdWindow: 3},
+	}, inmem.New(messaging.DefaultBrokerChanBuffer))
+	require.EqualError(t, err, "PageCompressed.StreamConfig: compression: "+
+		"zstd window (3) must be a power of 2 from 1 KiB to 8 MiB")
+}
+
+// TestStreamConfigPerStream tests request-scoped settings and failures.
+func TestStreamConfigPerStream(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		query   string
+		header  http.Header
+		status  int
+		coding  string
+		logLine string
+	}{
+		"server's": {status: http.StatusOK, coding: "zstd"},
+		"save data": {
+			header: http.Header{"Save-Data": {"on"}},
+			status: http.StatusOK, coding: "gzip",
+		},
+		"error": {
+			query:  "?fail",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfig" ` +
+				`err="the stream configuration failed"`,
+		},
+		"refused": {
+			query:  "?invalid",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfig" ` +
+				`err="compression: zstd window (3) must be a power of 2 from 1 KiB to 8 MiB"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(log.Logger())))
+			t.Cleanup(srv.Close)
+
+			status, coding := streamResponse(t, srv.URL+"/adaptive/_$/"+tc.query, tc.header)
+			require.Equal(t, tc.status, status)
+			require.Equal(t, tc.coding, coding)
+			if tc.logLine != "" {
+				log.RequireLogged(t, tc.logLine)
+			}
+		})
+	}
+}
+
+// TestActionStreamConfig tests an action's static and request-scoped StreamConfig.
+func TestActionStreamConfig(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		path    string
+		header  http.Header
+		status  int
+		coding  string
+		logLine string
+	}{
+		"static":   {path: "/adaptive/gzip/", status: http.StatusOK, coding: "gzip"},
+		"server's": {path: "/adaptive/adapt/", status: http.StatusOK, coding: "zstd"},
+		"save data": {
+			path:   "/adaptive/adapt/",
+			header: http.Header{"Save-Data": {"on"}},
+			status: http.StatusOK, coding: "gzip",
+		},
+		"error": {
+			path:   "/adaptive/adapt/?fail",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfigPOSTAdapt" ` +
+				`err="the stream configuration failed"`,
+		},
+		"refused": {
+			path:   "/adaptive/adapt/?invalid",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfigPOSTAdapt" ` +
+				`err="compression: zstd window (3) ` +
+				`must be a power of 2 from 1 KiB to 8 MiB"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(log.Logger())))
+			t.Cleanup(srv.Close)
+
+			status, coding := actionResponse(t, srv.URL+tc.path, tc.header)
+			require.Equal(t, tc.status, status)
+			require.Equal(t, tc.coding, coding)
+			if tc.logLine != "" {
+				log.RequireLogged(t, tc.logLine)
+			}
+		})
+	}
+}
+
+// TestStreamConfigPath tests page route variables in StreamConfig.
+func TestStreamConfigPath(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	t.Cleanup(srv.Close)
+	requireStream(t, srv.URL+"/board/big/_$/", nil, "gzip")
+	requireStream(t, srv.URL+"/board/small/_$/", nil, "zstd")
+}
+
+// requireStream requires url to open with coding.
+func requireStream(t *testing.T, url string, header http.Header, coding string) {
+	t.Helper()
+	status, got := streamResponse(t, url, header)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, coding, got, "the coding of %s", url)
+}
+
+// streamResponse returns a stream's status and content coding.
+func streamResponse(t *testing.T, url string, header http.Header) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode, resp.Header.Get("Content-Encoding")
+}
+
+// actionResponse is streamResponse for an action.
+func actionResponse(t *testing.T, url string, header http.Header) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, nil)
+	require.NoError(t, err)
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode, resp.Header.Get("Content-Encoding")
 }
 
 // TestPageWithoutStream tests a page that handles no events.

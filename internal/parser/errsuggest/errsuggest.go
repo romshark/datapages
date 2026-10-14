@@ -92,6 +92,11 @@ func toSnakeCase(s string) string {
 //   - ErrSSEOnGET: message states where sse is not allowed
 //   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
 //   - ErrDisableRefreshNotGET: message states it must be in a GET handler
+//   - ErrStreamConfigSignature: message names the 2 accepted signatures
+//   - ErrStreamConfigNoStream: message names what gives a page a stream
+//   - ErrActionStreamConfigNoAction: message names the actions the type declares
+//   - ErrActionStreamConfigNoStream: message names what gives an action a stream
+//   - ErrActionStreamConfigInput: message states the constraint
 //   - ErrGETActionInput: message names the parameters a GET action takes
 //   - ErrGETActionNameConflict: message names both GET actions
 //   - ErrFileWithOutput: message states what may be returned with the file

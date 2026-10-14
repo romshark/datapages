@@ -22,6 +22,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/runtime/httpserve"
+	"github.com/romshark/datapages/runtime/sse"
 )
 
 // echoPath answers with the path it was routed with.
@@ -66,8 +67,8 @@ func TestServeHTTPNormalizesPath(t *testing.T) {
 	}
 }
 
-// TestServeHTTPKeepsAssetPaths tests the exception: a static file path keeps
-// the name it has on disk.
+// TestServeHTTPKeepsAssetPaths tests the exception:
+// a static file path keeps the name it has on disk.
 func TestServeHTTPKeepsAssetPaths(t *testing.T) {
 	t.Parallel()
 
@@ -275,8 +276,8 @@ func (r *readFromRecorder) ReadFrom(src io.Reader) (int64, error) {
 }
 
 // TestReadFromThroughServeHTTP tests io.Copy from a source that is not a file
-// into the writer Core.ServeHTTP wraps every response in. It copies through
-// a pooled buffer and allocates nothing per response.
+// into the writer Core.ServeHTTP wraps every response in.
+// It copies through a pooled buffer and allocates nothing per response.
 func TestReadFromThroughServeHTTP(t *testing.T) {
 	var allocs float64
 	c := mustCore(t, datapages.ServerConfig{}, "")
@@ -361,8 +362,8 @@ func TestLimitRequestBodyClosesTheConnection(t *testing.T) {
 }
 
 // TestSampledLogger tests the logger the framework's own repeated warnings go to.
-// They are written where a page renders, so 1 bad value in the
-// application would otherwise write a line per element per request.
+// They are written where a page renders, so 1 bad value in the application
+// would otherwise write a line per element per request.
 func TestSampledLogger(t *testing.T) {
 	t.Parallel()
 
@@ -646,13 +647,38 @@ func TestBuildHidesAssetDirectories(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		"root hidden":     {url: "/static/", wantStatus: http.StatusNotFound},
-		"subdir hidden":   {url: "/static/sub/", wantStatus: http.StatusNotFound},
-		"no slash hidden": {url: "/static/sub", wantStatus: http.StatusNotFound},
-		"file served":     {url: "/static/hello.txt", wantStatus: http.StatusOK, wantBody: "hello"},
-		"nested served":   {url: "/static/sub/nested.txt", wantStatus: http.StatusOK, wantBody: "nested"},
-		"root listed":     {browsable: true, url: "/static/", wantStatus: http.StatusOK, wantBody: "hello.txt"},
-		"subdir listed":   {browsable: true, url: "/static/sub/", wantStatus: http.StatusOK, wantBody: "nested.txt"},
+		"root hidden": {
+			url:        "/static/",
+			wantStatus: http.StatusNotFound,
+		},
+		"subdir hidden": {
+			url:        "/static/sub/",
+			wantStatus: http.StatusNotFound,
+		},
+		"no slash hidden": {
+			url:        "/static/sub",
+			wantStatus: http.StatusNotFound,
+		},
+		"file served": {
+			url:        "/static/hello.txt",
+			wantStatus: http.StatusOK,
+			wantBody:   "hello",
+		},
+		"nested served": {
+			url:        "/static/sub/nested.txt",
+			wantStatus: http.StatusOK,
+			wantBody:   "nested",
+		},
+		"root listed": {
+			browsable: true, url: "/static/",
+			wantStatus: http.StatusOK,
+			wantBody:   "hello.txt",
+		},
+		"subdir listed": {
+			browsable: true, url: "/static/sub/",
+			wantStatus: http.StatusOK,
+			wantBody:   "nested.txt",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -875,4 +901,83 @@ func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
 	}
 	t.Fatalf("no metric named %s", name)
 	return 0
+}
+
+// TestStreamCompression tests defaults, validation, errors and pool limits.
+func TestStreamCompression(t *testing.T) {
+	t.Parallel()
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	get := func(conf *datapages.SSECompressionConfig) *sse.Compression {
+		t.Helper()
+		comp, err := c.StreamCompression(datapages.StreamConfig{Compression: conf}, nil)
+		require.NoError(t, err)
+		return comp
+	}
+
+	require.Same(t, c.SSECompression(), get(nil))
+	require.Nil(t, get(&datapages.SSECompressionConfig{Disabled: true}))
+	require.Same(t,
+		get(&datapages.SSECompressionConfig{ZstdWindow: 4 << 20}),
+		get(&datapages.SSECompressionConfig{
+			ZstdWindow: 4 << 20, ZstdLevel: datapages.DefaultSSEZstdLevel,
+		}))
+
+	errMethod := errors.New("the method failed")
+	_, err := c.StreamCompression(datapages.StreamConfig{}, errMethod)
+	require.ErrorIs(t, err, errMethod)
+
+	_, err = c.StreamCompression(datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 3},
+	}, nil)
+	require.EqualError(t, err,
+		"compression: zstd window (3) must be a power of 2 from 1 KiB to 8 MiB")
+
+	// 1 configuration is shared already. 63 more fill the 64.
+	for i := range 63 {
+		get(&datapages.SSECompressionConfig{GzipLevel: 1 + i%9, ZstdLevel: 2 + i/9})
+	}
+	beyond := &datapages.SSECompressionConfig{BrotliQuality: 11}
+	require.NotSame(t, get(beyond), get(beyond))
+}
+
+// TestOpenSSECompression tests server compression negotiation.
+func TestOpenSSECompression(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		opts []datapages.ServerOption
+		want string // "" for no compression.
+	}{
+		"default": {want: "zstd"},
+		"disabled": {opts: []datapages.ServerOption{datapages.WithSSECompression(
+			datapages.SSECompressionConfig{Disabled: true},
+		)}},
+		"gzip only": {
+			opts: []datapages.ServerOption{datapages.WithSSECompression(
+				datapages.SSECompressionConfig{
+					Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+				},
+			)},
+			want: "gzip",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var cfg datapages.ServerConfig
+			for _, opt := range tc.opts {
+				require.NoError(t, opt(&cfg))
+			}
+			core, err := httpserve.NewCore(cfg, "")
+			require.NoError(t, err)
+
+			r := httptest.NewRequest(http.MethodGet, "/_$/", nil)
+			r.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+			w := httptest.NewRecorder()
+			s := core.OpenSSE(w, r)
+			s.Close()
+			require.NoError(t, s.Err())
+			require.Equal(t, tc.want, w.Header().Get("Content-Encoding"))
+		})
+	}
 }

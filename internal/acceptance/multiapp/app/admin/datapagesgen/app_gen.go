@@ -27,7 +27,6 @@ import (
 	dpEvents "github.com/romshark/datapages/internal/acceptance/multiapp/events"
 
 	"github.com/romshark/datapages/runtime/prom"
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -73,26 +72,28 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -171,6 +172,7 @@ func (s *Server) Init(
 		nil,
 		prom.StreamMetrics{},
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)
@@ -234,7 +236,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -290,12 +292,12 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageIndex,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventReport dpapp.EventReport
@@ -310,7 +312,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnReport(
 						eventReport,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageIndex.OnReport", err)
 					}
@@ -322,7 +324,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnAnnouncement(
 						eventAnnouncement,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageIndex.OnAnnouncement", err)
 					}
@@ -341,7 +343,7 @@ func (s pageIndexHandlers) POSTAnnounce(
 	var signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -351,7 +353,11 @@ func (s pageIndexHandlers) POSTAnnounce(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTAnnounce(r, signals, dispatchAnnouncement)
+	err := p.POSTAnnounce(
+		r,
+		signals,
+		dispatchAnnouncement,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Announce", err)
 		return
@@ -368,7 +374,7 @@ func (s pageIndexHandlers) POSTReport(
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -378,7 +384,11 @@ func (s pageIndexHandlers) POSTReport(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTReport(r, signals, dispatchReport)
+	err := p.POSTReport(
+		r,
+		signals,
+		dispatchReport,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Report", err)
 		return

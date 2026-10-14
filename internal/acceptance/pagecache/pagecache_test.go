@@ -13,6 +13,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/offline"
@@ -178,6 +179,41 @@ func TestAppLevelActionFlushesOverAStream(t *testing.T) {
 		"the entry carries the rendered body")
 }
 
+// TestAppLevelActionStreamConfig tests an App action's static and
+// request-scoped StreamConfig.
+func TestAppLevelActionStreamConfig(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	for name, tc := range map[string]struct {
+		path     string
+		saveData bool
+		coding   string
+	}{
+		"server's":  {path: "/app-precache/", coding: "zstd"},
+		"save data": {path: "/app-precache/", saveData: true, coding: "gzip"},
+		"static":    {path: "/app-precache-fail/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			req, err := http.NewRequestWithContext(context.Background(),
+				http.MethodPost, c.URL()+tc.path, nil)
+			require.NoError(t, err, "building POST %s", tc.path)
+			req.Header.Set("Datastar-Request", "true")
+			req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+			if tc.saveData {
+				req.Header.Set("Save-Data", "on")
+			}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err, "POST %s", tc.path)
+			_ = resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Contains(t, resp.Header.Get("Content-Type"), "text/event-stream")
+			require.Equal(t, tc.coding, resp.Header.Get("Content-Encoding"))
+		})
+	}
+}
+
 func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -249,9 +285,7 @@ func TestShimKeepsItsQuery(t *testing.T) {
 			" lets it answer one whose prefetch it lost")
 }
 
-// TestPageCacheVariesByHeldVersion tests that a page whose handler reads the
-// held version declares it, which keeps a shared cache from serving one
-// client's copy and its embedded write to another.
+// TestPageCacheVariesByHeldVersion tests Vary on page and stream responses.
 func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -259,6 +293,31 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	require.Equal(t, "X-Datapages-Offline-Version", c.Get(t, "/").Header.Get("Vary"))
 	require.Empty(t, c.Get(t, "/offline/").Header.Get("Vary"),
 		"a page that never touches the cache does not vary")
+	require.Contains(t,
+		c.Action(t, http.MethodPost, "/stream-write/", "").Header.Values("Vary"),
+		"X-Datapages-Offline-Version")
+}
+
+// TestFailingCachedBodyIsLogged tests render failures in action delivery paths.
+func TestFailingCachedBodyIsLogged(t *testing.T) {
+	t.Parallel()
+	for name, path := range map[string]string{
+		"own stream": "/stream-write-fail/",
+		"new stream": "/app-precache-fail/",
+		"redirect":   "/redirect-write-fail/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			c := newClient(t, datapages.WithLogger(log.Logger()))
+
+			resp := c.Action(t, http.MethodPost, path, "")
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.NotContains(t, resp.Body, applyType)
+			log.RequireLogged(t, `level=ERROR msg="rendering page cache writes" `+
+				`err="rendering page cache body for /: the cached body failed"`)
+		})
+	}
 }
 
 // TestBranchingActionDeliversOnBothPaths tests an action that picks between a
