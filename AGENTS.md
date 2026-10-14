@@ -57,7 +57,7 @@ Internal, used by the CLI and build tooling:
 
 Public, imported by application or generated code:
 
-- root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds every server option: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. None are generated.
+- root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds the server options of the root package: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. The others are `offline.WithServiceWorker` and the generated `WithOffline`, which passes it the route of `PageOffline`.
 - `cmd/datapages/` - the shipped binary.
 - `modules/` - pluggable modules: csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
