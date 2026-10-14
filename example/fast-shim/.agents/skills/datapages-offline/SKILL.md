@@ -80,7 +80,7 @@ Style offline state in CSS, no Go code:
 
 Register a compressing middleware before `WithOffline`. Middleware runs in the order it is given, and the offline middleware rewrites the HTML it receives. A response that already carries a `Content-Encoding` passes through unchanged, which leaves the page without the worker registration.
 
-Offline support writes inline scripts: the connectivity script, the worker registration and queued cache writes. Each script uses the nonce from `WithCSPNonce`. `WithOffline` reads the nonce when each request arrives, independent of option order. Set `offline.Config.CSPNonce` to use a different nonce for these scripts.
+Offline support writes inline scripts: the connectivity script, the worker registration and queued cache writes. Each script uses the nonce from `WithCSPNonce`. `WithOffline` reads the nonce when each request arrives, independent of option order. Set `offline.Config.CSPNonce` to use a different nonce for the connectivity and registration scripts. The queued cache writes always use the nonce from `WithCSPNonce`.
 
 When `offline.Config.CSPNonce` is nil, `offline.WithServiceWorker` uses the nonce from `WithCSPNonce`. Calling `offline.Middleware` through `datapages.WithMiddleware` does not copy the server nonce. A nonce-only policy blocks the middleware scripts.
 
@@ -199,4 +199,4 @@ An action that takes `datapages.PageCacheWriter` answers 406 to a request withou
 
 `newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. Navigation waits up to 500ms for the worker to apply `ClearAll` before loading the destination.
 
-<!-- written by datapages sha256:f280ee617728abba -->
+<!-- written by datapages sha256:cd5530e64bd5ef73 -->
