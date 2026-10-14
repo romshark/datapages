@@ -22,7 +22,7 @@ What the generated server provides:
 
 What is the responsibility of the application or of the deployment instead. A report about one of these is a feature request rather than a vulnerability.
 
-- **Volumetric abuse.** Nothing is metered per IP or per client. `MaxConcurrentInstances` bounds per-tab state for the whole process and nothing else is counted. An instance lives no longer than its stream, which leaves a per-client connection limit bounding how many 1 client can hold. Put one in front of the server. `SPECIFICATION.md` explains how middleware caps instances per session.
+- **Volumetric abuse.** Nothing is metered per IP or per client. `MaxConcurrentInstances` bounds per-tab state for each server, and nothing else is counted. An instance lives no longer than its stream, which leaves a per-client connection limit bounding how many 1 client can hold. Put one in front of the server. `SPECIFICATION.md` explains how middleware caps instances per session.
 - **Request bodies a handler reads.** A handler that reads `r.Body` itself gets no size limit. Wrap the body in `http.MaxBytesReader`.
 - **Authorization.** The framework routes a request and hands the handler its session. What that session may see or change is the application's decision.
 - **Cross-site scripting.** `templ` escapes the values a template interpolates into text and into attributes. 2 places need more than that. `templ.Raw` writes markup verbatim. A value interpolated into a Datastar attribute lands inside a JavaScript expression, where the browser decodes the HTML escaping before the expression is parsed. Both are the application's to get right.

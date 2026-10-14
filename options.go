@@ -831,8 +831,8 @@ type StateConfig struct {
 	// across all state types. A stream allocates 1 instance before it opens and
 	// releases it when it closes. Each server keeps its own count.
 	//
-	// A stream over the limit receives 503 with Retry-After. The generated page
-	// configures Datastar to retry the connection 10 times over about 3 minutes.
+	// A stream over the limit receives 503 with Retry-After.
+	// The generated page retries the connection without a limit, up to 30s apart.
 	//
 	// Reaching the limit does not notify application code.
 	// Read 1 server's live count with
