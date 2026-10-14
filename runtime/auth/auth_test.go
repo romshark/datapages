@@ -9,6 +9,9 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -570,6 +573,25 @@ func TestWriteCSRFScriptFromSessionCookie(t *testing.T) {
 				"the script token does not match the session cookie")
 		})
 	}
+}
+
+// TestCSRFScriptOrigin tests that the script of [auth.Manager.WriteCSRFScript]
+// adds the token to the state-changing Datastar fetches to the page's origin only.
+// testdata/csrf_script_test.mjs runs the script in Node.
+func TestCSRFScriptOrigin(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	m := auth.NewManager(testServer{}, newStore(), datapages.ServerConfig{}, nil)
+	var b strings.Builder
+	require.NoError(t, m.WriteCSRFScript(&b, "tok", ""))
+	script := filepath.Join(t.TempDir(), "csrf.html")
+	require.NoError(t, os.WriteFile(script, []byte(b.String()), 0o644))
+
+	out, err := exec.CommandContext(t.Context(),
+		node, "testdata/csrf_script_test.mjs", script).CombinedOutput()
+	require.NoError(t, err, "%s", out)
 }
 
 // TestCheckCSRFMethods tests which methods need the token of a signed-in visitor.
