@@ -386,9 +386,10 @@ type appUsage struct {
 	// stream: func (s *Server) handleStreamRequest(...)
 	stream bool
 	// streamAuth: whether any stream handler needs auth (page has private events).
-	streamAuth  bool
-	pageCache   bool
-	offlinePage bool
+	streamAuth   bool
+	streamConfig bool
+	pageCache    bool
+	offlinePage  bool
 	// stateRuntime: whether any page (including via stream embeds)
 	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
@@ -443,6 +444,9 @@ func computeAppUsage(m *model.App) appUsage {
 			u.stream = true
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
+			}
+			if streamConfigPerStream(p) {
+				u.streamConfig = true
 			}
 		}
 		for _, h := range p.Actions {

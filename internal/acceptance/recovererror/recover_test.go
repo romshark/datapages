@@ -46,6 +46,22 @@ func post(t *testing.T, srv *httptest.Server, path string) (int, string) {
 	return resp.StatusCode, string(b)
 }
 
+func getStream(t *testing.T, srv *httptest.Server, path string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+path, nil,
+	)
+	require.NoError(t, err, "building GET %s", path)
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "GET %s", path)
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading %s", path)
+	return resp.StatusCode, string(b)
+}
+
 // TestRecoveredActionErrors tests a failed action of a Datastar request.
 // The visitor is shown what RecoverError rendered and the request itself succeeds.
 // Nothing navigates to a status page here, and nothing would read a status.
@@ -103,20 +119,26 @@ func TestRecoveredPanics(t *testing.T) {
 	// A panic in StreamOpen reaches RecoverError instead of aborting the  connection.
 	t.Run("stream open", func(t *testing.T) {
 		srv := newServer(t)
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodGet, srv.URL+"/stream-panic/_$/", nil)
-		require.NoError(t, err, "building the stream request")
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Accept-Encoding", "identity")
-		resp, err := srv.Client().Do(req)
-		require.NoError(t, err, "GET the stream")
-		defer func() { _ = resp.Body.Close() }()
-		b, err := io.ReadAll(resp.Body)
-		require.NoError(t, err, "reading the stream")
-
-		require.Contains(t, string(b), `<div id="toast">panic</div>`)
-		require.NotContains(t, string(b), "the stream open hook panicked",
+		_, body := getStream(t, srv, "/stream-panic/_$/")
+		require.Contains(t, body, `<div id="toast">panic</div>`)
+		require.NotContains(t, body, "the stream open hook panicked",
 			"the panic value reached the client")
+	})
+
+	// A request-scoped StreamConfig panic reaches RecoverError and logs its stack.
+	t.Run("stream config", func(t *testing.T) {
+		var log testlog.Buffer
+		srv := httptest.NewServer(mustNewServer(t, &app.App{},
+			inmem.New(messaging.DefaultBrokerChanBuffer),
+			datapages.WithLogger(log.Logger())))
+		t.Cleanup(srv.Close)
+		_, body := getStream(t, srv, "/stream-panic/_$/?config-panic")
+		require.Contains(t, body, `<div id="toast">panic</div>`)
+		require.NotContains(t, body, "the stream config panicked",
+			"the panic value reached the client")
+		log.RequireMatch(t, `^level=ERROR msg="recovered panic" `+
+			`handler=PageStreamPanic\.StreamConfig `+
+			`panic="the stream config panicked" stack=`)
 	})
 
 	t.Run("page load", func(t *testing.T) {
@@ -212,19 +234,8 @@ func TestFailedSubscribeDelaysReconnect(t *testing.T) {
 		failingBroker{inmem.New(messaging.DefaultBrokerChanBuffer)}))
 	t.Cleanup(srv.Close)
 
-	req, err := http.NewRequestWithContext(context.Background(),
-		http.MethodGet, srv.URL+"/stream-panic/_$/", nil)
-	require.NoError(t, err, "building the stream request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := srv.Client().Do(req)
-	require.NoError(t, err, "GET the stream")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the stream")
-
-	body := string(b)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	status, body := getStream(t, srv, "/stream-panic/_$/")
+	require.Equal(t, http.StatusOK, status)
 	i := strings.Index(body, `<div id="toast">unknown</div>`)
 	require.GreaterOrEqual(t, i, 0, "RecoverError did not answer:\n%s", body)
 	require.Contains(t, body[i:], "retry: 5000",

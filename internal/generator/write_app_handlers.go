@@ -2265,9 +2265,12 @@ func (w *Writer) writeStreamConfigCall(p *model.Page) {
 			args = append(args, "streamConfigSignals")
 		}
 	}
-	w.Raw("\tcompression, err := s.StreamCompression(")
+	w.Line(1, "compression, err := s.StreamCompression(s.callStreamConfig(")
+	w.Linef(2, "%q,", p.TypeName+".StreamConfig")
+	w.Raw("\t\tfunc() (datapages.StreamConfig, error) { return ")
 	w.writeCallExpr("p", "StreamConfig", args)
-	w.Raw(")\n")
+	w.Raw(" },\n")
+	w.Line(1, "))")
 	w.Line(1, "if err != nil {")
 	w.Linef(2, "s.streams.Fail(w, r, s.SSECompression(), %q, err)",
 		"handling "+p.TypeName+".StreamConfig")

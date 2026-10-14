@@ -53,6 +53,9 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 		w.writeAppHandleStreamRequest()
 	}
 	w.writeRecoverPanic(m)
+	if w.usage.streamConfig {
+		w.writeCallStreamConfig()
+	}
 	w.writeAppServerStruct(m, appPkg)
 	w.writeAppInit(m, appPkg)
 	w.writeEventSubjectConsts(m.Events)
@@ -1634,6 +1637,29 @@ func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover erro
 		}
 	}
 	w.Raw(`)
+}
+`)
+}
+
+// writeCallStreamConfig keeps recovery from covering later stream panics.
+func (w *Writer) writeCallStreamConfig() {
+	w.Raw(`
+func (s *Server) callStreamConfig(
+	handler string, fn func() (datapages.StreamConfig, error),
+) (conf datapages.StreamConfig, err error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", handler),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		err = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return fn()
 }
 `)
 }

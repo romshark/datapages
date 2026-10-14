@@ -61,6 +61,7 @@ func TestNegotiate(t *testing.T) {
 		"none":                      {nil, ""},
 		"empty":                     {[]string{""}, ""},
 		"identity":                  {[]string{"identity"}, ""},
+		"identity refused":          {[]string{"identity;q=0, *;q=0"}, ""},
 		"deflate only":              {[]string{"deflate"}, ""},
 		"browser":                   {[]string{"gzip, deflate, br, zstd"}, "zstd"},
 		"without zstd":              {[]string{"gzip, deflate, br"}, "br"},

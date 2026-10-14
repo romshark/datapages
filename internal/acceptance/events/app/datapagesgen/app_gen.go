@@ -94,6 +94,24 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+func (s *Server) callStreamConfig(
+	handler string, fn func() (datapages.StreamConfig, error),
+) (conf datapages.StreamConfig, err error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", handler),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		err = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return fn()
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker                   messaging.Broker
@@ -386,7 +404,10 @@ func (s pageAdaptiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 	p := dpapp.PageAdaptive{
 		App: s.app,
 	}
-	compression, err := s.StreamCompression(p.StreamConfig(r))
+	compression, err := s.StreamCompression(s.callStreamConfig(
+		"PageAdaptive.StreamConfig",
+		func() (datapages.StreamConfig, error) { return p.StreamConfig(r) },
+	))
 	if err != nil {
 		s.streams.Fail(w, r, s.SSECompression(), "handling PageAdaptive.StreamConfig", err)
 		return
@@ -472,7 +493,10 @@ func (s pageBoardHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageBoard{
 		App: s.app,
 	}
-	compression, err := s.StreamCompression(p.StreamConfig(r, path))
+	compression, err := s.StreamCompression(s.callStreamConfig(
+		"PageBoard.StreamConfig",
+		func() (datapages.StreamConfig, error) { return p.StreamConfig(r, path) },
+	))
 	if err != nil {
 		s.streams.Fail(w, r, s.SSECompression(), "handling PageBoard.StreamConfig", err)
 		return

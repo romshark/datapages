@@ -195,8 +195,12 @@ func (c *coding) put(e *pooledEncoder) {
 	c.pool.Put(e)
 }
 
-// negotiate returns the first coding of c that the Accept-Encoding
-// values accept, nil for none. A wildcard enables gzip only.
+// negotiate returns the first configured coding accepted by values, or nil for identity.
+// Configuration order wins over weights and a wildcard enables gzip.
+// Identity refusal is ignored rather than returning 406,
+// as [RFC 9110 section 12.1] permits.
+//
+// [RFC 9110 section 12.1]: https://www.rfc-editor.org/rfc/rfc9110#section-12.1
 func (c *Compression) negotiate(values []string) *coding {
 	if c == nil {
 		return nil

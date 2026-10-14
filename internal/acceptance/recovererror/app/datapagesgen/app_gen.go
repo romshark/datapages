@@ -106,6 +106,24 @@ func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+func (s *Server) callStreamConfig(
+	handler string, fn func() (datapages.StreamConfig, error),
+) (conf datapages.StreamConfig, err error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", handler),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		err = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return fn()
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -563,7 +581,15 @@ func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Reques
 	p := dpapp.PageStreamPanic{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageStreamPanic,
+	compression, err := s.StreamCompression(s.callStreamConfig(
+		"PageStreamPanic.StreamConfig",
+		func() (datapages.StreamConfig, error) { return p.StreamConfig(r) },
+	))
+	if err != nil {
+		s.streams.Fail(w, r, s.SSECompression(), "handling PageStreamPanic.StreamConfig", err)
+		return
+	}
+	s.handleStreamRequest(w, r, compression, evSubjPageStreamPanic,
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,

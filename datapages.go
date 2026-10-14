@@ -547,11 +547,10 @@ type FileDisposition struct {
 	Filename string
 }
 
-// PanicError is the error a recovered panic is reported as. A panic in GET,
-// an action or StreamOpen takes the path of an error the handler returns,
-// to RecoverError or the error page. A panic in an OnXXX handler reaches
-// RecoverError too, although an error it returns is only logged.
-// A panic in StreamClose is only logged.
+// PanicError reports a recovered handler panic. A panic in GET, an action,
+// request-scoped StreamConfig or StreamOpen follows the returned-error path to
+// RecoverError or the error page. An OnXXX panic also reaches RecoverError.
+// A StreamClose panic is only logged.
 type PanicError struct {
 	// Value is what the panic carried.
 	Value any

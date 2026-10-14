@@ -130,6 +130,13 @@ func (PageStreamPanic) GET(_ *http.Request) (body datapages.Component, err error
 	return templ.Raw(`<pre id="echo">stream panic</pre>`), nil
 }
 
+func (PageStreamPanic) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	if r.URL.Query().Has("config-panic") {
+		panic("the stream config panicked")
+	}
+	return datapages.StreamConfig{}, nil
+}
+
 func (PageStreamPanic) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
 	panic("the stream open hook panicked")
 }
