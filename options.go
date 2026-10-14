@@ -315,8 +315,8 @@ func WithAssets(fsys embed.FS, browsable bool) ServerOption {
 }
 
 // WithAssetsFS serves static files from fsys, overriding [WithAssets].
-// It takes the file system as it is, applying nothing the app package declared:
-// no subdirectory is extracted and dev mode changes nothing.
+// It serves fsys as it is. No subdirectory is extracted, and dev mode reads no
+// other directory. Dev mode still sends every file with Cache-Control: no-cache.
 //
 // browsable true lists a directory that has no index.html, false returns 404.
 // Pass browsable=false in production to avoid exposing every embedded file.
