@@ -553,8 +553,18 @@ const (
 )
 
 // SSECompressionConfig configures SSE compression. Its zero value selects the defaults.
-// A stream holds its encoder from its first event until it ends.
-// High levels can retain tens of MiB per stream.
+//
+// Each stream holds an encoder after its first event, so CPU and memory scale
+// with open streams. The defaults favor both over wire size; enlarging ZstdWindow
+// or preferring brotli trades both for fewer bytes. A fragment larger than its
+// window cannot reuse its previous render.
+// BenchmarkReRender in runtime/sse re-renders a 100 KB list with 1 item changed:
+//
+//	                         sent per re-render   heap per stream   time
+//	defaults (zstd)          1.0% of the list     1.6 MiB           1x
+//	ZstdWindow: 4 << 20      0.33%                4.6 MiB           1.5x
+//	brotli first in Codings  0.06%                3.5 MiB           3x
+//	gzip, 32 KiB window      12.9%                1.0 MiB           3.5x
 type SSECompressionConfig struct {
 	// Disabled sends SSE responses uncompressed and ignores the other fields.
 	Disabled bool
@@ -573,8 +583,8 @@ type SSECompressionConfig struct {
 	// retains about 35 MiB per stream.
 	ZstdLevel int
 
-	// ZstdWindow is a power of 2 from 1 KiB to 8 MiB.
-	// 0 selects [DefaultSSEZstdWindow]. See [RFC 9659].
+	// ZstdWindow is how far back zstd finds repeated data, a power of 2 from
+	// 1 KiB to 8 MiB. 0 selects [DefaultSSEZstdWindow]. See [RFC 9659].
 	//
 	// [RFC 9659]: https://www.rfc-editor.org/rfc/rfc9659
 	ZstdWindow int
@@ -584,8 +594,9 @@ type SSECompressionConfig struct {
 	// retains about 38 MiB per stream.
 	BrotliQuality int
 
-	// BrotliWindow is a power of 2 from 1 KiB to 16 MiB.
-	// 0 selects [DefaultSSEBrotliWindow]. See [RFC 7932 section 9.1].
+	// BrotliWindow is how far back brotli finds repeated data, a power of 2
+	// from 1 KiB to 16 MiB. 0 selects [DefaultSSEBrotliWindow].
+	// See [RFC 7932 section 9.1].
 	//
 	// [RFC 7932 section 9.1]: https://www.rfc-editor.org/rfc/rfc7932#section-9.1
 	BrotliWindow int

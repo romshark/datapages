@@ -54,7 +54,7 @@ opts = append(opts,
 )
 ```
 
-`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at 0 because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends a blocked file response after 1 minute by default. `WithSSECompression` sets the permitted codings, preference order, levels and windows. The default order is zstd, brotli and gzip. `Disabled` turns compression off. A page's `StreamConfig` overrides it for that page.
+`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at 0 because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends a blocked file response after 1 minute by default. `WithSSECompression` sets the codings, order, levels and windows; the default order is zstd, brotli and gzip. CPU and memory scale with stream count. With few streams and slow or metered clients, enlarge `ZstdWindow` or prefer brotli to trade CPU and memory for fewer bytes. `Disabled` turns compression off. A page's `StreamConfig` overrides it for that page.
 
 `WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
@@ -116,4 +116,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:f30602661e38520a -->
+<!-- written by datapages sha256:13e0cad9284d8ce1 -->

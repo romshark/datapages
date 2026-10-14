@@ -251,6 +251,8 @@ func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
 }
 ```
 
+A 4 MiB zstd window sends about 1/3 as much per 100 KB list re-render and holds about 3 times as much memory as the default.
+
 `Compression` overrides `datapages.WithSSECompression` for the page's `_$/` and `_$/anon/` stream endpoints. Nil uses the server configuration. Page actions use the server configuration. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
 
 #### GET Actions
@@ -535,6 +537,8 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 `PatchElementAt` and `RemoveElement` reject selectors containing `\r` or `\n` with `datapages.ErrSelectorLineBreak`.
 
 By default, an SSE response uses the first coding explicitly accepted by the request in the order zstd, brotli, gzip. A wildcard selects gzip only. If no configured coding is accepted, the response is uncompressed. The default zstd and brotli windows are 1 MiB.
+
+Each stream has an encoder, so CPU and memory scale with open streams. The defaults minimize both but send more bytes; [`datapages.SSECompressionConfig`](options.go) compares alternatives.
 
 `datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
 
