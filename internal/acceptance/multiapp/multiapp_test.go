@@ -108,6 +108,7 @@ func requestsTotal(t *testing.T) float64 {
 // TestAdminCarriesNoSessions tests the admin server against the option its
 // type arguments do not ask for. The generated Init rejects a session manager
 // by name, which only an app package declaring no session type is given.
+// The error uses the name the app package declares.
 func TestAdminCarriesNoSessions(t *testing.T) {
 	t.Parallel()
 	s, err := datapages.NewServer[
@@ -123,8 +124,8 @@ func TestAdminCarriesNoSessions(t *testing.T) {
 			),
 		))
 	require.Nil(t, s)
-	require.ErrorContains(t, err, "unexpected option WithSessionManager")
-	require.ErrorContains(t, err, "declares no session type")
+	require.ErrorContains(t, err, "unexpected option WithSessionManager: "+
+		"package admin declares no session type")
 }
 
 // TestAdminRequiresItsPrometheusConfig tests the admin server without the

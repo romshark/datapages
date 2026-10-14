@@ -149,6 +149,7 @@ Run `datapages gen` to apply these.
 - Log errors from bodies passed to `PageCacheWriter.Set` or `SetShim` when rendering an action's event stream or redirect script.
 - Log the stack of a panic in `StreamOpen`, as for a panic in `GET`, an action or `OnXXX`. The log previously held only the panic value.
 - Stop sending a page cache entry again on every load when its version is above 2^53, such as a 64-bit hash.
+- Use the app package's own name in the error `datapages.NewServer` returns for an unexpected `WithSessionManager`, and in the example of `Init`. Both said `dpapp`, an alias internal to the generated code.
 
 #### Runtime and modules
 

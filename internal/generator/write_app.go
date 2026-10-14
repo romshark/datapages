@@ -747,10 +747,12 @@ func (w *Writer) writeAppInit(m *model.App, appPkg string) {
 // which is the only way to construct a Server:
 //
 //	s, err := datapages.NewServer[`)
-	w.Raw(appPkg)
+	// The call is in the application's code, which names a package as it
+	// declares itself rather than by the alias app_gen.go imports it under.
+	w.Raw(m.PkgName)
 	w.Raw(`.App, `)
 	if w.usage.hasSession {
-		w.Raw(w.sessionDataType)
+		w.Raw(types.TypeString(m.Session.Data.Resolved, (*types.Package).Name))
 	} else {
 		w.Raw(`datapages.DisableSessions`)
 	}
@@ -806,7 +808,7 @@ func (s *Server) Init(
 	if !w.usage.hasSession {
 		w.Raw(`	if sessionManager != nil {
 		return errors.New("unexpected option WithSessionManager: package `)
-		w.Raw(appPkg)
+		w.Raw(m.PkgName)
 		w.Raw(` declares no session type")
 	}
 `)

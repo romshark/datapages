@@ -139,7 +139,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, dpStream.SessionData, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, stream.SessionData, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
