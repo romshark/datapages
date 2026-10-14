@@ -554,6 +554,7 @@ const (
 
 // SSECompressionConfig configures SSE compression. Its zero value selects the defaults.
 // A stream holds its encoder from its first event until it ends.
+// High levels can retain tens of MiB per stream.
 type SSECompressionConfig struct {
 	// Disabled sends SSE responses uncompressed and ignores the other fields.
 	Disabled bool
@@ -568,6 +569,8 @@ type SSECompressionConfig struct {
 	Codings []SSECoding
 
 	// ZstdLevel is from 1 to 22. 0 selects [DefaultSSEZstdLevel].
+	// At level 10 and above, BenchmarkReRender in runtime/sse
+	// retains about 35 MiB per stream.
 	ZstdLevel int
 
 	// ZstdWindow is a power of 2 from 1 KiB to 8 MiB.
@@ -577,6 +580,8 @@ type SSECompressionConfig struct {
 	ZstdWindow int
 
 	// BrotliQuality is from 1 to 11. 0 selects [DefaultSSEBrotliQuality].
+	// At quality 9, BenchmarkReRender in runtime/sse
+	// retains about 38 MiB per stream.
 	BrotliQuality int
 
 	// BrotliWindow is a power of 2 from 1 KiB to 16 MiB.
