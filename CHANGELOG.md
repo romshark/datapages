@@ -148,6 +148,7 @@ Run `datapages gen` to apply these.
 - Send `Vary: X-Datapages-Offline-Version` before opening an SSE response from an action that takes `datapages.PageCacheWriter`.
 - Log errors from bodies passed to `PageCacheWriter.Set` or `SetShim` when rendering an action's event stream or redirect script.
 - Log the stack of a panic in `StreamOpen`, as for a panic in `GET`, an action or `OnXXX`. The log previously held only the panic value.
+- Stop sending a page cache entry again on every load when its version is above 2^53, such as a 64-bit hash.
 
 #### Runtime and modules
 
@@ -171,6 +172,7 @@ Run `datapages gen` to apply these.
 - Abort SSE writes blocked on clients during graceful shutdown. They previously held shutdown until its timeout, skipped `StreamClose`, and could race with net/http cleanup.
 - Stop `offline.Middleware` from logging `http: superfluous response.WriteHeader call` for each SSE response.
 - Stop `offline.Middleware` from adding its scripts to a range response, status 206, of an HTML file, such as a static asset that a download manager resumes. The body was longer than its `Content-Range` said, and the saved file was corrupt.
+- Stop rounding an `offline.Config.WorkerVersion` above 2^53 in the browser. A version rounded down added the registration script to every page.
 
 #### `datapages init`
 

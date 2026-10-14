@@ -300,7 +300,8 @@ func (c *pageCacheWriter) ClearAll() { c.clearAll = true }
 type pageCacheEntry struct {
 	URL     string ` + "`json:\"url\"`" + `
 	HTML    string ` + "`json:\"html\"`" + `
-	Version uint64 ` + "`json:\"version\"`" + `
+	// A string, since JS rounds numbers above 2^53.
+	Version uint64 ` + "`json:\"version,string\"`" + `
 	Shim    bool   ` + "`json:\"shim,omitempty\"`" + `
 }
 

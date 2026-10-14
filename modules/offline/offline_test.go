@@ -19,14 +19,16 @@ import (
 	"github.com/romshark/datapages/runtime/httpserve"
 )
 
+// TestServiceWorkerJS tests the config the served script embeds.
+// The worker version is a JSON string, which JS reads without rounding above 2^53.
 func TestServiceWorkerJS(t *testing.T) {
 	js := string(offline.ServiceWorkerJS("/offline/", offline.Config{
-		WorkerVersion: 42,
+		WorkerVersion: 1<<53 + 1,
 		Assets:        []string{"/static/style.css"},
 	}))
 
 	require.NotContains(t, js, "__CONFIG__", "config placeholder must be replaced")
-	require.Contains(t, js, `"workerVersion":42`)
+	require.Contains(t, js, `"workerVersion":"9007199254740993"`)
 	require.Contains(t, js, `"offlineURL":"/offline/"`)
 	require.Contains(t, js, `/static/style.css`)
 }
@@ -590,7 +592,7 @@ func TestConfigDefaults(t *testing.T) {
 	t.Parallel()
 
 	js := string(offline.ServiceWorkerJS("", offline.Config{}))
-	require.Contains(t, js, `"workerVersion":1`)
+	require.Contains(t, js, `"workerVersion":"1"`)
 	require.Equal(t, uint64(1), offline.DefaultWorkerVersion)
 
 	require.Contains(t, js, `"offlineURL":""`)

@@ -18,7 +18,8 @@ type App struct{}
 
 // IndexVersion is the version PageIndex uses for its cached response.
 // A client reporting it holds the current copy and the handler queues nothing.
-const IndexVersion = 7
+// 2^53+1 is the smallest integer a JavaScript number can't hold.
+const IndexVersion = 1<<53 + 1
 
 func echo(id, s string) datapages.Component {
 	return templ.Raw(`<pre id="` + id + `">` + s + `</pre>`)

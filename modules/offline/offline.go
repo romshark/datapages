@@ -143,7 +143,8 @@ func (c Config) scriptURL() string {
 // worker's minimal fallback.
 func ServiceWorkerJS(offlinePath string, conf Config) []byte {
 	payload := struct {
-		WorkerVersion           uint64   `json:"workerVersion"`
+		// A string, since JS rounds numbers above 2^53.
+		WorkerVersion           uint64   `json:"workerVersion,string"`
 		OfflineURL              string   `json:"offlineURL"`
 		Assets                  []string `json:"assets"`
 		CrossOriginDestinations []string `json:"crossOriginDestinations"`

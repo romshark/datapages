@@ -31,6 +31,8 @@ func newClient(t *testing.T, opts ...datapages.ServerOption) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer), opts...))
 }
 
+// TestGETEmbedsQueuedWrites tests that a page load embeds its queued writes.
+// The version is a JSON string, which JavaScript reads without rounding above 2^53.
 func TestGETEmbedsQueuedWrites(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -42,7 +44,7 @@ func TestGETEmbedsQueuedWrites(t *testing.T) {
 	require.Contains(t, resp.Body, applyType,
 		"a GET embeds queued writes in the page")
 	require.Contains(t, resp.Body, `"url":"/"`)
-	require.Contains(t, resp.Body, `"version":7`)
+	require.Contains(t, resp.Body, `"version":"9007199254740993"`)
 	require.Contains(t, resp.Body, `index offline`,
 		"the entry carries the rendered body, not the live one")
 }
@@ -65,10 +67,10 @@ func TestGETReadsTheHeldVersion(t *testing.T) {
 	c := newClient(t)
 
 	req := c.Request(t, http.MethodGet, "/", "")
-	req.Header.Set("X-Datapages-Offline-Version", "7")
+	req.Header.Set("X-Datapages-Offline-Version", "9007199254740993")
 	resp := c.Do(t, req)
 
-	require.Equal(t, "7", resp.Element(t, "held"),
+	require.Equal(t, "9007199254740993", resp.Element(t, "held"),
 		"the handler reads the version the worker reports")
 	require.NotContains(t, resp.Body, applyType,
 		"the client holds the current copy, so the handler queues nothing")
@@ -92,7 +94,7 @@ func TestActionFlushesOverItsStream(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Body, applyType,
 		"an action with a stream delivers over it")
-	require.Contains(t, resp.Body, `"version":2`)
+	require.Contains(t, resp.Body, `"version":"2"`)
 	require.Contains(t, resp.Body, "done", "the action's own patch is sent too")
 }
 
@@ -142,7 +144,7 @@ func TestWithOfflineServesTheWorker(t *testing.T) {
 		"the worker controls the whole origin, not the path it is served from")
 	require.Contains(t, resp.Body, `"offlineURL":"/offline/"`,
 		"the route of PageOffline reaches the worker without being configured")
-	require.Contains(t, resp.Body, `"workerVersion":42`)
+	require.Contains(t, resp.Body, `"workerVersion":"42"`)
 }
 
 func TestWithOfflineRegistersOnlyWhileOutdated(t *testing.T) {
@@ -174,7 +176,7 @@ func TestAppLevelActionFlushesOverAStream(t *testing.T) {
 		"an app-level action with neither a redirect nor a body"+
 			" delivers over the stream the framework opens for it")
 	require.Contains(t, resp.Body, `"url":"/"`)
-	require.Contains(t, resp.Body, `"version":11`)
+	require.Contains(t, resp.Body, `"version":"11"`)
 	require.Contains(t, resp.Body, "written by an app-level action",
 		"the entry carries the rendered body")
 }
@@ -224,7 +226,7 @@ func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 	require.Equal(t, "done", resp.Element(t, "out"))
 	require.Contains(t, resp.Body, applyType,
 		"an app-level action embeds writes in its document")
-	require.Contains(t, resp.Body, `"version":12`)
+	require.Contains(t, resp.Body, `"version":"12"`)
 }
 
 func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
@@ -235,7 +237,7 @@ func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Body, applyType,
 		"an action redirecting through its own stream delivers over it first")
-	require.Contains(t, resp.Body, `"version":14`)
+	require.Contains(t, resp.Body, `"version":"14"`)
 	require.Less(t, strings.Index(resp.Body, applyType),
 		strings.Index(resp.Body, "window.location.href"),
 		"the writes reach the worker ahead of the navigation")
@@ -337,7 +339,7 @@ func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Status)
 			require.Contains(t, resp.Header.Get("Content-Type"), tc.contentType)
 			require.Contains(t, resp.Body, applyType)
-			require.Contains(t, resp.Body, `"version":15`)
+			require.Contains(t, resp.Body, `"version":"15"`)
 		})
 	}
 }
