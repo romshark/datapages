@@ -9,10 +9,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
+
+	"github.com/romshark/datapages/internal/buildconstraint"
 )
 
 var ErrBuildConstrainedFile = errors.New(
@@ -34,7 +35,7 @@ func checkBuildConstraints(pkg *packages.Package, errs *Errors) {
 			return
 		}
 		h := readBuildHeader(path)
-		if h.expr != nil && neverBuilt(h.expr) {
+		if h.expr != nil && buildconstraint.NeverBuilt(h.expr) {
 			return
 		}
 		if !excluded && h.expr == nil && !nameConstrained(path) {
@@ -85,43 +86,6 @@ func readBuildHeader(path string) buildHeader {
 		}
 	}
 	return h
-}
-
-// neverBuilt reports whether no build includes a file under the constraint x.
-// "ignore" is the tag no build sets, and any other tag may be set or not. An
-// expression of more than 16 tags counts as built rather than trying them all.
-func neverBuilt(x constraint.Expr) bool {
-	var tags []string
-	var collect func(constraint.Expr)
-	collect = func(x constraint.Expr) {
-		switch x := x.(type) {
-		case *constraint.TagExpr:
-			if x.Tag != "ignore" && !slices.Contains(tags, x.Tag) {
-				tags = append(tags, x.Tag)
-			}
-		case *constraint.NotExpr:
-			collect(x.X)
-		case *constraint.AndExpr:
-			collect(x.X)
-			collect(x.Y)
-		case *constraint.OrExpr:
-			collect(x.X)
-			collect(x.Y)
-		}
-	}
-	collect(x)
-	if len(tags) > 16 {
-		return false
-	}
-	for set := range 1 << len(tags) {
-		if x.Eval(func(tag string) bool {
-			i := slices.Index(tags, tag)
-			return i >= 0 && set&(1<<i) != 0
-		}) {
-			return false
-		}
-	}
-	return true
 }
 
 // nameConstrained reports whether the name of the file at path restricts it to

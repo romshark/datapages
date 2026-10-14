@@ -40,6 +40,7 @@ Internal, used by the CLI and build tooling:
 - `internal/generator/` - code generation from the parsed model. `internal/generator/README.md` explains its tests.
 - `internal/acceptance/` - 1 module per case: the application, its committed generated code and tests asserting behaviour over HTTP. `internal/acceptance/README.md` explains how they run and how to record a defect the framework has not fixed yet.
 - `internal/gotypes/` - go/types predicates and renderings that know nothing about Datapages. Shared by the parser and the generator.
+- `internal/buildconstraint/` - which `//go:build` lines exclude a file from every build. Shared by the parser and `internal/serverscan/`.
 - `internal/logsample/` - the throttling `slog.Handler` behind `datapages.WithLogSampling`.
 - `internal/testlog/` - collects what code under test logs, 1 line per record without its time, for tests to compare exactly. Examples keep their own loggers because they model application code, which cannot import it.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.

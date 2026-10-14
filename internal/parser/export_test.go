@@ -8,6 +8,3 @@ var LoadPackage = loadPackage
 
 // NameConstrained is [nameConstrained] for the tests of package parser_test.
 var NameConstrained = nameConstrained
-
-// NeverBuilt is [neverBuilt] for the tests of package parser_test.
-var NeverBuilt = neverBuilt
