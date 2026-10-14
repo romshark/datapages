@@ -1189,12 +1189,16 @@ func TestParse_ErrQueryReflectSignalType(t *testing.T) {
 }
 
 // TestParse_ErrQueryReflectSignalNotText tests rejection of a reflected query
-// field whose type parses from text but cannot write itself back as text.
+// field whose type parses from text but cannot write itself back as text,
+// with and without a Signals parameter on the handler.
 func TestParse_ErrQueryReflectSignalNotText(t *testing.T) {
 	_, err := parse(t, "err_query_reflectsignal_nottext")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err, parser.ErrQueryReflectSignalNotText)
+	requireParseErrors(t, err,
+		parser.ErrQueryReflectSignalNotText,
+		parser.ErrQueryReflectSignalNotText,
+	)
 }
 
 // TestParse_ErrEmbedPointer tests a page holding its stream embed as a pointer.

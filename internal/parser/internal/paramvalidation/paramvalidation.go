@@ -381,6 +381,19 @@ func ValidateQueryStruct(t types.Type, recv, method string) error {
 					Pos:       fpos,
 				}
 			}
+			// The seed is the field's text form, which the page writes back
+			// into the URL whether or not the handler declares the signal.
+			if ft := field.Type(); !typecheck.IsBasicInputType(ft) &&
+				!gotypes.ImplementsTextMarshaler(ft) {
+				return &QueryFieldReflectSignalNotTextError{
+					FieldName: field.Name(),
+					TagValue:  rs,
+					FieldType: gotypes.QualifiedTypeName(ft),
+					Recv:      recv,
+					Method:    method,
+					Pos:       fpos,
+				}
+			}
 			// HTML parsers keep only the first attribute with a given name,
 			// which would discard the second field's signal seed.
 			if seenReflect[rs] {
@@ -888,18 +901,8 @@ func ValidateReflectSignal(h *model.Handler, recv, method string) error {
 			return fmt.Errorf("%w: %q in %s.%s",
 				ErrQueryReflectSignalNotInSignals, rs, recv, method)
 		}
+		// [ValidateQueryStruct] gave the field a text form.
 		ft := querySt.Field(i).Type()
-		if !typecheck.IsBasicInputType(ft) &&
-			!gotypes.ImplementsTextMarshaler(ft) {
-			return &QueryFieldReflectSignalNotTextError{
-				FieldName: querySt.Field(i).Name(),
-				TagValue:  rs,
-				FieldType: gotypes.QualifiedTypeName(ft),
-				Recv:      recv,
-				Method:    method,
-				Pos:       querySt.Field(i).Pos(),
-			}
-		}
 		kind := gotypes.TextJSONKind(ft)
 		if !gotypes.AcceptsJSONKind(sigType, kind) {
 			return &QueryFieldReflectSignalTypeError{
