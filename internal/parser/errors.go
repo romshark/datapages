@@ -159,6 +159,7 @@ var (
 	ErrQueryFieldMissingTag      = paramvalidation.ErrQueryFieldMissingTag
 	ErrQueryFieldDuplicateTag    = paramvalidation.ErrQueryFieldDuplicateTag
 	ErrQueryFieldEmptyTag        = paramvalidation.ErrQueryFieldEmptyTag
+	ErrQueryFieldInvalidTag      = paramvalidation.ErrQueryFieldInvalidTag
 	ErrQueryFieldUnsupportedType = paramvalidation.ErrQueryFieldUnsupportedType
 
 	ErrQueryReflectSignalNotInSignals = paramvalidation.ErrQueryReflectSignalNotInSignals

@@ -23,13 +23,21 @@ var (
 	ErrRouteVarNameInvalid     = errors.New("invalid route variable name")
 )
 
+// IsQueryKeyChar reports whether c is an unreserved character of RFC 3986,
+// the only ones a query tag may contain. Generated code writes the tag
+// unescaped into URLs, JavaScript strings and struct tags.
+func IsQueryKeyChar(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' ||
+		c == '-' || c == '.' || c == '_' || c == '~'
+}
+
 // RouteVarName validates a route wildcard name as a name generated code can
-// give a function parameter. The generated href and action builders take 1
-// parameter per wildcard, named by the route.
+// give a function parameter. The generated href and action builders take
+// 1 parameter per wildcard, named by the route.
 //
 // net/http accepts more than Go does: "{type}" is a keyword and "{_}" is the
 // blank identifier, which no expression can read. Both leave a generated file
-// that does not parse or does not compile, neither of which names the route
+// that doesn't parse or doesn't compile, neither of which names the route
 // the user has to fix.
 func RouteVarName(name string) error {
 	if name == "_" || !token.IsIdentifier(name) {

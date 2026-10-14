@@ -387,6 +387,16 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add a non-empty name to the query tag of field Page, e.g. `query:\"page\"`",
 		},
 
+		"ErrQueryFieldInvalidTag": {
+			err: &paramvalidation.QueryFieldInvalidTagError{
+				FieldName: "Term",
+				TagValue:  "q&a é",
+				Recv:      "PageSearch",
+				Method:    "GET",
+			},
+			want: "fix: Rename the query tag of field Term, e.g. `query:\"q_a__\"`",
+		},
+
 		"ErrSignalsFieldMissingTag": {
 			err: &paramvalidation.SignalsFieldMissingTagError{
 				FieldName: "SearchQuery",

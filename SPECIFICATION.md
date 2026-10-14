@@ -504,7 +504,7 @@ This declares `foo.bar.bazz` and `foo.fuzz`. A `json:"foo.bar"` tag would instea
 
 A `reflectsignal` tag references the full path, such as `reflectsignal:"foo.fuzz"`.
 
-Query tags may contain any characters, including quotes; their values are escaped when written into the page.
+A query tag may contain only ASCII letters, digits, `-`, `.`, `_` and `~`, since generated links and actions write it unescaped. Query values are escaped.
 
 #### Parameter: `session datapages.Session[Data]`
 

@@ -652,7 +652,6 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Term     string     `query:"t" reflectsignal:"term"`
 		Page     int        `query:"p" reflectsignal:"page"`
 		Slug     dpapp.Slug `query:"s" reflectsignal:"slug"`
-		Odd      string     `query:"o'\"x" reflectsignal:"odd"`
 		NewTitle string     `query:"nt" reflectsignal:"newTitle"`
 		Lang     string     `query:"lang"`
 	}]
@@ -675,7 +674,6 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	query.Values.Odd = httpread.QueryValue(r.URL.RawQuery, "o'\"x")
 	query.Values.NewTitle = httpread.QueryValue(r.URL.RawQuery, "nt")
 	query.Values.Lang = httpread.QueryValue(r.URL.RawQuery, "lang")
 
@@ -706,10 +704,6 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WriteSignalString(w, textOf(query.Values.Slug))
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, ` data-signals:odd="'`)
-		htmlattr.WriteSignalString(w, query.Values.Odd)
-		_, _ = io.WriteString(w, `'"`)
-
 		_, _ = io.WriteString(w, ` data-signals:new-title="'`)
 		htmlattr.WriteSignalString(w, query.Values.NewTitle)
 		_, _ = io.WriteString(w, `'"`)
@@ -721,7 +715,6 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			if ($term) params.set('t', $term); else params.delete('t');
 			if ($page) params.set('p', $page); else params.delete('p');
 			if ($slug) params.set('s', $slug); else params.delete('s');
-			if ($odd) params.set('o\&#39;&#34;x', $odd); else params.delete('o\&#39;&#34;x');
 			if ($newTitle) params.set('nt', $newTitle); else params.delete('nt');
 			const query = params.toString();
 			window.history.replaceState(null, '', (query ? '/reflect?' + query : '/reflect') + location.hash);

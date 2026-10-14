@@ -42,6 +42,7 @@ Run `datapages gen` to apply these.
 - Skip type-checking the function bodies of the standard library and of downloaded modules when loading the app package. `datapages lint` on `example/classifieds` takes 277ms instead of 406ms, and `datapages watch` regenerates sooner after each change to a Go file.
 - Reject an `OnXXX` handler that is not named after its event, as `OnNewMessage(event EventMessageSent, sse datapages.SSE)`. A page's `OnB` taking `EventA` hid an embedded `OnB` taking `EventB`, and the generated code did not compile. Rename the handler to `On` and the event name after `Event`, as `OnMessageSent`.
 - Require the app package directory in `datapages watch --app`, as `--app app/frontend` instead of `--app frontend`. With `web/app` and `admin/app`, `--app app` was ambiguous and ran one of them.
+- Reject a query tag with a character other than ASCII letters, digits, `-`, `.`, `_` and `~`, as `query:"q&a"`. For such a tag the handler read an empty value, or the action expression failed to compile in the browser. Rename the tag, as `query:"q_a"`.
 
 #### Generated code
 

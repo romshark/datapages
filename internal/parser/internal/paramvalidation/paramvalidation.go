@@ -60,6 +60,10 @@ var (
 	ErrQueryFieldDuplicateTag = errors.New(
 		"query struct field has duplicate query tag value",
 	)
+	ErrQueryFieldInvalidTag = errors.New(
+		"query struct field query tag may contain only ASCII letters, digits, " +
+			"'-', '.', '_' and '~'",
+	)
 	ErrQueryFieldEmptyTag = errors.New(
 		`query struct field query tag must have a non-empty name`,
 	)
@@ -216,8 +220,8 @@ func IsPathParam(f *ast.Field, info *types.Info) bool {
 }
 
 // ValidatePathStruct validates that t, the Values type argument of a datapages.Path
-// parameter, is a struct with exported fields of supported types (string, bool, integers,
-// floats, or encoding.TextUnmarshaler) each carrying a `path:"..."` tag.
+// parameter, is a struct with exported fields of supported types (string, bool,
+// integers, floats, or encoding.TextUnmarshaler) each carrying a `path:"..."` tag.
 func ValidatePathStruct(t types.Type, recv, method string) error {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
@@ -252,27 +256,32 @@ func ValidatePathStruct(t types.Type, recv, method string) error {
 		if !typecheck.IsInputFieldType(field.Type()) {
 			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
-				ErrPathFieldUnsupportedType,
-				field.Name(), recv, method,
+				ErrPathFieldUnsupportedType, field.Name(), recv, method,
 			)}
 		}
 		if !strings.Contains(tag, `path:"`) {
 			return &PathFieldMissingTagError{
-				FieldName: field.Name(), Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		}
 		tagVal := structtag.PathTagValue(tag)
 		if tagVal == "" {
 			return &PathFieldEmptyTagError{
-				FieldName: field.Name(), Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		} else if seen[tagVal] {
 			return &PathFieldDuplicateTagError{
-				FieldName: field.Name(), TagValue: tagVal,
-				Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				TagValue:  tagVal,
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		}
 		seen[tagVal] = true
@@ -292,10 +301,8 @@ func IsQueryParam(f *ast.Field, info *types.Info) bool {
 func ValidateQueryStruct(t types.Type, recv, method string) error {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
-		return fmt.Errorf(
-			"%w in %s.%s",
-			ErrQueryParamNotStruct, recv, method,
-		)
+		return fmt.Errorf("%w in %s.%s",
+			ErrQueryParamNotStruct, recv, method)
 	}
 	if err := checkValuesTypeExported(t, recv, method); err != nil {
 		return err
@@ -311,8 +318,7 @@ func ValidateQueryStruct(t types.Type, recv, method string) error {
 		if !field.Exported() {
 			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
-				ErrQueryFieldUnexported,
-				field.Name(), recv, method,
+				ErrQueryFieldUnexported, field.Name(), recv, method,
 			)}
 		}
 		if name, ok := unexportedTypeName(field.Type()); ok {
@@ -330,21 +336,35 @@ func ValidateQueryStruct(t types.Type, recv, method string) error {
 		}
 		if !strings.Contains(tag, `query:"`) {
 			return &QueryFieldMissingTagError{
-				FieldName: field.Name(), Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		}
 		tagVal := structtag.QueryTagValue(tag)
 		if tagVal == "" {
 			return &QueryFieldEmptyTagError{
-				FieldName: field.Name(), Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
+			}
+		} else if !isQueryKey(tagVal) {
+			return &QueryFieldInvalidTagError{
+				FieldName: field.Name(),
+				TagValue:  tagVal,
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		} else if seen[tagVal] {
 			return &QueryFieldDuplicateTagError{
-				FieldName: field.Name(), TagValue: tagVal,
-				Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				TagValue:  tagVal,
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		}
 		// The reflectsignal tag is the name of a Datastar signal:
@@ -354,18 +374,22 @@ func ValidateQueryStruct(t types.Type, recv, method string) error {
 		if rs := structtag.ReflectSignalTagValue(tag); rs != "" {
 			if validate.ReflectSignalPath(rs) != nil {
 				return &QueryFieldReflectSignalInvalidError{
-					FieldName: field.Name(), TagValue: rs,
-					Recv: recv, Method: method,
-					Pos: fpos,
+					FieldName: field.Name(),
+					TagValue:  rs,
+					Recv:      recv,
+					Method:    method,
+					Pos:       fpos,
 				}
 			}
 			// HTML parsers keep only the first attribute with a given name,
 			// which would discard the second field's signal seed.
 			if seenReflect[rs] {
 				return &QueryFieldReflectSignalDuplicateError{
-					FieldName: field.Name(), TagValue: rs,
-					Recv: recv, Method: method,
-					Pos: fpos,
+					FieldName: field.Name(),
+					TagValue:  rs,
+					Recv:      recv,
+					Method:    method,
+					Pos:       fpos,
 				}
 			}
 			seenReflect[rs] = true
@@ -387,10 +411,8 @@ func IsSignalsParam(f *ast.Field, info *types.Info) bool {
 func ValidateSignalsStruct(t types.Type, recv, method string) error {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
-		return fmt.Errorf(
-			"%w in %s.%s",
-			ErrSignalsParamNotStruct, recv, method,
-		)
+		return fmt.Errorf("%w in %s.%s",
+			ErrSignalsParamNotStruct, recv, method)
 	}
 	if err := checkValuesTypeExported(t, recv, method); err != nil {
 		return err
@@ -416,8 +438,7 @@ func validateSignalsFields(
 		if !field.Exported() {
 			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
-				ErrSignalsFieldUnexported,
-				field.Name(), recv, method,
+				ErrSignalsFieldUnexported, field.Name(), recv, method,
 			)}
 		}
 		if name, ok := unexportedTypeName(field.Type()); ok {
@@ -435,14 +456,18 @@ func validateSignalsFields(
 		tagVal := structtag.JSONTagValue(tag)
 		if tagVal == "" {
 			return &SignalsFieldEmptyTagError{
-				FieldName: field.Name(), Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		} else if seen[tagVal] {
 			return &SignalsFieldDuplicateTagError{
-				FieldName: field.Name(), TagValue: tagVal,
-				Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				TagValue:  tagVal,
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		} else if validate.SignalName(tagVal) != nil {
 			// The tag value is the name of a Datastar signal: it becomes an
@@ -450,9 +475,11 @@ func validateSignalsFields(
 			// refused here too, since encoding/json drops it
 			// and the handler only ever sees the zero value.
 			return &SignalsFieldNameInvalidError{
-				FieldName: field.Name(), TagValue: tagVal,
-				Recv: recv, Method: method,
-				Pos: fpos,
+				FieldName: field.Name(),
+				TagValue:  tagVal,
+				Recv:      recv,
+				Method:    method,
+				Pos:       fpos,
 			}
 		}
 		seen[tagVal] = true
@@ -565,8 +592,13 @@ func (e *PathFieldDuplicateTagError) Error() string {
 		ErrPathFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *PathFieldDuplicateTagError) Unwrap() error     { return ErrPathFieldDuplicateTag }
-func (e *PathFieldDuplicateTagError) ASTPos() token.Pos { return e.Pos }
+func (e *PathFieldDuplicateTagError) Unwrap() error {
+	return ErrPathFieldDuplicateTag
+}
+
+func (e *PathFieldDuplicateTagError) ASTPos() token.Pos {
+	return e.Pos
+}
 
 // QueryFieldMissingTagError is ErrQueryFieldMissingTag with suggestion context.
 type QueryFieldMissingTagError struct {
@@ -577,7 +609,8 @@ type QueryFieldMissingTagError struct {
 }
 
 func (e *QueryFieldMissingTagError) Error() string {
-	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldMissingTag, e.FieldName, e.Recv, e.Method)
+	return fmt.Sprintf("%v: field %s in %s.%s",
+		ErrQueryFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
 func (e *QueryFieldMissingTagError) Unwrap() error     { return ErrQueryFieldMissingTag }
@@ -592,11 +625,29 @@ type QueryFieldEmptyTagError struct {
 }
 
 func (e *QueryFieldEmptyTagError) Error() string {
-	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldEmptyTag, e.FieldName, e.Recv, e.Method)
+	return fmt.Sprintf("%v: field %s in %s.%s",
+		ErrQueryFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
 func (e *QueryFieldEmptyTagError) Unwrap() error     { return ErrQueryFieldEmptyTag }
 func (e *QueryFieldEmptyTagError) ASTPos() token.Pos { return e.Pos }
+
+// QueryFieldInvalidTagError is ErrQueryFieldInvalidTag with suggestion context.
+type QueryFieldInvalidTagError struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *QueryFieldInvalidTagError) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrQueryFieldInvalidTag, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *QueryFieldInvalidTagError) Unwrap() error     { return ErrQueryFieldInvalidTag }
+func (e *QueryFieldInvalidTagError) ASTPos() token.Pos { return e.Pos }
 
 // QueryFieldDuplicateTagError is ErrQueryFieldDuplicateTag with suggestion context.
 type QueryFieldDuplicateTagError struct {
@@ -612,8 +663,13 @@ func (e *QueryFieldDuplicateTagError) Error() string {
 		ErrQueryFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *QueryFieldDuplicateTagError) Unwrap() error     { return ErrQueryFieldDuplicateTag }
-func (e *QueryFieldDuplicateTagError) ASTPos() token.Pos { return e.Pos }
+func (e *QueryFieldDuplicateTagError) Unwrap() error {
+	return ErrQueryFieldDuplicateTag
+}
+
+func (e *QueryFieldDuplicateTagError) ASTPos() token.Pos {
+	return e.Pos
+}
 
 // SignalsFieldMissingTagError is ErrSignalsFieldMissingTag with suggestion context.
 type SignalsFieldMissingTagError struct {
@@ -628,8 +684,13 @@ func (e *SignalsFieldMissingTagError) Error() string {
 		ErrSignalsFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *SignalsFieldMissingTagError) Unwrap() error     { return ErrSignalsFieldMissingTag }
-func (e *SignalsFieldMissingTagError) ASTPos() token.Pos { return e.Pos }
+func (e *SignalsFieldMissingTagError) Unwrap() error {
+	return ErrSignalsFieldMissingTag
+}
+
+func (e *SignalsFieldMissingTagError) ASTPos() token.Pos {
+	return e.Pos
+}
 
 // SignalsFieldEmptyTagError is ErrSignalsFieldEmptyTag with suggestion context.
 type SignalsFieldEmptyTagError struct {
@@ -661,8 +722,13 @@ func (e *SignalsFieldDuplicateTagError) Error() string {
 		ErrSignalsFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *SignalsFieldDuplicateTagError) Unwrap() error     { return ErrSignalsFieldDuplicateTag }
-func (e *SignalsFieldDuplicateTagError) ASTPos() token.Pos { return e.Pos }
+func (e *SignalsFieldDuplicateTagError) Unwrap() error {
+	return ErrSignalsFieldDuplicateTag
+}
+
+func (e *SignalsFieldDuplicateTagError) ASTPos() token.Pos {
+	return e.Pos
+}
 
 // ErrDispatchParamNotEvent is reported when the type argument of
 // datapages.Dispatcher is not an event type.
@@ -745,10 +811,8 @@ func ValidatePathAgainstRoute(
 		// Route order, not map order. The positions are identical,
 		// so nothing downstream can restore an order a map lost.
 		for v := range routepattern.Vars(h.Route) {
-			errs = append(errs, fmt.Errorf(
-				"%w: {%s} in %s.%s",
-				ErrPathMissingRouteVar, v, recv, method,
-			))
+			errs = append(errs, fmt.Errorf("%w: {%s} in %s.%s",
+				ErrPathMissingRouteVar, v, recv, method))
 		}
 		return errors.Join(errs...)
 	}
@@ -772,11 +836,8 @@ func ValidatePathAgainstRoute(
 		if _, ok := varSet[tagVal]; !ok {
 			errs = append(errs, &fieldPosError{
 				pos: st.Field(i).Pos(),
-				err: fmt.Errorf(
-					"%w: %q in %s.%s",
-					ErrPathFieldNotInRoute,
-					tagVal, recv, method,
-				),
+				err: fmt.Errorf("%w: %q in %s.%s",
+					ErrPathFieldNotInRoute, tagVal, recv, method),
 			})
 		} else {
 			delete(varSet, tagVal)
@@ -798,12 +859,9 @@ func ValidatePathAgainstRoute(
 // ValidateReflectSignal checks that each reflectsignal query tag names a signal
 // field that can decode the seeded JSON value.
 //
-// The query field determines the seed's JSON kind. The browser returns that
-// value with the next action, where encoding/json decodes it into the signal
-// field.
-func ValidateReflectSignal(
-	h *model.Handler, recv, method string,
-) error {
+// The query field determines the seed's JSON kind. The browser returns that value
+// with the next action, where encoding/json decodes it into the signal field.
+func ValidateReflectSignal(h *model.Handler, recv, method string) error {
 	if h.InputQuery == nil || h.InputSignals == nil {
 		return nil
 	}
@@ -827,11 +885,8 @@ func ValidateReflectSignal(
 		}
 		sigType, ok := signals[rs]
 		if !ok {
-			return fmt.Errorf(
-				"%w: %q in %s.%s",
-				ErrQueryReflectSignalNotInSignals,
-				rs, recv, method,
-			)
+			return fmt.Errorf("%w: %q in %s.%s",
+				ErrQueryReflectSignalNotInSignals, rs, recv, method)
 		}
 		ft := querySt.Field(i).Type()
 		if !typecheck.IsBasicInputType(ft) &&
@@ -861,8 +916,8 @@ func ValidateReflectSignal(
 	return nil
 }
 
-// QueryFieldReflectSignalTypeError reports the field, seed kind, and signal
-// type responsible for [ErrQueryReflectSignalTypeMismatch].
+// QueryFieldReflectSignalTypeError reports the field, seed kind,
+// and signal type responsible for [ErrQueryReflectSignalTypeMismatch].
 type QueryFieldReflectSignalTypeError struct {
 	FieldName  string
 	TagValue   string
@@ -875,7 +930,8 @@ type QueryFieldReflectSignalTypeError struct {
 
 func (e *QueryFieldReflectSignalTypeError) Error() string {
 	return fmt.Sprintf(
-		"%v: field %s seeds signal %q as JSON %s; encoding/json cannot decode it into %s in %s.%s",
+		"%v: field %s seeds signal %q as JSON %s; "+
+			"encoding/json cannot decode it into %s in %s.%s",
 		ErrQueryReflectSignalTypeMismatch,
 		e.FieldName, e.TagValue, e.SeedKind, e.SignalType, e.Recv, e.Method,
 	)
@@ -972,3 +1028,13 @@ func (e *QueryFieldReflectSignalInvalidError) Unwrap() error {
 }
 
 func (e *QueryFieldReflectSignalInvalidError) ASTPos() token.Pos { return e.Pos }
+
+// isQueryKey reports whether [validate.IsQueryKeyChar] allows every byte of key.
+func isQueryKey(key string) bool {
+	for i := range len(key) {
+		if !validate.IsQueryKeyChar(key[i]) {
+			return false
+		}
+	}
+	return true
+}
