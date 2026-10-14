@@ -173,6 +173,9 @@ func setupHandlers(s *Server) {
 		"GET /gone/{$}",
 		pageGoneHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /half/{$}",
+		pageHalfHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 }
@@ -280,6 +283,27 @@ func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, http.StatusOK, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageGone", err)
+		return
+	}
+}
+
+type pageHalfHandlers struct{ *Server }
+
+func (s pageHalfHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageHalf{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageHalf.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageHalf.GET", err)
+		return
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageHalf", err)
 		return
 	}
 }

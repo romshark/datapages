@@ -133,6 +133,17 @@ func (w unwrapRW) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // opaqueRW wraps without an Unwrap method, which hides everything below it.
 type opaqueRW struct{ http.ResponseWriter }
 
+// bufferingRW holds the body back from the writer underneath, as a middleware
+// that rewrites the page does, and reports what it holds through BodyWritten.
+type bufferingRW struct {
+	http.ResponseWriter
+	buf *strings.Builder
+}
+
+func (w bufferingRW) Write(p []byte) (int, error) { return w.buf.Write(p) }
+func (w bufferingRW) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w bufferingRW) BodyWritten() bool           { return w.buf.Len() > 0 }
+
 // TestResponseBodyWrittenThroughMiddleware tests the writer a handler holds
 // when a middleware wrapped it, which is the shape prom.Middleware installs.
 func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
@@ -163,6 +174,12 @@ func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
 				return opaqueRW{w}
 			},
 			want: false,
+		},
+		"buffering": {
+			wrap: func(w http.ResponseWriter) http.ResponseWriter {
+				return bufferingRW{w, new(strings.Builder)}
+			},
+			want: true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

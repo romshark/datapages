@@ -753,11 +753,16 @@ func unwrapWriter(w http.ResponseWriter) http.ResponseWriter {
 // ResponseBodyWritten reports whether any of the response body was written.
 // A handler that failed past this point can be logged and nothing more.
 //
+// A middleware that holds the body back from the writer underneath,
+// as offline.Middleware does with a page, reports it through a BodyWritten method.
 // Reports false when a middleware wraps the writer without an Unwrap method.
 func ResponseBodyWritten(w http.ResponseWriter) bool {
 	for {
 		if t, ok := w.(*tracked); ok {
 			return t.wroteBody
+		}
+		if b, ok := w.(interface{ BodyWritten() bool }); ok && b.BodyWritten() {
+			return true
 		}
 		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
 		if !ok {

@@ -337,6 +337,10 @@ type injectingWriter struct {
 	buf         bytes.Buffer
 }
 
+// BodyWritten reports whether a page is held back, which the writer underneath
+// has seen none of. [httpserve.ResponseBodyWritten] asks it.
+func (iw *injectingWriter) BodyWritten() bool { return iw.buf.Len() > 0 }
+
 // PassThrough makes the rest of the response pass through unchanged.
 // [github.com/romshark/datapages/runtime/httpserve.ServeFile] calls it before it
 // writes a [datapages.File].
