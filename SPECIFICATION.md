@@ -1099,13 +1099,13 @@ The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecac
 
 The worker scope covers the whole origin, regardless of the script URL. The registration script requests scope `/`, and the script response sets `Service-Worker-Allowed: /`, which permits that scope for a script in a subdirectory.
 
-The offline middleware writes the registration and connectivity scripts into every HTML response. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. So do a range response (206), whose `Content-Range` the scripts would contradict, and the response of a [`datapages.File`](#return-value-datapagesfile), whose bytes are the file's whatever its type. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
+The offline middleware writes the connectivity script into every HTML response, and the registration script into those for a client whose worker is missing or older than the server's. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. So do a range response (206), whose `Content-Range` the scripts would contradict, and the response of a [`datapages.File`](#return-value-datapagesfile), whose bytes are the file's whatever its type. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
 
-Offline support writes inline scripts. The connectivity and worker registration scripts go into every HTML response. Queued cache writes go into a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence.
+Offline support writes inline scripts, which are the connectivity and worker registration scripts and the queued cache writes in a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence.
 
 A cached page is rendered once and replayed. It cannot contain a valid per-response nonce. Its hydration trigger and connectivity script are written without one. The service worker provides no policy header, and the browser does not require a nonce. A `Content-Security-Policy` in a `meta` element would block those scripts.
 
-The `X-Datapages-Worker-Version` request header controls installation and updates. The installed worker sets its `uint64` version on every request. This version is independent of the Datapages release and the per-URL versions passed to `Set`. The server compares the header with its current worker version:
+The `X-Datapages-Worker-Version` request header controls installation and updates. The installed worker sets its `uint64` version on navigations and on the page fetch of shim hydration. This version is independent of the Datapages release and the per-URL versions passed to `Set`. The server compares the header with its current worker version:
 
 - Header absent: the server adds registration to the current HTML response.
 - Header lower than the server version: the server adds registration for the current worker script.
@@ -1113,11 +1113,7 @@ The `X-Datapages-Worker-Version` request header controls installation and update
 
 The worker holds 1 cache of offline bodies keyed by URL. `/tickets` and `/tickets/` share 1 entry, as the server serves both as 1 page. Each entry stores the rendered HTML and its version.
 
-Writes reach the worker in 1 of 3 ways, depending on how the handler responds:
-
-- `GET`: the queued entries are embedded in the page and an inline script passes them to the worker after load.
-- Action opening an SSE stream: they are sent over that stream.
-- Action returning a redirect: the `text/javascript` response sends the writes. Navigation waits up to 500ms for the worker to apply them before loading the destination.
+Writes reach the worker with the response of the handler that queued them. The handler signature selects the delivery, as [`pageCache`](#parameter-pagecache-datapagespagecachewriter) lists.
 
 The worker applies a request's `Set`, `Clear` and `ClearAll` calls together, once the handler returns without error. `Set` writes or overwrites 1 entry, `Clear` deletes 1, `ClearAll` empties the cache.
 
