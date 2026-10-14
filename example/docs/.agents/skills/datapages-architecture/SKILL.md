@@ -71,7 +71,7 @@ For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 
 A command should normally mutate state and dispatch an event. The event says that something changed; it is not the authoritative state. Subscribers read the current state, render the page and send the result over SSE.
 
-Render 1 template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small DOM patches only to reduce transferred HTML. SSE streams are compressed, with zstd for current browsers. The compressor keeps the last 1 MiB of a stream and encodes most re-renders as references to an earlier render. A re-render of an 8 KB list with 1 changed item takes about 70 B. zstd re-encodes about 1 render per 1 MiB of stream in full, which averages about 1% of a 100 KB list per re-render. A fragment over 1 MiB re-renders without these references, which sends more bytes and takes more CPU with brotli. `datapages.WithSSECompression` sets the codings and windows, or turns compression off. A larger window holds more memory per stream. A page's `StreamConfig` method sets the compression of that page's stream alone.
+Render 1 template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small patches only to reduce transferred HTML. SSE streams use zstd, brotli or gzip with a 1 MiB default window. `datapages.WithSSECompression` configures the server. A page's `StreamConfig` overrides it for that page.
 
 Each stream update must contain enough current state to restore the UI after a missed event or interrupted connection. Send complete current state when a missed incremental update would make the client incorrect.
 
@@ -207,4 +207,4 @@ Deviate when the requirements make a simpler or different model more suitable.
 
 A page that re-reads data on navigation is correct before events exist. Add events only when changes must reach already open pages. Add `State[T]` only when a handler without a request needs a per-tab value.
 
-<!-- written by datapages sha256:d8358aea81ece9e6 -->
+<!-- written by datapages sha256:1c6195c616f036b8 -->

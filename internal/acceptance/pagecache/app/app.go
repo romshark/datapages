@@ -1,5 +1,5 @@
-// Package app defines handlers for page cache acceptance tests. Each handler
-// renders its inputs so tests can verify the HTTP response.
+// Package app defines handlers for page cache acceptance tests.
+// Each handler renders its inputs so tests can verify the HTTP response.
 package app
 
 import (
@@ -69,8 +69,7 @@ func (PageIndex) POSTStream(
 
 // POSTStreamFail is /stream-write-fail
 //
-// Queues a body that fails to render. The writes are left out of the stream,
-// and the action's own patch still goes out.
+// The cache body fails while the action patch succeeds.
 func (PageIndex) POSTStreamFail(
 	_ *http.Request, sse datapages.SSE, pageCache datapages.PageCacheWriter,
 ) error {
@@ -96,8 +95,7 @@ func (PageIndex) POSTRedirect(
 
 // POSTRedirectFail is /redirect-write-fail
 //
-// Queues a body that fails to render and redirects. The writes are left out
-// of the redirect script, and the navigation still goes out.
+// The cache body fails while the redirect succeeds.
 func (PageIndex) POSTRedirectFail(
 	_ *http.Request, pageCache datapages.PageCacheWriter,
 ) (redirect datapages.Redirect, err error) {
@@ -139,7 +137,7 @@ func (*App) POSTAppPrecache(
 
 // POSTAppPrecacheFail is /app-precache-fail
 //
-// Queues a body that fails to render on the stream the framework opens.
+// The cache body fails on the generated stream.
 func (*App) POSTAppPrecacheFail(
 	_ *http.Request, pageCache datapages.PageCacheWriter,
 ) error {

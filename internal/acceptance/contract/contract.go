@@ -362,9 +362,7 @@ func (c Case) testAttributeSeparation(t *testing.T) {
 	}
 }
 
-// testCompression tests a page requested with gzip accepted, as every browser
-// requests it. Datapages compresses only SSE responses. A page must still
-// arrive whole, and encoded when its Content-Encoding says so.
+// testCompression tests that a page response matches its Content-Encoding.
 func (c Case) testCompression(t *testing.T) {
 	srv := c.server(t)
 

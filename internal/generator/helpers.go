@@ -119,21 +119,17 @@ func pageHasStream(p *model.Page) bool {
 		p.StreamClose != nil || p.State != nil
 }
 
-// streamCompressionField returns the Server field that holds the compression
-// the StreamConfig method of p sets.
+// streamCompressionField returns p's compression field on Server.
 func streamCompressionField(p *model.Page) string {
 	return "streamCompression" + p.TypeName
 }
 
-// streamConfigPerStream reports whether the StreamConfig method of p takes
-// request inputs, which makes it run for each stream instead of once in Init.
+// streamConfigPerStream reports whether p configures each stream request.
 func streamConfigPerStream(p *model.Page) bool {
 	return p.StreamConfig != nil && len(p.StreamConfig.OrderedInputs) > 0
 }
 
-// streamCompressionExpr returns the compression the stream of p opens with:
-// the one its StreamConfig method sets, or the server's. The local compression
-// holds it for a method that runs for each stream.
+// streamCompressionExpr returns the compression expression for p's stream.
 func streamCompressionExpr(p *model.Page) string {
 	if streamConfigPerStream(p) {
 		return "compression"
@@ -141,8 +137,7 @@ func streamCompressionExpr(p *model.Page) string {
 	return reloadCompressionExpr(p)
 }
 
-// reloadCompressionExpr returns the compression of the reload answer of the
-// stream of p, which goes out before a per-stream StreamConfig method runs.
+// reloadCompressionExpr returns p's compression before request-scoped config.
 func reloadCompressionExpr(p *model.Page) string {
 	if p.StreamConfig != nil && !streamConfigPerStream(p) {
 		return "s." + streamCompressionField(p)

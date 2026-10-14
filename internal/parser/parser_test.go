@@ -2506,9 +2506,7 @@ func TestParse_GETOptions(t *testing.T) {
 	}
 }
 
-// TestParse_StreamConfig tests the 2 forms of the StreamConfig method: without
-// inputs on PageIndex, with the request and the signals on PageAdaptive,
-// with the request and the path on PageBoard, and a page whose stream declares none.
+// TestParse_StreamConfig tests static, request-scoped and absent configurations.
 func TestParse_StreamConfig(t *testing.T) {
 	require := require.New(t)
 	app, err := parse(t, "stream_config")
@@ -2535,11 +2533,7 @@ func TestParse_StreamConfig(t *testing.T) {
 	require.Nil(findPage(app, "PagePlain").StreamConfig)
 }
 
-// TestParse_ErrStreamConfig tests every refused StreamConfig method: on App,
-// with an input a stream request does not carry, with inputs but not the
-// request, with another result type, without the error result, with a path
-// that does not match the route, on a page without a stream and on a stream
-// embed.
+// TestParse_ErrStreamConfig tests invalid owners, signatures, paths and pages.
 func TestParse_ErrStreamConfig(t *testing.T) {
 	_, err := parse(t, "err_stream_config")
 	require.NotZero(t, err.Error())
@@ -2547,6 +2541,7 @@ func TestParse_ErrStreamConfig(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrAppUnsupportedMethod,
+		parser.ErrStreamConfigSignature,
 		parser.ErrStreamConfigSignature,
 		parser.ErrStreamConfigSignature,
 		parser.ErrStreamConfigSignature,

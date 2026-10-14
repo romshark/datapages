@@ -23,10 +23,10 @@ func (PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error 
 	return nil
 }
 
-func (p PageIndex) StreamConfig() (datapages.StreamConfig, error) {
+func (p PageIndex) StreamConfig() datapages.StreamConfig {
 	return datapages.StreamConfig{
 		Compression: &datapages.SSECompressionConfig{ZstdWindow: p.App.window},
-	}, nil
+	}
 }
 
 // PagePlain is /plain

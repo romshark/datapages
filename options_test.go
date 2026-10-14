@@ -133,8 +133,7 @@ func TestWithAssetsCache(t *testing.T) {
 	}
 }
 
-// TestWithSSECompression tests the configurations of SSE compression the option
-// accepts, and the codings, levels and windows it refuses.
+// TestWithSSECompression tests valid and invalid compression settings.
 func TestWithSSECompression(t *testing.T) {
 	t.Parallel()
 
@@ -238,8 +237,7 @@ func TestWithSSECompression(t *testing.T) {
 	}
 }
 
-// TestWithSSECompressionCopiesCodings tests that the option keeps its own codings:
-// a caller that reuses its slice does not change the server.
+// TestWithSSECompressionCopiesCodings tests that caller mutation has no effect.
 func TestWithSSECompressionCopiesCodings(t *testing.T) {
 	t.Parallel()
 

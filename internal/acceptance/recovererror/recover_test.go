@@ -134,10 +134,7 @@ func TestRecoveredPanics(t *testing.T) {
 	})
 }
 
-// TestHalfWrittenPageGetsNoEvents tests a Datastar request for a page whose
-// body panics after the start of the document went out. RecoverError events
-// would land inside the HTML, compressed when the client accepts compression,
-// under a response without Content-Encoding. The page ends where it broke off.
+// TestHalfWrittenPageGetsNoEvents tests that recovery does not append SSE to HTML.
 func TestHalfWrittenPageGetsNoEvents(t *testing.T) {
 	t.Parallel()
 
@@ -166,10 +163,7 @@ func TestHalfWrittenPageGetsNoEvents(t *testing.T) {
 	}
 }
 
-// TestPanickingRecoverErrorRunsOnce tests a RecoverError that panics.
-// The panic is logged with its stack, as an error RecoverError returns would be,
-// and the stream it was given ends. Left to the handler's recovery, the panic
-// ran RecoverError again, which wrote a 2nd stream into the response.
+// TestPanickingRecoverErrorRunsOnce tests that its panic is logged once with a stack.
 func TestPanickingRecoverErrorRunsOnce(t *testing.T) {
 	t.Parallel()
 
@@ -211,10 +205,7 @@ func TestPanickingRecoverErrorRunsOnce(t *testing.T) {
 	}
 }
 
-// TestFailedSubscribeDelaysReconnect tests a stream whose broker subscription fails.
-// RecoverError answers on the stream, and the stream ends with the reconnect delay
-// a failed StreamOpen gets. Datastar would otherwise reconnect the 200 after 1s,
-// and every open tab would fail and log once a second.
+// TestFailedSubscribeDelaysReconnect tests the recovery stream's retry field.
 func TestFailedSubscribeDelaysReconnect(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(mustNewServer(t, &app.App{},

@@ -55,9 +55,8 @@ func NewCompression(conf *datapages.SSECompressionConfig) *Compression {
 	return comp
 }
 
-// CompressionKey returns what tells apart how configurations compress,
-// "" for one that disables compression. A zero field and the default
-// it selects give the same key.
+// CompressionKey identifies effective settings.
+// Disabled compression returns "", and zero fields match their defaults.
 func CompressionKey(conf *datapages.SSECompressionConfig) string {
 	c, ok := resolve(conf)
 	if !ok {
@@ -226,10 +225,8 @@ const (
 	acceptStar
 )
 
-// accepted reads the values of an Accept-Encoding header,
-// see [RFC 9110, section 12.5.3]. For each of zstd, br, gzip and *,
-// it returns 0 when the values do not mention it, 1 when they accept it
-// and -1 when they refuse it. The first mention counts.
+// accepted parses Accept-Encoding under [RFC 9110, section 12.5.3]. Each result
+// is 0 when absent, 1 when accepted and -1 when refused. The first mention wins.
 //
 // [RFC 9110, section 12.5.3]: https://www.rfc-editor.org/rfc/rfc9110#section-12.5.3
 func accepted(values []string) (acc [4]int8) {

@@ -18,9 +18,8 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// The event types of the Datastar SDK specification, at the client version that
-// [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc] loads.
-// See [datastar-patch-elements] and [datastar-patch-signals].
+// Datastar event types for the client version loaded by
+// [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
 //
 // [datastar-patch-elements]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchelements
 // [datastar-patch-signals]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchsignals
@@ -250,9 +249,7 @@ func marshalSignals(v any) ([]byte, error) {
 }
 
 func (s *Stream) Redirect(target string) error {
-	// The redirect travels as a <script> element. A "</script>" in the target
-	// would end that element and leave the rest of it in the DOM as markup.
-	// [writeJSONStringBody] writes "<" as \u003c, which JavaScript reads back as "<".
+	// Escaping '<' prevents the target from ending its script element.
 	e := newScriptEvent(0)
 	_, _ = e.WriteString(`setTimeout(() => window.location.href = "`)
 	writeJSONStringBody(e, target)
@@ -339,10 +336,8 @@ var controlEscapes = func() (t [0x20]string) {
 	return t
 }()
 
-// writeJSONStringBody writes s inside a JSON string, which is also a JavaScript string,
-// in a single-line script. It escapes JSON syntax, controls and '<' to prevent
-// line breaks, </script> and <!--. Every escape is a constant,
-// which lets it write into an event without a buffer.
+// writeJSONStringBody writes s inside a JSON and JavaScript string.
+// It escapes syntax, controls and '<' without an intermediate buffer.
 func writeJSONStringBody(w io.StringWriter, s string) {
 	last := 0
 	for i := 0; i < len(s); i++ {

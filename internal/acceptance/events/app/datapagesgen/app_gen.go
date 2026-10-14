@@ -165,7 +165,7 @@ func (s *Server) Init(
 		p := dpapp.PageCompressed{
 			App: s.app,
 		}
-		s.streamCompressionPageCompressed, err = s.StreamCompression(p.StreamConfig())
+		s.streamCompressionPageCompressed, err = s.StreamCompression(p.StreamConfig(), nil)
 		if err != nil {
 			return fmt.Errorf("PageCompressed.StreamConfig: %w", err)
 		}

@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEventFraming tests random element patches against a reference encoder.
-// Their content holds CR, LF and CRLF, arrives in writes of random sizes,
-// empty and 1-byte writes included, and spans several frames, as their fields do.
+// TestEventFraming compares random, split, multiline content with a reference encoder.
 func TestEventFraming(t *testing.T) {
 	t.Parallel()
 
@@ -69,9 +67,7 @@ func TestEventFraming(t *testing.T) {
 	}
 }
 
-// referenceEvent returns the wire form of an element patch. Its fields come first,
-// then a data line for each line of content, which CR, LF and CRLF end.
-// Content that was never written gets no data line.
+// referenceEvent returns an element patch with normalized data lines.
 func referenceEvent(
 	retry time.Duration, fields [][2]string, prefix, content string,
 ) string {

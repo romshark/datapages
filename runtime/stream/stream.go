@@ -60,9 +60,7 @@ type Handler struct {
 // sessions ends a stream when the session it belongs to is closed.
 // It may be nil, in which case no stream watches its session. metrics may be nil.
 //
-// errOnStream reports whether onErr answers a Datastar request on an event stream,
-// which it opens when sse is nil. The error handler of an application
-// with RecoverError does.
+// errOnStream says onErr requires an event stream when sse is nil.
 func NewHandler(
 	core *httpserve.Core,
 	broker messaging.Broker,
@@ -99,14 +97,9 @@ func NewHandler(
 // The caller owns panics from fn; generated implementations recover them.
 // A panic from fn runs onClose on its way out of Handle.
 //
-// The page reconnects its stream whenever the stream ends. On shutdown, Handle runs
-// onClose and then aborts the stream with [http.ErrAbortHandler]:
-// pages from earlier Datapages releases reconnect only a stream that fails, and the
-// new process can then reload a page from an old build. Shutdown also fails every
-// write to the stream, see [interrupter]. When the session ends,
-// Handle sends [reloadScript]. When onOpen or the session watcher fails,
-// the last event carries [reconnectDelay]. So does the stream that answers
-// a failed subscription when the handler is errOnStream, see [Handler.Fail].
+// On shutdown, Handle runs onClose, interrupts writes and aborts with
+// [http.ErrAbortHandler] to force reconnection. A closed or expired session
+// receives [reloadScript]. Setup failures receive [reconnectDelay].
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	sessionKey, userID string, expiresAt time.Time,
@@ -149,17 +142,14 @@ func (h *Handler) Handle(
 	sse := dpsse.Open(w, r, compression)
 	intr := &interrupter{rc: http.NewResponseController(w)}
 	stopInterrupt := h.core.AfterShutdown(func() { intr.interrupt() })
-	// Registered before the deferred Close, which makes it run after Close.
-	// Close may wait for a write that only the deadline ends.
+	// This defer runs after Close, whose blocked write the deadline ends.
 	defer func() {
 		stopInterrupt()
 		intr.retire()
 	}()
 	aborting := false
 	defer func() {
-		// An abort without a write deadline leaves the stream open.
-		// Close would wait for a write to a client that stopped reading,
-		// which ends only when the connection closes.
+		// The shutdown path sets the write deadline before aborting.
 		if !aborting {
 			sse.Close()
 		}
@@ -246,8 +236,7 @@ func (h *Handler) Handle(
 
 	switch {
 	case shutdown.Load():
-		// A goroutine that still holds the stream would otherwise write while net/http
-		// tears the connection down. The deadline ends a write that Close waits for.
+		// End blocked and later writes before net/http reuses the writer.
 		if intr.interrupt() {
 			sse.Close()
 		}
@@ -259,13 +248,9 @@ func (h *Handler) Handle(
 	}
 }
 
-// interrupter fails the writes of a response with a write deadline in the past,
-// the writes in progress and every later one. Only a deadline ends a write to
-// a client that stopped reading. net/http's abort doesn't: on HTTP/1.1 its
-// final flush waits behind that write for the connection's write lock,
-// and on HTTP/2 its reset waits behind the stream's flow-controlled data.
-// A writer without an Unwrap method between w and net/http hides the deadline,
-// which leaves the writes unbounded.
+// interrupter sets a past deadline to fail current and later writes. net/http's abort
+// cannot end a write blocked on an HTTP/1.1 connection lock or HTTP/2 flow control.
+// A wrapper without Unwrap may hide the deadline operation.
 type interrupter struct {
 	rc      *http.ResponseController
 	mu      sync.Mutex
@@ -290,11 +275,8 @@ func (i *interrupter) retire() {
 	i.retired = true
 }
 
-// Fail answers a stream request that fails before its stream opens, as one
-// whose broker subscription or StreamConfig method fails. msg says what failed.
-// Nothing has been written yet, which lets onErr answer with a status.
-// A stream that onErr opened itself would end without [reconnectDelay],
-// so for errOnStream Fail opens it, compressed with compression.
+// Fail handles a broker or StreamConfig failure before the stream opens.
+// When errOnStream is set, it opens a stream and sends [reconnectDelay].
 func (h *Handler) Fail(
 	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	msg string, err error,
@@ -311,12 +293,8 @@ func (h *Handler) Fail(
 
 // Reload answers a stream request with [reloadScript].
 //
-// Generated code calls it for a guest on a stream that requires a session.
-// Only a page rendered for a session opens that stream. The session ended while
-// the stream was disconnected, which Handle could not report.
-// A refusal would leave the page showing that session,
-// and the page retries a refused stream without a limit.
-// compression is that of the stream, as for [Handler.Handle].
+// Generated code calls it when a page rendered for a session reconnects as a guest.
+// compression is the page stream's setting.
 func (h *Handler) Reload(
 	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 ) {
@@ -327,15 +305,10 @@ func (h *Handler) Reload(
 	_ = sse.ExecuteScriptRetry(reloadScript, reconnectDelay)
 }
 
-// reconnectDelay is how long the page waits to reconnect a stream whose open failed
-// or whose session ended. Handle and [Handler.Reload] send it as the SSE retry field.
+// reconnectDelay applies after setup failure or session end.
 //
-// Datastar waits 1s before it reconnects a stream that ended, and every 200
-// resets its backoff. Without the delay, a StreamOpen that keeps failing runs
-// every second for each open tab. 5s limits it to 12 runs a minute.
-// It also exceeds the 1s delay of [reloadScript], which lets a page reload before
-// it reconnects. Datastar keeps the value until the page loads again,
-// which makes it the first wait after a later shutdown too.
+// 5s limits a failing StreamOpen to 12 calls per minute and exceeds the 1s
+// [reloadScript] delay. Datastar retains it until the next page load.
 const reconnectDelay = 5 * time.Second
 
 // reloadScript reloads the page for the session the browser now holds.

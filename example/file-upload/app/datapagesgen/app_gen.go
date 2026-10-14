@@ -502,9 +502,7 @@ func (s *Server) httpErrIntern(
 		slog.Any("err", errRecover))
 }
 
-// callRecoverError calls RecoverError and returns a panic in it as an error.
-// Left to recoverPanic, the panic would run RecoverError again, on a second
-// stream when httpErrIntern opened the first.
+// callRecoverError converts a RecoverError panic into an error.
 func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
 	defer func() {
 		v := recover()

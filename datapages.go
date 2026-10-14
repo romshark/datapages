@@ -163,8 +163,8 @@ type State[Values any] struct{ Values *Values }
 //	}
 //
 // It pairs the 2 hooks for the same stream. 1 session can hold several streams,
-// 1 per open tab, and the ID is what tells them apart: register per-tab state under
-// it in StreamOpen, read that state in the OnXXX handlers,
+// 1 per open tab, and the ID is what tells them apart: register per-tab state
+// under it in StreamOpen, read that state in the OnXXX handlers,
 // and drop it in StreamClose. It also ties the log lines of 1 stream together.
 //
 // A StreamOpen that returns an error or panics gets no StreamClose.
@@ -218,53 +218,27 @@ type EnableBackgroundStreaming bool
 // Only a page that has a stream refreshes and may return it.
 type DisableRefreshAfterHidden bool
 
-// StreamConfig is returned by the StreamConfig method of a page, together with
-// an error. It sets the SSE stream of that page apart from the rest of the
-// server. The zero value keeps the settings of the server. Only a page that has
-// a stream may declare the method.
+// StreamConfig configures a page's SSE stream.
+// A page without a stream cannot declare the method.
 //
-// A method that takes nothing runs once, when [NewServer] builds the server.
-// Its error, and a configuration that [WithSSECompression] refuses,
-// fail NewServer:
+// A parameterless method returns StreamConfig during [NewServer].
+// A method taking *http.Request returns (StreamConfig, error) before
+// each stream and may also take the session, path and signals.
+// Invalid configurations and request-scoped errors fail setup.
 //
-//	func (PageDashboard) StreamConfig() (datapages.StreamConfig, error) {
-//		return datapages.StreamConfig{
-//			Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
-//		}, nil
-//	}
-//
-// A method that takes the *http.Request, and optionally the session, the path
-// and the signals of the stream request, runs for each stream before the stream
-// opens. Its error, and a configuration that WithSSECompression refuses, end
-// the request as a failed subscription to the message broker does:
-//
-//	func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
-//		if r.Header.Get("Save-Data") != "on" {
-//			return datapages.StreamConfig{}, nil
-//		}
-//		return datapages.StreamConfig{
-//			Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
-//		}, nil
-//	}
-//
-// Streams with the same configuration share encoders. Return 1 of a few fixed
-// configurations rather than 1 built from what the request carries, which
-// could let a client choose one that holds tens of MiB per stream.
-// The encoders of at most 64 configurations are shared.
+// Per-request methods should return a bounded set of configurations.
+// Encoders are shared for at most 64 distinct configurations.
 type StreamConfig struct {
-	// Compression replaces what [WithSSECompression] sets, for the stream of
-	// the page. A page that re-renders a large fragment can take a larger
-	// window, and a page with many visitors a smaller one.
-	//
-	// Optional. Nil keeps the compression of the server.
+	// Compression overrides [WithSSECompression] for the page's streams.
+	// Nil uses the server configuration.
 	Compression *SSECompressionConfig
 }
 
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //
-// Data carries whatever the application needs to keep for the duration of the
-// session, use struct{} when it needs nothing:
+// Data carries whatever the application needs to keep for the duration of the session,
+// use struct{} when it needs nothing:
 //
 //	func (p PageIndex) GET(
 //		r *http.Request, session datapages.Session[struct{}],

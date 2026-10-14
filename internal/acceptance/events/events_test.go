@@ -676,9 +676,7 @@ func (b *initializingBroker) InitStreams(subjects []string) error {
 	return b.err
 }
 
-// TestStreamConfigCompression tests the compression a page sets for its stream
-// with a StreamConfig method that runs once, next to the stream of PageOther,
-// which keeps the server's.
+// TestStreamConfigCompression tests page and server compression settings.
 func TestStreamConfigCompression(t *testing.T) {
 	t.Parallel()
 
@@ -707,45 +705,23 @@ func TestStreamConfigCompression(t *testing.T) {
 	}
 }
 
-// TestStreamConfigFailsNewServer tests that NewServer fails, naming the method,
-// when a StreamConfig method that runs once fails or returns a configuration
-// that WithSSECompression refuses.
+// TestStreamConfigFailsNewServer tests static configuration validation.
 func TestStreamConfigFailsNewServer(t *testing.T) {
 	t.Parallel()
 
-	for name, tc := range map[string]struct {
-		app  *app.App
-		want string
-	}{
-		"error": {
-			app:  &app.App{CompressedStreamErr: errors.New("no configuration")},
-			want: "PageCompressed.StreamConfig: no configuration",
-		},
-		"refused": {
-			app: &app.App{
-				CompressedStream: &datapages.SSECompressionConfig{ZstdWindow: 3},
-			},
-			want: "PageCompressed.StreamConfig: compression: " +
-				"zstd window (3) must be a power of 2 from 1 KiB to 8 MiB",
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			_, err := datapages.NewServer[
-				app.App,
-				datapages.DisableSessions,
-				datapages.DisablePrometheus,
-				datapagesgen.Server,
-			](tc.app, inmem.New(messaging.DefaultBrokerChanBuffer))
-			require.EqualError(t, err, tc.want)
-		})
-	}
+	_, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](&app.App{
+		CompressedStream: &datapages.SSECompressionConfig{ZstdWindow: 3},
+	}, inmem.New(messaging.DefaultBrokerChanBuffer))
+	require.EqualError(t, err, "PageCompressed.StreamConfig: compression: "+
+		"zstd window (3) must be a power of 2 from 1 KiB to 8 MiB")
 }
 
-// TestStreamConfigPerStream tests a StreamConfig method that takes the request
-// and runs for each stream. Its error, and a configuration WithSSECompression
-// refuses, end the request as a failed broker subscription does. Without
-// RecoverError, that is status 500 and the error in the log.
+// TestStreamConfigPerStream tests request-scoped settings and failures.
 func TestStreamConfigPerStream(t *testing.T) {
 	t.Parallel()
 
@@ -792,8 +768,7 @@ func TestStreamConfigPerStream(t *testing.T) {
 	}
 }
 
-// TestStreamConfigPath tests a StreamConfig method that takes the path of the
-// stream request, which carries the variables of the page route.
+// TestStreamConfigPath tests page route variables in StreamConfig.
 func TestStreamConfigPath(t *testing.T) {
 	t.Parallel()
 
@@ -804,8 +779,7 @@ func TestStreamConfigPath(t *testing.T) {
 	requireStream(t, srv.URL+"/board/small/_$/", nil, "zstd")
 }
 
-// requireStream requires the stream at url to open with coding,
-// requested as a current browser does with header added.
+// requireStream requires url to open with coding.
 func requireStream(t *testing.T, url string, header http.Header, coding string) {
 	t.Helper()
 	status, got := streamResponse(t, url, header)
@@ -813,8 +787,7 @@ func requireStream(t *testing.T, url string, header http.Header, coding string) 
 	require.Equal(t, coding, got, "the coding of %s", url)
 }
 
-// streamResponse opens a stream the way a current browser does, with header
-// added, and returns the status and the content coding of the response.
+// streamResponse returns a stream's status and content coding.
 func streamResponse(t *testing.T, url string, header http.Header) (int, string) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)

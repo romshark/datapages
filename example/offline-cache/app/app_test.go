@@ -87,8 +87,7 @@ func (v visitor) post(
 	require.NoError(t, err, "building POST %s", path)
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Content-Type", "application/json")
-	// The transport would ask for gzip and decompress the response.
-	// Identity keeps what the test reads the bytes the handler wrote.
+	// Keep assertions against the uncompressed handler output.
 	req.Header.Set("Accept-Encoding", "identity")
 	if v.session != "" {
 		// A cookie jar would not send the Secure session cookie

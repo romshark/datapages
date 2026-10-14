@@ -544,21 +544,6 @@ const (
 )
 
 // The defaults of [SSECompressionConfig].
-//
-// A live update re-renders a fragment with small changes, and a window that
-// spans earlier renders finds most of it there. BenchmarkReRender in
-// runtime/sse re-renders a list with 1 more item changed each time.
-// For a 100 KB list, a re-render sends 1.0% of the list with zstd at level 1,
-// 0.06% with brotli at quality 4 and 12.9% with gzip, whose window is 32 KiB.
-// zstd re-encodes about 1 render per window of stream in full, which makes up
-// most of its bytes. zstd takes about 1/4 of gzip's time and holds 1.6 MiB
-// per stream. brotli takes about 0.8 times gzip's time and holds 3.5 MiB.
-//
-// A re-render compresses against its previous render only while that render
-// lies within the window, which a fragment over 1 MiB never does. For a 2 MB
-// list with 1 changed item, a 4 MiB window reduces zstd's output from 20 KB to
-// 1.5 KB per event and brotli's time from 12.5 to 4.4 ms. brotli holds more than
-// 2 times its window, 8.6 MiB per stream at 4 MiB instead of 2.6 MiB.
 const (
 	DefaultSSEZstdLevel     = 1
 	DefaultSSEZstdWindow    = 1 << 20
@@ -567,15 +552,10 @@ const (
 	DefaultSSEGzipLevel     = 6
 )
 
-// SSECompressionConfig is what [WithSSECompression] applies.
-// The zero value is the default.
-//
-// A stream takes an encoder on its first event and holds it until the stream ends.
-// Its memory grows with the window and the level.
+// SSECompressionConfig configures SSE compression. Its zero value selects the defaults.
+// A stream holds its encoder from its first event until it ends.
 type SSECompressionConfig struct {
-	// Disabled sends SSE responses uncompressed, as behind a proxy that
-	// compresses them. The other fields are then unused.
-	// It supports configuration files and flags that cannot omit the option.
+	// Disabled sends SSE responses uncompressed and ignores the other fields.
 	Disabled bool
 
 	// Codings lists the content codings a response may use, in the order the
@@ -584,94 +564,35 @@ type SSECompressionConfig struct {
 	// gzip, when Codings lists it. * never selects zstd or brotli. Any other
 	// request gets an uncompressed response.
 	//
-	// Optional. Defaults to zstd, brotli and gzip. zstd needs Chrome 123,
-	// Firefox 126, or Safari 26.3 on iOS or macOS 26.3, and brotli serves
-	// older browsers.
+	// The default is zstd, brotli and gzip.
 	Codings []SSECoding
 
-	// ZstdLevel is a zstd compression level from 1 to 22. The encoder has
-	// 4 speeds, which take levels 1 and 2, 3 to 5, 6 to 9, and 10 and up.
-	// From level 10, a stream holds about 35 MiB instead of 1.6 MiB at level 1,
-	// see BenchmarkReRender in runtime/sse.
-	//
-	// Optional. Defaults to [DefaultSSEZstdLevel].
+	// ZstdLevel is from 1 to 22. 0 selects [DefaultSSEZstdLevel].
 	ZstdLevel int
 
-	// ZstdWindow is how far back zstd looks for repeated data, in bytes:
-	// a power of 2 from 1 KiB to 8 MiB. Browsers refuse a larger window,
-	// see [RFC 9659].
-	//
-	// Optional. Defaults to [DefaultSSEZstdWindow].
+	// ZstdWindow is a power of 2 from 1 KiB to 8 MiB.
+	// 0 selects [DefaultSSEZstdWindow]. See [RFC 9659].
 	//
 	// [RFC 9659]: https://www.rfc-editor.org/rfc/rfc9659
 	ZstdWindow int
 
-	// BrotliQuality is a brotli quality from 1 to 11. At quality 9,
-	// a stream holds about 36 MiB, 10 times as much as at quality 4,
-	// see BenchmarkReRender in runtime/sse.
-	//
-	// Optional. Defaults to [DefaultSSEBrotliQuality].
+	// BrotliQuality is from 1 to 11. 0 selects [DefaultSSEBrotliQuality].
 	BrotliQuality int
 
-	// BrotliWindow is how far back brotli looks for repeated data, in bytes:
-	// a power of 2 from 1 KiB to 16 MiB. The brotli format allows no larger
-	// window, see [RFC 7932 section 9.1].
-	//
-	// Optional. Defaults to [DefaultSSEBrotliWindow].
+	// BrotliWindow is a power of 2 from 1 KiB to 16 MiB.
+	// 0 selects [DefaultSSEBrotliWindow]. See [RFC 7932 section 9.1].
 	//
 	// [RFC 7932 section 9.1]: https://www.rfc-editor.org/rfc/rfc7932#section-9.1
 	BrotliWindow int
 
-	// GzipLevel is a gzip compression level from 1 to 9.
-	// gzip looks back 32 KiB at every level.
-	//
-	// Optional. Defaults to [DefaultSSEGzipLevel].
+	// GzipLevel is from 1 to 9. 0 selects [DefaultSSEGzipLevel].
 	GzipLevel int
 }
 
 // WithSSECompression sets how SSE responses are compressed.
 //
-// Optional. By default a response uses the first of zstd, brotli and gzip
-// that its request accepts by name, with the defaults of [SSECompressionConfig].
-// The StreamConfig method of a page replaces it for the stream of that page,
-// see [StreamConfig].
-//
-// Turn compression off behind a proxy that compresses responses.
-// The proxy must forward each event as it arrives:
-//
-//	datapages.WithSSECompression(datapages.SSECompressionConfig{Disabled: true})
-//
-// Compress with gzip only, which every client decodes and which holds 1 MiB per stream.
-// Its 32 KiB window misses the previous render of a larger fragment:
-//
-//	datapages.WithSSECompression(datapages.SSECompressionConfig{
-//		Codings: []datapages.SSECoding{datapages.SSECodingGzip},
-//	})
-//
-// Compress with zstd only, which takes the least CPU time. A client without zstd,
-// such as Safari before 26.3 or on macOS before 26.3, gets uncompressed streams:
-//
-//	datapages.WithSSECompression(datapages.SSECompressionConfig{
-//		Codings: []datapages.SSECoding{datapages.SSECodingZstd},
-//	})
-//
-// Compress with zstd, else brotli. A client that accepts only gzip, such as
-// Go's [http.Client], gets uncompressed streams:
-//
-//	datapages.WithSSECompression(datapages.SSECompressionConfig{
-//		Codings: []datapages.SSECoding{
-//			datapages.SSECodingZstd, datapages.SSECodingBrotli,
-//		},
-//	})
-//
-// Spend memory and time on smaller re-renders of large fragments. A 4 MiB zstd
-// window sends 0.7% of a 400 KB list per re-render instead of 2.4%, holds 4.6 MiB
-// per stream instead of 1.6 MiB and takes about 1.7 times as long per re-render,
-// see BenchmarkReRender in runtime/sse:
-//
-//	datapages.WithSSECompression(datapages.SSECompressionConfig{
-//		ZstdWindow: 4 << 20,
-//	})
+// By default, a response uses the first accepted coding among zstd, brotli and gzip.
+// A page's [StreamConfig] overrides this setting for its streams.
 func WithSSECompression(conf SSECompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := conf.Validate(); err != nil {
@@ -865,8 +786,8 @@ type StateConfig struct {
 	// A stream over the limit receives 503 with Retry-After. The generated page
 	// configures Datastar to retry the connection 10 times over about 3 minutes.
 	//
-	// Reaching the limit does not notify application code. Read 1 server's live
-	// count with
+	// Reaching the limit does not notify application code.
+	// Read 1 server's live count with
 	// [github.com/romshark/datapages/runtime/httpserve.Core.StateLiveInstances],
 	// which the generated server embeds. Servers built with [EnablePrometheus]
 	// also add their counts to the datapages_state_instances process gauge.

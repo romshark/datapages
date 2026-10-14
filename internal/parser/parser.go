@@ -1250,28 +1250,15 @@ func validateAndAttachStreamHook(
 	}
 }
 
-// validateAndAttachStreamConfig attaches the StreamConfig method of a page,
-// which returns datapages.StreamConfig and error. Without parameters it runs
-// once, when the server is built, on a page with only App set.
-// With the request, and optionally the session, the path and the signals of
-// the stream request, it runs for each stream.
+// validateAndAttachStreamConfig validates and records a page's StreamConfig.
 func validateAndAttachStreamConfig(
 	ctx *parseCtx, errs *Errors, recv string, fd *ast.FuncDecl, pg *model.Page,
 ) {
 	info := ctx.pkg.TypesInfo
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 	refuse := func() {
-		errs.ErrAt(pos, fmt.Errorf("%w: %s.StreamConfig", ErrStreamConfigSignature, recv))
-	}
-	var results []*ast.Field
-	if fd.Type.Results != nil {
-		results = expandFieldList(fd.Type.Results.List)
-	}
-	if len(results) != 2 ||
-		!typecheck.IsStreamConfigType(results[0].Type, info) ||
-		!typecheck.IsError(info.TypeOf(results[1].Type)) {
-		refuse()
-		return
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.StreamConfig",
+			ErrStreamConfigSignature, recv))
 	}
 	h := &model.Handler{Expr: fd.Name, Name: fd.Name.Name}
 	if fd.Type.Params != nil {
@@ -1311,13 +1298,27 @@ func validateAndAttachStreamConfig(
 			}
 		}
 	}
-	// The request marks the method that runs for each stream, as on GET.
+	// Any input makes the method request-scoped and requires the request.
 	if len(h.OrderedInputs) > 0 && h.InputRequest == nil {
 		refuse()
 		return
 	}
-	// The stream route extends the page route, which gives the stream request
-	// the variables of the page. A path struct covers them all, as on GET.
+	// Request-scoped methods also return an error.
+	var results []*ast.Field
+	if fd.Type.Results != nil {
+		results = expandFieldList(fd.Type.Results.List)
+	}
+	wantResults := 1
+	if h.InputRequest != nil {
+		wantResults = 2
+	}
+	if len(results) != wantResults ||
+		!typecheck.IsStreamConfigType(results[0].Type, info) ||
+		(wantResults == 2 && !typecheck.IsError(info.TypeOf(results[1].Type))) {
+		refuse()
+		return
+	}
+	// Stream paths have the page route's variables.
 	if h.InputPath != nil {
 		h.Route = pg.Route
 		err := paramvalidation.ValidatePathAgainstRoute(h, recv, fd.Name.Name)
@@ -1823,9 +1824,7 @@ func validateRefreshOutputs(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-// validateStreamConfigs rejects the StreamConfig method of a page without
-// a stream, which nothing would call. Like validateRefreshOutputs, it runs after
-// finalizeStates.
+// validateStreamConfigs rejects StreamConfig on pages without streams.
 func validateStreamConfigs(ctx *parseCtx, errs *Errors) {
 	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
 		pg := ctx.pages[name]

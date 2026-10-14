@@ -6,8 +6,7 @@ package methodkind
 
 import "strings"
 
-// Kind is what a method name makes of a method: an HTTP handler, a stream hook,
-// the stream configuration or an event handler. The zero value is an ordinary method.
+// Kind classifies a method name. The zero value is an ordinary method.
 type Kind int8
 
 const (

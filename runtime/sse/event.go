@@ -19,16 +19,11 @@ type event struct {
 	wrote  bool     // Write saw a byte.
 }
 
-// frameSize is the size of the buffers an event is built in. An event keeps its
-// first frame in events and takes another from frames each time it fills one.
-// Buffers of 1 size never hand an event more than its size rounded up to a frame.
-// A pool of growing buffers hands small events what large ones left,
-// see [Go issue 23199].
+// frameSize bounds pooled memory per frame. Fixed-size buffers prevent large
+// events from enlarging buffers later reused by small events. See [Go issue 23199].
 //
-// Each frame is 1 write to the connection. In BenchmarkHTTPEvent a 2 MB event
-// took 716 us over HTTP/1.1 with 64 KiB frames and 1369 us with 16 KiB frames.
-// The cost is memory while an event waits for its write:
-// 1000 blocked 200 B events held 66 MB, against 17 MB with 16 KiB frames.
+// BenchmarkHTTPEvent measured a 2 MB event at 716 us with 64 KiB frames and
+// 1369 us with 16 KiB frames. 1000 blocked small events hold 66 MB at 64 KiB.
 //
 // [Go issue 23199]: https://go.dev/issue/23199
 const frameSize = 64 << 10

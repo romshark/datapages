@@ -210,10 +210,7 @@ func TestHandleFailedOpenDelaysReconnect(t *testing.T) {
 	}
 }
 
-// TestHandleFailedSubscribe tests the answer to a stream whose subscription fails.
-// An error handler that answers on a stream gets one that ends with a reconnect delay,
-// as after a failed open. Datastar would otherwise reconnect the 200 after 1s.
-// Any other error handler gets no stream, which leaves it the status to write.
+// TestHandleFailedSubscribe tests status and SSE error responses.
 func TestHandleFailedSubscribe(t *testing.T) {
 	t.Parallel()
 
@@ -261,10 +258,7 @@ func TestHandleFailedSubscribe(t *testing.T) {
 	}
 }
 
-// TestHandleShutdownWithBlockedWrite tests that shutdown aborts a stream while
-// another goroutine is blocked writing to it, as to a client that stopped
-// reading, when the writer takes no write deadline. Waiting for that write
-// would hold the stream until the shutdown timeout.
+// TestHandleShutdownWithBlockedWrite tests shutdown when deadlines are unsupported.
 func TestHandleShutdownWithBlockedWrite(t *testing.T) {
 	t.Parallel()
 
@@ -298,10 +292,7 @@ func TestHandleShutdownWithBlockedWrite(t *testing.T) {
 	}
 }
 
-// TestHandleShutdownWithStalledClient tests shutdown while a write blocks on
-// a client that stopped reading, over a real connection. net/http's abort does
-// not end that write. http.Server.Shutdown would wait for its timeout,
-// and a blocked message loop would keep the close hook from running.
+// TestHandleShutdownWithStalledClient tests blocked HTTP/1.1 and HTTP/2 writes.
 func TestHandleShutdownWithStalledClient(t *testing.T) {
 	t.Parallel()
 
@@ -438,11 +429,7 @@ func isClosed(ch <-chan struct{}) bool {
 	}
 }
 
-// TestHandleShutdownWhileWriting tests shutdown while a goroutine that the open
-// hook started keeps writing to a client that reads. Once the handler aborts,
-// net/http tears the connection down and pools its buffered writer, and a write
-// from that goroutine would race it. The race detector reports such a write.
-// With 1 CPU it crashed the process with a nil pointer dereference.
+// TestHandleShutdownWhileWriting tests that writers stop before net/http cleanup.
 func TestHandleShutdownWhileWriting(t *testing.T) {
 	t.Parallel()
 

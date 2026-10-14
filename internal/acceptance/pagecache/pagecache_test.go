@@ -250,10 +250,7 @@ func TestShimKeepsItsQuery(t *testing.T) {
 			" lets it answer one whose prefetch it lost")
 }
 
-// TestPageCacheVariesByHeldVersion tests that a response whose handler reads
-// the held version declares it, which keeps a shared cache from serving one
-// client's copy and its embedded write to another. An action on its own
-// stream declares it before the stream sends the response head.
+// TestPageCacheVariesByHeldVersion tests Vary on page and stream responses.
 func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -266,10 +263,7 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 		"X-Datapages-Offline-Version")
 }
 
-// TestFailingCachedBodyIsLogged tests a cached body that fails to render
-// in the response of an action that answers with an event stream or with
-// a redirect script. The writes are left out, as from a page,
-// and the error is logged.
+// TestFailingCachedBodyIsLogged tests render failures in action delivery paths.
 func TestFailingCachedBodyIsLogged(t *testing.T) {
 	t.Parallel()
 	for name, path := range map[string]string{

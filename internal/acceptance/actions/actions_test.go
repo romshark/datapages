@@ -44,8 +44,7 @@ func (s server) do(t *testing.T, method, url, body string) *http.Response {
 	req, err := http.NewRequestWithContext(context.Background(), method, s.URL+url, r)
 	require.NoError(t, err, "building %s %s", method, url)
 	req.Header.Set("Datastar-Request", "true")
-	// SSE responses are compressed by default. Asking for none of it keeps the
-	// bytes this test reads the bytes the handler wrote.
+	// Keep assertions against the uncompressed handler output.
 	req.Header.Set("Accept-Encoding", "identity")
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
@@ -541,10 +540,7 @@ func TestSSEOutputSignals(t *testing.T) {
 	}
 }
 
-// TestSSEOutputCompressed tests the same action as a client that accepts
-// 1 coding, as a browser accepts each it supports. The events must survive
-// the encoding, and the stream must end its compressed data.
-// A decoder reports an unexpected EOF for data without its end.
+// TestSSEOutputCompressed tests that each coding preserves the event and ends cleanly.
 func TestSSEOutputCompressed(t *testing.T) {
 	t.Parallel()
 	for coding, decoder := range map[string]func(io.Reader) (io.ReadCloser, error){

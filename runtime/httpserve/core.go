@@ -62,8 +62,7 @@ type Core struct {
 	// Empty when the application serves none.
 	assetsURLPrefix string
 
-	// shutdown is canceled when the shutdown begins. A context rather than
-	// a channel lets [Core.AfterShutdown] register a stream without a goroutine.
+	// shutdown lets [Core.AfterShutdown] register callbacks without goroutines.
 	shutdown       context.Context
 	cancelShutdown context.CancelFunc
 	shutdownOnce   sync.Once
@@ -95,9 +94,7 @@ type Core struct {
 	fileSendTimeout  time.Duration
 	sseCompression   *sse.Compression
 
-	// streamCompressions holds the compression of each configuration that
-	// a StreamConfig method returned, by [sse.CompressionKey].
-	// The streams of 1 configuration share its encoders.
+	// streamCompressions shares encoders by [sse.CompressionKey].
 	lockStreamCompressions sync.Mutex
 	streamCompressions     map[string]*sse.Compression
 
@@ -362,8 +359,7 @@ func (c *Core) CheckSameOrigin(w http.ResponseWriter, r *http.Request) (ok bool)
 // ShutdownCh is closed when the shutdown begins.
 func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdown.Done() }
 
-// AfterShutdown calls f in its own goroutine once the shutdown begins, at once
-// when it has begun. stop keeps f from being called, see [context.AfterFunc].
+// AfterShutdown schedules f when shutdown begins. See [context.AfterFunc].
 func (c *Core) AfterShutdown(f func()) (stop func() bool) {
 	return context.AfterFunc(c.shutdown, f)
 }
@@ -468,26 +464,19 @@ func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 // an action that declares Signals is read.
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 
-// OpenSSE starts the event stream of a response,
-// compressed as [datapages.WithSSECompression] configures, see [sse.Open].
+// OpenSSE starts an event stream with the server's compression settings.
 func (c *Core) OpenSSE(w http.ResponseWriter, r *http.Request) *sse.Stream {
 	return sse.Open(w, r, c.sseCompression)
 }
 
-// SSECompression returns the compression [datapages.WithSSECompression]
-// configures, nil when it disables compression.
+// SSECompression returns the server's compression, or nil when disabled.
 func (c *Core) SSECompression() *sse.Compression { return c.sseCompression }
 
-// maxStreamCompressions limits the configurations whose encoders are shared.
-// A StreamConfig method that builds its configuration from what a request
-// carries could otherwise grow the map without a limit.
-// The stream of another configuration gets encoders of its own.
+// maxStreamCompressions bounds the request-configured encoder pools.
 const maxStreamCompressions = 64
 
-// StreamCompression returns the compression of the stream of a page whose
-// StreamConfig method returned conf and err, which generated code passes as the call.
-// It returns err when it is not nil, the server's compression when conf sets none,
-// and an error for a configuration that [datapages.WithSSECompression] refuses.
+// StreamCompression resolves a StreamConfig result. It propagates err, uses
+// the server setting for nil Compression and rejects invalid configurations.
 func (c *Core) StreamCompression(
 	conf datapages.StreamConfig, err error,
 ) (*sse.Compression, error) {

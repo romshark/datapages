@@ -174,8 +174,7 @@ func (tb *tab) action(t *testing.T, method, path, body string) (int, string) {
 		req.Header.Set("Datapages-Instance", tb.instance)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// The transport would ask for gzip and decompress the response.
-	// Identity keeps what the test reads the bytes the handler wrote.
+	// Keep assertions against the uncompressed handler output.
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := tb.s.srv.Client().Do(req)
 	require.NoError(t, err)

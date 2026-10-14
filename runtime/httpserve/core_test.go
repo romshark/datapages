@@ -647,13 +647,38 @@ func TestBuildHidesAssetDirectories(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		"root hidden":     {url: "/static/", wantStatus: http.StatusNotFound},
-		"subdir hidden":   {url: "/static/sub/", wantStatus: http.StatusNotFound},
-		"no slash hidden": {url: "/static/sub", wantStatus: http.StatusNotFound},
-		"file served":     {url: "/static/hello.txt", wantStatus: http.StatusOK, wantBody: "hello"},
-		"nested served":   {url: "/static/sub/nested.txt", wantStatus: http.StatusOK, wantBody: "nested"},
-		"root listed":     {browsable: true, url: "/static/", wantStatus: http.StatusOK, wantBody: "hello.txt"},
-		"subdir listed":   {browsable: true, url: "/static/sub/", wantStatus: http.StatusOK, wantBody: "nested.txt"},
+		"root hidden": {
+			url:        "/static/",
+			wantStatus: http.StatusNotFound,
+		},
+		"subdir hidden": {
+			url:        "/static/sub/",
+			wantStatus: http.StatusNotFound,
+		},
+		"no slash hidden": {
+			url:        "/static/sub",
+			wantStatus: http.StatusNotFound,
+		},
+		"file served": {
+			url:        "/static/hello.txt",
+			wantStatus: http.StatusOK,
+			wantBody:   "hello",
+		},
+		"nested served": {
+			url:        "/static/sub/nested.txt",
+			wantStatus: http.StatusOK,
+			wantBody:   "nested",
+		},
+		"root listed": {
+			browsable: true, url: "/static/",
+			wantStatus: http.StatusOK,
+			wantBody:   "hello.txt",
+		},
+		"subdir listed": {
+			browsable: true, url: "/static/sub/",
+			wantStatus: http.StatusOK,
+			wantBody:   "nested.txt",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -878,11 +903,7 @@ func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
 	return 0
 }
 
-// TestStreamCompression tests the compression of the stream of a page with
-// a StreamConfig method: the server's without a configuration, nil for one that
-// disables compression, 1 shared value for configurations that compress alike,
-// the error of the method, an error for a refused configuration,
-// and no sharing past the limit of 64.
+// TestStreamCompression tests defaults, validation, errors and pool limits.
 func TestStreamCompression(t *testing.T) {
 	t.Parallel()
 
@@ -920,8 +941,7 @@ func TestStreamCompression(t *testing.T) {
 	require.NotSame(t, get(beyond), get(beyond))
 }
 
-// TestOpenSSECompression tests that the compression a server is configured
-// with decides the coding of its streams.
+// TestOpenSSECompression tests server compression negotiation.
 func TestOpenSSECompression(t *testing.T) {
 	t.Parallel()
 

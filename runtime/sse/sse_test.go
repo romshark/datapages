@@ -168,7 +168,11 @@ func TestOpenWithoutFlushPanics(t *testing.T) {
 	t.Parallel()
 
 	require.Panics(t, func() {
-		sse.Open(struct{ http.ResponseWriter }{httptest.NewRecorder()}, streamRequest(), compression)
+		sse.Open(struct {
+			http.ResponseWriter
+		}{
+			httptest.NewRecorder(),
+		}, streamRequest(), compression)
 	})
 }
 
@@ -613,9 +617,7 @@ func TestScriptAndRedirect(t *testing.T) {
 	require.Contains(t, got, "/b/")
 }
 
-// TestConcurrentWritersAndClose tests 8 goroutines that send events while
-// another closes the stream after the 10th event. Every event whose send
-// returned nil arrives whole, and no other event arrives.
+// TestConcurrentWritersAndClose tests atomic sends during concurrent Close.
 func TestConcurrentWritersAndClose(t *testing.T) {
 	t.Parallel()
 
@@ -772,9 +774,7 @@ func TestCompressedWithoutEvents(t *testing.T) {
 	}
 }
 
-// TestCompressionConfig tests streams of a server configured with
-// [datapages.WithSSECompression]: the coding each request gets,
-// and the stream it decodes from at each setting.
+// TestCompressionConfig tests negotiation and decoding for each configuration.
 func TestCompressionConfig(t *testing.T) {
 	t.Parallel()
 
@@ -1013,9 +1013,7 @@ func TestScriptAllocs(t *testing.T) {
 	}
 }
 
-// TestLargeEvents tests events of up to 3 MiB, which span up to 56 frames,
-// between small events. Each carries its own content, whole, in the frames
-// the one before used.
+// TestLargeEvents tests frame reuse between events up to 3 MiB.
 func TestLargeEvents(t *testing.T) {
 	t.Parallel()
 
@@ -1147,7 +1145,6 @@ func (d *discard) WriteHeader(int)             {}
 func (d *discard) Flush()                      {}
 
 // BenchmarkPatchElement measures 4 element sizes with every coding.
-// The 2 largest span several frames.
 func BenchmarkPatchElement(b *testing.B) {
 	for _, size := range []struct {
 		name string
@@ -1163,7 +1160,11 @@ func BenchmarkPatchElement(b *testing.B) {
 			`</ul>`)
 		for _, coding := range append([]string{"identity"}, codings...) {
 			b.Run(size.name+"/"+coding, func(b *testing.B) {
-				s := sse.Open(&discard{h: make(http.Header)}, codingRequest(coding), compression)
+				s := sse.Open(
+					&discard{h: make(http.Header)},
+					codingRequest(coding),
+					compression,
+				)
 				defer s.Close()
 				b.ReportAllocs()
 				for b.Loop() {
@@ -1176,11 +1177,7 @@ func BenchmarkPatchElement(b *testing.B) {
 	}
 }
 
-// BenchmarkReRender measures the re-renders a live update sends.
-// Each renders a list on 1 line with 1 more item changed, and none repeats.
-// It reports the bytes on the wire per re-render, their share of the list
-// and the heap the stream holds. The figures in the docs of
-// [datapages.SSECompressionConfig] come from it.
+// BenchmarkReRender measures distinct list re-renders, wire bytes and retained heap.
 func BenchmarkReRender(b *testing.B) {
 	for _, size := range []struct {
 		name string
@@ -1231,7 +1228,9 @@ func BenchmarkReRender(b *testing.B) {
 				perRender := float64(w.n-first) / float64(renders)
 				b.ReportMetric(perRender, "wireB/op")
 				b.ReportMetric(perRender/float64(size.n)*100, "%raw")
-				b.ReportMetric(float64(after.HeapAlloc-before.HeapAlloc)/(1<<20), "heapMiB")
+				b.ReportMetric(
+					float64(after.HeapAlloc-before.HeapAlloc)/(1<<20), "heapMiB",
+				)
 			})
 		}
 	}
@@ -1289,9 +1288,7 @@ func listRender(items []string, versions []int) templ.Component {
 	})
 }
 
-// BenchmarkHTTPEvent measures 1 uncompressed event per request over loopback
-// HTTP/1.1, cleartext and TLS, read whole by the client. Unlike the discarding
-// writer of the other benchmarks, it counts the writes of each frame.
+// BenchmarkHTTPEvent measures frame writes over cleartext and TLS HTTP/1.1.
 func BenchmarkHTTPEvent(b *testing.B) {
 	for name, el := range map[string]templ.Component{
 		"100KiB-lines": templ.Raw(strings.Repeat("<li>item text</li>\n", (100<<10)/19)),

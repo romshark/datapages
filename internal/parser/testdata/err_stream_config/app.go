@@ -19,8 +19,8 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 /* ErrAppUnsupportedMethod: StreamConfig belongs on a page */
 
-func (*App) StreamConfig() (datapages.StreamConfig, error) {
-	return datapages.StreamConfig{}, nil
+func (*App) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{}
 }
 
 // PageParams is /params
@@ -76,8 +76,8 @@ func (PageResult) StreamOpen(r *http.Request, streamID datapages.StreamID) error
 
 /* ErrStreamConfigSignature: another result type */
 
-func (PageResult) StreamConfig() (datapages.SSECompressionConfig, error) {
-	return datapages.SSECompressionConfig{}, nil
+func (PageResult) StreamConfig() datapages.SSECompressionConfig {
+	return datapages.SSECompressionConfig{}
 }
 
 // PageNoErr is /no-err
@@ -91,10 +91,27 @@ func (PageNoErr) StreamOpen(r *http.Request, streamID datapages.StreamID) error 
 	return nil
 }
 
-/* ErrStreamConfigSignature: no error result */
+/* ErrStreamConfigSignature: request-scoped method without error */
 
-func (PageNoErr) StreamConfig() datapages.StreamConfig {
+func (PageNoErr) StreamConfig(r *http.Request) datapages.StreamConfig {
 	return datapages.StreamConfig{}
+}
+
+// PageStaticErr is /static-err
+type PageStaticErr struct{ App *App }
+
+func (PageStaticErr) GET(r *http.Request) (body datapages.Component, err error) {
+	return body, err
+}
+
+func (PageStaticErr) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
+	return nil
+}
+
+/* ErrStreamConfigSignature: static method with error */
+
+func (PageStaticErr) StreamConfig() (datapages.StreamConfig, error) {
+	return datapages.StreamConfig{}, nil
 }
 
 // PageItem is /item/{id}
@@ -133,8 +150,8 @@ func (PageNoStream) GET(r *http.Request) (body datapages.Component, err error) {
 
 /* ErrStreamConfigNoStream: the page has no stream */
 
-func (PageNoStream) StreamConfig() (datapages.StreamConfig, error) {
-	return datapages.StreamConfig{}, nil
+func (PageNoStream) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{}
 }
 
 // Shared is a stream embed.
@@ -146,8 +163,8 @@ func (Shared) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 
 /* ErrStreamEmbedUnsupportedMethod: a stream embed does not configure the stream */
 
-func (Shared) StreamConfig() (datapages.StreamConfig, error) {
-	return datapages.StreamConfig{}, nil
+func (Shared) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{}
 }
 
 // PageShared is /shared

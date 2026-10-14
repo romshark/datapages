@@ -60,7 +60,7 @@ Public, imported by application or generated code:
 - `cmd/datapages/` - the shipped binary.
 - `modules/` - pluggable modules: csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
-  - `httpserve` - the server core a generated one embeds: listener, routes, middleware chain, logger, shutdown, redirect, Datastar request check, dev-mode cache headers, the assets file system, the HTML document writer and the opening of SSE responses.
+  - `httpserve` - the generated server core: listener, routes, middleware, logging, shutdown, redirects, request checks, assets, HTML and SSE responses.
   - `auth` - session cookie, the record behind it and the CSRF check. Generic over the application's session data.
   - `sse` - writes and compresses the Datastar events of an SSE response and reads the signals of a request. `Stream` implements `datapages.SSE`.
   - `stream` - serves the SSE event stream of a page: the broker subscription behind it, the session that may end it and the shutdown that closes it.

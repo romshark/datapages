@@ -21,11 +21,11 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` returns an error or panics, the server logs it and leaves the response as written. An error that `OnXXX` or `StreamClose` returns is only logged and doesn't reach `RecoverError`.
+`RecoverError` receives errors from Datastar requests, including Datapages sentinels, and may write an SSE response. It does not receive page-load errors. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` returns an error or panics, the server logs it and retains the response already written. Errors returned by `OnXXX` and `StreamClose` are logged and do not reach `RecoverError`.
 
 A panic in `GET`, an action, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A panic during page writing is logged. The response retains its status and truncated body, on a Datastar request too. `RecoverError` does not run once the body has started, since its SSE frames would land in the HTML. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
+A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
 Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. It starts when the context passed to `ListenAndServe` is canceled. Cancel that context on SIGTERM as well as SIGINT: container runtimes and systemd stop a process with SIGTERM, whose default action ends the process without a graceful shutdown. The `cmd/server/main.go` that `datapages init` writes calls `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
@@ -189,7 +189,7 @@ func (PageIndex) OnSomethingHappened(
 }
 ```
 
-`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. The stream then closes, and the page reconnects after 5s, which runs `StreamOpen` again. The page keeps the 5s as the first wait of its later reconnects. A stream whose subscription to the message broker fails ends the same way when `RecoverError` is defined. Otherwise it gets the error status, and Datastar doubles its wait before each further reconnect, up to 30s. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
+`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops and `RecoverError` handles the error when defined; otherwise the server uses its internal-error path. The stream closes with a 5s reconnect delay. A broker subscription failure follows the same path. Without `RecoverError`, a broker subscription failure returns its error status and Datastar applies exponential reconnect delays up to 30s. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
 
 `datapages.StreamID` identifies an SSE stream within a process. Its parameter name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and must not be exposed to clients.
 
@@ -229,16 +229,16 @@ func (PageIndex) StreamClose(
 
 #### StreamConfig
 
-`StreamConfig` sets the SSE stream of a page apart from the rest of the server. It returns `(datapages.StreamConfig, error)` and takes either nothing or the stream request:
+A page with an SSE stream may declare 1 of these `StreamConfig` signatures. A stream embed must not declare either:
 
-- Without parameters, it runs once, when `NewServer` builds the server, before any request. It can read the fields of `App`. Its error, and a configuration that `datapages.WithSSECompression` refuses, fail `NewServer` with an error naming the page.
-- With `r *http.Request`, and optionally `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, it runs for each stream request before the stream opens and before `StreamOpen`. The stream route extends the page route, which gives `path` the variables of the page, as on `GET`. On the anonymous stream the session is that of a guest. Its error, and a configuration that `datapages.WithSSECompression` refuses, end the request as a failed subscription to the message broker does. With `RecoverError`, it answers on a stream that ends with the 5s reconnect delay. Without it, the request gets the error status.
+- No parameters and a `datapages.StreamConfig` return. The server calls it once during `NewServer`. An invalid configuration makes `NewServer` return an error naming the page.
+- `r *http.Request`, optional `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, and `(datapages.StreamConfig, error)` returns. The server calls it before each stream opens. `path` contains the page route variables, and the anonymous stream receives a guest session. An error or invalid configuration follows the broker subscription error path.
 
 ```go
-func (PageDashboard) StreamConfig() (datapages.StreamConfig, error) {
+func (PageDashboard) StreamConfig() datapages.StreamConfig {
 	return datapages.StreamConfig{
 		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
-	}, nil
+	}
 }
 
 func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
@@ -251,11 +251,7 @@ func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
 }
 ```
 
-`Compression` replaces what `datapages.WithSSECompression` sets, for both stream endpoints of the page, `_$/` and `_$/anon/`. A page that re-renders a large fragment can take a larger window, and a page with many visitors a smaller one. Nil keeps the compression of the server. The actions of the page keep it too.
-
-Streams with the same configuration share encoders, up to 64 distinct configurations. Return 1 of a few fixed configurations. One built from what the request carries could let a client choose one that holds tens of MiB per stream.
-
-Only a page that has a stream may declare `StreamConfig`, and a stream embed may not.
+`Compression` overrides `datapages.WithSSECompression` for the page's `_$/` and `_$/anon/` stream endpoints. Nil uses the server configuration. Page actions use the server configuration. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
 
 #### GET Actions
 
@@ -538,7 +534,9 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 `PatchElementAt` and `RemoveElement` reject selectors containing `\r` or `\n` with `datapages.ErrSelectorLineBreak`.
 
-An SSE response is compressed with the first of zstd, brotli and gzip that the request accepts by name, zstd and brotli with a 1 MiB window. A request that accepts none of them by name but accepts `*` gets gzip. A re-render compresses against its previous render only while that render lies within the window, which a fragment over 1 MiB never does. zstd at level 1 also re-encodes about 1 render per window of stream in full, which makes up most of its bytes for a 100 KB fragment. A stream takes an encoder on its first event and holds it until the stream ends, about 1.5 MiB with zstd. `datapages.WithSSECompression` sets the codings, their order, levels and windows, or turns compression off behind a proxy that compresses responses. The [`StreamConfig`](#streamconfig) method of a page sets them for the stream of that page. `Codings: []datapages.SSECoding{datapages.SSECodingGzip}` compresses with gzip only, and `{datapages.SSECodingZstd, datapages.SSECodingBrotli}` with zstd, else brotli. A request that accepts none of the listed codings by name gets an uncompressed stream, or gzip when it accepts `*` and gzip is listed. Unless compression is disabled, an SSE response carries `Vary: Accept-Encoding`. `Disabled: true` sends uncompressed streams to a proxy that compresses them, which must forward each event as it arrives.
+By default, an SSE response uses the first coding explicitly accepted by the request in the order zstd, brotli, gzip. A wildcard selects gzip only. If no configured coding is accepted, the response is uncompressed. The default zstd and brotli windows are 1 MiB.
+
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
 
 See [datapages.go](datapages.go) for method definitions.
 
@@ -596,7 +594,7 @@ page method and an action declared on `App`:
 - Action with only a body: embeds the writes in the rendered document.
 - Action with neither: sends the writes over an SSE stream opened by Datapages.
 
-A cached body that returns an error while it renders is logged, and the writes of that request are left out. The response goes out as it would without them. A cached body that panics takes the path of a panic in the handler, see [Return Value `error`](#return-value-error-or-err-error).
+If a cached body returns an error while rendering, the server logs the error and omits the queued cache writes. A panic follows the handler panic path; see [Return Value `error`](#return-value-error-or-err-error).
 
 An action taking `datapages.PageCacheWriter` answers a request without `Datastar-Request: true` with 406 Not Acceptable. Datapages could answer a plain form submission to an action that redirects only with an HTTP redirect, which carries no writes.
 

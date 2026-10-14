@@ -24,11 +24,8 @@ type App struct {
 	hold      chan struct{}
 	holdClose chan struct{}
 
-	// CompressedStream is the compression of the stream of PageCompressed.
-	// Nil keeps the server's.
+	// CompressedStream configures PageCompressed. Nil uses the server setting.
 	CompressedStream *datapages.SSECompressionConfig
-	// CompressedStreamErr is what PageCompressed.StreamConfig fails with.
-	CompressedStreamErr error
 }
 
 // holdTicks blocks every OnTick until releaseTicks.
@@ -357,16 +354,15 @@ func (PageOther) GET(_ *http.Request) (body datapages.Component, err error) {
 
 // PageCompressed is /compressed
 //
-// Its StreamConfig sets the compression of its stream apart from the server's.
+// StreamConfig overrides the server compression.
 type PageCompressed struct{ App *App }
 
 func (PageCompressed) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("compressed"), nil
 }
 
-func (p PageCompressed) StreamConfig() (datapages.StreamConfig, error) {
-	return datapages.StreamConfig{Compression: p.App.CompressedStream},
-		p.App.CompressedStreamErr
+func (p PageCompressed) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{Compression: p.App.CompressedStream}
 }
 
 func (p PageCompressed) OnTick(event EventTick, sse datapages.SSE) error {
@@ -375,9 +371,7 @@ func (p PageCompressed) OnTick(event EventTick, sse datapages.SSE) error {
 
 // PageAdaptive is /adaptive
 //
-// Its StreamConfig runs for each stream. A request that asks to save data gets
-// gzip alone. One with the query parameter invalid gets a refused configuration,
-// and one with fail an error.
+// StreamConfig selects gzip for Save-Data and exposes error cases for tests.
 type PageAdaptive struct{ App *App }
 
 func (PageAdaptive) GET(_ *http.Request) (body datapages.Component, err error) {
@@ -406,7 +400,7 @@ func (p PageAdaptive) OnTick(event EventTick, sse datapages.SSE) error {
 
 // PageBoard is /board/{name}
 //
-// Its StreamConfig compresses the stream of the board named big with gzip alone.
+// StreamConfig selects gzip for the board named big.
 type PageBoard struct{ App *App }
 
 func (PageBoard) GET(

@@ -71,8 +71,7 @@ func httpRedirectOffline(
 	return true
 }
 
-// newPageCache must run before the response head goes out, which an
-// event stream sends when it opens.
+// newPageCache adds Vary before an event stream sends the response head.
 func newPageCache(w http.ResponseWriter, s *Server, r *http.Request) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
@@ -218,8 +217,7 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-// flush sends the queued writes on the stream of a handler that takes one.
-// A payload that fails to render is logged and omitted, as in embedInto.
+// flush sends queued writes on a handler's stream. Render errors are logged.
 func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
 	payload := c.loggedPayload()
 	if payload == "" {
@@ -242,7 +240,7 @@ func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
 	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
-// loggedPayload returns the payload, or "" with the error logged.
+// loggedPayload returns the payload and logs render errors.
 func (c *pageCacheWriter) loggedPayload() string {
 	payload, err := c.payload()
 	if err != nil {
@@ -280,10 +278,8 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 	})
 }
 
-// redirectScript returns JavaScript that sends queued writes to the worker and
-// then navigates to target. Redirect actions return this JavaScript instead of
-// an SSE stream. A payload that fails to render is logged and omitted,
-// as in embedInto.
+// redirectScript sends queued writes to the worker, then navigates to target.
+// It logs and omits a payload that fails to render.
 //
 // Navigation waits for the worker to apply the writes because that worker also
 // serves the destination. The 500ms timeout supports older workers that do not

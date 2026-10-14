@@ -107,9 +107,7 @@ type Page struct {
 	EventHandlers []*EventHandler
 	Embeds        []*StreamEmbed
 
-	// StreamConfig is the method that configures the page's stream. Nullable.
-	// Without inputs it runs once, when the server is built. With them it runs
-	// for each stream.
+	// StreamConfig configures the page's stream. Nil means none.
 	StreamConfig *Handler
 
 	// EmbedTypes maps the name of a stream embed to the type

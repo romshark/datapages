@@ -2227,9 +2227,7 @@ func (w *Writer) writeStringConv(t types.Type, inner func()) {
 	w.Byte(')')
 }
 
-// writeStreamConfigInputsRead reads the path and the signals of a StreamConfig
-// method that runs for each stream. The signals have a variable of their own,
-// since StreamOpen may take signals of another type.
+// writeStreamConfigInputsRead reads request-scoped StreamConfig inputs.
 func (w *Writer) writeStreamConfigInputsRead(p *model.Page, m *model.App) {
 	if !streamConfigPerStream(p) {
 		return
@@ -2249,9 +2247,7 @@ func (w *Writer) writeStreamConfigInputsRead(p *model.Page, m *model.App) {
 	}
 }
 
-// writeStreamConfigCall emits the call of a StreamConfig method that runs for
-// each stream, which sets the local compression. Its error, or a configuration
-// the server refuses, ends the request the way a failed subscription does.
+// writeStreamConfigCall emits and checks a request-scoped StreamConfig call.
 func (w *Writer) writeStreamConfigCall(p *model.Page) {
 	if !streamConfigPerStream(p) {
 		return

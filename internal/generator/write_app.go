@@ -215,8 +215,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 // SSE, HTML and redirect delivery paths into the application package.
 func (w *Writer) writePageCache(m *model.App) {
 	w.Raw(`
-// newPageCache must run before the response head goes out, which an
-// event stream sends when it opens.
+// newPageCache adds Vary before an event stream sends the response head.
 func newPageCache(w http.ResponseWriter, s *Server, r *http.Request) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
@@ -376,8 +375,7 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-// flush sends the queued writes on the stream of a handler that takes one.
-// A payload that fails to render is logged and omitted, as in embedInto.
+// flush sends queued writes on a handler's stream. Render errors are logged.
 func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
 	payload := c.loggedPayload()
 	if payload == "" {
@@ -400,7 +398,7 @@ func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
 	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
-// loggedPayload returns the payload, or "" with the error logged.
+// loggedPayload returns the payload and logs render errors.
 func (c *pageCacheWriter) loggedPayload() string {
 	payload, err := c.payload()
 	if err != nil {
@@ -438,10 +436,8 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 	})
 }
 
-// redirectScript returns JavaScript that sends queued writes to the worker and
-// then navigates to target. Redirect actions return this JavaScript instead of
-// an SSE stream. A payload that fails to render is logged and omitted,
-// as in embedInto.
+// redirectScript sends queued writes to the worker, then navigates to target.
+// It logs and omits a payload that fails to render.
 //
 // Navigation waits for the worker to apply the writes because that worker also
 // serves the destination. The 500ms timeout supports older workers that do not
@@ -691,8 +687,7 @@ type Server struct {
 `)
 }
 
-// writeStreamConfigs emits into Init the call of each StreamConfig method that
-// takes no input, which runs once. A configuration it refuses fails NewServer.
+// writeStreamConfigs emits parameterless StreamConfig calls into Init.
 func (w *Writer) writeStreamConfigs(m *model.App, appPkg string) {
 	for _, p := range m.Pages {
 		if p.StreamConfig == nil || streamConfigPerStream(p) || !pageHasStream(p) {
@@ -701,7 +696,7 @@ func (w *Writer) writeStreamConfigs(m *model.App, appPkg string) {
 		w.Raw("\t{\n\t\tp := ")
 		w.writePageConstructor(p, appPkg)
 		w.Byte('\n')
-		w.Linef(2, "s.%s, err = s.StreamCompression(p.StreamConfig())",
+		w.Linef(2, "s.%s, err = s.StreamCompression(p.StreamConfig(), nil)",
 			streamCompressionField(p))
 		w.Line(2, "if err != nil {")
 		w.Linef(3, `return fmt.Errorf("%s.StreamConfig: %%w", err)`, p.TypeName)
@@ -1610,12 +1605,10 @@ func (s *Server) httpErrIntern(
 	}
 }
 
-// writeCallRecoverError emits callRecoverError, which httpErrIntern calls RecoverError through.
+// writeCallRecoverError emits the panic boundary around RecoverError.
 func (w *Writer) writeCallRecoverError(m *model.App) {
 	w.Raw(`
-// callRecoverError calls RecoverError and returns a panic in it as an error.
-// Left to recoverPanic, the panic would run RecoverError again, on a second
-// stream when httpErrIntern opened the first.
+// callRecoverError converts a RecoverError panic into an error.
 func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
 	defer func() {
 		v := recover()

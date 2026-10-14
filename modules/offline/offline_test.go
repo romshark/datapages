@@ -748,9 +748,7 @@ func TestMiddlewareContentEncoding(t *testing.T) {
 	}
 }
 
-// TestMiddlewareFlushBeforeWrite tests a response that flushes its head before
-// its first write, as an event stream does. A 2nd status would make net/http log
-// a superfluous WriteHeader call. A page flushed that way still gets its script.
+// TestMiddlewareFlushBeforeWrite tests early flushes for streams and pages.
 func TestMiddlewareFlushBeforeWrite(t *testing.T) {
 	t.Parallel()
 
