@@ -197,9 +197,12 @@ func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
+// compression is the handler's StreamConfig, or the server's setting.
+func (c *pageCacheWriter) flushToNewStream(
+	w http.ResponseWriter, compression *dpsse.Compression,
+) {
 	payload := c.loggedPayload()
-	sse := c.s.OpenSSE(w, c.r)
+	sse := dpsse.Open(w, c.r, compression)
 	defer sse.Close()
 	if payload == "" {
 		return

@@ -263,6 +263,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /recover-panic/{$}",
 		pageIndexHandlers{s}.POSTRecoverPanic)
+	s.Mux().HandleFunc(
+		"POST /config-panic/{$}",
+		pageIndexHandlers{s}.POSTConfigPanic)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -502,6 +505,39 @@ func (s pageIndexHandlers) POSTRecoverPanic(
 	err := p.POSTRecoverPanic(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.RecoverPanic", err)
+		return
+	}
+}
+
+func (s pageIndexHandlers) POSTConfigPanic(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	compression, errStreamConfig := s.StreamCompression(s.callStreamConfig(
+		"PageIndex.StreamConfigPOSTConfigPanic",
+		func() (datapages.StreamConfig, error) {
+			return p.StreamConfigPOSTConfigPanic(r)
+		},
+	))
+	if errStreamConfig != nil {
+		s.httpErrIntern(w, r, nil, "handling PageIndex.StreamConfigPOSTConfigPanic", errStreamConfig)
+		return
+	}
+
+	sse := dpsse.Open(w, r, compression)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageIndex.ConfigPanic")
+	err := p.POSTConfigPanic(
+		r,
+		sse,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.ConfigPanic", err)
 		return
 	}
 }

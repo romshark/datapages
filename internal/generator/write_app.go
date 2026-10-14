@@ -391,9 +391,12 @@ func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
+// compression is the handler's StreamConfig, or the server's setting.
+func (c *pageCacheWriter) flushToNewStream(
+	w http.ResponseWriter, compression *dpsse.Compression,
+) {
 	payload := c.loggedPayload()
-	sse := c.s.OpenSSE(w, c.r)
+	sse := dpsse.Open(w, c.r, compression)
 	defer sse.Close()
 	if payload == "" {
 		return
@@ -668,6 +671,9 @@ type Server struct {
 			}
 		}
 	}
+	for _, a := range staticActionStreamConfigs(m) {
+		w.Linef(1, "%s *dpsse.Compression", actionStreamCompressionField(a.owner, a.h))
+	}
 	w.Raw(`	app                  *`)
 	w.Raw(appPkg)
 	w.Raw(`.App
@@ -705,6 +711,30 @@ func (w *Writer) writeStreamConfigs(m *model.App, appPkg string) {
 			streamCompressionField(p))
 		w.Line(2, "if err != nil {")
 		w.Linef(3, `return fmt.Errorf("%s.StreamConfig: %%w", err)`, p.TypeName)
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
+}
+
+// writeActionStreamConfigs emits the static StreamConfig calls of actions into
+// Init, which an app without page streams needs too.
+func (w *Writer) writeActionStreamConfigs(m *model.App, appPkg string) {
+	for _, a := range staticActionStreamConfigs(m) {
+		method := "StreamConfig" + a.h.HTTPMethod + a.h.Name
+		field := actionStreamCompressionField(a.owner, a.h)
+		if a.page == nil {
+			w.Linef(1, "s.%s, err = s.StreamCompression(s.app.%s(), nil)", field, method)
+			w.Line(1, "if err != nil {")
+			w.Linef(2, `return fmt.Errorf("App.%s: %%w", err)`, method)
+			w.Line(1, "}")
+			continue
+		}
+		w.Raw("\t{\n\t\tp := ")
+		w.writePageConstructor(a.page, appPkg)
+		w.Byte('\n')
+		w.Linef(2, "s.%s, err = s.StreamCompression(p.%s(), nil)", field, method)
+		w.Line(2, "if err != nil {")
+		w.Linef(3, `return fmt.Errorf("%s.%s: %%w", err)`, a.owner, method)
 		w.Line(2, "}")
 		w.Line(1, "}")
 	}
@@ -872,6 +902,7 @@ func (s *Server) Init(
 `, m.RecoverError != nil)
 		w.writeStreamConfigs(m, appPkg)
 	}
+	w.writeActionStreamConfigs(m, appPkg)
 	w.Raw(`
 	setupHandlers(s)
 `)
@@ -2018,6 +2049,11 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.Line(1, "pageCache := newPageCache(w, s.Server, r)")
 	}
 
+	// A failing StreamConfig answers before the action changes anything.
+	if isAppLevel && actionStreamConfigPerRequest(h) {
+		w.writeActionStreamConfigCall("s.app", "App", h)
+	}
+
 	// Page constructor (for page actions).
 	if p != nil {
 		w.writePageConstructorStmt("p", p, appPkg)
@@ -2028,7 +2064,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Send queued writes after a successful handler call.
 	if viaStream {
-		w.Line(1, "pageCache.flushToNewStream(w)")
+		w.Linef(1, "pageCache.flushToNewStream(w, %s)", actionCompressionExpr("App", h))
 	}
 }
 

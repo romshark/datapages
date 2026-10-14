@@ -168,6 +168,9 @@ type Handler struct {
 	InputPageCache  *Input   // datapages.PageCacheWriter handle.
 	OrderedInputs   []*Input // Inputs in user-defined order.
 
+	// StreamConfig configures the SSE response of an action. Nil means none.
+	StreamConfig *Handler
+
 	OutputBody           *TemplComponent // datapages.Component body (actions only)
 	OutputHead           *TemplComponent // datapages.Component head (actions only)
 	OutputFile           *Output         // datapages.File (actions only)

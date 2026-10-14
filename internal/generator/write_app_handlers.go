@@ -559,11 +559,13 @@ func globalHeadNeedsSession(m *model.App) bool {
 
 // actionSessionInScope reports whether an action handler has a "sess" variable.
 // An action that renders a document reads the session even when it declares no
-// session parameter, since the application-wide Head renders from it.
+// session parameter, since the application-wide Head renders from it,
+// as does an action whose StreamConfig takes it.
 // Every site that names "sess" has to ask this, or the Head call gets a zero
 // session while the real one is in scope.
 func actionSessionInScope(h *model.Handler, m *model.App) bool {
-	return hasSessionInput(h) || (h.OutputBody != nil && globalHeadNeedsSession(m))
+	return hasSessionInput(h) || (h.OutputBody != nil && globalHeadNeedsSession(m)) ||
+		(h.StreamConfig != nil && hasSessionInput(h.StreamConfig))
 }
 
 // writeSessionOutputs emits the CreateSession and CloseSession calls requested
@@ -1759,12 +1761,27 @@ func (w *Writer) writePageActionHandler(
 	// The page cache adds its Vary header before OpenSSE sends the head.
 	w.writeDatapagesHandles(h)
 
+	// A failing StreamConfig answers before the action changes anything.
+	// It needs the page, built here for it.
+	perRequest := actionStreamConfigPerRequest(h)
+	if perRequest {
+		w.Raw("\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+		w.writeActionStreamConfigCall("p", p.TypeName, h)
+	}
+
 	// SSE for actions that take it. An action that takes none and delivers its
 	// page cache over a stream opens it after the call, see flushToNewStream.
 	// A redirect or HTML body sends its offline writes in that response.
 	if h.InputSSE != nil {
 		w.Line(0, "")
-		w.Line(1, "sse := s.OpenSSE(w, r)")
+		if h.StreamConfig != nil {
+			w.Linef(1, "sse := dpsse.Open(w, r, %s)",
+				actionCompressionExpr(p.TypeName, h))
+		} else {
+			w.Line(1, "sse := s.OpenSSE(w, r)")
+		}
 		w.Line(1, "defer sse.Close()")
 	}
 
@@ -1775,9 +1792,11 @@ func (w *Writer) writePageActionHandler(
 	}
 
 	// Page constructor.
-	w.Raw("\tp := ")
-	w.writePageConstructor(p, appPkg)
-	w.Byte('\n')
+	if !perRequest {
+		w.Raw("\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+	}
 
 	// Build the method call.
 	w.writeActionMethodCall(p, h, m)
@@ -1788,7 +1807,8 @@ func (w *Writer) writePageActionHandler(
 		if h.InputSSE != nil {
 			w.Line(1, "pageCache.flush(sse)")
 		} else {
-			w.Line(1, "pageCache.flushToNewStream(w)")
+			w.Linef(1, "pageCache.flushToNewStream(w, %s)",
+				actionCompressionExpr(p.TypeName, h))
 		}
 	}
 
@@ -2239,6 +2259,26 @@ func (w *Writer) writeStreamConfigInputsRead(p *model.Page, m *model.App) {
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+}
+
+// writeActionStreamConfigCall emits and checks the request-scoped StreamConfig
+// call of action h on recv. owner is the page type or App.
+func (w *Writer) writeActionStreamConfigCall(recv, owner string, h *model.Handler) {
+	method := "StreamConfig" + h.HTTPMethod + h.Name
+	label := owner + "." + method
+	args := handlerInputArgs(h.StreamConfig, false, "dispatch", w.appPkgQual)
+	w.Line(1, "compression, errStreamConfig := s.StreamCompression(s.callStreamConfig(")
+	w.Linef(2, "%q,", label)
+	w.Line(2, "func() (datapages.StreamConfig, error) {")
+	w.Raw("\t\t\treturn ")
+	w.writeCallExpr(recv, method, args, 3)
+	w.Byte('\n')
+	w.Line(2, "},")
+	w.Line(1, "))")
+	w.Line(1, "if errStreamConfig != nil {")
+	w.Linef(2, "s.httpErrIntern(w, r, nil, %q, errStreamConfig)", "handling "+label)
+	w.Line(2, "return")
+	w.Line(1, "}")
 }
 
 // writeStreamConfigCall emits and checks a request-scoped StreamConfig call.

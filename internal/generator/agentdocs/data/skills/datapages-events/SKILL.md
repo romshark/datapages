@@ -108,6 +108,16 @@ func (PageDashboard) StreamConfig() datapages.StreamConfig {
 
 A 4 MiB zstd window cuts a 100 KB re-render to about 1/3 as many bytes and triples per-stream memory. Keep the default with many open streams.
 
+The page's `StreamConfig` does not reach its actions. An action configures its own SSE response with a method on the same page or `App` named `StreamConfig` plus the action's method name. It takes the same 2 forms, but only the `path` and `signals` the action takes, and runs before the action. The action must take `datapages.SSE`, or take `datapages.PageCacheWriter` and return neither a body nor a redirect.
+
+```go
+func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
+}
+```
+
 Datapages serves the stream at the page route plus `_$/`. A page with both public and user-addressed events has a second stream at `_$/anon/`.
 
 Share a handler across pages by embedding: see `datapages-pages`.

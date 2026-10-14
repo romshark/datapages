@@ -179,6 +179,41 @@ func TestAppLevelActionFlushesOverAStream(t *testing.T) {
 		"the entry carries the rendered body")
 }
 
+// TestAppLevelActionStreamConfig tests an App action's static and
+// request-scoped StreamConfig.
+func TestAppLevelActionStreamConfig(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	for name, tc := range map[string]struct {
+		path     string
+		saveData bool
+		coding   string
+	}{
+		"server's":  {path: "/app-precache/", coding: "zstd"},
+		"save data": {path: "/app-precache/", saveData: true, coding: "gzip"},
+		"static":    {path: "/app-precache-fail/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			req, err := http.NewRequestWithContext(context.Background(),
+				http.MethodPost, c.URL()+tc.path, nil)
+			require.NoError(t, err, "building POST %s", tc.path)
+			req.Header.Set("Datastar-Request", "true")
+			req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+			if tc.saveData {
+				req.Header.Set("Save-Data", "on")
+			}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err, "POST %s", tc.path)
+			_ = resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Contains(t, resp.Header.Get("Content-Type"), "text/event-stream")
+			require.Equal(t, tc.coding, resp.Header.Get("Content-Encoding"))
+		})
+	}
+}
+
 func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)

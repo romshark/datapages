@@ -608,7 +608,7 @@ type SSECompressionConfig struct {
 // WithSSECompression sets how SSE responses are compressed.
 //
 // By default, a response uses the first accepted coding among zstd, brotli and gzip.
-// A page's [StreamConfig] overrides this setting for its streams.
+// A page's or an action's [StreamConfig] method overrides it.
 func WithSSECompression(conf SSECompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := conf.Validate(); err != nil {

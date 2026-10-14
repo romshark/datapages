@@ -129,6 +129,52 @@ func streamConfigPerStream(p *model.Page) bool {
 	return p.StreamConfig != nil && len(p.StreamConfig.OrderedInputs) > 0
 }
 
+// actionStreamConfigPerRequest reports whether h's StreamConfig takes the request.
+func actionStreamConfigPerRequest(h *model.Handler) bool {
+	return h.StreamConfig != nil && len(h.StreamConfig.OrderedInputs) > 0
+}
+
+// actionStreamCompressionField names the Server field of h's static StreamConfig.
+func actionStreamCompressionField(owner string, h *model.Handler) string {
+	return "streamCompression" + owner + h.HTTPMethod + h.Name
+}
+
+// ownedAction is an action with its page or App.
+type ownedAction struct {
+	owner string
+	page  *model.Page // Nil for App.
+	h     *model.Handler
+}
+
+// staticActionStreamConfigs lists the actions with a static StreamConfig.
+func staticActionStreamConfigs(m *model.App) []ownedAction {
+	var out []ownedAction
+	for _, p := range m.Pages {
+		for _, h := range p.Actions {
+			if h.StreamConfig != nil && !actionStreamConfigPerRequest(h) {
+				out = append(out, ownedAction{owner: p.TypeName, page: p, h: h})
+			}
+		}
+	}
+	for _, h := range m.Actions {
+		if h.StreamConfig != nil && !actionStreamConfigPerRequest(h) {
+			out = append(out, ownedAction{owner: "App", h: h})
+		}
+	}
+	return out
+}
+
+// actionCompressionExpr returns the compression of h's SSE response.
+func actionCompressionExpr(owner string, h *model.Handler) string {
+	switch {
+	case h.StreamConfig == nil:
+		return "s.SSECompression()"
+	case actionStreamConfigPerRequest(h):
+		return "compression"
+	}
+	return "s." + actionStreamCompressionField(owner, h)
+}
+
 // streamCompressionExpr returns the compression expression for p's stream.
 func streamCompressionExpr(p *model.Page) string {
 	if streamConfigPerStream(p) {
@@ -425,6 +471,9 @@ func computeAppUsage(m *model.App) appUsage {
 		checkHandler(h)
 		if !h.IsGETAction() {
 			u.actions = true
+		}
+		if actionStreamConfigPerRequest(h) {
+			u.streamConfig = true
 		}
 	}
 

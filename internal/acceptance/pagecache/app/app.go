@@ -135,6 +135,17 @@ func (*App) POSTAppPrecache(
 	return nil
 }
 
+func (*App) StreamConfigPOSTAppPrecache(
+	r *http.Request,
+) (datapages.StreamConfig, error) {
+	if r.Header.Get("Save-Data") != "on" {
+		return datapages.StreamConfig{}, nil
+	}
+	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
+		Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+	}}, nil
+}
+
 // POSTAppPrecacheFail is /app-precache-fail
 //
 // The cache body fails on the generated stream.
@@ -143,6 +154,12 @@ func (*App) POSTAppPrecacheFail(
 ) error {
 	pageCache.Set("/", failingBody, 13)
 	return nil
+}
+
+func (*App) StreamConfigPOSTAppPrecacheFail() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
 }
 
 // POSTAppBody is /app-body

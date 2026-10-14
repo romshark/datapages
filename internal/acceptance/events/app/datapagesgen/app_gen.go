@@ -119,11 +119,12 @@ func (s *Server) callStreamConfig(
 
 type Server struct {
 	*httpserve.Core
-	messageBroker                   messaging.Broker
-	messageBrokerMetrics            messaging.NoopMetrics
-	streams                         *stream.Handler
-	streamCompressionPageCompressed *dpsse.Compression
-	app                             *dpapp.App
+	messageBroker                         messaging.Broker
+	messageBrokerMetrics                  messaging.NoopMetrics
+	streams                               *stream.Handler
+	streamCompressionPageCompressed       *dpsse.Compression
+	streamCompressionPageAdaptivePOSTGzip *dpsse.Compression
+	app                                   *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
@@ -191,6 +192,15 @@ func (s *Server) Init(
 		s.streamCompressionPageCompressed, err = s.StreamCompression(p.StreamConfig(), nil)
 		if err != nil {
 			return fmt.Errorf("PageCompressed.StreamConfig: %w", err)
+		}
+	}
+	{
+		p := dpapp.PageAdaptive{
+			App: s.app,
+		}
+		s.streamCompressionPageAdaptivePOSTGzip, err = s.StreamCompression(p.StreamConfigPOSTGzip(), nil)
+		if err != nil {
+			return fmt.Errorf("PageAdaptive.StreamConfigPOSTGzip: %w", err)
 		}
 	}
 
@@ -328,6 +338,12 @@ func setupHandlers(s *Server) {
 		"GET /room/_$/{$}",
 		pageRoomHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
+		"POST /adaptive/gzip/{$}",
+		pageAdaptiveHandlers{s}.POSTGzip)
+	s.Mux().HandleFunc(
+		"POST /adaptive/adapt/{$}",
+		pageAdaptiveHandlers{s}.POSTAdapt)
+	s.Mux().HandleFunc(
 		"POST /chat/say/{$}",
 		pageChatHandlers{s}.POSTSay)
 	s.Mux().HandleFunc(
@@ -445,6 +461,62 @@ func (s pageAdaptiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		})
+}
+
+func (s pageAdaptiveHandlers) POSTGzip(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := dpsse.Open(w, r, s.streamCompressionPageAdaptivePOSTGzip)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageAdaptive.Gzip")
+	p := dpapp.PageAdaptive{
+		App: s.app,
+	}
+	err := p.POSTGzip(
+		r,
+		sse,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageAdaptive.Gzip", err)
+		return
+	}
+}
+
+func (s pageAdaptiveHandlers) POSTAdapt(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	p := dpapp.PageAdaptive{
+		App: s.app,
+	}
+	compression, errStreamConfig := s.StreamCompression(s.callStreamConfig(
+		"PageAdaptive.StreamConfigPOSTAdapt",
+		func() (datapages.StreamConfig, error) {
+			return p.StreamConfigPOSTAdapt(r)
+		},
+	))
+	if errStreamConfig != nil {
+		s.httpErrIntern(w, r, nil, "handling PageAdaptive.StreamConfigPOSTAdapt", errStreamConfig)
+		return
+	}
+
+	sse := dpsse.Open(w, r, compression)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageAdaptive.Adapt")
+	err := p.POSTAdapt(
+		r,
+		sse,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageAdaptive.Adapt", err)
+		return
+	}
 }
 
 type pageBoardHandlers struct{ *Server }

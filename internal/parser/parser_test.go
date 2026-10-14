@@ -2553,6 +2553,50 @@ func TestParse_ErrStreamConfig(t *testing.T) {
 	)
 }
 
+// TestParse_ActionStreamConfig tests action StreamConfigs on a page and on App,
+// 1 declared before its action.
+func TestParse_ActionStreamConfig(t *testing.T) {
+	require := require.New(t)
+	app, err := parse(t, "action_stream_config")
+	requireParseErrors(t, err /*none*/)
+
+	save := findActionByMethod(app.PageIndex.Actions, "POST", "Save").StreamConfig
+	require.NotNil(save)
+	require.Empty(save.OrderedInputs)
+
+	item := findActionByMethod(app.PageIndex.Actions, "PUT", "Item").StreamConfig
+	require.NotNil(item)
+	var kinds []string
+	for _, in := range item.OrderedInputs {
+		kinds = append(kinds, in.Kind)
+	}
+	require.Equal([]string{
+		model.InputKindPath, model.InputKindRequest,
+		model.InputKindSession, model.InputKindSignals,
+	}, kinds)
+
+	require.Nil(findActionByMethod(app.PageIndex.Actions, "POST", "Plain").StreamConfig)
+	require.NotNil(findActionByMethod(app.Actions, "POST", "Clear").StreamConfig)
+}
+
+// TestParse_ErrActionStreamConfig tests refused action StreamConfigs.
+func TestParse_ErrActionStreamConfig(t *testing.T) {
+	_, err := parse(t, "err_action_stream_config")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrActionStreamConfigNoAction,
+		parser.ErrActionStreamConfigNoStream,
+		parser.ErrActionStreamConfigNoStream,
+		parser.ErrActionStreamConfigInput,
+		parser.ErrActionStreamConfigInput,
+		parser.ErrStreamConfigSignature,
+		parser.ErrActionStreamConfigNoAction,
+		parser.ErrStreamEmbedUnsupportedMethod,
+	)
+}
+
 // TestParse_ErrGETOptions tests a GET option declared on a handler that is no GET,
 // one declared on a page without a stream, and an option of a wrong type.
 func TestParse_ErrGETOptions(t *testing.T) {

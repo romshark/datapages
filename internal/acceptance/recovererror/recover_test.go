@@ -149,6 +149,24 @@ func TestRecoveredPanics(t *testing.T) {
 			`panic="the stream config panicked" stack=`)
 	})
 
+	// A panicking action StreamConfig reaches RecoverError instead of the action.
+	t.Run("action stream config", func(t *testing.T) {
+		var log testlog.Buffer
+		srv := httptest.NewServer(mustNewServer(t, &app.App{},
+			inmem.New(messaging.DefaultBrokerChanBuffer),
+			datapages.WithLogger(log.Logger())))
+		t.Cleanup(srv.Close)
+		status, body := post(t, srv, "/config-panic/")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.Contains(t, body, `<div id="toast">panic</div>`)
+		require.NotContains(t, body, ">ran<", "the action ran")
+		require.NotContains(t, body, "the action stream config panicked",
+			"the panic value reached the client")
+		log.RequireMatch(t, `^level=ERROR msg="recovered panic" `+
+			`handler=PageIndex\.StreamConfigPOSTConfigPanic `+
+			`panic="the action stream config panicked" stack=`)
+	})
+
 	t.Run("page load", func(t *testing.T) {
 		srv := newServer(t)
 		resp, err := srv.Client().Get(srv.URL + "/panic-page/")

@@ -240,9 +240,12 @@ func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) {
+// compression is the handler's StreamConfig, or the server's setting.
+func (c *pageCacheWriter) flushToNewStream(
+	w http.ResponseWriter, compression *dpsse.Compression,
+) {
 	payload := c.loggedPayload()
-	sse := c.s.OpenSSE(w, c.r)
+	sse := dpsse.Open(w, c.r, compression)
 	defer sse.Close()
 	if payload == "" {
 		return
@@ -355,11 +358,33 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
+}
+
+func (s *Server) callStreamConfig(
+	handler string, fn func() (datapages.StreamConfig, error),
+) (conf datapages.StreamConfig, err error) {
+	defer s.recoverPanicInto(&err, handler)
+	return fn()
+}
+
 type Server struct {
 	*httpserve.Core
-	messageBroker        messaging.Broker
-	messageBrokerMetrics messaging.NoopMetrics
-	app                  *dpapp.App
+	messageBroker                           messaging.Broker
+	messageBrokerMetrics                    messaging.NoopMetrics
+	streamCompressionAppPOSTAppPrecacheFail *dpsse.Compression
+	app                                     *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
@@ -412,6 +437,10 @@ func (s *Server) Init(
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
 			return fmt.Errorf("initializing message broker streams: %w", err)
 		}
+	}
+	s.streamCompressionAppPOSTAppPrecacheFail, err = s.StreamCompression(s.app.StreamConfigPOSTAppPrecacheFail(), nil)
+	if err != nil {
+		return fmt.Errorf("App.StreamConfigPOSTAppPrecacheFail: %w", err)
 	}
 
 	setupHandlers(s)
@@ -560,6 +589,16 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 
 	defer s.recoverPanic(w, r, nil, "App.AppPrecache")
 	pageCache := newPageCache(w, s.Server, r)
+	compression, errStreamConfig := s.StreamCompression(s.callStreamConfig(
+		"App.StreamConfigPOSTAppPrecache",
+		func() (datapages.StreamConfig, error) {
+			return s.app.StreamConfigPOSTAppPrecache(r)
+		},
+	))
+	if errStreamConfig != nil {
+		s.httpErrIntern(w, r, nil, "handling App.StreamConfigPOSTAppPrecache", errStreamConfig)
+		return
+	}
 	err := s.app.POSTAppPrecache(
 		r,
 		pageCache,
@@ -568,7 +607,7 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling action App.AppPrecache", err)
 		return
 	}
-	pageCache.flushToNewStream(w)
+	pageCache.flushToNewStream(w, compression)
 }
 
 func (s appHandlers) POSTAppPrecacheFail(w http.ResponseWriter, r *http.Request) {
@@ -586,7 +625,7 @@ func (s appHandlers) POSTAppPrecacheFail(w http.ResponseWriter, r *http.Request)
 		s.httpErrIntern(w, r, nil, "handling action App.AppPrecacheFail", err)
 		return
 	}
-	pageCache.flushToNewStream(w)
+	pageCache.flushToNewStream(w, s.streamCompressionAppPOSTAppPrecacheFail)
 }
 
 func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {

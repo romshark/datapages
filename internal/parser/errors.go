@@ -83,22 +83,24 @@ var (
 	)
 
 	ErrAppUnsupportedMethod = errors.New(
-		"unsupported method on App; App takes Head, RecoverError and " +
-			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions). " +
+		"unsupported method on App; App takes Head, RecoverError, " +
+			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions) and " +
+			"StreamConfig<Action>. " +
 			"GET, On*, StreamOpen/StreamClose and StreamConfig belong on a page",
 	)
 
 	ErrStreamEmbedUnsupportedMethod = errors.New(
 		"unsupported method on stream embed; it takes On* and " +
-			"StreamOpen/StreamClose. GET belongs on a page, " +
-			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions) on a page or App",
+			"StreamOpen/StreamClose. GET and StreamConfig belong on a page, " +
+			"GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions) and " +
+			"StreamConfig<Action> on a page or App",
 	)
 
 	ErrUnsupportedMethod = errors.New(
 		"unsupported public method on page type; " +
 			"use GET, GET*/POST*/PUT*/PATCH*/DELETE*/QUERY* (actions), " +
-			"On* (event handlers), StreamOpen/StreamClose (stream hooks) " +
-			"or StreamConfig",
+			"On* (event handlers), StreamOpen/StreamClose (stream hooks), " +
+			"StreamConfig or StreamConfig<Action>",
 	)
 
 	ErrStreamConfigSignature = errors.New(
@@ -109,6 +111,18 @@ var (
 	ErrStreamConfigNoStream = errors.New(
 		"StreamConfig requires a page with a stream: " +
 			"add an event handler, a stream hook or state",
+	)
+	ErrActionStreamConfigNoAction = errors.New(
+		"StreamConfig<Action> names no action declared on the same type",
+	)
+	ErrActionStreamConfigNoStream = errors.New(
+		"StreamConfig<Action> requires an action that answers with an SSE stream: " +
+			"one that takes datapages.SSE, or one that takes " +
+			"datapages.PageCacheWriter and returns neither a body nor a redirect",
+	)
+	ErrActionStreamConfigInput = errors.New(
+		"StreamConfig<Action> may take path and signals " +
+			"only if the action takes them, of the same types",
 	)
 
 	ErrActionNameMissing      = errors.New("action handler must have a name")

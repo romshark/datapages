@@ -218,18 +218,20 @@ type EnableBackgroundStreaming bool
 // Only a page that has a stream refreshes and may return it.
 type DisableRefreshAfterHidden bool
 
-// StreamConfig configures a page's SSE stream.
-// Only a page with a stream may declare the method.
+// StreamConfig configures a page's SSE stream, or an action's SSE response.
+// Only a page with a stream may declare the StreamConfig method.
+// A page or App configures its action XXX with StreamConfigXXX.
 //
 // A parameterless method returns StreamConfig during [NewServer].
 // An invalid configuration fails [NewServer]. A method taking *http.Request returns
 // (StreamConfig, error) before each stream and may also take the session,
-// path and signals. Its error or an invalid configuration fails the stream request.
+// path and signals. Its error or an invalid configuration fails the request.
+// An action's method runs before the action and takes its path and signals.
 //
 // Per-request methods should return a bounded set of configurations.
 // Encoders are shared for at most 64 distinct configurations.
 type StreamConfig struct {
-	// Compression overrides [WithSSECompression] for the page's streams.
+	// Compression overrides [WithSSECompression].
 	// Nil uses the server configuration.
 	Compression *SSECompressionConfig
 }

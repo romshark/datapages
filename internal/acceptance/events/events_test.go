@@ -768,6 +768,56 @@ func TestStreamConfigPerStream(t *testing.T) {
 	}
 }
 
+// TestActionStreamConfig tests an action's static and request-scoped StreamConfig.
+func TestActionStreamConfig(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		path    string
+		header  http.Header
+		status  int
+		coding  string
+		logLine string
+	}{
+		"static":   {path: "/adaptive/gzip/", status: http.StatusOK, coding: "gzip"},
+		"server's": {path: "/adaptive/adapt/", status: http.StatusOK, coding: "zstd"},
+		"save data": {
+			path:   "/adaptive/adapt/",
+			header: http.Header{"Save-Data": {"on"}},
+			status: http.StatusOK, coding: "gzip",
+		},
+		"error": {
+			path:   "/adaptive/adapt/?fail",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfigPOSTAdapt" ` +
+				`err="the stream configuration failed"`,
+		},
+		"refused": {
+			path:   "/adaptive/adapt/?invalid",
+			status: http.StatusInternalServerError,
+			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfigPOSTAdapt" ` +
+				`err="compression: zstd window (3) ` +
+				`must be a power of 2 from 1 KiB to 8 MiB"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(log.Logger())))
+			t.Cleanup(srv.Close)
+
+			status, coding := actionResponse(t, srv.URL+tc.path, tc.header)
+			require.Equal(t, tc.status, status)
+			require.Equal(t, tc.coding, coding)
+			if tc.logLine != "" {
+				log.RequireLogged(t, tc.logLine)
+			}
+		})
+	}
+}
+
 // TestStreamConfigPath tests page route variables in StreamConfig.
 func TestStreamConfigPath(t *testing.T) {
 	t.Parallel()
@@ -791,6 +841,22 @@ func requireStream(t *testing.T, url string, header http.Header, coding string) 
 func streamResponse(t *testing.T, url string, header http.Header) (int, string) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode, resp.Header.Get("Content-Encoding")
+}
+
+// actionResponse is streamResponse for an action.
+func actionResponse(t *testing.T, url string, header http.Header) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, nil)
 	require.NoError(t, err)
 	for k, v := range header {
 		req.Header[k] = v

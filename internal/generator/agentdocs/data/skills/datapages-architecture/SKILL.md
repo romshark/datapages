@@ -71,7 +71,7 @@ For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 
 A command should normally mutate state and dispatch an event. The event says that something changed; it is not the authoritative state. Subscribers read the current state, render the page and send the result over SSE.
 
-Render 1 template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small patches only to reduce transferred HTML. SSE uses a 1 MiB window for zstd and brotli, and 32 KiB for gzip. A larger fragment cannot reuse its previous render; patch a smaller element or enlarge the window. `datapages.WithSSECompression` configures the server, and `StreamConfig` overrides it for 1 page.
+Render 1 template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small patches only to reduce transferred HTML. SSE uses a 1 MiB window for zstd and brotli, and 32 KiB for gzip. A larger fragment cannot reuse its previous render; patch a smaller element or enlarge the window. `datapages.WithSSECompression` configures the server. A page's `StreamConfig` overrides it for the page's streams, and `StreamConfigPOSTSave` for the response of `POSTSave`.
 
 Each stream update must contain enough current state to restore the UI after a missed event or interrupted connection. Send complete current state when a missed incremental update would make the client incorrect.
 

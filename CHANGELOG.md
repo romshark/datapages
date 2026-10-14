@@ -13,7 +13,7 @@ Releases up to v0.10.0 have their notes on
 #### `datapages lint` and `datapages gen`
 
 - Accept `QUERYXXX` actions for the `QUERY` method of RFC 10008, which Datastar 1.0.4 sends with `@query`. Declare one on a page or on `App`, as in `// QUERYSearch is /search`, and build its expression with the `action` package, as in `action.PageIndex.Search.QUERY()`. Datastar sends the signals in the request body.
-- Accept static and request-scoped `StreamConfig` methods on pages with SSE streams. The static form returns `datapages.StreamConfig` during `NewServer`. The request-scoped form returns `(datapages.StreamConfig, error)` per stream and may take the session, path and signals. Both override `datapages.WithSSECompression`. Invalid configurations fail `NewServer` or the stream request.
+- Accept static and request-scoped `StreamConfig` methods on pages with SSE streams. The static form returns `datapages.StreamConfig` during `NewServer`. The request-scoped form returns `(datapages.StreamConfig, error)` per stream and may take the session, path and signals. Both override `datapages.WithSSECompression`. Invalid configurations fail `NewServer` or the stream request. A page or `App` configures the SSE response of an action the same way, with a method named `StreamConfig` plus the action's method name, such as `StreamConfigPOSTSave`.
 - Serve files from generated handlers with `datapages.File`. Any action may return one; a read-only `GETXXX` action also gets a generated `href` builder. Applications previously needed custom middleware or a separate `net/http` handler and had to maintain its route and URL by hand.
 
 #### Generated code

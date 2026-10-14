@@ -84,6 +84,7 @@ The parser reads names and doc comments. Both decide behaviour.
 | event handler | `On` + the event name after `Event`: `OnFoo` for `EventFoo` | none |
 | stream hook | `StreamOpen`, `StreamClose` | none |
 | stream config | `StreamConfig` | none |
+| action stream config | `StreamConfig` + the action's method name: `StreamConfigPOSTSave` for `POSTSave` | none |
 | assets | any `embed.FS` variable | `// StaticFS is /static/` |
 
 Do not use underscores or a lowercase letter after the prefix. The word `is` is required. Quote event subjects but not routes. If a route comment has more text, add a blank `//` line after its first line.

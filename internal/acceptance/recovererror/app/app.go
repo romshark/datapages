@@ -95,6 +95,17 @@ func (PageIndex) POSTRecoverPanic(_ *http.Request) error {
 	return errRecoverPanics
 }
 
+// POSTConfigPanic is /config-panic
+func (PageIndex) POSTConfigPanic(_ *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(`<div id="toast">ran</div>`))
+}
+
+func (PageIndex) StreamConfigPOSTConfigPanic(
+	_ *http.Request,
+) (datapages.StreamConfig, error) {
+	panic("the action stream config panicked")
+}
+
 // PagePanic is /panic-page
 type PagePanic struct{ App *App }
 

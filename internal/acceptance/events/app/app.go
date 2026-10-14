@@ -398,6 +398,28 @@ func (p PageAdaptive) OnTick(event EventTick, sse datapages.SSE) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(`<div id="ticked">%d</div>`, event.N)))
 }
 
+// POSTGzip is /adaptive/gzip
+func (PageAdaptive) POSTGzip(_ *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(echo("gzip"))
+}
+
+func (PageAdaptive) StreamConfigPOSTGzip() datapages.StreamConfig {
+	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
+		Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+	}}
+}
+
+// POSTAdapt is /adaptive/adapt
+func (PageAdaptive) POSTAdapt(_ *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(echo("adapt"))
+}
+
+func (p PageAdaptive) StreamConfigPOSTAdapt(
+	r *http.Request,
+) (datapages.StreamConfig, error) {
+	return p.StreamConfig(r)
+}
+
 // PageBoard is /board/{name}
 //
 // StreamConfig selects gzip for the board named big.

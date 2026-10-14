@@ -56,6 +56,7 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `StreamOpen`: runs when the page SSE stream opens.
 - `StreamClose`: runs when the page SSE stream closes.
 - `StreamConfig`: configures the page SSE stream; see [StreamConfig](#streamconfig).
+- `StreamConfigXXX`: configures the SSE response of the action `XXX`, as `StreamConfigPOSTSave` does for `POSTSave`; see [StreamConfig](#streamconfig).
 - `OnXXX`: handles `EventXXX` in the SSE listener.
 
 An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
@@ -119,6 +120,8 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
+
+`App` may configure the SSE response of its actions with `StreamConfigXXX`; see [StreamConfig](#streamconfig).
 
 Page action handlers (`POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, `QUERYXXX`) require
 `r *http.Request` and permit these optional parameters. A handler returning
@@ -253,7 +256,22 @@ func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
 
 A 4 MiB zstd window sends about 1/3 as much per 100 KB list re-render and holds about 3 times as much memory as the default.
 
-`Compression` overrides `datapages.WithSSECompression` for the page's `_$/` and `_$/anon/` stream endpoints. Nil uses the server configuration. Page actions use the server configuration. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
+`Compression` overrides `datapages.WithSSECompression` for the page's `_$/` and `_$/anon/` stream endpoints. Nil uses the server configuration. The page's actions use the server configuration or their own `StreamConfigXXX`. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
+
+An action configures its SSE response with a method on the same page or `App` named `StreamConfig` followed by the action's method name. It takes the 2 forms above. The request-scoped form may take `path` and `signals` only of the types the action takes, since it receives the action's values. The action must answer with an SSE stream, which means it takes `datapages.SSE`, or it takes `datapages.PageCacheWriter` and returns neither a body nor a redirect. The server calls the request-scoped form before the action. Its error, its panic or an invalid compression configuration takes the action's error path, and the action does not run.
+
+```go
+// POSTSave is /save
+func (PageEditor) POSTSave(r *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(savedBadge())
+}
+
+func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
+}
+```
 
 #### GET Actions
 
@@ -540,7 +558,7 @@ By default, an SSE response uses the first coding explicitly accepted by the req
 
 Each stream has an encoder, so CPU and memory scale with open streams. The defaults minimize both but send more bytes; [`datapages.SSECompressionConfig`](options.go) compares alternatives.
 
-`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
 
 See [datapages.go](datapages.go) for method definitions.
 
