@@ -734,22 +734,28 @@ func (w *Writer) writeGETBodyAttrs(
 	// The reload renders the events the closed stream missed. A page without
 	// a stream misses none and would lose what the visitor typed.
 	// The parser refuses the 2 outputs below on such a page.
-	if hasStream {
+	// It's written where bodySuffix writes the data-init.
+	hasPrivate := pageHasPrivateEvent(p, w.eventMap)
+	if hasStream && (!hasPrivate || hasSess) {
+		in := 2
+		if hasPrivate && !hasAnonStream {
+			w.Line(2, `if sess.UserID() != "" {`)
+			in = 3
+		}
 		switch {
 		case hasDisableRefresh:
-			w.Raw("\t\tif !")
-			w.Raw(outputVar(h.OutputDisableRefresh))
-			w.Raw(" {\n")
-			w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
-			w.Line(2, "}")
+			w.Linef(in, "if !%s {", outputVar(h.OutputDisableRefresh))
+			w.Line(in+1, "httpserve.WriteReloadOnVisibility(w)")
+			w.Line(in, "}")
 		case hasEnableBgStream:
-			w.Raw("\t\tif !")
-			w.Raw(outputVar(h.OutputEnableBgStream))
-			w.Raw(" {\n")
-			w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
-			w.Line(2, "}")
+			w.Linef(in, "if !%s {", outputVar(h.OutputEnableBgStream))
+			w.Line(in+1, "httpserve.WriteReloadOnVisibility(w)")
+			w.Line(in, "}")
 		default:
-			w.Line(2, "httpserve.WriteReloadOnVisibility(w)")
+			w.Line(in, "httpserve.WriteReloadOnVisibility(w)")
+		}
+		if hasPrivate && !hasAnonStream {
+			w.Line(2, "}")
 		}
 	}
 
@@ -794,7 +800,6 @@ func (w *Writer) writeGETBodyAttrs(
 	// Stream data-init attr.
 	// Fun fact: this is a writer writing a writer writing an attribute.
 	if hasStream {
-		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 		// The path stands in a JavaScript string in an HTML attribute.
 		// A route may contain a quote, as /o'reilly does, or an ampersand.
 		streamPath := htmlattr.SignalString(routepattern.StreamPath(p.Route))
@@ -1120,9 +1125,9 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 
 	if hasPrivate {
-		// Check if anon stream exists - if so, redirect unauthenticated to anon.
-		hasAnon := pageHasAnonStream(p, w.eventMap)
-		if hasAnon {
+		// A guest takes the public events from the anonymous route. On a page
+		// without them, a guest request comes from a page whose session ended.
+		if pageHasPublicEvent(p, w.eventMap) {
 			w.Line(0, "")
 			w.Line(1, `if sess.UserID() == "" {`)
 			w.Line(2, "// The query carries the signals a stream subscribes by,")
@@ -1137,9 +1142,10 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		} else {
-			// The page writes the data-init of this stream only for a session.
-			// A guest request comes from a page whose session ended while the
-			// stream was disconnected. See [stream.Handler.Reload].
+			// The page writes the data-init of this stream only for a session,
+			// and that of the anonymous route for a guest. A guest request
+			// comes from a page whose session ended while the stream was
+			// disconnected. See [stream.Handler.Reload].
 			w.Line(0, "")
 			w.Line(1, `if sess.UserID() == "" {`)
 			w.Linef(2, "s.streams.Reload(w, r, %s)", reloadCompressionExpr(p))
@@ -1567,15 +1573,30 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(2, "return")
 	w.Line(1, "}")
 
+	// Only public events reach an anonymous stream.
+	var publicHandlers []*model.EventHandler
+	needsPrefixMatch := false
+	for _, eh := range p.EventHandlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || ev.IsPrivate() {
+			continue
+		}
+		publicHandlers = append(publicHandlers, eh)
+		if evUsesPrefixMatch(ev) {
+			needsPrefixMatch = true
+		}
+	}
+
 	// Read signal-scoped subject values for subscription.
 	//
 	// The anonymous stream carries what is public, and a signal-scoped event is public.
 	// It therefore has to subscribe by the same values as the authenticated one,
 	// which it cannot do without reading them.
-	signalFields := pageSignalSubjectFields(p, w.eventMap)
 	var signalSels []string
-	if len(signalFields) > 0 {
-		signalSels = w.writeSubjectSignalsRead(signalFields)
+	if len(publicHandlers) > 0 {
+		if signalFields := pageSignalSubjectFields(p, w.eventMap); len(signalFields) > 0 {
+			signalSels = w.writeSubjectSignalsRead(signalFields)
+		}
 	}
 
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
@@ -1610,8 +1631,10 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		}
 	}
 
-	// Page constructor.
-	if pageStreamCallsPage(p) {
+	// Page constructor. [pageStreamCallsPage] counts the handlers of private
+	// events, which this stream never calls.
+	if len(publicHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil ||
+		streamConfigPerStream(p) {
 		w.Raw("\n\tp := ")
 		w.writePageConstructor(p, appPkg)
 		w.Byte('\n')
@@ -1620,36 +1643,29 @@ func (w *Writer) writePageGETStreamAnonHandler(
 
 	// evSubj call. The client holds no session. The user id is empty and only
 	// public subjects come back, though a page that scopes by signals still
-	// subscribes by their values.
+	// subscribes by their values. A page whose events are all private serves
+	// this stream for its state alone and subscribes to nothing: its evSubj
+	// takes the user its events address.
 	w.Raw("\ts.handleStreamRequest(w, r, " + streamCompressionExpr(p) +
-		", sessToken, sess, evSubj")
-	w.Raw(p.TypeName)
-	w.Raw("(sess.UserID()")
-	for _, sel := range signalSels {
-		w.Raw(", subjSignals.")
-		w.Raw(sel)
+		", sessToken, sess, ")
+	if len(publicHandlers) == 0 {
+		w.Raw("nil,\n")
+	} else {
+		w.Raw("evSubj")
+		w.Raw(p.TypeName)
+		w.Raw("(sess.UserID()")
+		for _, sel := range signalSels {
+			w.Raw(", subjSignals.")
+			w.Raw(sel)
+		}
+		w.Raw("),\n")
 	}
-	w.Raw("),\n")
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *dpsse.Stream, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
-	// Only public events reach an anonymous stream.
-	var publicHandlers []*model.EventHandler
-	needsPrefixMatch := false
-	for _, eh := range p.EventHandlers {
-		ev := w.eventMap[eh.EventTypeName]
-		if ev == nil || ev.IsPrivate() {
-			continue
-		}
-		publicHandlers = append(publicHandlers, eh)
-		if evUsesPrefixMatch(ev) {
-			needsPrefixMatch = true
-		}
-	}
-
 	if len(publicHandlers) > 0 {
 		w.writeStreamRecover(p.TypeName + " anonymous stream")
 	}

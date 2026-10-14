@@ -235,6 +235,16 @@ func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) boo
 	return false
 }
 
+// pageHasPublicEvent reports whether the page handles a public event.
+func pageHasPublicEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && !e.IsPrivate() {
+			return true
+		}
+	}
+	return false
+}
+
 // pageHasSignalScopedEvent returns true if any event handler on the page
 // handles a signal-scoped event (has subject fields with signal tags).
 func pageHasSignalScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
@@ -298,22 +308,12 @@ func pageSignalSubjectFields(p *model.Page, eventByName map[string]*model.Event)
 }
 
 // pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
-// This happens when the page has both public AND private events.
+// The stream of a page with private events opens only with a session. A guest
+// needs a stream of its own for the public events, and for the per-tab state,
+// which the stream allocates and the state actions of the guest need.
 func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool {
-	hasPublic := false
-	hasPrivate := false
-	for _, eh := range p.EventHandlers {
-		e, ok := eventByName[eh.EventTypeName]
-		if !ok {
-			continue
-		}
-		if e.IsPrivate() {
-			hasPrivate = true
-		} else {
-			hasPublic = true
-		}
-	}
-	return hasPublic && hasPrivate
+	return pageHasPrivateEvent(p, eventByName) &&
+		(pageHasPublicEvent(p, eventByName) || p.State != nil)
 }
 
 // renderTypeIn renders a Go type for app_gen.go, naming every package the way

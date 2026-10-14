@@ -79,7 +79,7 @@ Each declares its route by comment like any other page. `PageOffline` always ren
 
 The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document. For a URL that no route matches and for a page load that fails with `datapages.ErrNotFound`, `PageError404.GET` receives that URL's query and signals and a zero path. When `PageError500.GET` fails, or `PageError404.GET` fails with `datapages.ErrNotFound`, the server writes a plain HTTP error instead of rendering the failing page again.
 
-A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in `{$}` serves only `GET`: it cannot have actions or a stream. Without `{$}` it is served at the same URL. A page whose route ends in a `{name...}` wildcard cannot have actions or a stream either: the wildcard takes the rest of the path. No action route may end in a `{name...}` wildcard: an action is served at its route alone.
+A page with an SSE stream serves `_$/` under its route. A page with user-addressed events also serves `_$/anon/` for signed-out visitors when it has public events or per-tab state. That stream carries the public events and holds the state. Page and action routes cannot conflict with these endpoints. A page whose route ends in `{$}` serves only `GET`: it cannot have actions or a stream. Without `{$}` it is served at the same URL. A page whose route ends in a `{name...}` wildcard cannot have actions or a stream either: the wildcard takes the rest of the path. No action route may end in a `{name...}` wildcard: an action is served at its route alone.
 
 Handler parameters and return values may appear in any order. Unsupported names or types are generator errors.
 
@@ -940,7 +940,7 @@ Valid only on `GET`.
 disableRefreshAfterHidden datapages.DisableRefreshAfterHidden
 ```
 
-Datapages refreshes a page that has a stream when its tab becomes visible again, which renders the events the closed stream missed. Returning `true` disables that refresh and may leave the page stale; see [Event delivery](#event-delivery). A page without a stream never refreshes and returning this value from its `GET` is an error.
+Datapages refreshes a page that has a stream when its tab becomes visible again, which renders the events the closed stream missed. A page whose events are all user-addressed and which has no per-tab state opens its stream only for a signed-in visitor, and refreshes only for one. Returning `true` disables that refresh and may leave the page stale; see [Event delivery](#event-delivery). A page without a stream never refreshes and returning this value from its `GET` is an error.
 
 Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event) event.
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,29 @@ func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
 	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions))
+}
+
+// load requests path the way a browser loads a page, signed in as alice or not.
+func load(
+	t *testing.T, broker messaging.Broker, path string, signedIn bool,
+) client.Response {
+	t.Helper()
+	store := sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)
+	c := client.New(t, mustNewServer(t, &app.App{}, broker, store))
+	req := c.Request(t, http.MethodGet, path, "")
+	// A page load, which Datastar does not send.
+	req.Header.Del("Datastar-Request")
+	if signedIn {
+		token, err := store.CreateSession(context.Background(),
+			sessions.Record[struct{}]{UserID: "alice"})
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{
+			Name: datapages.DefaultSessionCookieName, Value: token,
+		})
+	}
+	return c.Do(t, req)
 }
 
 // TestAnonStreamSubscribesBySignal tests a visitor with no session on a page
@@ -168,22 +192,7 @@ func TestBackgroundStreamingKeepsBothStreamsOpen(t *testing.T) {
 
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
-				store := sessinmem.New[struct{}](
-					sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-				)
-				c := client.New(t, mustNewServer(t, &app.App{}, broker, store))
-				req := c.Request(t, http.MethodGet, tt.path, "")
-				// A page load, which Datastar does not send.
-				req.Header.Del("Datastar-Request")
-				if tt.signedIn {
-					token, err := store.CreateSession(context.Background(),
-						sessions.Record[struct{}]{UserID: "alice"})
-					require.NoError(t, err)
-					req.AddCookie(&http.Cookie{
-						Name: datapages.DefaultSessionCookieName, Value: token,
-					})
-				}
-				resp := c.Do(t, req)
+				resp := load(t, broker, tt.path, tt.signedIn)
 
 				require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 				require.Contains(t, resp.Body,
@@ -193,6 +202,74 @@ func TestBackgroundStreamingKeepsBothStreamsOpen(t *testing.T) {
 					"the page reloads when the tab becomes visible again")
 			})
 		}
+	})
+}
+
+// TestPrivatePageStreamsOnlyWithASession tests that a stateless page with only
+// private events gives a guest neither a stream nor the visibility reload.
+func TestPrivatePageStreamsOnlyWithASession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		for name, signedIn := range map[string]bool{
+			"guest":     false,
+			"signed in": true,
+		} {
+			t.Run(name, func(t *testing.T) {
+				resp := load(t, broker, "/inbox/", signedIn)
+
+				require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+				require.Equal(t, signedIn, strings.Contains(resp.Body, "/inbox/_$/"),
+					"the page starts a stream")
+				require.Equal(t, signedIn,
+					strings.Contains(resp.Body, "data-on:visibilitychange"),
+					"the page reloads when the tab becomes visible again")
+			})
+		}
+	})
+}
+
+// TestPrivateStatefulPageStreamsForGuests tests a stateful page whose events
+// are all private. A guest gets the anonymous stream, which allocates the
+// per-tab state the actions of the guest need. Without a stream, each of them
+// answers 409.
+func TestPrivateStatefulPageStreamsForGuests(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		for name, tt := range map[string]struct {
+			signedIn bool
+			stream   string
+		}{
+			"guest":     {false, "/notes/_$/anon/"},
+			"signed in": {true, "/notes/_$/"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				resp := load(t, broker, "/notes/", tt.signedIn)
+
+				require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+				require.Contains(t, resp.Body, `data-init="@get('`+tt.stream+`',`,
+					"the page does not start the stream of its visitor")
+			})
+		}
+
+		c := newClient(t, broker)
+		tab := c.OpenTab(t, "/notes/", "/notes/_$/anon/")
+		resp := tab.Act(t, http.MethodPost, "/notes/count/", "")
+		require.Equal(t, http.StatusOK, resp.Status, "a state action of a guest")
+		require.Contains(t, resp.Body, `<div id="count">count 1</div>`)
+	})
+}
+
+// TestPrivateStatefulPageReloadsAGuestStream tests a guest request on the
+// stream of a stateful page whose events are all private. The page writes that
+// stream only for a session: the request comes from a page whose session ended
+// while the stream was disconnected, and the page reloads rather than keep
+// showing the old session on the anonymous stream.
+func TestPrivateStatefulPageReloadsAGuestStream(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := newClient(t, broker)
+
+		s := c.OpenStream(t, "/notes/_$/", nil)
+		require.True(t, s.Saw("location.reload()"),
+			"the page was not told to reload")
 	})
 }
 

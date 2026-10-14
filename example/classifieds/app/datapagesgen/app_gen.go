@@ -571,6 +571,9 @@ func setupHandlers(s *Server) {
 		"GET /messages/_$/{$}",
 		pageMessagesHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
+		"GET /messages/_$/anon/{$}",
+		pageMessagesHandlers{s}.GETStreamAnon)
+	s.Mux().HandleFunc(
 		"GET /my-posts/{$}",
 		pageMyPostsHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -831,7 +834,9 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -970,7 +975,9 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -1191,13 +1198,16 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, ` data-init="@get('/messages/_$/'`)
-			if enableBackgroundStreaming {
-				_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
-			} else {
-				_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
-			}
+			_, _ = io.WriteString(w, `/messages/_$/'`)
+		} else {
+			_, _ = io.WriteString(w, `/messages/_$/anon/'`)
+		}
+		if enableBackgroundStreaming {
+			_, _ = io.WriteString(w, `,{openWhenHidden:true,retry:'always',retryMaxCount:Infinity})"`)
+		} else {
+			_, _ = io.WriteString(w, `,{retry:'always',retryMaxCount:Infinity})"`)
 		}
 
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
@@ -1375,6 +1385,78 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 							s.LogErr("handling PageMessages.OnMessagingSent", err)
 						}
 					}()
+				}
+			}
+		})
+}
+
+func (s pageMessagesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() != "" {
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	var signals datapages.Signals[struct {
+		ChatSelected string `json:"chatselected"`
+	}]
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateMessages(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateMessages(instanceID, slot)
+
+	p := dpapp.PageMessages{
+		App: s.app,
+		Base: dpapp.Base{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, nil,
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageMessages.StreamOpen")
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.StateMessages]{Values: slot.state},
+				signals,
+			)
+		},
+		func(streamID datapages.StreamID) {
+			s.releaseStateMessages(instanceID, slot)
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			for msg := range ch {
+				switch msg.Subject {
 				}
 			}
 		})
@@ -1579,7 +1661,9 @@ func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -1695,7 +1779,9 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -1881,7 +1967,9 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 
 		_, _ = io.WriteString(w, ` data-signals:term="'`)
 		htmlattr.WriteSignalString(w, query.Values.Term)
@@ -2059,7 +2147,9 @@ func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -2315,7 +2405,9 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {

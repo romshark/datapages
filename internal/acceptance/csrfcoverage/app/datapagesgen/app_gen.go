@@ -533,7 +533,9 @@ func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {

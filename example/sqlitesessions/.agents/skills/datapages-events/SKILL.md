@@ -118,8 +118,8 @@ func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
 }
 ```
 
-Datapages serves the stream at the page route plus `_$/`. A page with both public and user-addressed events has a second stream at `_$/anon/`.
+Datapages serves the stream at the page route plus `_$/`. A page with user-addressed events has a second stream at `_$/anon/` for signed-out visitors when it also has public events or per-tab state.
 
 Share a handler across pages by embedding: see `datapages-pages`.
 
-<!-- written by datapages sha256:8806c45dece4e895 -->
+<!-- written by datapages sha256:d9588d302224bbd3 -->

@@ -180,6 +180,9 @@ type Server struct {
 	app                  *dpapp.App
 	*auth.Manager[struct{}]
 
+	// stateInstancesStateNotes maps a Datapages-Instance id to the live slot.
+	stateInstancesStateNotes stateStore[stateSlotStateNotes]
+
 	// stateInstancesStateTab maps a Datapages-Instance id to the live slot.
 	stateInstancesStateTab stateStore[stateSlotStateTab]
 }
@@ -301,6 +304,18 @@ func evSubjPageBackgroundPost(userID string) []string {
 	}
 	return []string{
 		EvSubjTicked,
+		"noticed." + subject.Encode(userID),
+	}
+}
+
+func evSubjPageInbox(userID string) []string {
+	return []string{
+		"noticed." + subject.Encode(userID),
+	}
+}
+
+func evSubjPageNotes(userID string) []string {
+	return []string{
 		"noticed." + subject.Encode(userID),
 	}
 }
@@ -461,6 +476,45 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	return true
 }
 
+// stateSlotStateNotes belongs to 1 stream and is never reused.
+// A reconnect allocates a new slot and state value.
+type stateSlotStateNotes struct {
+	state *dpapp.StateNotes
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool
+}
+
+// allocateStateNotes reserves capacity and registers state before the stream opens.
+// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
+func (s *Server) allocateStateNotes(id string) *stateSlotStateNotes {
+	if !s.ReserveStateInstance() {
+		return nil
+	}
+	slot := &stateSlotStateNotes{state: new(dpapp.StateNotes)}
+	s.stateInstancesStateNotes.Store(id, slot)
+	return slot
+}
+
+func (s *Server) lookupStateNotes(id string) (*stateSlotStateNotes, bool) {
+	return s.stateInstancesStateNotes.Load(id)
+}
+
+// releaseStateNotes drops state and capacity exactly once.
+// Passing slot preserves a replacement registered
+// under the same id while an older stream closes.
+func (s *Server) releaseStateNotes(id string, slot *stateSlotStateNotes) {
+	slot.mu.Lock()
+	if slot.dead {
+		slot.mu.Unlock()
+		return
+	}
+	slot.dead = true
+	slot.state = nil
+	slot.mu.Unlock()
+	s.stateInstancesStateNotes.CompareAndDelete(id, slot)
+	s.ReleaseStateInstance()
+}
+
 // stateSlotStateTab belongs to 1 stream and is never reused.
 // A reconnect allocates a new slot and state value.
 type stateSlotStateTab struct {
@@ -521,8 +575,23 @@ func setupHandlers(s *Server) {
 		"GET /background-post/{slug}/_$/anon/{$}",
 		pageBackgroundPostHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
+		"GET /inbox/{$}",
+		pageInboxHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /inbox/_$/{$}",
+		pageInboxHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /notes/{$}",
+		pageNotesHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /notes/_$/{$}",
+		pageNotesHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /notes/_$/anon/{$}",
+		pageNotesHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"GET /panic/{$}",
 		pagePanicHandlers{s}.GET)
@@ -559,6 +628,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /tabs/_$/anon/{$}",
 		pageTabsHandlers{s}.GETStreamAnon)
+	s.Mux().HandleFunc(
+		"POST /notes/count/{$}",
+		pageNotesHandlers{s}.POSTCount)
 	s.Mux().HandleFunc(
 		"POST /panic/fault/{$}",
 		pagePanicHandlers{s}.POSTFault)
@@ -951,6 +1023,91 @@ func (s pageBackgroundPostHandlers) GETStreamAnon(w http.ResponseWriter, r *http
 		})
 }
 
+type pageInboxHandlers struct{ *Server }
+
+func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageInbox{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageInbox.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageInbox.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('/inbox/_$/',{retry:'always',retryMaxCount:Infinity})"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageInbox", err)
+		return
+	}
+}
+
+func (s pageInboxHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		s.streams.Reload(w, r, s.SSECompression())
+		return
+	}
+
+	p := dpapp.PageInbox{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageInbox(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageInbox stream")
+			var eventNoticed dpapp.EventNoticed
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					if err := p.OnNoticed(
+						eventNoticed,
+						sse,
+					); err != nil {
+						s.LogErr("handling PageInbox.OnNoticed", err)
+					}
+				}
+			}
+		})
+}
+
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -982,6 +1139,211 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
+		return
+	}
+}
+
+type pageNotesHandlers struct{ *Server }
+
+func (s pageNotesHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	instanceID, err := newStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// A shared cache would expose this bearer id to another visitor.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := dpapp.PageNotes{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageNotes.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageNotes.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `/notes/_$/',{retry:'always',retryMaxCount:Infinity})"`)
+		} else {
+			_, _ = io.WriteString(w, `/notes/_$/anon/',{retry:'always',retryMaxCount:Infinity})"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageNotes", err)
+		return
+	}
+}
+
+func (s pageNotesHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		s.streams.Reload(w, r, s.SSECompression())
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateNotes(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateNotes(instanceID, slot)
+
+	p := dpapp.PageNotes{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageNotes(sess.UserID()),
+		nil,
+		func(streamID datapages.StreamID) {
+			s.releaseStateNotes(instanceID, slot)
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageNotes stream")
+			var eventNoticed dpapp.EventNoticed
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					if err := p.OnNoticed(
+						eventNoticed,
+						sse,
+					); err != nil {
+						s.LogErr("handling PageNotes.OnNoticed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageNotesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() != "" {
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateNotes(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateNotes(instanceID, slot)
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, nil,
+		nil,
+		func(streamID datapages.StreamID) {
+			s.releaseStateNotes(instanceID, slot)
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			for msg := range ch {
+				switch msg.Subject {
+				}
+			}
+		})
+}
+
+func (s pageNotesHandlers) POSTCount(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateNotes(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	// CheckCSRFOnly validates against the cookie without reading the session store.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageNotes.Count")
+	p := dpapp.PageNotes{
+		App: s.app,
+	}
+	err := p.POSTCount(
+		r,
+		sse,
+		datapages.State[dpapp.StateNotes]{Values: slot.state},
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageNotes.Count", err)
 		return
 	}
 }

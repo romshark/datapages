@@ -60,8 +60,14 @@ func PageBackgroundPost(slug string) string {
 	return b.String()
 }
 
+// PageInbox references /inbox/{$}
+func PageInbox() string { return "/inbox/" }
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PageNotes references /notes/{$}
+func PageNotes() string { return "/notes/" }
 
 // PagePanic references /panic/{$}
 func PagePanic() string { return "/panic/" }

@@ -150,6 +150,8 @@ Run `datapages gen` to apply these.
 - Log the stack of a panic in `StreamOpen`, as for a panic in `GET`, an action or `OnXXX`. The log previously held only the panic value.
 - Stop sending a page cache entry again on every load when its version is above 2^53, such as a 64-bit hash.
 - Use the app package's own name in the error `datapages.NewServer` returns for an unexpected `WithSessionManager`, and in the example of `Init`. Both said `dpapp`, an alias internal to the generated code.
+- Stop reloading a page with only user-addressed events for signed-out visitors on every tab switch. Each reload discarded client-side state.
+- Give signed-out visitors of a stateful page with only user-addressed events a stream at `_$/anon/`. Their state actions answered 409. `StreamOpen` and `StreamClose` run on it with a guest session.
 
 #### Runtime and modules
 
