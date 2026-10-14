@@ -329,19 +329,27 @@ func main() {}
 	return dir
 }
 
-// TestLintSubjectAcrossApps tests the subject rule between the applications of
-// 1 module. Each app package is parsed on its own, so a subject 2 of them
-// claim is only visible to a check that has every model of the module in hand.
+// TestLintSubjectAcrossApps tests that lint reports a subject
+// 2 apps of 1 module claim, also when 1 of them has a model error.
 func TestLintSubjectAcrossApps(t *testing.T) {
 	for name, tc := range map[string]struct {
 		alphaSubject, betaSubject string
+		alphaModelErr             bool
 		wantOK                    bool
 	}{
-		"same subject":      {alphaSubject: "ping", betaSubject: "ping"},
+		"same subject": {alphaSubject: "ping", betaSubject: "ping"},
+		"same subject, model error": {
+			alphaSubject: "ping", betaSubject: "ping", alphaModelErr: true,
+		},
 		"different subject": {alphaSubject: "ping", betaSubject: "pong", wantOK: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			setupMultiappProject(t, tc.alphaSubject, tc.betaSubject)
+			dir := setupMultiappProject(t, tc.alphaSubject, tc.betaSubject)
+			if tc.alphaModelErr {
+				writeFileAt(t, filepath.Join(dir, "app", "alpha", "broken.go"),
+					"package alpha\n\n// PageBroken has no route comment.\n"+
+						"type PageBroken struct{ App *App }\n")
+			}
 
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
@@ -833,9 +841,11 @@ func TestNoAppPackage(t *testing.T) {
 				"require github.com/romshark/datapages v0.7.0\n\n" +
 				"replace github.com/romshark/datapages => " + repoRoot + "\n"
 			require.NoError(t, os.WriteFile(
-				filepath.Join(dir, "go.mod"), []byte(gomod), 0o644))
+				filepath.Join(dir, "go.mod"), []byte(gomod), 0o644,
+			))
 			require.NoError(t, os.WriteFile(
-				filepath.Join(dir, "lib.go"), []byte("package lib\n"), 0o644))
+				filepath.Join(dir, "lib.go"), []byte("package lib\n"), 0o644,
+			))
 
 			// findModuleDir reads os.Getwd, which this has to chdir for.
 			origDir, err := os.Getwd()

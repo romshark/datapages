@@ -5,6 +5,9 @@
 // signed-in visitors carries both kinds; the anonymous one carries what is public,
 // and has to subscribe by the same signal values and
 // hold the same per-tab state as the other.
+//
+// A page whose events are all private serves a visitor with no session
+// a stream only for its per-tab state.
 package app
 
 import (
@@ -204,6 +207,52 @@ func (p PageTabs) POSTBump(
 ) error {
 	state.Values.Count++
 	return ticked.Dispatch(EventTicked{N: state.Values.Count})
+}
+
+// PageInbox is /inbox
+//
+// Only a private event, and no per-tab state: a visitor with no session gets no stream.
+type PageInbox struct{ App *App }
+
+func (PageInbox) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="inbox">inbox</div>`), nil
+}
+
+func (p PageInbox) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="inbox">` + templ.EscapeString(event.Text) + `</div>`,
+	))
+}
+
+// StateNotes is the per-tab state of PageNotes.
+type StateNotes struct{ Count int }
+
+// PageNotes is /notes
+//
+// Stateful, with only a private event.
+// A visitor with no session needs a stream for the state alone.
+type PageNotes struct{ App *App }
+
+func (PageNotes) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="count">count 0</div>`), nil
+}
+
+func (p PageNotes) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="note">` + templ.EscapeString(event.Text) + `</div>`,
+	))
+}
+
+// POSTCount is /notes/count
+//
+// Writes the calling tab's state and renders it.
+func (p PageNotes) POSTCount(
+	_ *http.Request, sse datapages.SSE, state datapages.State[StateNotes],
+) error {
+	state.Values.Count++
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="count">count %d</div>`, state.Values.Count,
+	)))
 }
 
 // PagePost is /post/{slug}

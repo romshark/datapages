@@ -36,7 +36,13 @@ func main() {
 		datapages.DisableSessions,
 		datapages.DisablePrometheus,
 		datapagesgen.Server,
-	](a, msgBroker, datapages.WithAssets(app.StaticFS, false))
+	](
+		a, msgBroker,
+		datapages.WithAssets(app.StaticFS, false),
+		// The webview is the only client and connects over loopback,
+		// where compression costs CPU and saves no transfer.
+		datapages.WithSSECompression(datapages.SSECompressionConfig{Disabled: true}),
+	)
 	if err != nil {
 		panic(err)
 	}

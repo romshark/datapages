@@ -12,6 +12,7 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/offline"
@@ -35,6 +36,8 @@ func post(t *testing.T, path string) *datapagestest.Response {
 	return serve(t).Visitor(t).Load(t, "/").Do(t, http.MethodPost, path, nil)
 }
 
+// TestGETEmbedsQueuedWrites tests that a page load embeds its queued writes.
+// The version is a JSON string, which JavaScript reads without rounding above 2^53.
 func TestGETEmbedsQueuedWrites(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
@@ -46,7 +49,7 @@ func TestGETEmbedsQueuedWrites(t *testing.T) {
 	require.Contains(t, resp.Body, applyType,
 		"a GET embeds queued writes in the page")
 	require.Contains(t, resp.Body, `"url":"/"`)
-	require.Contains(t, resp.Body, `"version":7`)
+	require.Contains(t, resp.Body, `"version":"9007199254740993"`)
 	require.Contains(t, resp.Body, `index offline`,
 		"the entry carries the rendered body, not the live one")
 }
@@ -69,10 +72,10 @@ func TestGETReadsTheHeldVersion(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	req := v.NewRequest(t, http.MethodGet, "/", nil)
-	req.Header.Set("X-Datapages-Offline-Version", "7")
+	req.Header.Set("X-Datapages-Offline-Version", "9007199254740993")
 	resp := v.Send(t, req)
 
-	require.Equal(t, "7", datapagestest.Text(resp.ElementByID(t, "held")),
+	require.Equal(t, "9007199254740993", datapagestest.Text(resp.ElementByID(t, "held")),
 		"the handler reads the version the worker reports")
 	require.NotContains(t, resp.Body, applyType,
 		"the client holds the current copy, so the handler queues nothing")
@@ -95,7 +98,7 @@ func TestActionFlushesOverItsStream(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Body, applyType,
 		"an action with a stream delivers over it")
-	require.Contains(t, resp.Body, `"version":2`)
+	require.Contains(t, resp.Body, `"version":"2"`)
 	// The action's own patch is sent too.
 	resp.Event(t, datapagestest.TextContains("out", "done"))
 }
@@ -147,7 +150,7 @@ func TestWithOfflineServesTheWorker(t *testing.T) {
 		"the worker controls the whole origin, not the path it is served from")
 	require.Contains(t, resp.Body, `"offlineURL":"/offline/"`,
 		"the route of PageOffline reaches the worker without being configured")
-	require.Contains(t, resp.Body, `"workerVersion":42`)
+	require.Contains(t, resp.Body, `"workerVersion":"42"`)
 }
 
 func TestWithOfflineRegistersOnlyWhileOutdated(t *testing.T) {
@@ -177,9 +180,40 @@ func TestAppLevelActionFlushesOverAStream(t *testing.T) {
 		"an app-level action with neither a redirect nor a body"+
 			" delivers over the stream the framework opens for it")
 	require.Contains(t, resp.Body, `"url":"/"`)
-	require.Contains(t, resp.Body, `"version":11`)
+	require.Contains(t, resp.Body, `"version":"11"`)
 	require.Contains(t, resp.Body, "written by an app-level action",
 		"the entry carries the rendered body")
+}
+
+// TestAppLevelActionStreamConfig tests an App action's static and
+// request-scoped StreamConfig.
+func TestAppLevelActionStreamConfig(t *testing.T) {
+	t.Parallel()
+	srv := serve(t)
+
+	for name, tc := range map[string]struct {
+		path     string
+		saveData bool
+		coding   string
+	}{
+		"server's":  {path: "/app-precache/", coding: "zstd"},
+		"save data": {path: "/app-precache/", saveData: true, coding: "gzip"},
+		"static":    {path: "/app-precache-fail/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			v := srv.Visitor(t)
+			req := v.Load(t, "/").NewRequest(t, http.MethodPost, tc.path, nil)
+			req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+			if tc.saveData {
+				req.Header.Set("Save-Data", "on")
+			}
+			resp := v.Send(t, req)
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.Contains(t, resp.Header.Get("Content-Type"), "text/event-stream")
+			require.Equal(t, tc.coding, resp.Header.Get("Content-Encoding"))
+		})
+	}
 }
 
 func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
@@ -191,7 +225,7 @@ func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 	require.Equal(t, "done", datapagestest.Text(resp.ElementByID(t, "out")))
 	require.Contains(t, resp.Body, applyType,
 		"an app-level action embeds writes in its document")
-	require.Contains(t, resp.Body, `"version":12`)
+	require.Contains(t, resp.Body, `"version":"12"`)
 }
 
 func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
@@ -201,7 +235,7 @@ func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Body, applyType,
 		"an action redirecting through its own stream delivers over it first")
-	require.Contains(t, resp.Body, `"version":14`)
+	require.Contains(t, resp.Body, `"version":"14"`)
 	require.Equal(t, "/", resp.Redirect(t))
 	require.Less(t, strings.Index(resp.Body, applyType),
 		strings.Index(resp.Body, "window.location.href"),
@@ -252,9 +286,7 @@ func TestShimKeepsItsQuery(t *testing.T) {
 			" lets it answer one whose prefetch it lost")
 }
 
-// TestPageCacheVariesByHeldVersion tests that a page whose handler reads the
-// held version declares it, which keeps a shared cache from serving one
-// client's copy and its embedded write to another.
+// TestPageCacheVariesByHeldVersion tests Vary on page and stream responses.
 func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
@@ -262,6 +294,31 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	require.Equal(t, "X-Datapages-Offline-Version", v.Get(t, "/").Header.Get("Vary"))
 	require.Empty(t, v.Get(t, "/offline/").Header.Get("Vary"),
 		"a page that never touches the cache does not vary")
+	require.Contains(t,
+		v.Load(t, "/").Do(t, http.MethodPost, "/stream-write/", nil).Header.Values("Vary"),
+		"X-Datapages-Offline-Version")
+}
+
+// TestFailingCachedBodyIsLogged tests render failures in action delivery paths.
+func TestFailingCachedBodyIsLogged(t *testing.T) {
+	t.Parallel()
+	for name, path := range map[string]string{
+		"own stream": "/stream-write-fail/",
+		"new stream": "/app-precache-fail/",
+		"redirect":   "/redirect-write-fail/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			v := serve(t, datapages.WithLogger(log.Logger())).Visitor(t)
+
+			resp := v.Load(t, "/").Do(t, http.MethodPost, path, nil)
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.NotContains(t, resp.Body, applyType)
+			log.RequireLogged(t, `level=ERROR msg="rendering page cache writes" `+
+				`err="rendering page cache body for /: the cached body failed"`)
+		})
+	}
 }
 
 // TestBranchingActionDeliversOnBothPaths tests an action that picks between a
@@ -281,7 +338,7 @@ func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Status)
 			require.Contains(t, resp.Header.Get("Content-Type"), tc.contentType)
 			require.Contains(t, resp.Body, applyType)
-			require.Contains(t, resp.Body, `"version":15`)
+			require.Contains(t, resp.Body, `"version":"15"`)
 		})
 	}
 }

@@ -84,7 +84,6 @@ func toSnakeCase(s string) string {
 //   - ErrSignalsFieldUnexported: fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag: message names the duplicate value
 //   - ErrDispatchParamNotEvent: constraint is clear from message
-//   - ErrSessionParamNotSessionType: constraint is clear from message
 //   - ErrSessionTypeConflict: the message names both instantiations
 //   - ErrNewSessionWithSSE: message states the mutual exclusion
 //   - ErrCloseSessionWithSSE: message states the mutual exclusion
@@ -92,13 +91,16 @@ func toSnakeCase(s string) string {
 //   - ErrSSEOnGET: message states where sse is not allowed
 //   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
 //   - ErrDisableRefreshNotGET: message states it must be in a GET handler
+//   - ErrStreamConfigSignature: message names the 2 accepted signatures
+//   - ErrStreamConfigNoStream: message names what gives a page a stream
+//   - ErrActionStreamConfigNoAction: message names the actions the type declares
+//   - ErrActionStreamConfigNoStream: message names what gives an action a stream
+//   - ErrActionStreamConfigInput: message states the constraint
 //   - ErrGETActionInput: message names the parameters a GET action takes
 //   - ErrGETActionNameConflict: message names both GET actions
 //   - ErrFileWithOutput: message states what may be returned with the file
 //   - ErrFileWithSSE: message states the mutual exclusion
 //   - ErrFileWithPageCache: message states the mutual exclusion
-//   - ErrEventSubjectUserNoSession: has a dedicated suggestion
-//   - ErrEventSubjectAfterPayload: has a dedicated suggestion
 func Suggest(err error) string {
 	switch {
 	case errors.Is(err, parser.ErrAppMissingTypeApp):

@@ -170,6 +170,30 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var PageNotes pageNotes
+
+type pageNotes struct {
+	Count pageNotes_Count
+}
+
+type pageNotes_Count struct{}
+
+// POST references /notes/count/
+func (pageNotes_Count) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/notes/count/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/notes/count/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/notes/count/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PagePanic pagePanic
 
 type pagePanic struct {

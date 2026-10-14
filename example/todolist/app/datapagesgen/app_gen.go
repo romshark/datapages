@@ -32,8 +32,6 @@ import (
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -121,26 +119,28 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -153,6 +153,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 type Server struct {
@@ -172,7 +186,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -193,7 +207,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -226,6 +240,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)
@@ -477,7 +492,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
@@ -536,7 +551,7 @@ func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
 		Done        bool   `json:"done"`
 		Due         string `json:"due"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -562,7 +577,13 @@ func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
 
 	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "App.Edit")
-	err := s.app.PUTEdit(r, path, query, signals, dispatchTodoUpdated)
+	err := s.app.PUTEdit(
+		r,
+		path,
+		query,
+		signals,
+		dispatchTodoUpdated,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Edit", err)
 		return
@@ -620,7 +641,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -674,7 +698,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -698,21 +722,26 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageIndex,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, datapages.State[dpapp.StateIndex]{Values: slot.state}, signals)
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.StateIndex]{Values: slot.state},
+				signals,
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateIndex(instanceID, slot)
 		},
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventTodoUpdated dpapp.EventTodoUpdated
@@ -733,7 +762,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						defer slot.mu.Unlock()
 						if err := p.OnTodoUpdated(
 							eventTodoUpdated,
-							dpsse.New(sse),
+							sse,
 							datapages.State[dpapp.StateIndex]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageIndex.OnTodoUpdated", err)
@@ -756,7 +785,7 @@ func (s pageIndexHandlers) POSTCreate(
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -766,7 +795,11 @@ func (s pageIndexHandlers) POSTCreate(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTCreate(r, signals, dispatchTodoUpdated)
+	err := p.POSTCreate(
+		r,
+		signals,
+		dispatchTodoUpdated,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Create", err)
 		return
@@ -797,7 +830,7 @@ func (s pageIndexHandlers) POSTFilter(
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -809,12 +842,18 @@ func (s pageIndexHandlers) POSTFilter(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.Filter")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTFilter(r, dpsse.New(sse), datapages.State[dpapp.StateIndex]{Values: slot.state}, signals)
+	err := p.POSTFilter(
+		r,
+		sse,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Filter", err)
 		return
@@ -843,7 +882,10 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
-	body, redirect, err := p.GET(r, path)
+	body, redirect, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
 		return
@@ -882,7 +924,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	var signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -906,21 +948,26 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageItem,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageItem,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageItem.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, datapages.State[dpapp.StateItem]{Values: slot.state}, signals)
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.StateItem]{Values: slot.state},
+				signals,
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateItem(instanceID, slot)
 		},
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageItem stream")
 			var eventTodoUpdated dpapp.EventTodoUpdated
@@ -941,7 +988,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						defer slot.mu.Unlock()
 						if err := p.OnTodoUpdated(
 							eventTodoUpdated,
-							dpsse.New(sse),
+							sse,
 							datapages.State[dpapp.StateItem]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageItem.OnTodoUpdated", err)
@@ -969,7 +1016,11 @@ func (s pageItemHandlers) DELETEItem(
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	redirect, err := p.DELETEItem(r, path, dispatchTodoUpdated)
+	redirect, err := p.DELETEItem(
+		r,
+		path,
+		dispatchTodoUpdated,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageItem.Item", err)
 		return

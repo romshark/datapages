@@ -70,6 +70,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateEvents(&ctx, &errs)
 	secondPassEmbeds(&ctx, &errs)
 	thirdPassMethods(&ctx, &errs)
+	attachActionStreamConfigs(&ctx, &errs)
 	collectAssets(&ctx, &errs)
 	// Both run after flattenPages: a session-carrying handler declared on a
 	// stream embed is only reachable from ctx.pages once it has been adopted.
@@ -80,6 +81,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	finalizePages(&ctx)
 	finalizeStates(&ctx, &errs)
 	validateRefreshOutputs(&ctx, &errs)
+	validateStreamConfigs(&ctx, &errs)
 	validateErrorPageSessionOutputs(&ctx, &errs)
 	checkPageSubjectKinds(&ctx, &errs)
 	checkPageSignalPaths(&ctx, &errs)
@@ -132,6 +134,9 @@ type parseCtx struct {
 	// Non-error outputs per handler that parsed without error,
 	// used by buildHandlerGET. A handler missing from it failed to parse.
 	handlerOutputs map[*model.Handler][]*model.Output
+
+	// actionStreamConfigs wait for their actions, which may be declared later.
+	actionStreamConfigs []actionStreamConfig
 
 	app          *model.App
 	appTypeFound bool
@@ -337,8 +342,10 @@ func collectSessionType(ctx *parseCtx, errs *Errors) {
 		}
 		noteHandler(p.StreamOpen)
 		noteHandler(p.StreamClose)
+		noteHandler(p.StreamConfig)
 		for _, h := range p.Actions {
 			noteHandler(h)
+			noteHandler(h.StreamConfig)
 		}
 		for _, eh := range p.EventHandlers {
 			if eh.InputSession != nil {
@@ -352,6 +359,7 @@ func collectSessionType(ctx *parseCtx, errs *Errors) {
 	}
 	for _, h := range ctx.app.Actions {
 		noteHandler(h)
+		noteHandler(h.StreamConfig)
 	}
 	if gh := ctx.app.GlobalHeadGenerator; gh != nil && gh.InputSession {
 		usesSession = true
@@ -948,6 +956,10 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					}
 				default:
 					kind, suffix := methodkind.Classify(fd.Name.Name)
+					if kind == methodkind.ActionStreamConfigMethod {
+						noteActionStreamConfig(ctx, errs, "App", fd, nil, suffix)
+						continue
+					}
 					if kind != 0 && !kind.IsAction() {
 						// A name the framework reserves on a page means nothing on App.
 						// Silence would leave the method compiled,
@@ -1013,6 +1025,10 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			switch kind {
 			case methodkind.StreamOpenHook, methodkind.StreamCloseHook:
 				validateAndAttachStreamHook(ctx, errs, recv, fd, pg, se, kind)
+			case methodkind.StreamConfigMethod:
+				validateAndAttachStreamConfig(ctx, errs, recv, fd, pg)
+			case methodkind.ActionStreamConfigMethod:
+				noteActionStreamConfig(ctx, errs, recv, fd, pg, suffix)
 			case methodkind.EventHandler:
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
@@ -1040,7 +1056,7 @@ func validateAndAttachEventHandler(
 
 	// Invariants for OnXXX handlers:
 	//   - Must have exactly 1 parameter of an EventXXX type
-	//   - Must have a *datastar.ServerSentEventGenerator parameter
+	//   - Must have a datapages.SSE parameter
 	//   - Only 1 handler per EventXXX per receiver type
 	//   - Parameters may be in any order
 	params := fd.Type.Params
@@ -1244,6 +1260,173 @@ func validateAndAttachStreamHook(
 	} else {
 		se.StreamClose = h
 	}
+}
+
+// validateAndAttachStreamConfig validates and records a page's StreamConfig.
+func validateAndAttachStreamConfig(
+	ctx *parseCtx, errs *Errors, recv string, fd *ast.FuncDecl, pg *model.Page,
+) {
+	h := parseStreamConfig(ctx, errs, recv, fd)
+	if h == nil {
+		return
+	}
+	// Stream paths have the page route's variables.
+	if h.InputPath != nil {
+		h.Route = pg.Route
+		err := paramvalidation.ValidatePathAgainstRoute(h, recv, fd.Name.Name)
+		if err != nil {
+			reportErrorsWithFset(errs, ctx.pkg.Fset,
+				ctx.pkg.Fset.Position(h.InputPath.Expr.Pos()), err)
+			return
+		}
+	}
+	pg.StreamConfig = h
+}
+
+// actionStreamConfig is a StreamConfig<Action> method waiting for its action.
+type actionStreamConfig struct {
+	recv   string
+	method string      // The action's method name, such as POSTSave.
+	page   *model.Page // Nil for App.
+	h      *model.Handler
+}
+
+// noteActionStreamConfig validates a StreamConfig<Action> method and queues it.
+func noteActionStreamConfig(
+	ctx *parseCtx, errs *Errors,
+	recv string, fd *ast.FuncDecl, pg *model.Page, method string,
+) {
+	h := parseStreamConfig(ctx, errs, recv, fd)
+	if h == nil {
+		return
+	}
+	ctx.actionStreamConfigs = append(ctx.actionStreamConfigs,
+		actionStreamConfig{recv: recv, method: method, page: pg, h: h})
+}
+
+// attachActionStreamConfigs gives each StreamConfig<Action> method to its action.
+// It takes the action's path and signals, which the request carries once.
+func attachActionStreamConfigs(ctx *parseCtx, errs *Errors) {
+	for _, c := range ctx.actionStreamConfigs {
+		pos := ctx.pkg.Fset.Position(c.h.Expr.Pos())
+		name := c.recv + ".StreamConfig" + c.method
+		actions := ctx.app.Actions
+		if c.page != nil {
+			actions = c.page.Actions
+		}
+		i := slices.IndexFunc(actions, func(a *model.Handler) bool {
+			return a.HTTPMethod+a.Name == c.method
+		})
+		if i < 0 {
+			declared := make([]string, len(actions))
+			for j, a := range actions {
+				declared[j] = a.HTTPMethod + a.Name
+			}
+			if len(declared) > 0 {
+				name += fmt.Sprintf(" (%s declares %s)",
+					c.recv, strings.Join(declared, ", "))
+			}
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrActionStreamConfigNoAction, name))
+			continue
+		}
+		action := actions[i]
+		if !answersWithStream(action) {
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrActionStreamConfigNoStream, name))
+			continue
+		}
+		if !takesActionValues(c.h.InputPath, action.InputPath) ||
+			!takesActionValues(c.h.InputSignals, action.InputSignals) {
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrActionStreamConfigInput, name))
+			continue
+		}
+		action.StreamConfig = c.h
+	}
+}
+
+// answersWithStream reports whether action a answers with an SSE stream.
+// It must agree with the generator's pageCacheViaStream.
+func answersWithStream(a *model.Handler) bool {
+	return a.InputSSE != nil ||
+		a.InputPageCache != nil && a.OutputRedirect == nil && a.OutputBody == nil
+}
+
+// takesActionValues reports whether the action takes input in, of the same type.
+func takesActionValues(in, actionIn *model.Input) bool {
+	if in == nil {
+		return true
+	}
+	return actionIn != nil && types.Identical(in.Type.Resolved, actionIn.Type.Resolved)
+}
+
+// parseStreamConfig reads a StreamConfig signature. It reports a refused one
+// and returns nil.
+func parseStreamConfig(
+	ctx *parseCtx, errs *Errors, recv string, fd *ast.FuncDecl,
+) *model.Handler {
+	info := ctx.pkg.TypesInfo
+	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+	refuse := func() {
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+			ErrStreamConfigSignature, recv, fd.Name.Name))
+	}
+	h := &model.Handler{Expr: fd.Name, Name: fd.Name.Name}
+	if fd.Type.Params != nil {
+		for _, f := range expandFieldList(fd.Type.Params.List) {
+			switch {
+			case typecheck.IsPtrToNetHTTPReq(f.Type, info) && h.InputRequest == nil:
+				h.InputRequest = parseInput(f, f.Type, info)
+				h.InputRequest.Kind = model.InputKindRequest
+				h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
+			case paramvalidation.IsSessionParam(f, info) && h.InputSession == nil:
+				h.InputSession = parseInput(f, f.Type, info)
+				h.InputSession.Kind = model.InputKindSession
+				h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
+			case paramvalidation.IsPathParam(f, info) && h.InputPath == nil:
+				values, _ := typecheck.PathValuesType(f.Type, info)
+				err := paramvalidation.ValidatePathStruct(values, recv, fd.Name.Name)
+				if err != nil {
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), err)
+					return nil
+				}
+				h.InputPath = parseValuesInput(f, values)
+				h.InputPath.Kind = model.InputKindPath
+				h.OrderedInputs = append(h.OrderedInputs, h.InputPath)
+			case paramvalidation.IsSignalsParam(f, info) && h.InputSignals == nil:
+				values, _ := typecheck.SignalsValuesType(f.Type, info)
+				err := paramvalidation.ValidateSignalsStruct(values, recv, fd.Name.Name)
+				if err != nil {
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), err)
+					return nil
+				}
+				h.InputSignals = parseValuesInput(f, values)
+				h.InputSignals.Kind = model.InputKindSignals
+				h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
+			default:
+				refuse()
+				return nil
+			}
+		}
+	}
+	// Any input makes the method request-scoped and requires the request.
+	if len(h.OrderedInputs) > 0 && h.InputRequest == nil {
+		refuse()
+		return nil
+	}
+	var results []*ast.Field
+	if fd.Type.Results != nil {
+		results = expandFieldList(fd.Type.Results.List)
+	}
+	wantResults := 1
+	if h.InputRequest != nil {
+		wantResults = 2
+	}
+	if len(results) != wantResults ||
+		!typecheck.IsStreamConfigType(results[0].Type, info) ||
+		(wantResults == 2 && !typecheck.IsError(info.TypeOf(results[1].Type))) {
+		refuse()
+		return nil
+	}
+	return h
 }
 
 func eventHandlerReturnsOnlyError(fd *ast.FuncDecl, info *types.Info) bool {
@@ -1736,6 +1919,18 @@ func validateRefreshOutputs(ctx *parseCtx, errs *Errors) {
 			errs.ErrAt(ctx.pkg.Fset.Position(o.out.Expr.Pos()),
 				fmt.Errorf("%w in %s.GET", o.err, name))
 		}
+	}
+}
+
+// validateStreamConfigs rejects StreamConfig on pages without streams.
+func validateStreamConfigs(ctx *parseCtx, errs *Errors) {
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
+		pg := ctx.pages[name]
+		if pg.StreamConfig == nil || pageHasStream(pg) {
+			continue
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(pg.StreamConfig.Expr.Pos()),
+			fmt.Errorf("%w: %s.StreamConfig", ErrStreamConfigNoStream, name))
 	}
 }
 
@@ -3563,7 +3758,7 @@ func servesOnlyGET(route string) bool {
 // actionIsUnderPage reports whether action is under page. Rules:
 //   - page must be prefix of action
 //   - boundary: either page=="/" OR next char after prefix is '/'
-//   - disallow exact equality (action == page) to avoid colliding with GET route
+//   - action may equal page, since its method differs from the page's GET
 func actionIsUnderPage(page, action string) bool {
 	page = urlpath.Clean(page)
 	action = urlpath.Clean(action)

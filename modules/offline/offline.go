@@ -143,7 +143,8 @@ func (c Config) scriptURL() string {
 // worker's minimal fallback.
 func ServiceWorkerJS(offlinePath string, conf Config) []byte {
 	payload := struct {
-		WorkerVersion           uint64   `json:"workerVersion"`
+		// A string, since JS rounds numbers above 2^53.
+		WorkerVersion           uint64   `json:"workerVersion,string"`
 		OfflineURL              string   `json:"offlineURL"`
 		Assets                  []string `json:"assets"`
 		CrossOriginDestinations []string `json:"crossOriginDestinations"`
@@ -441,7 +442,13 @@ func (w writeOnly) Write(p []byte) (int, error) { return w.iw.Write(p) }
 
 // Flush supports streaming responses such as Datastar SSE.
 // [Middleware] doesn't buffer them.
+//
+// Decide before forwarding the first flush. Otherwise the first write sends a
+// second status, which net/http logs as superfluous.
 func (iw *injectingWriter) Flush() {
+	if !iw.decided {
+		iw.decide(nil)
+	}
 	if iw.inject {
 		return
 	}

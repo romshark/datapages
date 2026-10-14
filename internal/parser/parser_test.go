@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/build/constraint"
 	"go/token"
 	"go/types"
 	"os"
@@ -986,7 +985,8 @@ func TestParse_ErrEventPointer(t *testing.T) {
 func TestParse_ErrBuildConstraint(t *testing.T) {
 	_, err := parse(t, "err_build_constraint")
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrBuildConstrainedFile,
 		parser.ErrBuildConstrainedFile,
 	)
@@ -1015,34 +1015,14 @@ func TestNameConstrained(t *testing.T) {
 	}
 }
 
-// TestNeverBuilt tests which //go:build lines exclude a file from every build.
-// No build sets "ignore", and any other tag may be set or not.
-func TestNeverBuilt(t *testing.T) {
-	for line, want := range map[string]bool{
-		"//go:build ignore":          true,
-		"//go:build ignore && linux": true,
-		"//go:build ignore || linux": false,
-		"//go:build !ignore":         false,
-		"//go:build linux":           false,
-		"//go:build !linux":          false,
-		"//go:build linux && !linux": true,
-		"// +build ignore":           true,
-	} {
-		t.Run(line, func(t *testing.T) {
-			x, err := constraint.Parse(line)
-			require.NoError(t, err)
-			require.Equal(t, want, parser.NeverBuilt(x))
-		})
-	}
-}
-
 // TestParse_ErrEventHandlerName tests event handlers whose names do not follow
 // from their events, on a stream embed and on pages. PageShadow.OnB takes EventA
 // and hides the embedded Base.OnB, which takes EventB.
 func TestParse_ErrEventHandlerName(t *testing.T) {
 	_, err := parse(t, "err_event_handler_name")
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEvHandNameMismatch,
 		parser.ErrEvHandNameMismatch,
 		parser.ErrEvHandNameMismatch,
@@ -1242,7 +1222,8 @@ func TestParse_ErrEmbedNotStreamEmbed(t *testing.T) {
 	_, err := parse(t, "err_embed_not_stream_embed")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrPageHasExtraFields,
 		parser.ErrPageHasExtraFields,
 		parser.ErrPageHasExtraFields,
@@ -1658,7 +1639,8 @@ func TestParse_ErrPageNotStruct(t *testing.T) {
 	_, err := parse(t, "err_page_not_struct")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrPageNotStruct,
 		parser.ErrPageNotStruct,
 		// The aliased struct is a stream embed, which takes no GET.
@@ -2500,6 +2482,97 @@ func TestParse_GETOptions(t *testing.T) {
 			p.GET.OutputDisableRefresh.Name,
 		)
 	}
+}
+
+// TestParse_StreamConfig tests static, request-scoped and absent configurations.
+func TestParse_StreamConfig(t *testing.T) {
+	require := require.New(t)
+	app, err := parse(t, "stream_config")
+	requireParseErrors(t, err /*none*/)
+
+	require.NotNil(app.PageIndex.StreamConfig)
+	require.Empty(app.PageIndex.StreamConfig.OrderedInputs)
+
+	kinds := func(h *model.Handler) []string {
+		var k []string
+		for _, in := range h.OrderedInputs {
+			k = append(k, in.Kind)
+		}
+		return k
+	}
+	adaptive := findPage(app, "PageAdaptive").StreamConfig
+	require.NotNil(adaptive)
+	require.Equal([]string{model.InputKindSignals, model.InputKindRequest},
+		kinds(adaptive))
+	board := findPage(app, "PageBoard").StreamConfig
+	require.NotNil(board)
+	require.Equal([]string{model.InputKindRequest, model.InputKindPath}, kinds(board))
+
+	require.Nil(findPage(app, "PagePlain").StreamConfig)
+}
+
+// TestParse_ErrStreamConfig tests invalid owners, signatures, paths and pages.
+func TestParse_ErrStreamConfig(t *testing.T) {
+	_, err := parse(t, "err_stream_config")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrAppUnsupportedMethod,
+		parser.ErrStreamConfigSignature,
+		parser.ErrStreamConfigSignature,
+		parser.ErrStreamConfigSignature,
+		parser.ErrStreamConfigSignature,
+		parser.ErrStreamConfigSignature,
+		parser.ErrPathMissingRouteVar,
+		parser.ErrPathFieldNotInRoute,
+		parser.ErrStreamConfigNoStream,
+		parser.ErrStreamEmbedUnsupportedMethod,
+	)
+}
+
+// TestParse_ActionStreamConfig tests action StreamConfigs on a page and on App,
+// 1 declared before its action.
+func TestParse_ActionStreamConfig(t *testing.T) {
+	require := require.New(t)
+	app, err := parse(t, "action_stream_config")
+	requireParseErrors(t, err /*none*/)
+
+	save := findActionByMethod(app.PageIndex.Actions, "POST", "Save").StreamConfig
+	require.NotNil(save)
+	require.Empty(save.OrderedInputs)
+
+	item := findActionByMethod(app.PageIndex.Actions, "PUT", "Item").StreamConfig
+	require.NotNil(item)
+	var kinds []string
+	for _, in := range item.OrderedInputs {
+		kinds = append(kinds, in.Kind)
+	}
+	require.Equal([]string{
+		model.InputKindPath, model.InputKindRequest,
+		model.InputKindSession, model.InputKindSignals,
+	}, kinds)
+
+	require.Nil(findActionByMethod(app.PageIndex.Actions, "POST", "Plain").StreamConfig)
+	require.NotNil(findActionByMethod(app.Actions, "POST", "Clear").StreamConfig)
+}
+
+// TestParse_ErrActionStreamConfig tests refused action StreamConfigs.
+func TestParse_ErrActionStreamConfig(t *testing.T) {
+	_, err := parse(t, "err_action_stream_config")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrActionStreamConfigNoAction,
+		parser.ErrActionStreamConfigNoStream,
+		parser.ErrActionStreamConfigNoStream,
+		parser.ErrActionStreamConfigInput,
+		parser.ErrActionStreamConfigInput,
+		parser.ErrStreamConfigSignature,
+		parser.ErrActionStreamConfigNoAction,
+		parser.ErrStreamEmbedUnsupportedMethod,
+	)
 }
 
 // TestParse_ErrGETOptions tests a GET option declared on a handler that is no GET,

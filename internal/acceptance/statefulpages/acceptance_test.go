@@ -437,10 +437,8 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 	id := page.Instance()
 	require.NotEmpty(t, id, "GET %s mints no instance id", pathFailOpen)
 
-	// The instance is reserved before the open hook runs.
-	// The stream is answered 200 regardless:
-	// the SSE generator commits the status line first,
-	// which leaves the hook nowhere to report the failure.
+	// The instance is reserved before the hook.
+	// The stream commits 200 before the hook can fail.
 	resp := v.Send(t, page.NewRequest(t, http.MethodGet, pathFailOpenStream, nil))
 	require.Equal(t, http.StatusOK, resp.Status,
 		"the stream of a page whose open fails")

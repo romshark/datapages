@@ -13,12 +13,11 @@ import (
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	dpapp "github.com/romshark/datapages/example/tailwindcss/app"
 	"github.com/romshark/datapages/example/tailwindcss/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/tailwindcss/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -56,7 +55,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -81,7 +80,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -101,7 +100,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -157,7 +156,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {

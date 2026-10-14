@@ -1,5 +1,5 @@
-// Package sse implements datapages.SSE on the Datastar generator.
-// It keeps datastar out of handler signatures.
+// Package sse writes Datastar SSE events and reads request signals.
+// [Stream] implements datapages.SSE.
 //
 // Application code must not import this package.
 package sse
@@ -9,61 +9,154 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
-
-	"github.com/starfederation/datastar-go/datastar"
+	"sync"
+	"time"
 
 	"github.com/romshark/datapages"
 )
 
-// New wraps a Datastar generator as a [datapages.SSE].
-// Every call of the result writes 1 event on gen.
-func New(g *datastar.ServerSentEventGenerator) datapages.SSE {
-	return wrapper{g: g}
+// Datastar event types for the client version loaded by
+// [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
+//
+// [datastar-patch-elements]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchelements
+// [datastar-patch-signals]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchsignals
+const (
+	eventPatchElements = "datastar-patch-elements"
+	eventPatchSignals  = "datastar-patch-signals"
+)
+
+// scriptOpen starts a script element that removes itself after execution.
+// [ExecuteScript] specifies it, along with the selector body and mode append.
+//
+// [ExecuteScript]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorexecutescript
+const scriptOpen = `<script data-effect="el.remove()">`
+
+var errClosed = errors.New("sse: stream closed")
+
+// Stream writes Datastar events to a response.
+// It implements [datapages.SSE], and its methods are safe for concurrent use.
+//
+// Events are built before the lock. The lock serializes writes and flushes.
+type Stream struct {
+	ctx    context.Context
+	w      http.ResponseWriter
+	rc     *http.ResponseController
+	coding *coding // Nil without compression.
+
+	lock   sync.Mutex
+	enc    *pooledEncoder // Taken from coding by the first event.
+	err    error          // The first failed write, which every later event returns.
+	closed bool
 }
 
-type wrapper struct {
-	g *datastar.ServerSentEventGenerator
+// Open starts and flushes an event stream. It selects the first coding of c
+// that r accepts by name, else gzip when r accepts *, and none when c is nil.
+// The caller must call [Stream.Close].
+// The headers and the first flush follow the [SDK specification].
+//
+// Open panics if w doesn't support flushing because events would wait for the
+// handler to return. [Stream.Err] and later events report other flush failures.
+//
+// [SDK specification]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#construction--initialization
+func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
+	s := &Stream{ctx: r.Context(), w: w, rc: http.NewResponseController(w)}
+	h := w.Header()
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Content-Type", "text/event-stream")
+	if r.ProtoMajor == 1 {
+		h.Set("Connection", "keep-alive")
+	}
+	if c != nil {
+		h.Add("Vary", "Accept-Encoding")
+	}
+	if cd := c.negotiate(r.Header["Accept-Encoding"]); cd != nil {
+		h.Set("Content-Encoding", cd.name)
+		s.coding = cd
+	}
+	if err := s.rc.Flush(); err != nil {
+		if errors.Is(err, http.ErrNotSupported) {
+			panic(fmt.Sprintf("sse: %T cannot flush", w))
+		}
+		s.err = err
+	}
+	return s
 }
 
-func (s wrapper) Context() context.Context { return s.g.Context() }
-
-func (s wrapper) PatchElement(c datapages.Component) error {
-	return s.g.PatchElementTempl(c)
+// Err returns the error of the first write or flush that failed, if any.
+func (s *Stream) Err() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.err
 }
 
-func (s wrapper) PatchElementAt(
+// Close finishes compression and releases the encoder. [Stream.Err] reports a
+// final write failure. Close is idempotent; later events return an error.
+func (s *Stream) Close() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	switch {
+	case s.coding == nil:
+	case s.enc != nil:
+		if s.err == nil {
+			s.err = s.enc.Close()
+		}
+		s.coding.put(s.enc)
+		s.enc = nil
+	case s.err == nil:
+		// Send a valid empty stream for the announced coding.
+		_, s.err = s.w.Write(s.coding.empty)
+	}
+}
+
+func (s *Stream) Context() context.Context { return s.ctx }
+
+func (s *Stream) PatchElement(c datapages.Component) error {
+	return s.patchElements(c, "", "")
+}
+
+func (s *Stream) PatchElementAt(
 	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
 	if err := checkSelector(selectorCSS); err != nil {
 		return err
 	}
 	switch mode {
-	case datapages.PatchModeOuter, datapages.PatchModeInner,
-		datapages.PatchModeReplace, datapages.PatchModePrepend,
-		datapages.PatchModeAppend, datapages.PatchModeBefore,
-		datapages.PatchModeAfter:
+	case datapages.PatchModeInner, datapages.PatchModeReplace,
+		datapages.PatchModePrepend, datapages.PatchModeAppend,
+		datapages.PatchModeBefore, datapages.PatchModeAfter:
 	default:
-		mode = "" // Not a PatchMode constant, patch in the default mode.
+		// Outer is the wire default. Invalid modes also use the default.
+		mode = ""
 	}
-	switch {
-	case selectorCSS == "" && mode == "":
-		return s.g.PatchElementTempl(c)
-	case mode == "":
-		return s.g.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
-	case selectorCSS == "":
-		return s.g.PatchElementTempl(
-			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
-		)
-	}
-	return s.g.PatchElementTempl(c,
-		datastar.WithSelector(selectorCSS),
-		datastar.WithMode(datastar.ElementPatchMode(mode)))
+	return s.patchElements(c, selectorCSS, mode)
 }
 
-// checkSelector rejects a selector that would end the event line it goes on.
-// datastar writes the selector as given, while it splits the elements on "\n"
-// and quotes the redirect URL.
+func (s *Stream) patchElements(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
+) error {
+	e := newEvent(eventPatchElements)
+	if selectorCSS != "" {
+		e.field("selector ", selectorCSS)
+	}
+	if mode != "" {
+		e.field("mode ", string(mode))
+	}
+	e.prefix = "data: elements "
+	if err := c.Render(s.ctx, e); err != nil {
+		e.free()
+		return fmt.Errorf("rendering elements: %w", err)
+	}
+	return s.send(e)
+}
+
+// checkSelector rejects a selector that could inject an SSE field.
 func checkSelector(selectorCSS string) error {
 	if strings.ContainsAny(selectorCSS, "\r\n") {
 		return fmt.Errorf("%w: %q", datapages.ErrSelectorLineBreak, selectorCSS)
@@ -71,38 +164,73 @@ func checkSelector(selectorCSS string) error {
 	return nil
 }
 
-// removeElementModeDataline is the mode line of a removal event.
-const removeElementModeDataline = datastar.ModeDatalineLiteral +
-	string(datastar.ElementPatchModeRemove)
-
-func (s wrapper) RemoveElement(selectorCSS string) error {
+func (s *Stream) RemoveElement(selectorCSS string) error {
 	if err := checkSelector(selectorCSS); err != nil {
 		return err
 	}
-	return s.g.Send(datastar.EventTypePatchElements, []string{
-		datastar.SelectorDatalineLiteral + selectorCSS,
-		removeElementModeDataline,
-	})
+	e := newEvent(eventPatchElements)
+	e.field("selector ", selectorCSS)
+	e.field("mode ", "remove")
+	return s.send(e)
 }
 
-func (s wrapper) ExecuteScript(script string) error {
-	return s.g.ExecuteScript(script)
+func (s *Stream) ExecuteScript(script string) error {
+	return s.ExecuteScriptRetry(script, 0)
 }
 
-func (s wrapper) PatchSignals(v any) error {
+// ExecuteScriptRetry works like [Stream.ExecuteScript] and sets the SSE retry
+// field when retry is positive.
+func (s *Stream) ExecuteScriptRetry(script string, retry time.Duration) error {
+	e := newScriptEvent(retry)
+	_, _ = e.WriteString(script)
+	_, _ = e.WriteString("</script>")
+	return s.send(e)
+}
+
+// newScriptEvent returns an element patch with an open self-removing script.
+func newScriptEvent(retry time.Duration) *event {
+	e := newEvent(eventPatchElements)
+	e.retry(retry)
+	e.field("selector ", "body")
+	e.field("mode ", "append")
+	e.prefix = "data: elements "
+	_, _ = e.WriteString(scriptOpen)
+	return e
+}
+
+func (s *Stream) PatchSignals(v any) error {
 	j, err := marshalSignals(v)
 	if err != nil {
 		return err
 	}
-	return s.g.PatchSignals(j)
+	return s.patchSignals(j, false, 0)
 }
 
-func (s wrapper) PatchSignalsIfMissing(v any) error {
+func (s *Stream) PatchSignalsIfMissing(v any) error {
 	j, err := marshalSignals(v)
 	if err != nil {
 		return err
 	}
-	return s.g.PatchSignals(j, datastar.WithOnlyIfMissing(true))
+	return s.patchSignals(j, true, 0)
+}
+
+var emptySignals = []byte("{}")
+
+// DelayReconnect sends a no-op signal patch with retry as the SSE retry field.
+func (s *Stream) DelayReconnect(retry time.Duration) error {
+	return s.patchSignals(emptySignals, false, retry)
+}
+
+// patchSignals sends valid JSON. Event framing normalizes its CR and LF to LF.
+func (s *Stream) patchSignals(j []byte, onlyIfMissing bool, retry time.Duration) error {
+	e := newEvent(eventPatchSignals)
+	e.retry(retry)
+	if onlyIfMissing {
+		e.field("onlyIfMissing ", "true")
+	}
+	e.prefix = "data: signals "
+	_, _ = e.Write(j)
+	return s.send(e)
 }
 
 // marshalSignals encodes v as JSON. A json.RawMessage passes through.
@@ -120,87 +248,115 @@ func marshalSignals(v any) ([]byte, error) {
 	return j, nil
 }
 
-func (s wrapper) Redirect(target string) error {
-	// The redirect travels as a <script> element. A "</script>" in the target
-	// would end that element and leave the rest of it in the DOM as markup,
-	// which is why the target goes in JSON-encoded: encoding/json writes
-	// "<" as \u003c, and JavaScript reads it back as "<".
-	enc, err := json.Marshal(target)
-	if err != nil {
-		return fmt.Errorf("encoding redirect target: %w", err)
-	}
-	return s.g.ExecuteScript(
-		"setTimeout(() => window.location.href = " + string(enc) + ")",
-	)
+func (s *Stream) Redirect(target string) error {
+	// Escaping '<' prevents the target from ending its script element.
+	e := newScriptEvent(0)
+	_, _ = e.WriteString(`setTimeout(() => window.location.href = "`)
+	writeJSONStringBody(e, target)
+	_, _ = e.WriteString(`")</script>`)
+	return s.send(e)
 }
 
-func (s wrapper) Prefetch(urls ...string) error {
+// Prefetch appends [speculation rules] in a retained script element.
+// Removing it [unregisters the rules]. The URLs go in as JSON strings,
+// escaped for the script without changing percent-encoding.
+//
+// [speculation rules]: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/speculationrules
+// [unregisters the rules]: https://html.spec.whatwg.org/multipage/webappapis.html#unregister-speculation-rules
+func (s *Stream) Prefetch(urls ...string) error {
 	if len(urls) == 0 {
 		return nil
 	}
-	// Browsers unregister rules when their script element is removed:
-	// https://html.spec.whatwg.org/multipage/webappapis.html#unregister-speculation-rules
-	return s.g.ExecuteScript(
-		speculationRules(urls),
-		datastar.WithExecuteScriptAutoRemove(false),
-		datastar.WithExecuteScriptAttributes(`type="speculationrules"`),
+	e := newEvent(eventPatchElements)
+	e.field("selector ", "body")
+	e.field("mode ", "append")
+	e.prefix = "data: elements "
+	_, _ = e.WriteString(
+		`<script type="speculationrules">{"prefetch":[{"source":"list","urls":["`,
 	)
-}
-
-// speculationRules returns a JSON speculation-rules body that prefetches URLs.
-// It escapes URLs that datastar-go writes raw and keeps percent-encoded URLs on
-// the 1-allocation path.
-//
-// https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/speculationrules
-func speculationRules(urls []string) string {
-	var b strings.Builder
-	b.Grow(speculationRulesLen(urls))
-	b.WriteString(rulesHead)
 	for i, u := range urls {
 		if i > 0 {
-			b.WriteByte(',')
+			_, _ = e.WriteString(`","`)
 		}
-		b.WriteByte('"')
-		writeJSONStringBody(&b, u)
-		b.WriteByte('"')
+		writeJSONStringBody(e, u)
 	}
-	b.WriteString(rulesTail)
-	return b.String()
+	_, _ = e.WriteString(`"]}]}</script>`)
+	return s.send(e)
 }
 
-const rulesHead, rulesTail = `{"prefetch":[{"source":"list","urls":[`, `]}]}`
-
-// speculationRulesLen returns the exact rules length when no URL needs escaping.
-func speculationRulesLen(urls []string) int {
-	n := len(rulesHead) + len(rulesTail) + len(urls) - 1 // the commas
-	for _, u := range urls {
-		n += len(`""`) + len(u)
+// send finishes, writes, flushes and frees e.
+func (s *Stream) send(e *event) error {
+	defer e.free()
+	e.end()
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	switch {
+	case s.err != nil:
+		return s.err
+	case s.closed:
+		return errClosed
 	}
-	return n
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.write(e); err != nil {
+		s.err = err
+		return err
+	}
+	return nil
+}
+
+// write writes the frames of e and flushes them once, at the end of the event.
+func (s *Stream) write(e *event) error {
+	if s.coding == nil {
+		if err := e.writeFrames(s.w); err != nil {
+			return err
+		}
+		return s.rc.Flush()
+	}
+	if s.enc == nil {
+		s.enc = s.coding.take(s.w)
+	}
+	if err := e.writeFrames(s.enc); err != nil {
+		return err
+	}
+	if err := s.enc.Flush(); err != nil {
+		return err
+	}
+	return s.rc.Flush()
 }
 
 const hexDigits = "0123456789abcdef"
 
-// writeJSONStringBody writes s inside a JSON string embedded in a 1-line <script>.
-// It escapes '"' and '\' and encodes controls and '<' as \u00XX,
-// preventing SSE line breaks, </script> and <!--.
-func writeJSONStringBody(b *strings.Builder, s string) {
+// controlEscapes holds the JSON escape of each control byte.
+var controlEscapes = func() (t [0x20]string) {
+	for c := range t {
+		t[c] = `\u00` + hexDigits[c>>4:c>>4+1] + hexDigits[c&0xf:c&0xf+1]
+	}
+	return t
+}()
+
+// writeJSONStringBody writes s inside a JSON and JavaScript string.
+// It escapes syntax, controls and '<' without an intermediate buffer.
+func writeJSONStringBody(w io.StringWriter, s string) {
 	last := 0
 	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 0x20 && c != '"' && c != '\\' && c != '<' {
+		var esc string
+		switch c := s[i]; {
+		case c < 0x20:
+			esc = controlEscapes[c]
+		case c == '"':
+			esc = `\"`
+		case c == '\\':
+			esc = `\\`
+		case c == '<':
+			esc = `\u003c`
+		default:
 			continue
 		}
-		b.WriteString(s[last:i])
-		if c == '"' || c == '\\' {
-			b.WriteByte('\\')
-			b.WriteByte(c)
-		} else {
-			b.WriteString(`\u00`)
-			b.WriteByte(hexDigits[c>>4])
-			b.WriteByte(hexDigits[c&0xf])
-		}
+		_, _ = w.WriteString(s[last:i])
+		_, _ = w.WriteString(esc)
 		last = i + 1
 	}
-	b.WriteString(s[last:])
+	_, _ = w.WriteString(s[last:])
 }

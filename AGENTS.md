@@ -40,6 +40,7 @@ Internal, used by the CLI and build tooling:
 - `internal/generator/` - code generation from the parsed model. `internal/generator/README.md` explains its tests.
 - `internal/acceptance/` - 1 module per case: the application, its committed generated code and tests asserting behaviour over HTTP. `internal/acceptance/README.md` explains how they run and how to record a defect the framework has not fixed yet.
 - `internal/gotypes/` - go/types predicates and renderings that know nothing about Datapages. Shared by the parser and the generator.
+- `internal/buildconstraint/` - which `//go:build` lines exclude a file from every build. Shared by the parser and `internal/serverscan/`.
 - `internal/logsample/` - the throttling `slog.Handler` behind `datapages.WithLogSampling`.
 - `internal/testlog/` - collects what code under test logs, 1 line per record without its time, for tests to compare exactly. Examples keep their own loggers because they model application code, which cannot import it.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.
@@ -56,14 +57,14 @@ Internal, used by the CLI and build tooling:
 
 Public, imported by application or generated code:
 
-- root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds every server option: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. None are generated.
+- root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds the server options of the root package: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. The others are `offline.WithServiceWorker` and the generated `WithOffline`, which passes it the route of `PageOffline`.
 - `cmd/datapages/` - the shipped binary.
 - `datapagestest/` - the client an application's tests use: visitors with a cookie jar and CSRF tokens, page loads, Datastar actions, SSE streams and redirect targets. The acceptance cases and the examples' tests send their requests with it, and `internal/acceptance/datapagestest` tests it against a generated server.
 - `modules/` - pluggable modules: csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
-  - `httpserve` - the server core a generated one embeds: listener, routes, middleware chain, logger, shutdown, redirect, Datastar request check, dev-mode cache headers, the assets file system and the HTML document writer.
+  - `httpserve` - the generated server core: listener, routes, middleware, logging, shutdown, redirects, request checks, assets, HTML and SSE responses.
   - `auth` - session cookie, the record behind it and the CSRF check. Generic over the application's session data.
-  - `sse` - implements `datapages.SSE` on the Datastar generator, which keeps datastar out of handler signatures.
+  - `sse` - writes and compresses the Datastar events of an SSE response and reads the signals of a request. `Stream` implements `datapages.SSE`.
   - `stream` - serves the SSE event stream of a page: the broker subscription behind it, the session that may end it and the shutdown that closes it.
   - `httpread` - reads cookies and query parameters the way `net/http` and `net/url` do, without their allocations. Fuzzed against them.
   - `htmlattr` - escapes values written into Datastar attributes. Fuzzed for anything that could end the attribute or the script.
@@ -169,7 +170,7 @@ Avoid:
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth noting that", "as we can see".
 - Praise of the user or of the question: "great question", "you're absolutely right".
-- Typographic drama: spaced-out words, all-caps emphasis, exclamation marks, emoji, bold scattered over half the sentences.
+- Typographic drama: spaced-out words, all-caps emphasis, exclamation marks, emoji, bold scattered over 1/2 the sentences.
 - Em-dashes. Use a full stop or "which ...".
 - ", so ..." as a reflex, chained ("X, so Y, so Z") or obvious ("It returns an error, so it can fail."). Keep it where the consequence is the point, as in "The flag is unset, so the default applies."
 - Non-ASCII characters where ASCII exists: curly quotes, ellipsis, arrows, non-breaking spaces. Write `'`, `"`, `...`, `->` and a plain space.

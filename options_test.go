@@ -13,7 +13,9 @@ import (
 )
 
 // TestWithDatastarJS tests the URLs the page shell may load the Datastar
-// bundle from: http, https and relative URLs according to RFC 3986.
+// bundle from: http, https and relative URLs according to [RFC 3986].
+//
+// [RFC 3986]: https://www.rfc-editor.org/rfc/rfc3986
 func TestWithDatastarJS(t *testing.T) {
 	t.Parallel()
 
@@ -131,6 +133,129 @@ func TestWithAssetsCache(t *testing.T) {
 			require.Equal(t, &tc.conf, cfg.AssetsCache)
 		})
 	}
+}
+
+// TestWithSSECompression tests valid and invalid compression settings.
+func TestWithSSECompression(t *testing.T) {
+	t.Parallel()
+
+	const (
+		zstd   = datapages.SSECodingZstd
+		brotli = datapages.SSECodingBrotli
+		gzip   = datapages.SSECodingGzip
+	)
+	for name, tc := range map[string]struct {
+		conf    datapages.SSECompressionConfig
+		wantErr string
+	}{
+		"zero":            {},
+		"balanced":        {conf: datapages.SSECompressionBalanced()},
+		"low memory":      {conf: datapages.SSECompressionLowMemory()},
+		"low bandwidth":   {conf: datapages.SSECompressionLowBandwidth()},
+		"large fragments": {conf: datapages.SSECompressionLargeFragments()},
+		"disabled":        {conf: datapages.SSECompressionConfig{Disabled: true}},
+		"disabled ignores the rest": {conf: datapages.SSECompressionConfig{
+			Disabled: true, ZstdLevel: 99,
+		}},
+		"codings": {conf: datapages.SSECompressionConfig{
+			Codings: []datapages.SSECoding{gzip, brotli, zstd},
+		}},
+		"gzip only": {conf: datapages.SSECompressionConfig{
+			Codings: []datapages.SSECoding{gzip},
+		}},
+		"zstd only": {conf: datapages.SSECompressionConfig{
+			Codings: []datapages.SSECoding{zstd},
+		}},
+		"zstd, else brotli": {conf: datapages.SSECompressionConfig{
+			Codings: []datapages.SSECoding{zstd, brotli},
+		}},
+		"larger zstd window": {conf: datapages.SSECompressionConfig{
+			ZstdLevel: 3, ZstdWindow: 4 << 20,
+		}},
+		"bounds": {conf: datapages.SSECompressionConfig{
+			ZstdLevel: 22, ZstdWindow: 8 << 20,
+			BrotliQuality: 11, BrotliWindow: 16 << 20,
+			GzipLevel: 9,
+		}},
+		"lower bounds": {conf: datapages.SSECompressionConfig{
+			ZstdLevel: 1, ZstdWindow: 1 << 10,
+			BrotliQuality: 1, BrotliWindow: 1 << 10,
+			GzipLevel: 1,
+		}},
+		"unknown coding": {
+			conf: datapages.SSECompressionConfig{
+				Codings: []datapages.SSECoding{"deflate"},
+			},
+			wantErr: `unknown coding "deflate"`,
+		},
+		"coding listed 2 times": {
+			conf: datapages.SSECompressionConfig{
+				Codings: []datapages.SSECoding{gzip, zstd, gzip},
+			},
+			wantErr: `coding "gzip" listed 2 times`,
+		},
+		"zstd level too high": {
+			conf:    datapages.SSECompressionConfig{ZstdLevel: 23},
+			wantErr: "zstd level (23) must be from 1 to 22",
+		},
+		"zstd level negative": {
+			conf:    datapages.SSECompressionConfig{ZstdLevel: -1},
+			wantErr: "zstd level (-1) must be from 1 to 22",
+		},
+		"zstd window not a power of 2": {
+			conf:    datapages.SSECompressionConfig{ZstdWindow: 3 << 10},
+			wantErr: "zstd window (3072) must be a power of 2 from 1 KiB to 8 MiB",
+		},
+		"zstd window above what browsers decode": {
+			conf:    datapages.SSECompressionConfig{ZstdWindow: 16 << 20},
+			wantErr: "zstd window (16777216) must be a power of 2 from 1 KiB to 8 MiB",
+		},
+		"zstd window too small": {
+			conf:    datapages.SSECompressionConfig{ZstdWindow: 512},
+			wantErr: "zstd window (512) must be a power of 2 from 1 KiB to 8 MiB",
+		},
+		"brotli quality too high": {
+			conf:    datapages.SSECompressionConfig{BrotliQuality: 12},
+			wantErr: "brotli quality (12) must be from 1 to 11",
+		},
+		"brotli window too large": {
+			conf:    datapages.SSECompressionConfig{BrotliWindow: 32 << 20},
+			wantErr: "brotli window (33554432) must be a power of 2 from 1 KiB to 16 MiB",
+		},
+		"gzip level too high": {
+			conf:    datapages.SSECompressionConfig{GzipLevel: 10},
+			wantErr: "gzip level (10) must be from 1 to 9",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var cfg datapages.ServerConfig
+			err := datapages.WithSSECompression(tc.conf)(&cfg)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, "WithSSECompression: "+tc.wantErr)
+				require.Nil(t, cfg.SSECompression)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, &tc.conf, cfg.SSECompression)
+		})
+	}
+}
+
+// TestWithSSECompressionCopiesCodings tests that caller mutation has no effect.
+func TestWithSSECompressionCopiesCodings(t *testing.T) {
+	t.Parallel()
+
+	codings := []datapages.SSECoding{datapages.SSECodingGzip}
+	var cfg datapages.ServerConfig
+	require.NoError(t, datapages.WithSSECompression(
+		datapages.SSECompressionConfig{Codings: codings},
+	)(&cfg))
+	codings[0] = datapages.SSECodingZstd
+	require.Equal(t,
+		[]datapages.SSECoding{datapages.SSECodingGzip},
+		cfg.SSECompression.Codings)
 }
 
 // TestWithBuildID tests that IDs fit unchanged in an HTTP header.

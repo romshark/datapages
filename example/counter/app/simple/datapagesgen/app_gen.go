@@ -25,8 +25,6 @@ import (
 	dpapp "github.com/romshark/datapages/example/counter/app/simple"
 	"github.com/romshark/datapages/example/counter/app/simple/datapagesgen/action"
 	"github.com/romshark/datapages/example/counter/app/simple/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -62,26 +60,28 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -107,7 +107,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[simple.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -127,7 +127,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package simple declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -160,6 +160,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)
@@ -203,7 +204,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -260,12 +261,12 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageIndex,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventCounterUpdated dpapp.EventCounterUpdated
@@ -279,7 +280,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnCounterUpdated(
 						eventCounterUpdated,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageIndex.OnCounterUpdated", err)
 					}
@@ -314,7 +315,11 @@ func (s pageIndexHandlers) POSTAdd(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTAdd(r, dispatchCounterUpdated, query)
+	err := p.POSTAdd(
+		r,
+		dispatchCounterUpdated,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Add", err)
 		return

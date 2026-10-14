@@ -174,9 +174,11 @@ var PageIndex pageIndex
 
 type pageIndex struct {
 	Bad           pageIndex_Bad
+	ConfigPanic   pageIndex_ConfigPanic
 	Missing       pageIndex_Missing
 	Panic         pageIndex_Panic
 	Plain         pageIndex_Plain
+	RecoverPanic  pageIndex_RecoverPanic
 	Unrecoverable pageIndex_Unrecoverable
 }
 
@@ -192,6 +194,24 @@ func (pageIndex_Bad) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/bad/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/bad/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_ConfigPanic struct{}
+
+// POST references /config-panic/
+func (pageIndex_ConfigPanic) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/config-panic/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/config-panic/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/config-panic/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
@@ -246,6 +266,24 @@ func (pageIndex_Plain) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/plain/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/plain/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_RecoverPanic struct{}
+
+// POST references /recover-panic/
+func (pageIndex_RecoverPanic) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/recover-panic/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/recover-panic/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/recover-panic/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

@@ -13,7 +13,14 @@ Releases up to v0.10.0 have their notes on
 #### `datapages lint` and `datapages gen`
 
 - Accept `QUERYXXX` actions for the `QUERY` method of RFC 10008, which Datastar 1.0.4 sends with `@query`. Declare one on a page or on `App`, as in `// QUERYSearch is /search`, and build its expression with the `action` package, as in `action.PageIndex.Search.QUERY()`. Datastar sends the signals in the request body.
+- Accept static and request-scoped `StreamConfig` methods on pages with SSE streams. The static form returns `datapages.StreamConfig` during `NewServer`. The request-scoped form returns `(datapages.StreamConfig, error)` per stream and may take the session, path and signals. Both override `datapages.WithSSECompression`. Invalid configurations fail `NewServer` or the stream request. A page or `App` configures the SSE response of an action the same way, with a method named `StreamConfig` plus the action's method name, such as `StreamConfigPOSTSave`.
 - Serve files from generated handlers with `datapages.File`. Any action may return one; a read-only `GETXXX` action also gets a generated `href` builder. Applications previously needed custom middleware or a separate `net/http` handler and had to maintain its route and URL by hand.
+
+#### Generated code
+
+Run `datapages gen` to apply these.
+
+- Add `datapages.WithSSECompression` to configure or disable SSE compression. The presets `datapages.SSECompressionBalanced`, `datapages.SSECompressionLowMemory`, `datapages.SSECompressionLowBandwidth` and `datapages.SSECompressionLargeFragments` cover common trade-offs.
 
 #### Runtime and modules
 
@@ -45,6 +52,7 @@ Run `datapages gen` to apply these.
 - Reload a page when the session of its SSE stream closes or expires. A page with only user-addressed events also reloads when its stream reconnects after the session ended. The page previously kept showing the old session's content without updates.
 - Render `PageError404` with status 404 for a page load whose handler returns `datapages.ErrNotFound`, as for a URL that no route matches. For such a page load, `PageError404.GET` receives the request's query and signals and a zero path. An app without `PageError500` previously answered with the status text.
 - Answer 406 Not Acceptable to a request without `Datastar-Request: true`, such as a plain form submission, on an action declared on `App` that takes `datapages.PageCacheWriter`, as on a page. Such an action that redirects answered a plain form with an HTTP redirect and dropped the queued writes, such as `ClearAll`. Submit those forms through a Datastar action.
+- Replace [datastar-go](https://github.com/starfederation/datastar-go) with the Datapages SSE writer. Common events allocate nothing and take 9% to 51% of the previous time. `datastar-go`, `github.com/CAFxX/httpcompression` and `github.com/valyala/bytebufferpool` leave the application module after `go mod tidy` unless it imports them directly. Regenerate before upgrading because older generated code does not compile with this runtime.
 - Stop copying strings while rendering an entry written through `datapages.PageCacheWriter`. A page load that writes 1 entry drops from 43 to 38 allocations.
 
 #### Runtime and modules
@@ -55,7 +63,8 @@ Run `datapages gen` to apply these.
 - Require a custom `messaging.Broker` to close a subscription's channel when the subscription can no longer receive messages, such as when its connection closes. Otherwise the page stops receiving events.
 - Publish through the `inmem` broker in time linear in the open streams of a page that handles an event with a `datapages.Subject` field without a `signal` tag. Such streams subscribe with a wildcard, and a publish to them took quadratic time: 12.8ms with 10,000 streams, where it takes 86us now. A stream that opened or closed meanwhile waited for it.
 - Stop copying strings written to a response. A `GET /` of `example/counter` drops from 27 to 19 allocations.
-- Stop copying strings written through `offline.Middleware`, and let files served through it use sendfile. A page of 22 strings drops from 35 to 14 allocations.
+- Stop copying strings written through `offline.Middleware`. A page of 22 strings drops from 35 to 14 allocations.
+- Let a file served through `offline.Middleware` use sendfile when it is an `*os.File`, as a file of an `http.Dir` or a `datapages.File` opened with `os.Open` is. Embedded files cannot.
 - Serve the embedded files of `datapages.WithAssets`, and the files of a `datapages.WithAssetsFS` file system other than `http.Dir`, without allocating a copy buffer of up to 32 KB per response. In a benchmark over HTTP/1.1, a request for a 30 KB file takes 18% less time.
 
 #### `datapages init`
@@ -100,6 +109,7 @@ Run `datapages gen` to apply these.
 - Report each mismatch between the route and the `datapages.Path` struct of an action on `App` as its own error, at the path parameter or the field,, as for a page. They were joined into 1 error at the method name.
 - Accept a `datapages.NewServer` call with its fifth type argument written out, as in `datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server, *gen.Server]`. It was refused with "datapages.NewServer needs four type arguments, got 5".
 - Accept an app package whose name differs from its directory, as `package app` in `go-app/`, when the file calling `datapages.NewServer` imports it without an alias. The app type was refused with "must live in its own package".
+- Read the `datapages.NewServer` call in a file whose `//go:build` line negates a tag, as `//go:build !windows`. `datapages gen` skipped the file and generated code as if the module had no call.
 - Report a problem in a `datapages.NewServer` call with a path relative to the module root, as every other error is. A wrong number of type arguments, a wrong `Metrics` type argument and a file that does not parse were reported with an absolute path.
 - Check the attributes inside a conditional attribute of a `.templ` file, as in `<a if ok { href="/login" }>`, in both branches. A hardcoded `href`, a form `action`, a hardcoded Datastar action URL or an action of another page went unreported there.
 - Include the HTTP method in the action names that route errors show, as in `PageUser.DELETEFollow`. Before, they showed `PageUser.Follow`, which could also mean `PageUser.POSTFollow`.
@@ -113,6 +123,7 @@ Run `datapages gen` to apply these.
 - State the accepted syntax in the fix for an invalid `signal` tag: each period-separated segment must match `[A-Za-z_][A-Za-z0-9_]*` and contain no `__`. The fix incorrectly required a lowercase first letter.
 - Base the suggested route for an action with an invalid route comment on its page route. For a page at `/user/{name}`, the fix suggested `/user/follow` instead of `/user/{name}/follow`.
 - Base the suggested route for an action without a route comment on the route suggested for its page when the page also has no route comment. For `PageUser.POSTFollow`, the fix suggested `/follow` instead of `/user/follow`.
+- Report a subject that 2 applications of a module claim in `datapages lint` when 1 of them has other errors, mirroring `datapages gen` behavior.
 
 #### Generated code
 
@@ -134,6 +145,17 @@ Run `datapages gen` to apply these.
 - Set the session cookie of an action that takes `datapages.PageCacheWriter` and returns `newSession` or `closeSession` but neither a redirect nor a body. The response went out without the cookie: a sign-in left the visitor signed out, and a sign-out left them signed in.
 - Answer with the error status when an action that takes `datapages.PageCacheWriter` and returns neither a redirect nor a body fails or panics. The response was 200, with the error status written as text into the event stream.
 - Read a subject field bound to a nested signal, as `signal:"chat.room"`, from the object Datastar sends, `{"chat":{"room":"lobby"}}`. The stream of a page handling such an event answered 400 on every connect.
+- Preserve `json.RawMessage` content after a standalone carriage return in `SSE.PatchSignals` and `SSE.PatchSignalsIfMissing`.
+- Reduce memory held by compressed SSE streams. A zstd stream holds about 1.5 MiB instead of brotli's 2 to 11 MiB, and encoders are pooled instead of allocating 6.3 MiB before each response. The default order is zstd, brotli and gzip. `datapages.WithSSECompression` configures the order, levels and windows. Compressed responses include `Vary: Accept-Encoding` and end their compressed data. For a 99 KB list re-render with 1 changed item, zstd sends 325 B instead of 22 B. Prefer brotli or enlarge `ZstdWindow` to send fewer bytes.
+- Skip `RecoverError` after an HTML response body starts. Its SSE events previously corrupted a partial HTML response.
+- Recover and log a panic in `RecoverError` once. It previously invoked `RecoverError` again and could write 2 compressed streams in 1 response.
+- Send `Vary: X-Datapages-Offline-Version` before opening an SSE response from an action that takes `datapages.PageCacheWriter`.
+- Log errors from bodies passed to `PageCacheWriter.Set` or `SetShim` when rendering an action's event stream or redirect script.
+- Log the stack of a panic in `StreamOpen`, as for a panic in `GET`, an action or `OnXXX`. The log previously held only the panic value.
+- Stop sending a page cache entry again on every load when its version is above 2^53, such as a 64-bit hash.
+- Use the app package's own name in the error `datapages.NewServer` returns for an unexpected `WithSessionManager`, and in the example of `Init`. Both said `dpapp`, an alias internal to the generated code.
+- Stop reloading a page with only user-addressed events for signed-out visitors on every tab switch. Each reload discarded client-side state.
+- Give signed-out visitors of a stateful page with only user-addressed events a stream at `_$/anon/`. Their state actions answered 409. `StreamOpen` and `StreamClose` run on it with a guest session.
 
 #### Runtime and modules
 
@@ -154,7 +176,12 @@ Run `datapages gen` to apply these.
 - Remove a response from the offline worker's cache when the network answers 401, 403, 404 or 410. The worker kept serving the stored copy of a file after the server stopped authorizing it or deleted it, until `offline.Config.WorkerVersion` changed. Increase `offline.Config.WorkerVersion`, which deletes what the previous worker stored.
 - Stop the offline worker from copying a range response with status 206, such as a video that a `video` element streams, for its cache, which refuses it. Nothing read the copy, which can keep every byte the page has read in memory.
 - End the response of a static asset when its client accepts no more of the file for 1 minute. A client that stopped reading held the request and the open file for as long as it kept the connection. `datapages.WithFileSendTimeout` changes the time, which also applies to `datapages.File`.
+- Abort SSE writes blocked on clients during graceful shutdown. They previously held shutdown until its timeout, skipped `StreamClose`, and could race with net/http cleanup.
+- Stop `offline.Middleware` from logging `http: superfluous response.WriteHeader call` for each SSE response.
 - Stop `offline.Middleware` from adding its scripts to a range response, status 206, of an HTML file, such as a static asset that a download manager resumes. The body was longer than its `Content-Range` said, and the saved file was corrupt.
+- Stop rounding an `offline.Config.WorkerVersion` above 2^53 in the browser. A version rounded down added the registration script to every page.
+- Treat `/tickets` and `/tickets/` as the same page in the offline cache, as the server does. A visit to `/tickets` missed the copy cached for `/tickets/`, so the page didn't load offline, and the server sent the copy again on every online visit.
+- Count in `suppressed` every record that `datapages.WithLogSampling` holds back. A record logged at the same moment as the first one of its kind was dropped uncounted.
 
 #### `datapages init`
 
@@ -164,9 +191,16 @@ Run `datapages gen` to apply these.
 
 ### Security
 
+#### Generated code
+
+Run `datapages gen` to apply these.
+
+- Prevent carriage returns in `SSE.PatchElement`, `SSE.PatchElementAt` and `SSE.ExecuteScript` content from injecting SSE fields and JavaScript. An attacker who controls text rendered in a patched component could run JavaScript in each recipient's session. Applications using these methods are affected in v0.10.0 and v0.10.1; applications calling datastar-go's equivalent methods are affected in v0.9.4 and earlier. Upgrade, regenerate and redeploy. Until then, remove `\r` from untrusted text before rendering it.
+
 #### Runtime and modules
 
 - Prevent `natskv.SessionManager.CloseAllUserSessions` from returning nil while sessions of the user stay signed in. When its context ended during the call, as a request context does when the client disconnects, it closed only the sessions read by then. Whoever held a cookie of the others, such as an attacker the user meant to sign out, stayed signed in. A NATS stall of 5s during the call and a closed connection did the same. The end of the context no longer stops the call, and the other 2 return an error. Applications calling `CloseAllUserSessions` are affected in v0.1.0 through v0.10.1. Upgrade and redeploy. Until then, pass it `context.WithoutCancel(r.Context())`, which covers the client that disconnects.
+- Stop sending a signed-in user's CSRF token to other origins. A `@post`, `@put`, `@patch` or `@delete` action to another origin sent it the token if its CORS policy allowed the `X-CSRF-Token` header. This affects v0.1.0 through v0.10.1. Upgrade and redeploy. Until then, call other origins without a Datastar action.
 
 ## [0.10.1] - 2026-09-26
 

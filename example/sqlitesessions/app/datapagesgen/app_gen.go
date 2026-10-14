@@ -25,8 +25,6 @@ import (
 	dpapp "github.com/romshark/datapages/example/sqlitesessions/app"
 	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -65,26 +63,29 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[dpapp.SessionData],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+	sessKey string, sess datapages.Session[dpapp.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		sessKey, sess.UserID(), sess.ExpiresAt(),
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -111,7 +112,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, dpapp.SessionData, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, app.SessionData, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -168,6 +169,7 @@ func (s *Server) Init(
 		s.SessionManager(),
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)
@@ -235,7 +237,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -262,7 +264,11 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "App.SignOut")
-	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatchSessionClosed)
+	closeSession, redirect, err := s.app.POSTSignOut(
+		r,
+		sess,
+		dispatchSessionClosed,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
@@ -295,7 +301,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, head, err := p.GET(r, sess)
+	body, head, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -303,7 +312,9 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -331,19 +342,19 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sess.UserID() == "" {
-		s.streams.Reload(w, r)
+		s.streams.Reload(w, r, s.SSECompression())
 		return
 	}
 
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageIndex(sess.UserID()),
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventSessionClosed dpapp.EventSessionClosed
@@ -357,7 +368,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnSessionClosed(
 						eventSessionClosed,
-						dpsse.New(sse),
+						sse,
 						sess,
 					); err != nil {
 						s.LogErr("handling PageIndex.OnSessionClosed", err)
@@ -379,7 +390,10 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
-	body, head, redirect, err := p.GET(r, sess)
+	body, head, redirect, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
@@ -412,7 +426,7 @@ func (s pageLoginHandlers) QUERYValidate(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -420,7 +434,11 @@ func (s pageLoginHandlers) QUERYValidate(
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	body, err := p.QUERYValidate(r, sess, signals)
+	body, err := p.QUERYValidate(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Validate", err)
 		return
@@ -449,7 +467,7 @@ func (s pageLoginHandlers) POSTSubmit(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -457,7 +475,11 @@ func (s pageLoginHandlers) POSTSubmit(
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
+	body, redirect, newSession, err := p.POSTSubmit(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Submit", err)
 		return
@@ -494,7 +516,10 @@ func (s pageRegisterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageRegister.GET")
-	body, head, redirect, err := p.GET(r, sess)
+	body, head, redirect, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageRegister.GET", err)
 		return
@@ -528,7 +553,7 @@ func (s pageRegisterHandlers) QUERYValidate(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -536,7 +561,11 @@ func (s pageRegisterHandlers) QUERYValidate(
 	p := dpapp.PageRegister{
 		App: s.app,
 	}
-	body, err := p.QUERYValidate(r, sess, signals)
+	body, err := p.QUERYValidate(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRegister.Validate", err)
 		return
@@ -566,7 +595,7 @@ func (s pageRegisterHandlers) POSTSubmit(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
@@ -574,7 +603,11 @@ func (s pageRegisterHandlers) POSTSubmit(
 	p := dpapp.PageRegister{
 		App: s.app,
 	}
-	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
+	body, redirect, newSession, err := p.POSTSubmit(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRegister.Submit", err)
 		return

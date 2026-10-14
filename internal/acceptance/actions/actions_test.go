@@ -4,12 +4,13 @@ package acceptance_test
 
 import (
 	"compress/gzip"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
@@ -435,34 +436,43 @@ func TestSSEOutputSignals(t *testing.T) {
 	}
 }
 
-// TestSSEOutputCompressed tests the same action as a client that accepts compression,
-// which every browser does. The events must survive the encoding.
-//
-// The compressed body ends without its gzip footer, because the response ends
-// when the handler returns rather than when the encoder is closed.
-// A reader therefore sees every event and then an unexpected EOF.
-// That is tolerated here rather than asserted: the events are what the client acts on.
+// TestSSEOutputCompressed tests that each coding preserves the event and ends cleanly.
 func TestSSEOutputCompressed(t *testing.T) {
 	t.Parallel()
-	v := serve(t).Visitor(t)
-	form := v.Load(t, "/form/")
+	for coding, decoder := range map[string]func(io.Reader) (io.ReadCloser, error){
+		"gzip": func(r io.Reader) (io.ReadCloser, error) { return gzip.NewReader(r) },
+		"zstd": func(r io.Reader) (io.ReadCloser, error) {
+			d, err := zstd.NewReader(r)
+			if err != nil {
+				return nil, err
+			}
+			return d.IOReadCloser(), nil
+		},
+		"br": func(r io.Reader) (io.ReadCloser, error) {
+			return io.NopCloser(brotli.NewReader(r)), nil
+		},
+	} {
+		t.Run(coding, func(t *testing.T) {
+			t.Parallel()
+			v := serve(t).Visitor(t)
+			form := v.Load(t, "/form/")
 
-	req := form.NewRequest(t, http.MethodPost, "/form/patch/",
-		strings.NewReader(`{"count":1}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept-Encoding", "gzip")
-	resp := v.Send(t, req)
-	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"),
-		"the stream was not compressed")
+			req := form.NewRequest(t, http.MethodPost, "/form/patch/",
+				strings.NewReader(`{"count":1}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept-Encoding", coding)
+			resp := v.Send(t, req)
+			require.Equal(t, coding, resp.Header.Get("Content-Encoding"))
 
-	zr, err := gzip.NewReader(strings.NewReader(resp.Body))
-	require.NoError(t, err, "reading the gzip header")
-	b, err := io.ReadAll(zr)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		require.NoError(t, err, "decoding stream")
+			r, err := decoder(strings.NewReader(resp.Body))
+			require.NoError(t, err, "starting the decoder")
+			defer func() { _ = r.Close() }()
+			b, err := io.ReadAll(r)
+			require.NoError(t, err, "decoding the stream")
+			require.Contains(t, string(b), `<div id="out">count 2</div>`,
+				"the compressed stream lost the patched element")
+		})
 	}
-	require.Contains(t, string(b), `<div id="out">count 2</div>`,
-		"the compressed stream lost the patched element")
 }
 
 // TestWrongMethod tests a route reached with a method no action claims.

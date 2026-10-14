@@ -26,6 +26,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/romshark/datapages/internal/buildconstraint"
 )
 
 // DatapagesImport is the import path of the datapages package.
@@ -553,11 +555,8 @@ func checkRuntimeImports(root string, fset *token.FileSet, f *ast.File, errs *Er
 }
 
 // neverBuilt reports whether the //go:build line of the file at path
-// excludes it from every configuration, which is what "ignore" says.
-// Every other tag is one some build sets.
-//
-// A file it cannot read is built: an unreadable file is
-// reported where it's parsed, not silently dropped.
+// excludes it from every build. An unreadable file counts as built,
+// and [parser.ParseFile] reports the error.
 func neverBuilt(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -578,7 +577,7 @@ func neverBuilt(path string) bool {
 		if err != nil {
 			return false
 		}
-		return !expr.Eval(func(tag string) bool { return tag != "ignore" })
+		return buildconstraint.NeverBuilt(expr)
 	}
 	// A failed scan has seen no constraint either.
 	_ = sc.Err()

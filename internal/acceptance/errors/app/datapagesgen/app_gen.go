@@ -18,8 +18,6 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/errors/app"
 	"github.com/romshark/datapages/internal/acceptance/errors/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/errors/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -56,7 +54,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -97,7 +95,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -117,7 +115,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -241,7 +239,7 @@ func (s *Server) httpErr404(
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
@@ -534,12 +532,16 @@ func (s pageIndexHandlers) POSTStreamFail(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.StreamFail")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStreamFail(r, dpsse.New(sse))
+	err := p.POSTStreamFail(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamFail", err)
 		return
@@ -553,12 +555,16 @@ func (s pageIndexHandlers) POSTStreamPanic(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageIndex.StreamPanic")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStreamPanic(r, dpsse.New(sse))
+	err := p.POSTStreamPanic(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamPanic", err)
 		return

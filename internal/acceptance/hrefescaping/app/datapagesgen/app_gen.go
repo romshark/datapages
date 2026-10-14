@@ -25,8 +25,6 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/hrefescaping/app"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -61,26 +59,28 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -106,7 +106,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -126,7 +126,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -159,6 +159,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)
@@ -240,7 +241,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -292,7 +293,10 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
 		return
@@ -327,12 +331,12 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageItem,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageItem,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageItem stream")
 			var eventRenamed dpapp.EventRenamed
@@ -346,7 +350,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnRenamed(
 						eventRenamed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageItem.OnRenamed", err)
 					}
@@ -372,12 +376,18 @@ func (s pageItemHandlers) POSTRename(
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageItem.Rename")
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	err := p.POSTRename(r, dpsse.New(sse), path, query)
+	err := p.POSTRename(
+		r,
+		sse,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageItem.Rename", err)
 		return
@@ -397,7 +407,10 @@ func (s pageQuotedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageQuoted.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageQuoted.GET", err)
 		return
@@ -438,12 +451,12 @@ func (s pageQuotedHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageQuoted{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageQuoted,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageQuoted,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageQuoted stream")
 			var eventRenamed dpapp.EventRenamed
@@ -457,7 +470,7 @@ func (s pageQuotedHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnRenamed(
 						eventRenamed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageQuoted.OnRenamed", err)
 					}
@@ -473,12 +486,16 @@ func (s pageQuotedHandlers) POSTPing(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuoted.Ping")
 	p := dpapp.PageQuoted{
 		App: s.app,
 	}
-	err := p.POSTPing(r, dpsse.New(sse))
+	err := p.POSTPing(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuoted.Ping", err)
 		return
@@ -497,12 +514,17 @@ func (s pageQuotedHandlers) POSTFind(
 	}]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "term")
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuoted.Find")
 	p := dpapp.PageQuoted{
 		App: s.app,
 	}
-	err := p.POSTFind(r, dpsse.New(sse), query)
+	err := p.POSTFind(
+		r,
+		sse,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuoted.Find", err)
 		return
@@ -527,7 +549,11 @@ func (s pageQuotedItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageQuotedItem.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageQuotedItem.GET", err)
 		return
@@ -576,12 +602,12 @@ func (s pageQuotedItemHandlers) GETStream(w http.ResponseWriter, r *http.Request
 	p := dpapp.PageQuotedItem{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageQuotedItem,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageQuotedItem,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageQuotedItem stream")
 			var eventRenamed dpapp.EventRenamed
@@ -595,7 +621,7 @@ func (s pageQuotedItemHandlers) GETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnRenamed(
 						eventRenamed,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageQuotedItem.OnRenamed", err)
 					}
@@ -616,12 +642,17 @@ func (s pageQuotedItemHandlers) POSTRename(
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuotedItem.Rename")
 	p := dpapp.PageQuotedItem{
 		App: s.app,
 	}
-	err := p.POSTRename(r, dpsse.New(sse), path)
+	err := p.POSTRename(
+		r,
+		sse,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuotedItem.Rename", err)
 		return
@@ -645,12 +676,18 @@ func (s pageQuotedItemHandlers) POSTMove(
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
 	defer s.recoverPanic(w, r, sse, "PageQuotedItem.Move")
 	p := dpapp.PageQuotedItem{
 		App: s.app,
 	}
-	err := p.POSTMove(r, dpsse.New(sse), path, query)
+	err := p.POSTMove(
+		r,
+		sse,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuotedItem.Move", err)
 		return
@@ -681,7 +718,10 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageSearch.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSearch.GET", err)
 		return

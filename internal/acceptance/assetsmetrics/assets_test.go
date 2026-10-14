@@ -352,8 +352,7 @@ func TestRefusedStreamStaysARequest(t *testing.T) {
 	// Send reads to EOF, not just the head: the middleware records after the
 	// handler returns, and the response ends with it.
 	resp := v.Send(t, index.NewRequest(t, http.MethodGet, "/_$/?refuse=1", nil))
-	// 200: datastar.NewSSE writes the head before StreamOpen runs,
-	// which is why the refusal travels as an SSE error rather than a status.
+	// The stream commits 200 before StreamOpen can refuse it.
 	require.Equal(t, http.StatusOK, resp.Status)
 
 	require.Greater(t, histogramCount(t, "GET /_$/{$}"), before,

@@ -1,8 +1,10 @@
 package offline_test
 
 import (
+	"bytes"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -17,14 +19,16 @@ import (
 	"github.com/romshark/datapages/runtime/httpserve"
 )
 
+// TestServiceWorkerJS tests the config the served script embeds.
+// The worker version is a JSON string, which JS reads without rounding above 2^53.
 func TestServiceWorkerJS(t *testing.T) {
 	js := string(offline.ServiceWorkerJS("/offline/", offline.Config{
-		WorkerVersion: 42,
+		WorkerVersion: 1<<53 + 1,
 		Assets:        []string{"/static/style.css"},
 	}))
 
 	require.NotContains(t, js, "__CONFIG__", "config placeholder must be replaced")
-	require.Contains(t, js, `"workerVersion":42`)
+	require.Contains(t, js, `"workerVersion":"9007199254740993"`)
 	require.Contains(t, js, `"offlineURL":"/offline/"`)
 	require.Contains(t, js, `/static/style.css`)
 }
@@ -588,7 +592,7 @@ func TestConfigDefaults(t *testing.T) {
 	t.Parallel()
 
 	js := string(offline.ServiceWorkerJS("", offline.Config{}))
-	require.Contains(t, js, `"workerVersion":1`)
+	require.Contains(t, js, `"workerVersion":"1"`)
 	require.Equal(t, uint64(1), offline.DefaultWorkerVersion)
 
 	require.Contains(t, js, `"offlineURL":""`)
@@ -742,6 +746,60 @@ func TestMiddlewareContentEncoding(t *testing.T) {
 				return
 			}
 			require.Contains(t, rec.Body.String(), "<script>")
+		})
+	}
+}
+
+// TestMiddlewareFlushBeforeWrite tests early flushes for streams and pages.
+func TestMiddlewareFlushBeforeWrite(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		contentType string
+		body        string
+		wantScript  bool
+	}{
+		"event stream": {
+			contentType: "text/event-stream",
+			body:        "event: datastar-patch-elements\ndata: elements <p>x</p>\n\n",
+		},
+		"event stream without events": {contentType: "text/event-stream"},
+		"page": {
+			contentType: "text/html; charset=utf-8",
+			body:        "<!DOCTYPE html><html><head></head><body>x</body></html>",
+			wantScript:  true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+			srv := httptest.NewUnstartedServer(mw(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", tc.contentType)
+					_ = http.NewResponseController(w).Flush()
+					_, _ = io.WriteString(w, tc.body)
+				},
+			)))
+			var errLog bytes.Buffer
+			srv.Config.ErrorLog = log.New(&errLog, "", 0)
+			srv.Start()
+
+			resp, err := srv.Client().Get(srv.URL + "/")
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			// Close waits for the handler, which makes errLog safe to read.
+			srv.Close()
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(t, tc.contentType, resp.Header.Get("Content-Type"))
+			if tc.wantScript {
+				require.Contains(t, string(body), "serviceWorker.register")
+			} else {
+				require.Equal(t, tc.body, string(body))
+			}
+			require.Empty(t, errLog.String())
 		})
 	}
 }

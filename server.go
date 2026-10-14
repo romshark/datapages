@@ -23,9 +23,9 @@ const templEnvVarDevMode = "TEMPL_DEV_MODE"
 // Either [EnvVarDevMode] or TEMPL_DEV_MODE turns it on.
 //
 // In dev mode the assets are read from the source tree instead of the embedded
-// FS and every asset response carries no-store. A production process that
-// inherits either variable therefore serves its assets from a directory it
-// does not have.
+// FS and every asset response carries Cache-Control: no-cache.
+// A production process that inherits either variable therefore serves
+// its assets from a directory it doesn't have.
 func IsDevMode() bool {
 	return os.Getenv(EnvVarDevMode) != "" || os.Getenv(templEnvVarDevMode) != ""
 }

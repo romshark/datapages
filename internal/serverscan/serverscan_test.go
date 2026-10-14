@@ -236,16 +236,24 @@ func TestScanSkipsExcludedFiles(t *testing.T) {
 	require.False(t, res.Apps[0].Prometheus)
 }
 
-// TestScanKeepsGOOSSpecificFiles tests a call in a file this host
-// excludes but another compiles. Skipping it would make what the scan reads,
-// and with it what gen writes, depend on the platform it runs on.
-func TestScanKeepsGOOSSpecificFiles(t *testing.T) {
-	for _, name := range []string{"main_windows.go", "main_linux.go", "main_js.go"} {
+// TestScanKeepsPlatformSpecificFiles tests that the scan reads a call in a file
+// that only some builds compile, by its name or its //go:build line.
+func TestScanKeepsPlatformSpecificFiles(t *testing.T) {
+	for name, tt := range map[string]struct {
+		file   string
+		header string // above the package clause
+	}{
+		"windows name": {file: "main_windows.go"},
+		"linux name":   {file: "main_linux.go"},
+		"js name":      {file: "main_js.go"},
+		"not windows":  {file: "main.go", header: "//go:build !windows\n\n"},
+		"no cgo":       {file: "main.go", header: "//go:build linux && !cgo\n\n"},
+	} {
 		t.Run(name, func(t *testing.T) {
 			root := write(t, map[string]string{
 				"app/app.go":                  "package app\n",
 				"app/datapagesgen/app_gen.go": genPkg(true),
-				"cmd/server/" + name: mainGo("app",
+				"cmd/server/" + tt.file: tt.header + mainGo("app",
 					"app.App, datapages.DisableSessions, datapages.EnablePrometheus, gen.Server",
 					""),
 			})

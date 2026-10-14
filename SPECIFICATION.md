@@ -21,11 +21,11 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written. An error that `OnXXX` or `StreamClose` returns is only logged and doesn't reach `RecoverError`.
+`RecoverError` receives errors from Datastar requests, including Datapages sentinels, and may write an SSE response. It does not receive page-load errors. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` returns an error or panics, the server logs it and retains the response already written. Errors returned by `OnXXX` and `StreamClose` are logged and do not reach `RecoverError`.
 
-A panic in `GET`, an action, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
+A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A panic during page writing is logged. A plain page load retains its status and truncated body. On a Datastar request, a defined `RecoverError` appends any SSE frames it writes to the truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
+A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
 Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. It starts when the context passed to `ListenAndServe` is canceled. Cancel that context on SIGTERM as well as SIGINT: container runtimes and systemd stop a process with SIGTERM, whose default action ends the process without a graceful shutdown. The `cmd/server/main.go` that `datapages init` writes calls `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
@@ -55,6 +55,8 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `QUERYXXX`: handles `QUERY` action requests.
 - `StreamOpen`: runs when the page SSE stream opens.
 - `StreamClose`: runs when the page SSE stream closes.
+- `StreamConfig`: configures the page SSE stream; see [StreamConfig](#streamconfig).
+- `StreamConfigXXX`: configures the SSE response of the action `XXX`, as `StreamConfigPOSTSave` does for `POSTSave`; see [StreamConfig](#streamconfig).
 - `OnXXX`: handles `EventXXX` in the SSE listener.
 
 An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
@@ -77,7 +79,7 @@ Each declares its route by comment like any other page. `PageOffline` always ren
 
 The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document. For a URL that no route matches and for a page load that fails with `datapages.ErrNotFound`, `PageError404.GET` receives that URL's query and signals and a zero path. When `PageError500.GET` fails, or `PageError404.GET` fails with `datapages.ErrNotFound`, the server writes a plain HTTP error instead of rendering the failing page again.
 
-A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in `{$}` serves only `GET`: it cannot have actions or a stream. Without `{$}` it is served at the same URL. A page whose route ends in a `{name...}` wildcard cannot have actions or a stream either: the wildcard takes the rest of the path. No action route may end in a `{name...}` wildcard: an action is served at its route alone.
+A page with an SSE stream serves `_$/` under its route. A page with user-addressed events also serves `_$/anon/` for signed-out visitors when it has public events or per-tab state. That stream carries the public events and holds the state. Page and action routes cannot conflict with these endpoints. A page whose route ends in `{$}` serves only `GET`: it cannot have actions or a stream. Without `{$}` it is served at the same URL. A page whose route ends in a `{name...}` wildcard cannot have actions or a stream either: the wildcard takes the rest of the path. No action route may end in a `{name...}` wildcard: an action is served at its route alone.
 
 Handler parameters and return values may appear in any order. Unsupported names or types are generator errors.
 
@@ -118,6 +120,8 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
+
+`App` may configure the SSE response of its actions with `StreamConfigXXX`; see [StreamConfig](#streamconfig).
 
 Page action handlers (`POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, `QUERYXXX`) require
 `r *http.Request` and permit these optional parameters. A handler returning
@@ -188,7 +192,7 @@ func (PageIndex) OnSomethingHappened(
 }
 ```
 
-`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. The stream then closes, and the page reconnects after 5s, which runs `StreamOpen` again. The page keeps the 5s as the first wait of its later reconnects. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
+`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops and `RecoverError` handles the error when defined; otherwise the server uses its internal-error path. The stream closes with a 5s reconnect delay. A broker subscription failure follows the same path. Without `RecoverError`, a broker subscription failure returns its error status and Datastar applies exponential reconnect delays up to 30s. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
 
 `datapages.StreamID` identifies an SSE stream within a process. Its parameter name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and must not be exposed to clients.
 
@@ -223,6 +227,49 @@ func (PageIndex) StreamClose(
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
+}
+```
+
+#### StreamConfig
+
+A page may declare `StreamConfig` only if it has an SSE stream. A stream embed must not declare it. The method must use 1 of these forms:
+
+- The static form takes no parameters and returns `datapages.StreamConfig`. `NewServer` calls it once. An invalid compression configuration makes `NewServer` return an error naming the method.
+- The request-scoped form takes `r *http.Request`, may also take `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, and returns `(datapages.StreamConfig, error)`. The server calls it before each stream opens and before `StreamOpen`. `path` contains the page route variables. An anonymous stream receives a guest session. An error or invalid compression configuration follows the broker subscription error path.
+
+```go
+func (PageDashboard) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}
+}
+
+func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	if r.Header.Get("Save-Data") != "on" {
+		return datapages.StreamConfig{}, nil
+	}
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}, nil
+}
+```
+
+A 4 MiB zstd window sends about 1/3 as much per 100 KB list re-render and holds about 3 times as much memory as the default.
+
+`Compression` replaces the `datapages.WithSSECompression` configuration for the page's `_$/` and `_$/anon/` stream endpoints, or for an action's response. Its zero fields select the package defaults, not the server's values. A method that sets only `ZstdWindow` uses zstd even when the server sets `Disabled: true` or allows only gzip. Nil uses the server configuration. The page's actions use the server configuration or their own `StreamConfigXXX`. The server shares encoders for at most 64 distinct effective configurations. Further configurations use dedicated encoders.
+
+An action configures its SSE response with a method on the same page or `App` named `StreamConfig` followed by the action's method name. It takes the 2 forms above. The request-scoped form may take `path` and `signals` only of the types the action takes, since it receives the action's values. The action must answer with an SSE stream, which means it takes `datapages.SSE`, or it takes `datapages.PageCacheWriter` and returns neither a body nor a redirect. The server calls the request-scoped form before the action. Its error, its panic or an invalid compression configuration takes the action's error path, and the action does not run.
+
+```go
+// POSTSave is /save
+func (PageEditor) POSTSave(r *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(savedBadge())
+}
+
+func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
 }
 ```
 
@@ -327,7 +374,7 @@ A process restart drops all instances. Reconnect creates zeroed state under the 
 
 `MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most 1 instance per open stream. 0 selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
 
-Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Datastar ignores `Retry-After` and retries after 1s, doubling to a 30s ceiling, without a limit; see [Deployments](#deployments). Until the stream connects, a stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. `Server.StateLiveInstances()` reports the live count; servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
+Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Datastar ignores `Retry-After` and retries after 1s, doubling to a 30s ceiling, without a limit; see [Deployments](#deployments). Until the stream connects, a stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. The generated `Server` reports the live count with `StateLiveInstances()`. `datapages.Server` lacks the method, so call it as `s.(*datapagesgen.Server).StateLiveInstances()`. Servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
 
 **Multi-server routing.** State is process-local. A tab's stream and actions must reach the same backend. Hashing `Datapages-Instance` routes both to the same server; `GET` can reach any server because it has no ID yet. Session or affinity-cookie routing also works. Round-robin routing causes `409` responses and reloads.
 
@@ -507,6 +554,12 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 `PatchElementAt` and `RemoveElement` reject selectors containing `\r` or `\n` with `datapages.ErrSelectorLineBreak`.
 
+By default, an SSE response uses the first coding explicitly accepted by the request in the order zstd, brotli, gzip. A wildcard selects gzip only. If no configured coding is accepted, the response is uncompressed. The default zstd and brotli windows are 1 MiB.
+
+Each stream has an encoder, so CPU and memory scale with open streams. The defaults minimize both but send more bytes; [`datapages.SSECompressionConfig`](options.go) compares alternatives.
+
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. `datapages.SSECompressionBalanced` returns the defaults, `datapages.SSECompressionLowMemory` 256 KiB windows for many streams with small fragments, `datapages.SSECompressionLowBandwidth` brotli first for slow or metered clients, and `datapages.SSECompressionLargeFragments` 4 MiB windows for fragments above about 1 MB. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled.
+
 See [datapages.go](datapages.go) for method definitions.
 
 #### Parameter: `pageCache datapages.PageCacheWriter`
@@ -515,7 +568,7 @@ See [datapages.go](datapages.go) for method definitions.
 pageCache datapages.PageCacheWriter
 ```
 
-This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, and `QUERYXXX` action methods, including app-level actions. It queues writes to the client's [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) cache. A cached body is a component supplied by the handler and need not match the live body. Datapages registers the service worker.
+This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, and `QUERYXXX` action methods, including app-level actions. It queues writes to the client's [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) cache. A cached body is a component supplied by the handler and need not match the live body. The service worker is registered only with the generated `WithOffline` option, which declaring `PageOffline` adds, or with `offline.WithServiceWorker`. Without either, the writes reach no worker.
 
 The interface (from `github.com/romshark/datapages`):
 
@@ -523,6 +576,7 @@ The interface (from `github.com/romshark/datapages`):
 // PageCacheWriter writes to the client's service worker cache. It is passed
 // to GET page methods and action methods as the pageCache parameter. Writes
 // are deferred and applied atomically once the handler returns without error.
+// A GET that redirects a page load drops them.
 type PageCacheWriter interface {
 	// Version returns the cached version of the current request's URL.
 	// It returns 0 when the URL is not cached.
@@ -557,11 +611,13 @@ to re-`Set` it.
 The handler signature selects delivery in this order. The same rules apply to a
 page method and an action declared on `App`:
 
-- `GET`: embeds the writes in the page HTML for the worker to apply on load.
+- `GET`: embeds the writes in the page HTML for the worker to apply on load. A page load that the `GET` redirects drops them, since an HTTP redirect carries none. Queue such writes, as the `ClearAll` of a sign-out, in an action.
 - Action with `sse`: sends the writes over that stream.
 - Action with a redirect: sends the writes in the `text/javascript` response. Navigation waits up to 500ms for the worker to apply them. This rule also applies when the action can return a body.
 - Action with only a body: embeds the writes in the rendered document.
 - Action with neither: sends the writes over an SSE stream opened by Datapages.
+
+If a cached body returns an error while rendering, the server logs the error and omits the queued cache writes. A panic follows the handler panic path; see [Return Value `error`](#return-value-error-or-err-error).
 
 An action taking `datapages.PageCacheWriter` answers a request without `Datastar-Request: true` with 406 Not Acceptable. Datapages could answer a plain form submission to an action that redirects only with an HTTP redirect, which carries no writes.
 
@@ -885,7 +941,7 @@ Valid only on `GET`.
 disableRefreshAfterHidden datapages.DisableRefreshAfterHidden
 ```
 
-Datapages refreshes a page that has a stream when its tab becomes visible again, which renders the events the closed stream missed. Returning `true` disables that refresh and may leave the page stale; see [Event delivery](#event-delivery). A page without a stream never refreshes and returning this value from its `GET` is an error.
+Datapages refreshes a page that has a stream when its tab becomes visible again, which renders the events the closed stream missed. A page whose events are all user-addressed and which has no per-tab state opens its stream only for a signed-in visitor, and refreshes only for one. Returning `true` disables that refresh and may leave the page stale; see [Event delivery](#event-delivery). A page without a stream never refreshes and returning this value from its `GET` is an error.
 
 Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event) event.
 
@@ -939,7 +995,7 @@ During a rolling deployment, route each client to 1 build until the old servers 
 
 Datapages dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty.
 
-templ reads only `TEMPL_DEV_MODE`, during package initialization. Set it before starting the process to enable templ hot reload and Datapages dev mode. `DATAPAGES_DEV_MODE` enables only Datapages dev mode.
+templ reads only `TEMPL_DEV_MODE`, during package initialization, and reloads templates only when it is `true`. Set `TEMPL_DEV_MODE=true` before starting the process to enable templ hot reload and Datapages dev mode. Another value, such as `1`, and `DATAPAGES_DEV_MODE` enable only Datapages dev mode.
 
 `datapages watch` uses templier, which sets `TEMPL_DEV_MODE` before it starts the application.
 
@@ -1044,25 +1100,21 @@ The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecac
 
 The worker scope covers the whole origin, regardless of the script URL. The registration script requests scope `/`, and the script response sets `Service-Worker-Allowed: /`, which permits that scope for a script in a subdirectory.
 
-The offline middleware writes the registration and connectivity scripts into every HTML response. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. So do a range response (206), whose `Content-Range` the scripts would contradict, and the response of a [`datapages.File`](#return-value-datapagesfile), whose bytes are the file's whatever its type. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
+The offline middleware writes the connectivity script into every HTML response, and the registration script into those for a client whose worker is missing or older than the server's. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. So do a range response (206), whose `Content-Range` the scripts would contradict, and the response of a [`datapages.File`](#return-value-datapagesfile), whose bytes are the file's whatever its type. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
 
-Offline support writes inline scripts. The connectivity and worker registration scripts go into every HTML response. Queued cache writes go into a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence.
+Offline support writes inline scripts, which are the connectivity and worker registration scripts and the queued cache writes in a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence for the connectivity and registration scripts. The queued cache writes always use the nonce from `WithCSPNonce`.
 
 A cached page is rendered once and replayed. It cannot contain a valid per-response nonce. Its hydration trigger and connectivity script are written without one. The service worker provides no policy header, and the browser does not require a nonce. A `Content-Security-Policy` in a `meta` element would block those scripts.
 
-The `X-Datapages-Worker-Version` request header controls installation and updates. The installed worker sets its `uint64` version on every request. This version is independent of the Datapages release and the per-URL versions passed to `Set`. The server compares the header with its current worker version:
+The `X-Datapages-Worker-Version` request header controls installation and updates. The installed worker sets its `uint64` version on navigations and on the page fetch of shim hydration. This version is independent of the Datapages release and the per-URL versions passed to `Set`. The server compares the header with its current worker version:
 
 - Header absent: the server adds registration to the current HTML response.
 - Header lower than the server version: the server adds registration for the current worker script.
 - Header equal: the response omits registration.
 
-The worker holds 1 cache of offline bodies keyed by URL. Each entry stores the rendered HTML and its version.
+The worker holds 1 cache of offline bodies keyed by URL. `/tickets` and `/tickets/` share 1 entry, as the server serves both as 1 page. Each entry stores the rendered HTML and its version.
 
-Writes reach the worker in 1 of 3 ways, depending on how the handler responds:
-
-- `GET`: the queued entries are embedded in the page and an inline script passes them to the worker after load.
-- Action opening an SSE stream: they are sent over that stream.
-- Action returning a redirect: the `text/javascript` response sends the writes. Navigation waits up to 500ms for the worker to apply them before loading the destination.
+Writes reach the worker with the response of the handler that queued them. The handler signature selects the delivery, as [`pageCache`](#parameter-pagecache-datapagespagecachewriter) lists.
 
 The worker applies a request's `Set`, `Clear` and `ClearAll` calls together, once the handler returns without error. `Set` writes or overwrites 1 entry, `Clear` deletes 1, `ClearAll` empties the cache.
 

@@ -22,8 +22,6 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/recovererror/app"
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -58,26 +56,28 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -90,6 +90,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 // recoverPanicFinal turns a panic into an error response without rendering PageError500.
@@ -108,6 +122,13 @@ func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+func (s *Server) callStreamConfig(
+	handler string, fn func() (datapages.StreamConfig, error),
+) (conf datapages.StreamConfig, err error) {
+	defer s.recoverPanicInto(&err, handler)
+	return fn()
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -119,7 +140,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -139,7 +160,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -172,6 +193,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		true,
 	)
 
 	setupHandlers(s)
@@ -238,6 +260,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /panic/{$}",
 		pageIndexHandlers{s}.POSTPanic)
+	s.Mux().HandleFunc(
+		"POST /recover-panic/{$}",
+		pageIndexHandlers{s}.POSTRecoverPanic)
+	s.Mux().HandleFunc(
+		"POST /config-panic/{$}",
+		pageIndexHandlers{s}.POSTConfigPanic)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -252,7 +280,7 @@ func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
@@ -270,10 +298,15 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if sse == nil {
-		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
-		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		if httpserve.ResponseBodyWritten(w) {
+			// Events after a half-written response would land in its body.
+			return
+		}
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
+		defer sse.Close()
 	}
-	errRecover := s.app.RecoverError(err, dpsse.New(sse))
+	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
 		return
 	}
@@ -282,6 +315,23 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+}
+
+// callRecoverError converts a RecoverError panic into an error.
+func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", "App.RecoverError"),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		errRecover = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return s.app.RecoverError(err, sse)
 }
 
 type pageBoomHandlers struct{ *Server }
@@ -442,6 +492,56 @@ func (s pageIndexHandlers) POSTPanic(
 	}
 }
 
+func (s pageIndexHandlers) POSTRecoverPanic(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.RecoverPanic")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTRecoverPanic(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.RecoverPanic", err)
+		return
+	}
+}
+
+func (s pageIndexHandlers) POSTConfigPanic(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	compression, errStreamConfig := s.StreamCompression(s.callStreamConfig(
+		"PageIndex.StreamConfigPOSTConfigPanic",
+		func() (datapages.StreamConfig, error) {
+			return p.StreamConfigPOSTConfigPanic(r)
+		},
+	))
+	if errStreamConfig != nil {
+		s.httpErrIntern(w, r, nil, "handling PageIndex.StreamConfigPOSTConfigPanic", errStreamConfig)
+		return
+	}
+
+	sse := dpsse.Open(w, r, compression)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageIndex.ConfigPanic")
+	err := p.POSTConfigPanic(
+		r,
+		sse,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.ConfigPanic", err)
+		return
+	}
+}
+
 type pagePanicHandlers struct{ *Server }
 
 func (s pagePanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -522,17 +622,31 @@ func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Reques
 	p := dpapp.PageStreamPanic{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageStreamPanic,
+	compression, err := s.StreamCompression(s.callStreamConfig(
+		"PageStreamPanic.StreamConfig",
+		func() (datapages.StreamConfig, error) {
+			return p.StreamConfig(r)
+		},
+	))
+	if err != nil {
+		s.streams.Fail(w, r, s.SSECompression(), "handling PageStreamPanic.StreamConfig", err)
+		return
+	}
+	s.handleStreamRequest(w, r, compression, evSubjPageStreamPanic,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			return p.StreamOpen(r, streamID)
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageStreamPanic.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+			)
 		},
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageStreamPanic stream")
 			var eventPinged dpapp.EventPinged
@@ -546,7 +660,7 @@ func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Reques
 					}
 					if err := p.OnPinged(
 						eventPinged,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageStreamPanic.OnPinged", err)
 					}

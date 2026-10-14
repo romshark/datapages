@@ -60,6 +60,8 @@ A non-GET action may return only `error`. Other supported return types are `data
 
 Do not combine `datapages.SSE` with session changes. An `sse` parameter causes the response headers to be sent before the handler runs, so the handler cannot set or delete the session cookie. The generator rejects `newSession` or `closeSession` with `sse`. A `redirect` still works because it uses the stream. A returned `datapages.Component` is rejected with `sse` too: send it with `sse.PatchElement` instead.
 
+An action's SSE response uses `datapages.WithSSECompression`, not the page's `StreamConfig`. Configure it with a method named `StreamConfig` plus the action's method name, such as `StreamConfigPOSTSave`, on the same page or `App`; see `datapages-events`.
+
 ## Files
 
 A named GET action serves a file at its route:
@@ -151,4 +153,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:104421f37619a8fb -->
+<!-- written by datapages sha256:9272b8c4f1eef570 -->

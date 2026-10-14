@@ -102,8 +102,7 @@ func EmbeddedFieldPosMap(
 }
 
 // EmbeddedFieldTypeExprs returns a map from embedded type name to the
-// type expression written at the embed site. For a generic embed the expression carries
-// the type arguments, e.g. `Base` maps to the expression `Base[StateFoo]`.
+// type expression written at the embed site.
 func EmbeddedFieldTypeExprs(st *ast.StructType) map[string]ast.Expr {
 	out := map[string]ast.Expr{}
 	if st == nil || st.Fields == nil {

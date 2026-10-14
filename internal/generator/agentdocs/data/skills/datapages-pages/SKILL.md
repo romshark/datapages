@@ -104,11 +104,9 @@ func (PageError404) GET(r *http.Request) (datapages.Component, error) {
 }
 ```
 
-`PageError500` and `PageOffline` have the same form and each needs a `GET`
-method. Both render with a zero `Session`. `PageOffline` is the service worker
-fallback; see `datapages-offline`.
+`PageError500` and `PageOffline` have the same form and each needs a `GET` method. `PageOffline` is the service worker fallback; see `datapages-offline`. The worker precaches 1 copy for every visitor, so the page renders without the CSRF script and must not depend on who is signed in.
 
-Neither may return `newSession` or `closeSession` because the same `GET` serves the page route and its error path. Both may accept a session parameter, which an error page can use to render the document.
+The `GET` of `PageError404` and `PageError500` may not return `newSession` or `closeSession` because it serves both the page route and the error path. It may accept a session parameter to render the document for the visitor.
 
 ## Global head
 

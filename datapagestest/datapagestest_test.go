@@ -15,7 +15,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/starfederation/datastar-go/datastar"
+	"github.com/a-h/templ"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
@@ -24,6 +24,7 @@ import (
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/runtime/auth"
+	"github.com/romshark/datapages/runtime/sse"
 )
 
 // page serves markup with an optional Datapages-Instance header.
@@ -612,10 +613,11 @@ func TestScript(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /p/", page(`<p>page</p>`, ""))
 	mux.HandleFunc("POST /act/", func(w http.ResponseWriter, r *http.Request) {
-		sse := datastar.NewSSE(w, r)
-		_ = sse.PatchElements(`<p id="a"><script>inline()</script></p>`)
-		_ = sse.ExecuteScript("go(1 < 2)\nnext()")
-		_ = sse.ExecuteScript("setTimeout(() => { location.reload() }, 1000)")
+		st := sse.Open(w, r, nil)
+		defer st.Close()
+		_ = st.PatchElement(templ.Raw(`<p id="a"><script>inline()</script></p>`))
+		_ = st.ExecuteScript("go(1 < 2)\nnext()")
+		_ = st.ExecuteScript("setTimeout(() => { location.reload() }, 1000)")
 	})
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/")
 	evs := tab.Do(t, http.MethodPost, "/act/", nil).Events(t)

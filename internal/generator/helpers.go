@@ -119,12 +119,85 @@ func pageHasStream(p *model.Page) bool {
 		p.StreamClose != nil || p.State != nil
 }
 
+// streamCompressionField returns p's compression field on Server.
+func streamCompressionField(p *model.Page) string {
+	return "streamCompression" + p.TypeName
+}
+
+// streamConfigPerStream reports whether p configures each stream request.
+func streamConfigPerStream(p *model.Page) bool {
+	return p.StreamConfig != nil && len(p.StreamConfig.OrderedInputs) > 0
+}
+
+// actionStreamConfigPerRequest reports whether h's StreamConfig takes the request.
+func actionStreamConfigPerRequest(h *model.Handler) bool {
+	return h.StreamConfig != nil && len(h.StreamConfig.OrderedInputs) > 0
+}
+
+// actionStreamCompressionField names the Server field of h's static StreamConfig.
+func actionStreamCompressionField(owner string, h *model.Handler) string {
+	return "streamCompression" + owner + h.HTTPMethod + h.Name
+}
+
+// ownedAction is an action with its page or App.
+type ownedAction struct {
+	owner string
+	page  *model.Page // Nil for App.
+	h     *model.Handler
+}
+
+// staticActionStreamConfigs lists the actions with a static StreamConfig.
+func staticActionStreamConfigs(m *model.App) []ownedAction {
+	var out []ownedAction
+	for _, p := range m.Pages {
+		for _, h := range p.Actions {
+			if h.StreamConfig != nil && !actionStreamConfigPerRequest(h) {
+				out = append(out, ownedAction{owner: p.TypeName, page: p, h: h})
+			}
+		}
+	}
+	for _, h := range m.Actions {
+		if h.StreamConfig != nil && !actionStreamConfigPerRequest(h) {
+			out = append(out, ownedAction{owner: "App", h: h})
+		}
+	}
+	return out
+}
+
+// actionCompressionExpr returns the compression of h's SSE response.
+func actionCompressionExpr(owner string, h *model.Handler) string {
+	switch {
+	case h.StreamConfig == nil:
+		return "s.SSECompression()"
+	case actionStreamConfigPerRequest(h):
+		return "compression"
+	}
+	return "s." + actionStreamCompressionField(owner, h)
+}
+
+// streamCompressionExpr returns the compression expression for p's stream.
+func streamCompressionExpr(p *model.Page) string {
+	if streamConfigPerStream(p) {
+		return "compression"
+	}
+	return reloadCompressionExpr(p)
+}
+
+// reloadCompressionExpr returns p's compression before request-scoped config.
+func reloadCompressionExpr(p *model.Page) string {
+	if p.StreamConfig != nil && !streamConfigPerStream(p) {
+		return "s." + streamCompressionField(p)
+	}
+	return "s.SSECompression()"
+}
+
 // pageStreamCallsPage returns true if the page's stream handler calls a method
 // on the page value. A stateful page with no hook and no event handler gets a
 // stream purely to bound its instance lifetime and never touches the page,
 // which would leave the constructed value unused.
 func pageStreamCallsPage(p *model.Page) bool {
-	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil ||
+		streamConfigPerStream(p)
 }
 
 // pageStreamNeedsAuth returns true if handling the page's SSE stream requires
@@ -140,7 +213,7 @@ func pageStreamNeedsAuth(
 			return true
 		}
 	}
-	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose, p.StreamConfig} {
 		if h == nil {
 			continue
 		}
@@ -156,6 +229,16 @@ func pageStreamNeedsAuth(
 func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) bool {
 	for _, eh := range p.EventHandlers {
 		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsPrivate() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageHasPublicEvent reports whether the page handles a public event.
+func pageHasPublicEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && !e.IsPrivate() {
 			return true
 		}
 	}
@@ -225,22 +308,12 @@ func pageSignalSubjectFields(p *model.Page, eventByName map[string]*model.Event)
 }
 
 // pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
-// This happens when the page has both public AND private events.
+// The stream of a page with private events opens only with a session. A guest
+// needs a stream of its own for the public events, and for the per-tab state,
+// which the stream allocates and the state actions of the guest need.
 func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool {
-	hasPublic := false
-	hasPrivate := false
-	for _, eh := range p.EventHandlers {
-		e, ok := eventByName[eh.EventTypeName]
-		if !ok {
-			continue
-		}
-		if e.IsPrivate() {
-			hasPrivate = true
-		} else {
-			hasPublic = true
-		}
-	}
-	return hasPublic && hasPrivate
+	return pageHasPrivateEvent(p, eventByName) &&
+		(pageHasPublicEvent(p, eventByName) || p.State != nil)
 }
 
 // renderTypeIn renders a Go type for app_gen.go, naming every package the way
@@ -359,9 +432,11 @@ type appUsage struct {
 	// stream: func (s *Server) handleStreamRequest(...)
 	stream bool
 	// streamAuth: whether any stream handler needs auth (page has private events).
-	streamAuth  bool
-	pageCache   bool
-	offlinePage bool
+	streamAuth   bool
+	streamConfig bool
+	streamOpen   bool
+	pageCache    bool
+	offlinePage  bool
 	// stateRuntime: whether any page (including via stream embeds)
 	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
@@ -397,6 +472,9 @@ func computeAppUsage(m *model.App) appUsage {
 		if !h.IsGETAction() {
 			u.actions = true
 		}
+		if actionStreamConfigPerRequest(h) {
+			u.streamConfig = true
+		}
 	}
 
 	// Build event map for subject field lookup.
@@ -416,6 +494,12 @@ func computeAppUsage(m *model.App) appUsage {
 			u.stream = true
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
+			}
+			if streamConfigPerStream(p) {
+				u.streamConfig = true
+			}
+			if p.StreamOpen != nil {
+				u.streamOpen = true
 			}
 		}
 		for _, h := range p.Actions {
@@ -658,24 +742,21 @@ func (w *Writer) writeCommaSep(items []string) {
 	}
 }
 
-// writeCallExpr writes "receiver.method(args...)" to the buffer.
-func (w *Writer) writeCallExpr(receiver, method string, args []string) {
-	w.Raw(receiver)
-	w.Byte('.')
-	w.Raw(method)
-	w.Byte('(')
-	w.writeCommaSep(args)
-	w.Byte(')')
-}
-
-// writeMultilineCallExpr writes 1 argument per line. ind is the indentation
-// of the call expression; arguments are indented 1 level further.
-func (w *Writer) writeMultilineCallExpr(
+// writeCallExpr writes "receiver.method(args...)", with 1 argument per line
+// when there are 2 or more. ind is the indentation of the call expression;
+// arguments are indented 1 level further.
+func (w *Writer) writeCallExpr(
 	receiver, method string, args []string, ind int,
 ) {
 	w.Raw(receiver)
 	w.Byte('.')
 	w.Raw(method)
+	if len(args) < 2 {
+		w.Byte('(')
+		w.writeCommaSep(args)
+		w.Byte(')')
+		return
+	}
 	w.Raw("(\n")
 	argTabs := strings.Repeat("\t", ind+1)
 	for _, arg := range args {
