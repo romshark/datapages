@@ -994,7 +994,7 @@ During a rolling deployment, route each client to 1 build until the old servers 
 
 Datapages dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty.
 
-templ reads only `TEMPL_DEV_MODE`, during package initialization. Set it before starting the process to enable templ hot reload and Datapages dev mode. `DATAPAGES_DEV_MODE` enables only Datapages dev mode.
+templ reads only `TEMPL_DEV_MODE`, during package initialization, and reloads templates only when it is `true`. Set `TEMPL_DEV_MODE=true` before starting the process to enable templ hot reload and Datapages dev mode. Another value, such as `1`, and `DATAPAGES_DEV_MODE` enable only Datapages dev mode.
 
 `datapages watch` uses templier, which sets `TEMPL_DEV_MODE` before it starts the application.
 
