@@ -158,7 +158,8 @@ func runGen(
 }
 
 // appEvents is what [subject.CheckAcrossApps] takes for 1 application.
-// A model that failed to parse contributes nothing.
+// A partial model, which the parser returns with its errors, contributes the
+// events it holds. A nil model contributes nothing.
 func appEvents(appDir string, m *model.App) []subject.AppEvent {
 	if m == nil {
 		return nil

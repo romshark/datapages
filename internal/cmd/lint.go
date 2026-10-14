@@ -49,11 +49,11 @@ call, defaulting to ./app when the module holds none.`,
 					continue
 				}
 				m, err := parseApp(filepath.Join(moduleDir, a.Dir), stderr)
+				events = append(events, appEvents(a.Dir, m)...)
 				if err != nil {
 					errs = append(errs, err)
 					continue
 				}
-				events = append(events, appEvents(a.Dir, m)...)
 				if err := serverscan.CheckSessionData(
 					a, m.Session != nil,
 				); err != nil {

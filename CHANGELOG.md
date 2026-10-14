@@ -121,6 +121,7 @@ Run `datapages gen` to apply these.
 - State the accepted syntax in the fix for an invalid `signal` tag: each period-separated segment must match `[A-Za-z_][A-Za-z0-9_]*` and contain no `__`. The fix incorrectly required a lowercase first letter.
 - Base the suggested route for an action with an invalid route comment on its page route. For a page at `/user/{name}`, the fix suggested `/user/follow` instead of `/user/{name}/follow`.
 - Base the suggested route for an action without a route comment on the route suggested for its page when the page also has no route comment. For `PageUser.POSTFollow`, the fix suggested `/follow` instead of `/user/follow`.
+- Report a subject that 2 applications of a module claim in `datapages lint` when 1 of them has other errors, mirroring `datapages gen` behavior.
 
 #### Generated code
 
