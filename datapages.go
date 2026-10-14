@@ -908,6 +908,7 @@ const (
 // PageCacheWriter writes to the client's service worker cache. It is passed
 // to GET page methods and action methods as the pageCache parameter. Writes
 // are deferred and applied atomically once the handler returns without error.
+// A GET that redirects a page load drops them.
 type PageCacheWriter interface {
 	// Version returns the cached version of the current request's URL.
 	// It returns 0 when the URL is not cached.

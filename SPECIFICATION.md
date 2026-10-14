@@ -576,6 +576,7 @@ The interface (from `github.com/romshark/datapages`):
 // PageCacheWriter writes to the client's service worker cache. It is passed
 // to GET page methods and action methods as the pageCache parameter. Writes
 // are deferred and applied atomically once the handler returns without error.
+// A GET that redirects a page load drops them.
 type PageCacheWriter interface {
 	// Version returns the cached version of the current request's URL.
 	// It returns 0 when the URL is not cached.
@@ -610,7 +611,7 @@ to re-`Set` it.
 The handler signature selects delivery in this order. The same rules apply to a
 page method and an action declared on `App`:
 
-- `GET`: embeds the writes in the page HTML for the worker to apply on load.
+- `GET`: embeds the writes in the page HTML for the worker to apply on load. A page load that the `GET` redirects drops them, since an HTTP redirect carries none. Queue such writes, as the `ClearAll` of a sign-out, in an action.
 - Action with `sse`: sends the writes over that stream.
 - Action with a redirect: sends the writes in the `text/javascript` response. Navigation waits up to 500ms for the worker to apply them. This rule also applies when the action can return a body.
 - Action with only a body: embeds the writes in the rendered document.
