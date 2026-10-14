@@ -112,8 +112,7 @@ type Page struct {
 
 	// EmbedTypes maps the name of a stream embed to the type
 	// written at the embed site, keyed by base name.
-	// For a generic stream embed the type is the instantiation, e.g. "Base" maps to
-	// Base[StateFoo]. Needed to construct the embed in generated code.
+	// Needed to construct the embed in generated code.
 	EmbedTypes map[string]Type
 
 	// State is the state type referenced by any stateful handler on

@@ -3758,7 +3758,7 @@ func servesOnlyGET(route string) bool {
 // actionIsUnderPage reports whether action is under page. Rules:
 //   - page must be prefix of action
 //   - boundary: either page=="/" OR next char after prefix is '/'
-//   - disallow exact equality (action == page) to avoid colliding with GET route
+//   - action may equal page, since its method differs from the page's GET
 func actionIsUnderPage(page, action string) bool {
 	page = urlpath.Clean(page)
 	action = urlpath.Clean(action)

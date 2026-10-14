@@ -84,7 +84,6 @@ func toSnakeCase(s string) string {
 //   - ErrSignalsFieldUnexported: fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag: message names the duplicate value
 //   - ErrDispatchParamNotEvent: constraint is clear from message
-//   - ErrSessionParamNotSessionType: constraint is clear from message
 //   - ErrSessionTypeConflict: the message names both instantiations
 //   - ErrNewSessionWithSSE: message states the mutual exclusion
 //   - ErrCloseSessionWithSSE: message states the mutual exclusion
@@ -102,8 +101,6 @@ func toSnakeCase(s string) string {
 //   - ErrFileWithOutput: message states what may be returned with the file
 //   - ErrFileWithSSE: message states the mutual exclusion
 //   - ErrFileWithPageCache: message states the mutual exclusion
-//   - ErrEventSubjectUserNoSession: has a dedicated suggestion
-//   - ErrEventSubjectAfterPayload: has a dedicated suggestion
 func Suggest(err error) string {
 	switch {
 	case errors.Is(err, parser.ErrAppMissingTypeApp):

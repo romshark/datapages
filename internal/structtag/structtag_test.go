@@ -9,9 +9,8 @@ import (
 )
 
 // TestJSONTagValue tests the field name the signal reader takes from a json tag,
-// and the exclusion "-" marks. Reading the tag by hand rather than through
-// reflect means the encoding/json rules have to be reproduced here, the "-,"
-// spelling of a field actually named "-" included.
+// and the exclusion "-" marks, as encoding/json reads them.
+// The "-," spelling names a field "-" and excludes nothing.
 func TestJSONTagValue(t *testing.T) {
 	t.Parallel()
 	for name, td := range map[string]struct {

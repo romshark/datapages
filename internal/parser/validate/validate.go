@@ -333,8 +333,8 @@ func ReflectSignalPath(path string) error {
 	return nil
 }
 
-// isSignalNameLetter reports whether c may stand in
-// a signal name after the first character.
+// isSignalNameLetter reports whether c may start a signal name.
+// The characters after it may also be digits.
 func isSignalNameLetter(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 }
