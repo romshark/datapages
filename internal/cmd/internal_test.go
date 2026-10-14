@@ -294,8 +294,8 @@ func TestMapCustomWatchers(t *testing.T) {
 	}
 }
 
-// TestCheckCmdPackage tests the check on the entry point directory before the
-// watch command builds it: whether it exists and whether it is a main package.
+// TestCheckCmdPackage tests the check on the entry point directory before gen
+// writes a main.go there: whether it exists and whether it is a main package.
 func TestCheckCmdPackage(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup     func(t *testing.T) string
