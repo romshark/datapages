@@ -206,7 +206,7 @@ func TestAppLevelActionStreamConfig(t *testing.T) {
 			if tc.saveData {
 				req.Header.Set("Save-Data", "on")
 			}
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := c.HTTP().Do(req)
 			require.NoError(t, err, "POST %s", tc.path)
 			_ = resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -352,9 +352,12 @@ func TestPageCacheActionsRefusePlainRequests(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 	// The default client follows a redirect, which hides the status.
-	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	hc := &http.Client{
+		Transport: c.HTTP().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 
 	for name, path := range map[string]string{
 		"page stream":           "/stream-write/",

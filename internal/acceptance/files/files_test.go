@@ -245,7 +245,7 @@ func TestFileBodyPanic(t *testing.T) {
 			if rng != "" {
 				req.Header.Set("Range", rng)
 			}
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := c.HTTP().Do(req)
 			require.NoError(t, err)
 			_, err = io.ReadAll(resp.Body)
 			_ = resp.Body.Close()

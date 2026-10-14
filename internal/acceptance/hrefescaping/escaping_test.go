@@ -162,9 +162,12 @@ func TestStreamInitURLIsRouted(t *testing.T) {
 	req := c.Request(t, http.MethodGet, url, "")
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	client := &http.Client{
+		Transport: c.HTTP().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	streamResp, err := client.Do(req.WithContext(ctx))
 	require.NoError(t, err)
 	defer func() { _ = streamResp.Body.Close() }()

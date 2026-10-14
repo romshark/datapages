@@ -64,6 +64,11 @@ func (c *Client) WithJar(t *testing.T) *Client {
 // URL is the address the server listens on.
 func (c *Client) URL() string { return c.srv.URL }
 
+// HTTP is the client the requests of c go through, for a test that reads the
+// response itself. Its transport belongs to the server, and only the Close of
+// that server closes its idle connections.
+func (c *Client) HTTP() *http.Client { return c.http }
+
 // Response is what a request was answered with.
 type Response struct {
 	Status int

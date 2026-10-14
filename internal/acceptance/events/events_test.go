@@ -223,6 +223,9 @@ func waitForAddr(t *testing.T, srv datapages.Server) string {
 }
 
 // openStream opens an SSE stream the way the Datastar runtime does.
+//
+// It sends over a transport of its own. The [httptest.Server.Close] of every
+// parallel test closes the idle connections of [http.DefaultTransport].
 func openStream(t *testing.T, url string) io.ReadCloser {
 	t.Helper()
 	req, err := http.NewRequestWithContext(
@@ -230,7 +233,7 @@ func openStream(t *testing.T, url string) io.ReadCloser {
 	)
 	require.NoError(t, err)
 	req.Header.Set("Datastar-Request", "true")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Transport: &http.Transport{}}).Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	return resp.Body
@@ -437,7 +440,7 @@ func TestStreamOpenRefuses(t *testing.T) {
 		req.Header.Set("Datastar-Request", "true")
 		req.Header.Set("Accept-Encoding", "identity")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		require.NoError(t, err, "GET /_$/?refuse=1")
 		defer func() { _ = resp.Body.Close() }()
 
@@ -489,7 +492,7 @@ func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 		req.Header.Set("Datastar-Request", "true")
 		req.Header.Set("Accept-Encoding", "identity")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		require.NoError(t, err, "GET /_$/?panic=1")
 		defer func() { _ = resp.Body.Close() }()
 
@@ -524,7 +527,7 @@ func TestStreamRequiresDatastar(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
-		resp, err := http.Get(c.URL() + "/_$/")
+		resp, err := c.HTTP().Get(c.URL() + "/_$/")
 		require.NoError(t, err, "GET /_$/")
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusNotAcceptable {
@@ -546,7 +549,7 @@ func TestMissingSubjectSignal(t *testing.T) {
 		require.NoError(t, err, "building request")
 		req.Header.Set("Datastar-Request", "true")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		require.NoError(t, err, "GET /room/_$/")
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusBadRequest {
@@ -594,7 +597,7 @@ func TestEmptySubjectSignalRefused(t *testing.T) {
 		require.NoError(t, err, "building request")
 		req.Header.Set("Datastar-Request", "true")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		require.NoError(t, err, "GET /room/_$/")
 		_ = resp.Body.Close()
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode,
@@ -612,7 +615,9 @@ func TestEmptySubjectSignalRefused(t *testing.T) {
 // subject that was left out: the publish simply goes nowhere.
 func TestBrokerStreamInitialization(t *testing.T) {
 	t.Parallel()
-	broker := &initializingBroker{MessageBroker: inmem.New(messaging.DefaultBrokerChanBuffer)}
+	broker := &initializingBroker{
+		MessageBroker: inmem.New(messaging.DefaultBrokerChanBuffer),
+	}
 	_ = client.New(t, mustNewServer(t, &app.App{}, broker))
 
 	if broker.calls != 1 {
@@ -699,8 +704,8 @@ func TestStreamConfigCompression(t *testing.T) {
 				&app.App{CompressedStream: tc.conf},
 				inmem.New(messaging.DefaultBrokerChanBuffer)))
 			t.Cleanup(srv.Close)
-			requireStream(t, srv.URL+"/compressed/_$/", nil, tc.want)
-			requireStream(t, srv.URL+"/other/_$/", nil, "zstd")
+			requireStream(t, srv, "/compressed/_$/", nil, tc.want)
+			requireStream(t, srv, "/other/_$/", nil, "zstd")
 		})
 	}
 }
@@ -747,7 +752,8 @@ func TestStreamConfigPerStream(t *testing.T) {
 			query:  "?invalid",
 			status: http.StatusInternalServerError,
 			logLine: `level=ERROR msg="handling PageAdaptive.StreamConfig" ` +
-				`err="compression: zstd window (3) must be a power of 2 from 1 KiB to 8 MiB"`,
+				`err="compression: zstd window (3) ` +
+				`must be a power of 2 from 1 KiB to 8 MiB"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -758,7 +764,7 @@ func TestStreamConfigPerStream(t *testing.T) {
 				datapages.WithLogger(log.Logger())))
 			t.Cleanup(srv.Close)
 
-			status, coding := streamResponse(t, srv.URL+"/adaptive/_$/"+tc.query, tc.header)
+			status, coding := streamResponse(t, srv, "/adaptive/_$/"+tc.query, tc.header)
 			require.Equal(t, tc.status, status)
 			require.Equal(t, tc.coding, coding)
 			if tc.logLine != "" {
@@ -808,7 +814,7 @@ func TestActionStreamConfig(t *testing.T) {
 				datapages.WithLogger(log.Logger())))
 			t.Cleanup(srv.Close)
 
-			status, coding := actionResponse(t, srv.URL+tc.path, tc.header)
+			status, coding := actionResponse(t, srv, tc.path, tc.header)
 			require.Equal(t, tc.status, status)
 			require.Equal(t, tc.coding, coding)
 			if tc.logLine != "" {
@@ -825,45 +831,53 @@ func TestStreamConfigPath(t *testing.T) {
 	srv := httptest.NewServer(mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 	t.Cleanup(srv.Close)
-	requireStream(t, srv.URL+"/board/big/_$/", nil, "gzip")
-	requireStream(t, srv.URL+"/board/small/_$/", nil, "zstd")
+	requireStream(t, srv, "/board/big/_$/", nil, "gzip")
+	requireStream(t, srv, "/board/small/_$/", nil, "zstd")
 }
 
-// requireStream requires url to open with coding.
-func requireStream(t *testing.T, url string, header http.Header, coding string) {
+// requireStream requires the stream at path to open with coding.
+func requireStream(
+	t *testing.T, srv *httptest.Server, path string, header http.Header, coding string,
+) {
 	t.Helper()
-	status, got := streamResponse(t, url, header)
+	status, got := streamResponse(t, srv, path, header)
 	require.Equal(t, http.StatusOK, status)
-	require.Equal(t, coding, got, "the coding of %s", url)
+	require.Equal(t, coding, got, "the coding of %s", path)
 }
 
 // streamResponse returns a stream's status and content coding.
-func streamResponse(t *testing.T, url string, header http.Header) (int, string) {
+func streamResponse(
+	t *testing.T, srv *httptest.Server, path string, header http.Header,
+) (int, string) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(t.Context(),
+		http.MethodGet, srv.URL+path, nil)
 	require.NoError(t, err)
 	for k, v := range header {
 		req.Header[k] = v
 	}
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := srv.Client().Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode, resp.Header.Get("Content-Encoding")
 }
 
 // actionResponse is streamResponse for an action.
-func actionResponse(t *testing.T, url string, header http.Header) (int, string) {
+func actionResponse(
+	t *testing.T, srv *httptest.Server, path string, header http.Header,
+) (int, string) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(t.Context(),
+		http.MethodPost, srv.URL+path, nil)
 	require.NoError(t, err)
 	for k, v := range header {
 		req.Header[k] = v
 	}
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := srv.Client().Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode, resp.Header.Get("Content-Encoding")
@@ -882,7 +896,7 @@ func TestPageWithoutStream(t *testing.T) {
 		require.NoError(t, err, "building request")
 		req.Header.Set("Datastar-Request", "true")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		require.NoError(t, err, "GET /log/_$/")
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusNotFound {
