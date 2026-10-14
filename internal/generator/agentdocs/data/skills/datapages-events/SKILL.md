@@ -96,7 +96,7 @@ func (PageIndex) StreamOpen(
 
 Use `State[T]` for filters, sort order and other per-tab values. Use stream hooks to acquire and release resources for a stream. `streamID` is internal and must not be sent to a client.
 
-`StreamConfig` overrides `datapages.WithSSECompression` for a page's streams. A parameterless method returns `datapages.StreamConfig` during `NewServer`. A method taking `r *http.Request` returns `(datapages.StreamConfig, error)` before each stream and may also take `session`, `path` and `signals`. Invalid configurations and request-scoped errors fail setup. Return a bounded set of fixed request-scoped configurations. Only a page with a stream may declare the method.
+`StreamConfig` overrides `datapages.WithSSECompression` for a page's streams. Only a page with a stream may declare it. A static method returns `datapages.StreamConfig` during `NewServer`; an invalid configuration fails `NewServer`. A request-scoped method takes `r *http.Request`, may also take `session`, `path` and `signals`, and returns `(datapages.StreamConfig, error)` before each stream. Its error or an invalid configuration fails the stream request. Return a bounded set of request-scoped configurations.
 
 ```go
 func (PageDashboard) StreamConfig() datapages.StreamConfig {

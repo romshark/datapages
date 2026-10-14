@@ -102,9 +102,9 @@ var (
 	)
 
 	ErrStreamConfigSignature = errors.New(
-		"StreamConfig must return datapages.StreamConfig without parameters, " +
-			"or (datapages.StreamConfig, error) with *http.Request and optional " +
-			"session, path and signals",
+		"StreamConfig must take no parameters and return datapages.StreamConfig, " +
+			"or take *http.Request with optional session, path and signals and return " +
+			"(datapages.StreamConfig, error)",
 	)
 	ErrStreamConfigNoStream = errors.New(
 		"StreamConfig requires a page with a stream: " +

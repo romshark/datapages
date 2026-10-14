@@ -219,12 +219,12 @@ type EnableBackgroundStreaming bool
 type DisableRefreshAfterHidden bool
 
 // StreamConfig configures a page's SSE stream.
-// A page without a stream cannot declare the method.
+// Only a page with a stream may declare the method.
 //
 // A parameterless method returns StreamConfig during [NewServer].
-// A method taking *http.Request returns (StreamConfig, error) before
-// each stream and may also take the session, path and signals.
-// Invalid configurations and request-scoped errors fail setup.
+// An invalid configuration fails [NewServer]. A method taking *http.Request returns
+// (StreamConfig, error) before each stream and may also take the session,
+// path and signals. Its error or an invalid configuration fails the stream request.
 //
 // Per-request methods should return a bounded set of configurations.
 // Encoders are shared for at most 64 distinct configurations.
@@ -237,8 +237,8 @@ type StreamConfig struct {
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //
-// Data carries whatever the application needs to keep for the duration of the session,
-// use struct{} when it needs nothing:
+// Data carries whatever the application needs to keep for the duration
+// of the session, use struct{} when it needs nothing:
 //
 //	func (p PageIndex) GET(
 //		r *http.Request, session datapages.Session[struct{}],

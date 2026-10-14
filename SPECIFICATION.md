@@ -229,10 +229,10 @@ func (PageIndex) StreamClose(
 
 #### StreamConfig
 
-A page with an SSE stream may declare 1 of these `StreamConfig` signatures. A stream embed must not declare either:
+A page may declare `StreamConfig` only if it has an SSE stream. A stream embed must not declare it. The method must use 1 of these forms:
 
-- No parameters and a `datapages.StreamConfig` return. The server calls it once during `NewServer`. An invalid configuration makes `NewServer` return an error naming the page.
-- `r *http.Request`, optional `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, and `(datapages.StreamConfig, error)` returns. The server calls it before each stream opens. `path` contains the page route variables, and the anonymous stream receives a guest session. An error or invalid configuration follows the broker subscription error path.
+- The static form takes no parameters and returns `datapages.StreamConfig`. `NewServer` calls it once. An invalid compression configuration makes `NewServer` return an error naming the page.
+- The request-scoped form takes `r *http.Request`, may also take `session datapages.Session[Data]`, `path datapages.Path[struct{...}]` and `signals datapages.Signals[struct{...}]`, and returns `(datapages.StreamConfig, error)`. The server calls it before each stream opens and before `StreamOpen`. `path` contains the page route variables. An anonymous stream receives a guest session. An error or invalid compression configuration follows the broker subscription error path.
 
 ```go
 func (PageDashboard) StreamConfig() datapages.StreamConfig {

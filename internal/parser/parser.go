@@ -1303,7 +1303,6 @@ func validateAndAttachStreamConfig(
 		refuse()
 		return
 	}
-	// Request-scoped methods also return an error.
 	var results []*ast.Field
 	if fd.Type.Results != nil {
 		results = expandFieldList(fd.Type.Results.List)
