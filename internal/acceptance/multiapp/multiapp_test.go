@@ -9,12 +9,13 @@ package acceptance_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	adminapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin"
 	admingen "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen"
 	adminaction "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/action"
@@ -34,20 +35,35 @@ func broker() messaging.Broker {
 	return inmem.New(messaging.DefaultBrokerChanBuffer)
 }
 
+// echo returns the text of the element the index page of either app renders
+// its state into.
+func echo(t *testing.T, page *datapagestest.Response) string {
+	t.Helper()
+	return datapagestest.Text(page.ElementByID(t, "echo"))
+}
+
+func text(s string) map[string]string { return map[string]string{"text": s} }
+
+func report(n int) map[string]int { return map[string]int{"n": n} }
+
+func signIn(user, nickname string) map[string]string {
+	return map[string]string{"user": user, "nickname": nickname}
+}
+
 // TestFrontendCarriesSessions tests the session handling generated for the
 // app package that declares a session type. The other app package declares
 // none and is generated in the same run.
 func TestFrontendCarriesSessions(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewFrontend(t, &frontendapp.App{}, broker())).WithJar(t)
+	v := datapagestest.New(t, mustNewFrontend(t, &frontendapp.App{}, broker())).Visitor(t)
 
-	require.Equal(t, "anonymous", c.Get(t, "/").Element(t, "echo"))
+	tab := v.Load(t, "/")
+	require.Equal(t, "anonymous", echo(t, tab.Page()))
 
-	resp := c.Action(t, http.MethodPost, "/sign-in/",
-		`{"user":"alice","nickname":"al"}`)
+	resp := tab.Do(t, http.MethodPost, "/sign-in/", signIn("alice", "al"))
 	require.Equal(t, http.StatusOK, resp.Status)
 
-	require.Equal(t, "user=alice nickname=al", c.Get(t, "/").Element(t, "echo"))
+	require.Equal(t, "user=alice nickname=al", echo(t, v.Get(t, "/")))
 }
 
 // TestFrontendCarriesNoMetrics tests the frontend server against the option
@@ -72,11 +88,12 @@ func TestFrontendCarriesNoMetrics(t *testing.T) {
 // from the registry the server was given, the same registry a scrape reads.
 func TestAdminCarriesMetrics(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewAdmin(t, &adminapp.App{}, broker()))
+	v := datapagestest.New(t, mustNewAdmin(t, &adminapp.App{}, broker())).Visitor(t)
 
-	require.Equal(t, "admin", c.Get(t, "/").Element(t, "echo"))
+	tab := v.Load(t, "/")
+	require.Equal(t, "admin", echo(t, tab.Page()))
 	require.Equal(t, http.StatusOK,
-		c.Action(t, http.MethodPost, "/report/", `{"n":1}`).Status)
+		tab.Do(t, http.MethodPost, "/report/", report(1)).Status)
 
 	total := requestsTotal(t)
 	require.GreaterOrEqual(t, total, float64(2),
@@ -157,24 +174,24 @@ func TestBothServersRunTogether(t *testing.T) {
 	adm, err := serveadmin.New(&adminapp.App{}, broker(), prometheusConfig())
 	require.NoError(t, err)
 
-	f := client.New(t, front)
-	a := client.New(t, adm)
+	f := datapagestest.New(t, front).Visitor(t).Load(t, "/")
+	a := datapagestest.New(t, adm).Visitor(t).Load(t, "/")
 
-	require.Equal(t, "anonymous", f.Get(t, "/").Element(t, "echo"))
-	require.Equal(t, "admin", a.Get(t, "/").Element(t, "echo"))
+	require.Equal(t, "anonymous", echo(t, f.Page()))
+	require.Equal(t, "admin", echo(t, a.Page()))
 
 	// The action each app declares is served by that app alone. The status a
 	// router answers a URL no page claims with is not fixed,
 	// hence the assertion is only that the request did not reach a handler.
 	require.Equal(t, http.StatusOK,
-		f.Action(t, http.MethodPost, "/notice/", `{"text":"hi"}`).Status)
+		f.Do(t, http.MethodPost, "/notice/", text("hi")).Status)
 	require.GreaterOrEqual(t,
-		a.Action(t, http.MethodPost, "/notice/", `{"text":"hi"}`).Status,
+		a.Do(t, http.MethodPost, "/notice/", text("hi")).Status,
 		http.StatusBadRequest, "the admin server serves the frontend action")
 	require.Equal(t, http.StatusOK,
-		a.Action(t, http.MethodPost, "/report/", `{"n":1}`).Status)
+		a.Do(t, http.MethodPost, "/report/", report(1)).Status)
 	require.GreaterOrEqual(t,
-		f.Action(t, http.MethodPost, "/report/", `{"n":1}`).Status,
+		f.Do(t, http.MethodPost, "/report/", report(1)).Status,
 		http.StatusBadRequest, "the frontend server serves the admin action")
 }
 
@@ -187,33 +204,47 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	t.Parallel()
 	shared := broker()
 
-	f := client.New(t, mustNewFrontend(t, &frontendapp.App{}, shared))
-	a := client.New(t, mustNewAdmin(t, &adminapp.App{}, shared))
+	f := datapagestest.New(t,
+		mustNewFrontend(t, &frontendapp.App{}, shared)).Visitor(t).Load(t, "/")
+	a := datapagestest.New(t,
+		mustNewAdmin(t, &adminapp.App{}, shared)).Visitor(t).Load(t, "/")
 
-	fs := f.OpenStream(t, "/_$/", nil)
-	defer fs.Close()
-	as := a.OpenStream(t, "/_$/", nil)
-	defer as.Close()
+	fs := f.Connect(t, nil)
+	as := a.Connect(t, nil)
 
 	// Dispatched by admin, handled by both.
-	require.Equal(t, http.StatusOK,
-		a.Action(t, http.MethodPost, "/announce/", `{"text":"from admin"}`).Status)
-	require.True(t, as.Saw(`<div id="announcement">from admin</div>`),
+	a.Do(t, http.MethodPost, "/announce/", text("from admin")).
+		WantStatus(t, http.StatusOK)
+	as.WaitFor(t, datapagestest.TextContains("announcement", "from admin"),
 		"the dispatching application did not receive its own event")
-	require.True(t, fs.Saw(`<div id="announcement">from admin</div>`),
+	fs.WaitFor(t, datapagestest.TextContains("announcement", "from admin"),
 		"the other application did not receive the shared event")
 
 	// And the other way round.
-	require.Equal(t, http.StatusOK,
-		f.Action(t, http.MethodPost, "/announce/", `{"text":"from frontend"}`).Status)
-	require.True(t, fs.Saw(`<div id="announcement">from frontend</div>`))
-	require.True(t, as.Saw(`<div id="announcement">from frontend</div>`))
+	f.Do(t, http.MethodPost, "/announce/", text("from frontend")).
+		WantStatus(t, http.StatusOK)
+	fs.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
+		"the dispatching application did not receive its own event")
+	as.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
+		"the other application did not receive the shared event")
 
-	// An event only 1 application declares stays with it.
-	require.Equal(t, http.StatusOK,
-		f.Action(t, http.MethodPost, "/notice/", `{"text":"private"}`).Status)
-	require.True(t, fs.Saw(`<div id="out">private</div>`))
-	require.True(t, as.Never(`private`),
+	// An event only 1 application declares stays with it. The announcement
+	// the frontend dispatches next is the anchor: a notice that reached the admin
+	// stream would arrive before it, since the broker delivers in publication order.
+	f.Do(t, http.MethodPost, "/notice/", text("private")).WantStatus(t, http.StatusOK)
+	fs.WaitFor(t, datapagestest.TextContains("out", "private"))
+	f.Do(t, http.MethodPost, "/announce/", text("after the notice")).
+		WantStatus(t, http.StatusOK)
+	private := datapagestest.Func(`an event carrying "private"`,
+		func(ev datapagestest.Event) bool {
+			for _, v := range ev.Data {
+				if strings.Contains(v, "private") {
+					return true
+				}
+			}
+			return false
+		})
+	as.Absent(t, private, datapagestest.TextContains("announcement", "after the notice"),
 		"the admin stream received an event only frontend declares")
 }
 

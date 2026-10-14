@@ -437,9 +437,9 @@ Run `datapages init -n` in an existing project to update them from the installed
 
 ## Test through HTTP
 
-The generated server implements `http.Handler`. Use `httptest` to exercise page loads, actions, and streams at the boundary clients use. Keep domain logic in separate Go types and test it without HTTP.
+Test page loads, actions, and streams at the boundary clients use with the [`datapagestest`](datapagestest) package. It sends the requests a browser running Datastar sends and reads the pages, events, and redirects the server answers with. Keep domain logic in separate Go types and test it without HTTP.
 
-The repository's [acceptance-test guide](internal/acceptance/README.md) shows how to construct generated servers and assert HTML and SSE responses. A successful `go build ./...` checks compilation, not request behavior.
+[`internal/acceptance/datapagestest`](internal/acceptance/datapagestest/datapagestest_test.go) uses the package against a generated server. A successful `go build ./...` checks compilation, not request behavior.
 
 ## Continue
 

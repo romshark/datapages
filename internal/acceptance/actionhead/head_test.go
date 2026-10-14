@@ -9,15 +9,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/actionhead/app"
-	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
@@ -25,9 +25,9 @@ func newClient(t *testing.T) *client.Client {
 // it reaches the document, next to the app-wide head and before the body.
 func TestActionHeadIsRendered(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := c.Action(t, http.MethodPost, "/render/", "")
+	resp := index.Do(t, http.MethodPost, "/render/", nil)
 	require.Equal(t, http.StatusOK, resp.Status)
 
 	require.Contains(t, resp.Body, `<meta name="from" content="action">`,
@@ -48,9 +48,9 @@ func TestActionHeadIsRendered(t *testing.T) {
 // whose handler the generator writes through a different code path.
 func TestAppActionHeadIsRendered(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := c.Action(t, http.MethodPost, "/app-render/", "")
+	resp := index.Do(t, http.MethodPost, "/app-render/", nil)
 	require.Equal(t, http.StatusOK, resp.Status)
 
 	require.Contains(t, resp.Body, `<meta name="from" content="app-action">`,
@@ -68,9 +68,7 @@ func TestAppActionHeadIsRendered(t *testing.T) {
 // which has no head of its own to add.
 func TestPageLoadCarriesTheGlobalHeadOnly(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
-
-	resp := c.Get(t, "/")
+	resp := serve(t).Visitor(t).Get(t, "/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Body, "<title>global</title>")
 	require.NotContains(t, resp.Body, `content="action"`)

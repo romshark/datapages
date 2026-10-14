@@ -25,10 +25,12 @@ Run `datapages gen` to apply these.
 #### Runtime and modules
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of 1 release. A `Content-Security-Policy` must allow the inline build script.
+- Add `datapagestest`, an HTTP test client for Datapages apps. It models cookie-sharing visitors and stateful tabs, sends Datastar actions with CSRF tokens, matches or rules out SSE events and parses redirects. Requests and waits have configurable timeouts; in-memory connections support `testing/synctest`.
 
 #### `datapages init`
 
 - Scaffold Web Components instead of requiring manual frontend setup. Choose Datastar Rocket, esbuild-bundled TypeScript, JavaScript modules or none interactively or with `--web-components rocket|typescript|javascript|none`; `-n` defaults to none. Each setup adds an attribute-and-event example. Rocket loads the matching CDN bundle. TypeScript requires Node.js; init installs and builds it, and `datapages watch` rebuilds changes.
+- Add the `datapages-testing` skill to the agent instructions it writes. It covers testing an app with `datapagestest`: page loads, actions, SSE streams, per-tab state, events, sessions and CSRF, and waiting for a condition instead of a fixed time. Run `datapages init` to add it to an existing project.
 
 ### Changed
 

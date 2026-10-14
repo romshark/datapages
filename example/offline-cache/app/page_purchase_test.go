@@ -2,11 +2,14 @@ package app_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 )
 
@@ -22,18 +25,31 @@ func TestPurchaseSoldOut(t *testing.T) {
 	shows, err := repo.SearchShows(t.Context(), "")
 	require.NoError(t, err, "listing shows")
 	require.Len(t, shows, 1)
-	confirm := "/shows/" + shows[0].Slug + "/purchase/confirm/"
+	slug := shows[0].Slug
+	confirm := "/shows/" + slug + "/purchase/confirm/"
 	newUser(t, repo, "winner")
 	newUser(t, repo, "loser")
 	srv := newServer(t, repo)
 	winner, loser := signIn(t, srv, "winner"), signIn(t, srv, "loser")
 
-	resp, body := winner.post(t, confirm, struct{}{})
-	require.Equal(t, http.StatusOK, resp.StatusCode, "winner: %s", body)
+	// Both open the purchase page while the last ticket is still available.
+	winnerTab := winner.Load(t, href.PagePurchase(slug))
+	loserTab := loser.Load(t, href.PagePurchase(slug))
 
-	resp, body = loser.post(t, confirm, struct{}{})
-	require.Equal(t, http.StatusOK, resp.StatusCode, "loser: %s", body)
-	require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
-	require.Contains(t, body, "Sold out.")
-	require.Contains(t, body, `{"_buying":false}`)
+	resp := winnerTab.Do(t, http.MethodPost, confirm, nil)
+	require.Equal(t, http.StatusOK, resp.Status, "winner: %s", resp.Body)
+
+	resp = loserTab.Do(t, http.MethodPost, confirm, nil).WantStatus(t, http.StatusOK)
+	resp.Event(t, soldOutToast)
+	require.JSONEq(t, `{"_buying":false}`,
+		resp.Event(t, datapagestest.Signal("_buying")).Data["signals"])
 }
+
+// soldOutToast matches the toast that RecoverError appends to #toaster for a
+// sold-out show. The toast has no id.
+var soldOutToast = datapagestest.Func("a toast appended to #toaster saying sold out",
+	func(e datapagestest.Event) bool {
+		return e.Type == datapagestest.PatchElements &&
+			e.Data["selector"] == "#toaster" && e.Data["mode"] == "append" &&
+			strings.Contains(datapagestest.Text(e.Root()), "Sold out.")
+	})

@@ -6,7 +6,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,59 +15,66 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/statefulpages/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 const (
-	pathStream           = "/_$/"
-	pathAction           = "/update/"
-	pathExport           = "/export/"
-	pathFailOpen         = "/failopen/"
-	pathFailOpenStream   = "/failopen/_$/"
-	pathPanicClose       = "/panicclose/"
-	pathPanicCloseStream = "/panicclose/_$/"
-	pathCloseState       = "/closestate/"
-	pathCloseStateStream = "/closestate/_$/"
-	pathCloseStateMark   = "/closestate/mark/"
+	pathStream         = "/_$/"
+	pathAction         = "/update/"
+	pathExport         = "/export/"
+	pathFailOpen       = "/failopen/"
+	pathFailOpenStream = "/failopen/_$/"
+	pathPanicClose     = "/panicclose/"
+	pathCloseState     = "/closestate/"
+	pathCloseStateMark = "/closestate/mark/"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer), opts...))
 }
 
 // update sends the action that writes a tab's state.
-func update(t *testing.T, tab *client.Tab, filter string) client.Response {
+func update(t *testing.T, tab *datapagestest.Tab, filter string) *datapagestest.Response {
 	t.Helper()
-	return tab.Act(t, http.MethodPost, pathAction, `{"filter":"`+filter+`"}`)
+	return tab.Do(t, http.MethodPost, pathAction, map[string]string{"filter": filter})
+}
+
+// status matches the patch of a tab's state, such as "deliveries:1 filter:a".
+func status(text string) datapagestest.Match {
+	return datapagestest.TextContains("status", text)
 }
 
 // TestPerTabState covers what per-tab state promises: 2 tabs of 1 page
 // hold separate values, and a tab-scoped event reaches the tab that caused it.
 func TestPerTabState(t *testing.T) {
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	a := c.OpenTab(t, "/", pathStream)
-	b := c.OpenTab(t, "/", pathStream)
+	aTab := v.Load(t, "/")
+	a := aTab.Connect(t, nil)
+	bTab := v.Load(t, "/")
+	b := bTab.Connect(t, nil)
 
-	require.NotEqual(t, a.InstanceID(), b.InstanceID(),
+	require.NotEqual(t, aTab.Instance(), bTab.Instance(),
 		"2 page loads share 1 instance id")
 
-	require.Equal(t, http.StatusOK, update(t, a, "from-a").Status)
-
-	require.True(t, a.Saw("deliveries:1 filter:from-a"),
+	require.Equal(t, http.StatusOK, update(t, aTab, "from-a").Status)
+	a.WaitFor(t, status("deliveries:1 filter:from-a"),
 		"the tab that acted received no patch for its own state")
-	require.True(t, b.Never("deliveries:"),
+
+	// Each tab's own update is the anchor. A patch for the other tab's event would
+	// render the receiving tab's own state and come before the anchor.
+	require.Equal(t, http.StatusOK, update(t, bTab, "from-b").Status)
+	b.Absent(t, datapagestest.Element("status"), status("deliveries:1 filter:from-b"),
 		"the other tab received a patch addressed at the first")
 
-	require.Equal(t, http.StatusOK, update(t, b, "from-b").Status)
-	require.True(t, b.Saw("deliveries:1 filter:from-b"),
-		"the second tab does not hold its own state")
-	require.True(t, a.Never("filter:from-b"), "one tab sees the state of another")
+	require.Equal(t, http.StatusOK, update(t, aTab, "again").Status)
+	a.Absent(t, datapagestest.Element("status"), status("filter:again"),
+		"one tab sees the state of another")
 }
 
 // TestSecondStreamUnderTheSameID covers a tab that opens a second stream before
@@ -81,26 +87,24 @@ func TestPerTabState(t *testing.T) {
 // Releasing by id would leave the tab holding a page whose every action is
 // answered 409 while its stream is open.
 func TestSecondStreamUnderTheSameID(t *testing.T) {
-	c := newClient(t)
-
-	tab := c.OpenTab(t, "/", pathStream)
-	first := tab.Stream
-	tab.Reopen(t)
-	second := tab.Stream
+	srv := serve(t)
+	tab := srv.Visitor(t).Load(t, "/")
+	first := tab.Connect(t, nil)
+	second := tab.Connect(t, nil)
 
 	first.Close()
 
-	require.True(t, client.WaitFor(func() bool {
+	srv.WaitFor(t, "an action of the tab to find the second stream's state", func() bool {
 		return update(t, tab, "after-first-closed").Status == http.StatusOK
-	}, 2*time.Second), "the older stream closing took the newer stream's state")
-	require.True(t, second.Saw("filter:after-first-closed"),
-		"the surviving stream rendered nothing from the tab's state")
+	})
+	second.WaitFor(t, status("filter:after-first-closed"))
 
 	// The slot is the second stream's to release, and nothing else holds one.
 	second.Close()
-	require.True(t, client.WaitFor(func() bool {
-		return update(t, tab, "after-both-closed").Status == http.StatusConflict
-	}, 2*time.Second), "the state outlived every stream that named it")
+	srv.WaitFor(t, "the state to be released with the last stream that named it",
+		func() bool {
+			return update(t, tab, "after-both-closed").Status == http.StatusConflict
+		})
 }
 
 // TestStreamCloseReadsTheFinalState covers the value a stateful StreamClose is
@@ -111,33 +115,33 @@ func TestSecondStreamUnderTheSameID(t *testing.T) {
 // the only place it can report from.
 func TestStreamCloseReadsTheFinalState(t *testing.T) {
 	a := &app.App{}
-	c := client.New(t, mustNewServer(t, a, inmem.New(messaging.DefaultBrokerChanBuffer)))
+	srv := datapagestest.New(t,
+		mustNewServer(t, a, inmem.New(messaging.DefaultBrokerChanBuffer)))
 
-	tab := c.OpenTab(t, pathCloseState, pathCloseStateStream)
-	require.Equal(t, http.StatusOK,
-		tab.Act(t, http.MethodPost, pathCloseStateMark, `{"filter":"written"}`).Status,
+	tab := srv.Visitor(t).Load(t, pathCloseState)
+	st := tab.Connect(t, nil)
+	resp := tab.Do(t, http.MethodPost, pathCloseStateMark,
+		map[string]string{"filter": "written"})
+	require.Equal(t, http.StatusOK, resp.Status,
 		"writing the state the close hook has to find")
 	require.Empty(t, a.Closed(), "the close hook ran while the stream was open")
 
-	tab.Close()
+	st.Close()
 
-	require.True(t, client.WaitFor(func() bool {
+	srv.WaitFor(t, "StreamClose to read what the action wrote", func() bool {
 		return slices.Contains(a.Closed(), "written")
-	}, 2*time.Second), "StreamClose read %q, not what the action wrote", a.Closed())
+	})
 }
 
 // TestActionWithoutInstance covers an action from a tab the server knows nothing about.
 // The client learns to reconnect rather than to give up.
 func TestActionWithoutInstance(t *testing.T) {
-	c := newClient(t)
-
 	// A page load mints an id. No stream follows,
 	// which leaves the server without state to act on.
-	page := c.Get(t, "/")
-	id := page.Instance()
-	require.NotEmpty(t, id, "GET / mints no instance id")
+	tab := serve(t).Visitor(t).Load(t, "/")
+	require.NotEmpty(t, tab.Instance(), "GET / mints no instance id")
 
-	resp := postUpdate(t, c, id, "x")
+	resp := update(t, tab, "x")
 	require.Equal(t, http.StatusConflict, resp.Status)
 	require.Equal(t, "reconnect", resp.Retry())
 }
@@ -149,42 +153,35 @@ func TestActionWithoutInstance(t *testing.T) {
 // The counter is what shows it: a state carried over would answer with the
 // second delivery, and a fresh one answers with the first.
 func TestStateResetsOnReconnect(t *testing.T) {
-	c := newClient(t)
-
-	tab := c.OpenTab(t, "/", pathStream)
+	tab := serve(t).Visitor(t).Load(t, "/")
+	st := tab.Connect(t, nil)
 	require.Equal(t, http.StatusOK, update(t, tab, "before").Status)
-	require.True(t, tab.Saw("deliveries:1 filter:before"),
-		"no patch before the reconnect")
+	st.WaitFor(t, status("deliveries:1 filter:before"))
 
-	tab.Close()
-	tab.Reopen(t)
+	st.Close()
+	st = tab.Connect(t, nil)
 
 	require.Equal(t, http.StatusOK, update(t, tab, "after").Status)
-	require.True(t, tab.Saw("deliveries:1 filter:after"),
-		"the reconnected tab kept the state of the stream that dropped")
+	st.WaitFor(t, status("deliveries:1 filter:after"))
 }
 
 // TestSlowRequestDoesNotStallTab covers an action whose body arrives slowly:
 // a second action on the same tab is served while the first is still being read,
 // and the tab keeps receiving patches.
 func TestSlowRequestDoesNotStallTab(t *testing.T) {
-	c := newClient(t)
-	tab := c.OpenTab(t, "/", pathStream)
+	v := serve(t).Visitor(t)
+	tab := v.Load(t, "/")
+	st := tab.Connect(t, nil)
 
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pr.Close() })
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodPost, c.URL()+pathAction, pr,
-	)
-	require.NoError(t, err, "building slow request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Datapages-Instance", tab.InstanceID())
+	req := tab.NewRequest(t, http.MethodPost, pathAction, pr)
 	req.Header.Set("Content-Type", "application/json")
 
 	slow := make(chan *http.Response, 1)
 	go func() {
-		resp, err := c.HTTP().Do(req)
+		resp, err := v.Client().Do(req)
 		if err != nil {
 			slow <- nil
 			return
@@ -195,15 +192,14 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 
 	// Enough of the body for the handler to start reading it,
 	// not enough to finish the JSON value it waits for.
-	_, err = pw.Write([]byte(`{"filter":"slo`))
+	_, err := pw.Write([]byte(`{"filter":"slo`))
 	require.NoError(t, err, "writing partial body")
 	time.Sleep(100 * time.Millisecond)
 
 	// A second action from the same tab, while the first still trickles.
 	require.Equal(t, http.StatusOK, update(t, tab, "fast").Status,
 		"action during a slow request")
-	require.True(t, tab.Saw("filter:fast"),
-		"the tab received no patch while a slow request was in flight")
+	st.WaitFor(t, status("filter:fast"))
 
 	_, err = pw.Write([]byte(`w"}`))
 	require.NoError(t, err, "writing the rest of the body")
@@ -216,30 +212,30 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the slow action never finished")
 	}
-	require.True(t, tab.Saw("filter:slow"), "the slow action left no patch behind")
+	st.WaitFor(t, status("filter:slow"))
 }
 
 // TestSlowFileDoesNotStallTab tests an action that answers with a file the
 // client doesn't read: a second action on the same tab is served while the
 // server still writes the file, and the tab keeps receiving patches.
 func TestSlowFileDoesNotStallTab(t *testing.T) {
-	c := newClient(t)
-	tab := c.OpenTab(t, "/", pathStream)
+	v := serve(t).Visitor(t)
+	tab := v.Load(t, "/")
+	st := tab.Connect(t, nil)
 
-	req := c.Request(t, http.MethodPost, pathExport, "")
-	req.Header.Set("Datapages-Instance", tab.InstanceID())
-	export, err := c.HTTP().Do(req)
+	export, err := v.Client().Do(tab.NewRequest(t, http.MethodPost, pathExport, nil))
 	require.NoError(t, err, "export")
 	// Closing the unread body ends the export.
 	t.Cleanup(func() { _ = export.Body.Close() })
 	require.Equal(t, http.StatusOK, export.StatusCode, "export")
 	require.Equal(t, strconv.Itoa(app.ExportSize), export.Header.Get("Content-Length"))
 
-	req = c.Request(t, http.MethodPost, pathAction, `{"filter":"fast"}`)
-	req.Header.Set("Datapages-Instance", tab.InstanceID())
+	req := tab.NewRequest(t, http.MethodPost, pathAction,
+		strings.NewReader(`{"filter":"fast"}`))
+	req.Header.Set("Content-Type", "application/json")
 	answered := make(chan int, 1)
 	go func() {
-		resp, err := c.HTTP().Do(req)
+		resp, err := v.Client().Do(req)
 		if err != nil {
 			answered <- 0
 			return
@@ -253,7 +249,7 @@ func TestSlowFileDoesNotStallTab(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the action waited for the client to read the export")
 	}
-	require.True(t, tab.Saw("filter:fast"),
+	st.WaitFor(t, status("filter:fast"),
 		"the tab received no patch while the export was unread")
 }
 
@@ -261,7 +257,7 @@ func TestSlowFileDoesNotStallTab(t *testing.T) {
 // the base64url alphabet makes streams and actions return the reconnect
 // response without allocating state.
 func TestMalformedInstanceID(t *testing.T) {
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	for name, id := range map[string]string{
 		"empty":     "",
@@ -272,9 +268,9 @@ func TestMalformedInstanceID(t *testing.T) {
 		"padding":   "AAAAAAAAAAAAAAAAAAAAA=",
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, http.StatusConflict, openStream(t, c, id),
+			require.Equal(t, http.StatusConflict, openStream(t, v, id),
 				"the stream of a malformed id was opened")
-			resp := postUpdate(t, c, id, "x")
+			resp := postUpdate(t, v, id, "x")
 			require.Equal(t, http.StatusConflict, resp.Status,
 				"the action of a malformed id was served")
 			require.Equal(t, "reconnect", resp.Retry())
@@ -286,19 +282,15 @@ func TestMalformedInstanceID(t *testing.T) {
 // Before its stream connects, an action receives the reconnect response.
 // The stream then creates state under the id, and a later action uses that state.
 func TestUnmintedInstanceID(t *testing.T) {
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 	const id = "AAAAAAAAAAAAAAAAAAAAAA" // 22 characters, the shape the server mints.
 
-	resp := postUpdate(t, c, id, "x")
+	resp := postUpdate(t, v, id, "x")
 	require.Equal(t, http.StatusConflict, resp.Status,
 		"an action was served for an id without a stream")
 	require.Equal(t, "reconnect", resp.Retry())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	req := c.Request(t, http.MethodGet, pathStream, "").WithContext(ctx)
-	req.Header.Set("Datapages-Instance", id)
-	stream, err := c.HTTP().Do(req)
+	stream, err := v.Client().Do(streamRequest(t, v, id))
 	require.NoError(t, err, "opening the stream of an unminted id")
 	t.Cleanup(func() { _ = stream.Body.Close() })
 	require.Equal(t, http.StatusOK, stream.StatusCode,
@@ -306,40 +298,26 @@ func TestUnmintedInstanceID(t *testing.T) {
 
 	// State registration precedes the HTTP 200 response.
 	// The action can find the state as soon as the client sees that the stream is open.
-	require.Equal(t, http.StatusOK, postUpdate(t, c, id, "x").Status,
+	require.Equal(t, http.StatusOK, postUpdate(t, v, id, "x").Status,
 		"the stream allocated no state under the supplied id")
 }
 
-// capServer starts a server whose state budget is cap.
-func capServer(t *testing.T, cap int) *httptest.Server {
+// capServer starts a server whose state budget is cap and returns a visitor of it.
+func capServer(t *testing.T, cap int) *datapagestest.Visitor {
 	t.Helper()
-	srv := httptest.NewServer(mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{
-			MaxConcurrentInstances: cap,
-		})))
-	t.Cleanup(srv.Close)
-	return srv
+	return serve(t, datapages.WithStateConfig(datapages.StateConfig{
+		MaxConcurrentInstances: cap,
+	})).Visitor(t)
 }
 
-// openInstance loads the page of srv and opens the stream of the id it mints.
-// The stream stays open until ctx is cancelled, which is what holds the
+// openInstance loads the page as v and opens the stream of the id it mints.
+// The stream stays open until the test ends, which is what holds the
 // instance the caller is counting.
-func openInstance(t *testing.T, ctx context.Context, srv *httptest.Server) int {
+func openInstance(t *testing.T, v *datapagestest.Visitor) int {
 	t.Helper()
-
-	page, err := srv.Client().Get(srv.URL + "/")
-	require.NoError(t, err, "GET /")
-	_ = page.Body.Close()
-	id := page.Header.Get("Datapages-Instance")
-	require.NotEmpty(t, id, "GET / mints no instance id")
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+pathStream, nil)
-	require.NoError(t, err, "building stream request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Datapages-Instance", id)
-
-	resp, err := srv.Client().Do(req)
+	tab := v.Load(t, "/")
+	require.NotEmpty(t, tab.Instance(), "GET / mints no instance id")
+	resp, err := v.Client().Do(tab.NewRequest(t, http.MethodGet, pathStream, nil))
 	require.NoError(t, err, "opening stream")
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	if resp.StatusCode == http.StatusServiceUnavailable {
@@ -357,15 +335,13 @@ func openInstance(t *testing.T, ctx context.Context, srv *httptest.Server) int {
 func TestInstanceCap(t *testing.T) {
 	const capacity = 3
 
-	srv := capServer(t, capacity)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	v := capServer(t, capacity)
 
 	for i := range capacity {
-		require.Equal(t, http.StatusOK, openInstance(t, ctx, srv),
+		require.Equal(t, http.StatusOK, openInstance(t, v),
 			"stream %d of %d the server may hold", i, capacity)
 	}
-	require.Equal(t, http.StatusServiceUnavailable, openInstance(t, ctx, srv),
+	require.Equal(t, http.StatusServiceUnavailable, openInstance(t, v),
 		"the stream past the cap was served instead of refused")
 }
 
@@ -375,10 +351,7 @@ func TestInstanceCap(t *testing.T) {
 // without a stream until the visitor reloads. "always" retries a status,
 // and an unlimited count keeps the tab trying after the default 10 attempts.
 func TestStreamInitRetriesOnRefusal(t *testing.T) {
-	c := newClient(t)
-
-	page := c.Get(t, "/")
-	require.Equal(t, http.StatusOK, page.Status)
+	page := serve(t).Visitor(t).Load(t, "/").Page()
 	require.Contains(t, page.Body,
 		`data-init="@get('/_$/',{retry:'always',retryMaxCount:Infinity})"`,
 		"the stream init carries no retry policy, which leaves a tab refused "+
@@ -394,15 +367,12 @@ func TestStreamInitRetriesOnRefusal(t *testing.T) {
 func TestInstanceCapIsPerServer(t *testing.T) {
 	a, b := capServer(t, 1), capServer(t, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	require.Equal(t, http.StatusOK, openInstance(t, ctx, a),
+	require.Equal(t, http.StatusOK, openInstance(t, a),
 		"the only instance server A may hold")
-	require.Equal(t, http.StatusServiceUnavailable, openInstance(t, ctx, a),
+	require.Equal(t, http.StatusServiceUnavailable, openInstance(t, a),
 		"a second instance on a server that may hold 1")
 
-	require.Equal(t, http.StatusOK, openInstance(t, ctx, b),
+	require.Equal(t, http.StatusOK, openInstance(t, b),
 		"server B refuses its first stream while server A is full")
 }
 
@@ -411,22 +381,23 @@ func TestInstanceCapIsPerServer(t *testing.T) {
 // but only the server whose stream opened it holds its state. The other server
 // returns the reconnect response.
 func TestInstanceIDIsNotSharedBetweenServers(t *testing.T) {
-	broker := func() messaging.Broker { return inmem.New(messaging.DefaultBrokerChanBuffer) }
+	a := serve(t).Visitor(t)
+	b := serve(t).Visitor(t)
 
-	a := client.New(t, mustNewServer(t, &app.App{}, broker()))
-	b := client.New(t, mustNewServer(t, &app.App{}, broker()))
-
-	tab := a.OpenTab(t, "/", pathStream)
+	tab := a.Load(t, "/")
+	st := tab.Connect(t, nil)
 	require.Equal(t, http.StatusOK, update(t, tab, "on-a").Status,
 		"the action on the server that minted the id")
 
-	resp := postUpdate(t, b, tab.InstanceID(), "on-b")
+	resp := postUpdate(t, b, tab.Instance(), "on-b")
 	require.Equal(t, http.StatusConflict, resp.Status,
 		"the other server served a tab it never opened")
 	require.Equal(t, "reconnect", resp.Retry())
 
-	require.True(t, tab.Never("filter:on-b"),
-		"the action sent to the other server reached this tab's state")
+	// The refusal leaves the tab's state as it was: its next update counts a second
+	// delivery.
+	require.Equal(t, http.StatusOK, update(t, tab, "again").Status)
+	st.WaitFor(t, status("deliveries:2 filter:again"))
 }
 
 // TestInstanceCapDisabled covers a negative MaxConcurrentInstances,
@@ -438,12 +409,10 @@ func TestInstanceIDIsNotSharedBetweenServers(t *testing.T) {
 func TestInstanceCapDisabled(t *testing.T) {
 	const streams = 8
 
-	srv := capServer(t, -1)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	v := capServer(t, -1)
 
 	for i := range streams {
-		require.Equal(t, http.StatusOK, openInstance(t, ctx, srv),
+		require.Equal(t, http.StatusOK, openInstance(t, v),
 			"stream %d of a server configured to hold as many as it is asked for", i)
 	}
 }
@@ -459,38 +428,36 @@ func TestInstanceCapDisabled(t *testing.T) {
 // a second stream is served only if the first gave its instance back.
 // The id that named it stops being answered in the same place, and both are asserted.
 func TestFailedOpenReleasesInstance(t *testing.T) {
-	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{
-			MaxConcurrentInstances: 1,
-		})))
+	srv := serve(t, datapages.WithStateConfig(datapages.StateConfig{
+		MaxConcurrentInstances: 1,
+	}))
+	v := srv.Visitor(t)
 
-	page := c.Get(t, pathFailOpen)
-	require.Equal(t, http.StatusOK, page.Status, "GET %s", pathFailOpen)
+	page := v.Load(t, pathFailOpen)
 	id := page.Instance()
 	require.NotEmpty(t, id, "GET %s mints no instance id", pathFailOpen)
 
 	// The instance is reserved before the hook.
 	// The stream commits 200 before the hook can fail.
-	req := c.Request(t, http.MethodGet, pathFailOpenStream, "")
-	req.Header.Set("Datapages-Instance", id)
-	require.Equal(t, http.StatusOK, c.Do(t, req).Status,
+	resp := v.Send(t, page.NewRequest(t, http.MethodGet, pathFailOpenStream, nil))
+	require.Equal(t, http.StatusOK, resp.Status,
 		"the stream of a page whose open fails")
 
 	// PageIndex holds the same state type. Its action is what asks this
 	// server whether the instance of the failed open is still there.
-	require.True(t, client.WaitFor(func() bool {
-		return postUpdate(t, c, id, "x").Status == http.StatusConflict
-	}, time.Second), "the instance of a failed open is never given back: "+
-		"the close hook that gives one back is wired up only for an open that "+
-		"succeeded, and nothing else releases it")
+	// An instance that is never given back means its release is wired up only for an
+	// open that succeeded.
+	srv.WaitFor(t, "the instance of the failed open to be given back", func() bool {
+		return postUpdate(t, v, id, "x").Status == http.StatusConflict
+	})
 
 	// Nothing else was disturbed: a page whose open succeeds still opens and
 	// still holds state. It is also the only instance this server may hold,
 	// which a failed open that kept its own would have spent.
-	tab := c.OpenTab(t, "/", pathStream)
+	tab := v.Load(t, "/")
+	st := tab.Connect(t, nil)
 	require.Equal(t, http.StatusOK, update(t, tab, "after-failure").Status)
-	require.True(t, tab.Saw("deliveries:1 filter:after-failure"),
-		"a tab opened after a failed open holds no state")
+	st.WaitFor(t, status("deliveries:1 filter:after-failure"))
 }
 
 // TestPanicInEventHandlerReleasesInstance covers an OnXXX handler that panics
@@ -505,24 +472,22 @@ func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer), containPanic,
-		datapages.WithStateConfig(datapages.StateConfig{
-			MaxConcurrentInstances: 1,
-		})))
+	srv := serve(t, containPanic, datapages.WithStateConfig(datapages.StateConfig{
+		MaxConcurrentInstances: 1,
+	}))
+	v := srv.Visitor(t)
 
-	tab := c.OpenTab(t, "/", pathStream)
-	require.Equal(t, http.StatusOK,
-		tab.Act(t, http.MethodPost, pathAction, `{"panic":true}`).Status,
-		"dispatching the event that panics")
+	tab := v.Load(t, "/")
+	tab.Connect(t, nil)
+	resp := tab.Do(t, http.MethodPost, pathAction, map[string]bool{"panic": true})
+	require.Equal(t, http.StatusOK, resp.Status, "dispatching the event that panics")
 
-	page := c.Get(t, "/")
-	id := page.Instance()
+	// A handler that kept its mutex locked keeps the capacity slot it holds.
+	id := v.Load(t, "/").Instance()
 	require.NotEmpty(t, id, "GET / mints no replacement instance id")
-	require.True(t, client.WaitFor(func() bool {
-		return openStream(t, c, id) == http.StatusOK
-	}, time.Second), "the panicking event handler kept its mutex locked and "+
-		"the instance capacity slot was never released")
+	srv.WaitFor(t, "the instance capacity slot to be released", func() bool {
+		return openStream(t, v, id) == http.StatusOK
+	})
 }
 
 // TestPanicInStreamCloseIsContained covers a StreamClose that panics.
@@ -532,13 +497,13 @@ func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
 // the process for every user of the server. A recovery that skips the unlock
 // and the release wedges the tab instead and keeps its instance forever.
 func TestPanicInStreamCloseIsContained(t *testing.T) {
-	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer)))
+	srv := serve(t)
+	v := srv.Visitor(t)
 
-	tab := c.OpenTab(t, pathPanicClose, pathPanicCloseStream)
-	id := tab.InstanceID()
-	tab.Close()
+	tab := v.Load(t, pathPanicClose)
+	tab.Connect(t, nil).Close()
 
-	require.Equal(t, http.StatusOK, c.Get(t, pathPanicClose).Status,
+	require.Equal(t, http.StatusOK, v.Get(t, pathPanicClose).Status,
 		"the server stopped serving after a panicking close hook")
 
 	// PageIndex holds the same state type, which is what lets this ask whether
@@ -547,50 +512,60 @@ func TestPanicInStreamCloseIsContained(t *testing.T) {
 	// the probe turns that into a failure with a message. It cannot keep the
 	// case quick, since closing the test server waits on the wedged handler.
 	probe := func() int {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-			c.URL()+pathAction, strings.NewReader(`{"filter":"x"}`))
-		require.NoError(t, err, "building the probe")
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Datapages-Instance", id)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := c.HTTP().Do(req)
+		req := updateRequest(t, v, tab.Instance(), "x").WithContext(ctx)
+		resp, err := v.Client().Do(req)
 		require.NoError(t, err,
 			"the action never returned, which is the slot mutex still held "+
 				"by the hook that panicked under it")
 		_ = resp.Body.Close()
 		return resp.StatusCode
 	}
-	require.True(t, client.WaitFor(func() bool {
-		return probe() == http.StatusConflict
-	}, time.Second), "the instance of a panicking close hook is never given "+
-		"back: the release runs after the hook, and only a deferred one "+
-		"runs at all")
+	srv.WaitFor(t, "the instance of the panicking close hook to be given back",
+		func() bool { return probe() == http.StatusConflict })
 }
 
-// postUpdate sends the action as the tab named by instanceID,
-// which is how a test reaches the server without holding a tab.
+// updateRequest builds the action as the tab named by instanceID,
+// which is how a test reaches the server as a tab no page load of its own minted.
+func updateRequest(
+	t *testing.T, v *datapagestest.Visitor, instanceID, filter string,
+) *http.Request {
+	t.Helper()
+	req := v.NewRequest(t, http.MethodPost, pathAction,
+		strings.NewReader(`{"filter":"`+filter+`"}`))
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Datapages-Instance", instanceID)
+	return req
+}
+
 func postUpdate(
-	t *testing.T, c *client.Client, instanceID, filter string,
-) client.Response {
+	t *testing.T, v *datapagestest.Visitor, instanceID, filter string,
+) *datapagestest.Response {
 	t.Helper()
-	req := c.Request(t, http.MethodPost, pathAction, `{"filter":"`+filter+`"}`)
-	req.Header.Set("Datapages-Instance", instanceID)
-	return c.Do(t, req)
+	return v.Send(t, updateRequest(t, v, instanceID, filter))
 }
 
-// openStream connects a stream under instanceID and closes it after its status
-// arrives. A refused stream returns immediately; an accepted SSE stream ends
-// when cancel closes its request context.
-func openStream(t *testing.T, c *client.Client, instanceID string) int {
+// streamRequest builds the request that opens
+// the index page's stream as the tab named by instanceID.
+func streamRequest(
+	t *testing.T, v *datapagestest.Visitor, instanceID string,
+) *http.Request {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req := c.Request(t, http.MethodGet, pathStream, "").WithContext(ctx)
+	req := v.NewRequest(t, http.MethodGet, pathStream, nil)
+	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Datapages-Instance", instanceID)
-	resp, err := c.HTTP().Do(req)
-	require.NoError(t, err, "opening replacement stream")
+	return req
+}
+
+// openStream connects a stream under instanceID and closes it after its status arrives.
+// A refused stream returns immediately; an accepted SSE stream ends
+// when its body is closed.
+func openStream(t *testing.T, v *datapagestest.Visitor, instanceID string) int {
+	t.Helper()
+	resp, err := v.Client().Do(streamRequest(t, v, instanceID))
+	require.NoError(t, err, "opening the stream")
 	_ = resp.Body.Close()
 	return resp.StatusCode
 }
