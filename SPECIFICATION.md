@@ -568,7 +568,7 @@ See [datapages.go](datapages.go) for method definitions.
 pageCache datapages.PageCacheWriter
 ```
 
-This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, and `QUERYXXX` action methods, including app-level actions. It queues writes to the client's [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) cache. A cached body is a component supplied by the handler and need not match the live body. Datapages registers the service worker.
+This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`, and `QUERYXXX` action methods, including app-level actions. It queues writes to the client's [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) cache. A cached body is a component supplied by the handler and need not match the live body. The service worker is registered only with the generated `WithOffline` option, which declaring `PageOffline` adds, or with `offline.WithServiceWorker`. Without either, the writes reach no worker.
 
 The interface (from `github.com/romshark/datapages`):
 
