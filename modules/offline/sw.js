@@ -55,6 +55,20 @@ self.addEventListener('activate', function (e) {
   })());
 });
 
+// pageKey returns the key of the page entry for url.
+// The server serves a page at /x and /x/ alike, and the entry is stored with the slash.
+function pageKey(url) {
+  const u = new URL(url, self.location.origin);
+  if (!u.pathname.endsWith('/')) u.pathname += '/';
+  return u.href;
+}
+
+// matchPage finds the page entry a navigation to key opens,
+// else an asset installed under the exact path.
+async function matchPage(cache, key) {
+  return (await cache.match(pageKey(key))) || cache.match(key);
+}
+
 self.addEventListener('message', function (e) {
   const d = e.data || {};
   if (d.type !== 'datapages-offline:apply') return;
@@ -68,14 +82,14 @@ self.addEventListener('message', function (e) {
         const reqs = await cache.keys();
         await Promise.all(reqs.map(function (req) { return cache.delete(req); }));
       }
-      for (const url of (d.clears || [])) await cache.delete(url);
+      for (const url of (d.clears || [])) await cache.delete(pageKey(url));
       for (const s of (d.sets || [])) {
         const headers = {
           'Content-Type': 'text/html; charset=utf-8',
         };
         headers[OFFLINE_VERSION_HEADER] = String(s.version);
         if (s.shim) headers[SHIM_HEADER] = '1';
-        await cache.put(s.url, new Response(s.html, { status: 200, headers: headers }));
+        await cache.put(pageKey(s.url), new Response(s.html, { status: 200, headers: headers }));
       }
     } finally {
       if (port) port.postMessage(true);
@@ -128,7 +142,7 @@ async function pageFetchHeaders(req, key) {
   h.set('Accept', 'text/html');
   h.set('X-Datapages-Worker-Version', String(CFG.workerVersion));
   const cache = await caches.open(CACHE);
-  const cached = await cache.match(key);
+  const cached = await matchPage(cache, key);
   const held = cached && cached.headers.get(OFFLINE_VERSION_HEADER);
   if (held) h.set(OFFLINE_VERSION_HEADER, held);
   return h;
@@ -194,7 +208,7 @@ self.addEventListener('fetch', function (e) {
     e.respondWith((async function () {
       const cache = await caches.open(CACHE);
 
-      const cached = await cache.match(key);
+      const cached = await matchPage(cache, key);
       const headers = new Headers(req.headers);
       headers.set('X-Datapages-Worker-Version', String(CFG.workerVersion));
       if (cached) {

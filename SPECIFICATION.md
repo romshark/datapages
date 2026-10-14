@@ -1111,7 +1111,7 @@ The `X-Datapages-Worker-Version` request header controls installation and update
 - Header lower than the server version: the server adds registration for the current worker script.
 - Header equal: the response omits registration.
 
-The worker holds 1 cache of offline bodies keyed by URL. Each entry stores the rendered HTML and its version.
+The worker holds 1 cache of offline bodies keyed by URL. `/tickets` and `/tickets/` share 1 entry, as the server serves both as 1 page. Each entry stores the rendered HTML and its version.
 
 Writes reach the worker in 1 of 3 ways, depending on how the handler responds:
 

@@ -10,7 +10,8 @@ import (
 // TestServiceWorkerCache tests how sw.js and sw.min.js, the copy the module serves,
 // store the responses of requests that are not navigations, such as an img element
 // loading a GET action: a response marked no-store or no-cache,
-// and a refusal from the server. testdata/sw_test.mjs runs each script in Node.
+// and a refusal from the server. It also tests that a navigation finds a page entry
+// with or without the trailing slash. testdata/sw_test.mjs runs each script in Node.
 func TestServiceWorkerCache(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {

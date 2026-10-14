@@ -1,6 +1,7 @@
 // sw_test.mjs runs the offline worker in a VM against a fake origin and checks
 // how it stores and serves the responses of requests that are not navigations,
-// such as an img element loading a GET action.
+// such as an img element loading a GET action, and the page entries a
+// navigation opens.
 //
 // Usage: node sw_test.mjs path/to/sw.js
 import assert from 'node:assert/strict';
@@ -78,6 +79,30 @@ function worker(config = {}) {
     });
     const res = await responded;
     await Promise.all(waits);
+    return { status: res.status, body: await res.text() };
+  };
+  // apply sends the message a page posts with its page cache writes and waits
+  // for the worker to store them.
+  w.apply = async (writes) => {
+    const waits = [];
+    listeners.message({
+      data: { type: 'datapages-offline:apply', ...writes },
+      waitUntil(p) { waits.push(p); },
+    });
+    await Promise.all(waits);
+  };
+  // navigate sends the request of a page navigation.
+  w.navigate = async (path) => {
+    const request = new Request(ORIGIN + path);
+    // The Request constructor refuses mode 'navigate'.
+    Object.defineProperty(request, 'mode', { value: 'navigate' });
+    let responded;
+    listeners.fetch({
+      request,
+      respondWith(p) { responded = p; },
+      waitUntil() {},
+    });
+    const res = await responded;
     return { status: res.status, body: await res.text() };
   };
   return w;
@@ -165,4 +190,36 @@ for (const code of [401, 403, 404, 410]) {
   w.server = status(500);
   await w.load('/files/4');
   assert.deepEqual(await w.load('/files/4'), { status: 200, body: 'v1' });
+}
+
+// A page entry is stored with the trailing slash the server serves its page with,
+// whatever URL it was written for. A navigation without the slash finds it:
+// online it reports the held version, offline it gets the entry.
+{
+  const w = worker();
+  await w.apply({ sets: [{ url: '/tickets', html: 'snapshot', version: '3' }] });
+  assert.equal(w.stored('/tickets/'), true, 'the entry was stored without the slash');
+  for (const path of ['/tickets', '/tickets/']) {
+    let held;
+    w.server = (r) => {
+      held = r.headers.get('X-Datapages-Offline-Version');
+      return new Response('live');
+    };
+    assert.deepEqual(await w.navigate(path), { status: 200, body: 'live' });
+    assert.equal(held, '3', `${path} reported no version`);
+    w.server = offline;
+    assert.deepEqual(await w.navigate(path), { status: 200, body: 'snapshot' });
+  }
+  await w.apply({ clears: ['/tickets'] });
+  assert.equal(w.stored('/tickets/'), false, 'a clear without the slash kept the entry');
+}
+
+// A navigation to an installed asset, which has no page entry, gets the asset
+// offline.
+{
+  const w = worker({ assets: ['/static/manual.pdf'] });
+  w.server = ok('pdf');
+  await w.install();
+  w.server = offline;
+  assert.deepEqual(await w.navigate('/static/manual.pdf'), { status: 200, body: 'pdf' });
 }
