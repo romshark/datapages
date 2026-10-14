@@ -39,7 +39,8 @@ Use -n/--non-interactive to disable prompts; when a value is needed
 that would normally be prompted for, pass it via --name or --module.
 
 If not inside a git repository, a new one is created. If not inside
-a Go module, a new one is initialized. Code generation is run, and
+a Go module, a new one is initialized. Inside a Go module, init runs in
+the directory of its go.mod. Code generation is run, and
 finally go mod tidy resolves all dependencies. Init never deletes any files.
 
 Init writes these only when they are missing and never touches them
@@ -151,6 +152,12 @@ func runInit(
 		created = true
 	} else {
 		projectDir = cwd
+		// The enclosing module is the one gen and lint use from here.
+		// go mod init below its go.mod would take the directory out of it.
+		if root := moduleDirOf(cwd); root != "" && root != cwd {
+			projectDir = root
+			_, _ = fmt.Fprintf(out, "Using the Go module in %s\n", root)
+		}
 	}
 
 	goModPath := filepath.Join(projectDir, "go.mod")

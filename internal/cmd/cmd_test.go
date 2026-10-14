@@ -1141,6 +1141,31 @@ func TestInit(t *testing.T) {
 			wantCode: 1,
 			wantErr:  "--name is required",
 		},
+		"non-interactive in a module subdirectory": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
+					[]byte("module example.com/root\n\ngo 1.27.2\n"), 0o644))
+				web := filepath.Join(dir, "web")
+				require.NoError(t, os.Mkdir(web, 0o755))
+				return web
+			},
+			projectDir: "..",
+			args:       []string{"datapages", "init", "-n"},
+			wantCode:   0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				root := filepath.Dir(startDir)
+				require.Contains(t, stdout, "Using the Go module in ")
+				require.NoFileExists(t, filepath.Join(startDir, "go.mod"))
+				require.NoFileExists(t, filepath.Join(startDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(root, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(root, "app", "app.go"))
+				requireFileContains(t, filepath.Join(root, "go.mod"),
+					"module example.com/root")
+			},
+		},
 		"non-interactive missing module": {
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
