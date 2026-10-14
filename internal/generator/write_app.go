@@ -620,7 +620,7 @@ func (w *Writer) writeAppHandleStreamRequest() {
 func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,`)
 	if w.usage.streamAuth {
-		w.Raw(` sessKey string, sess `)
+		w.Raw("\n\tsessKey string, sess ")
 		w.Raw(w.sessionType)
 		w.Raw(`,`)
 	}
@@ -637,13 +637,15 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, `)
+	s.streams.Handle(w, r, compression,
+		`)
 	if w.usage.streamAuth {
 		w.Raw(`sessKey, sess.UserID(), sess.ExpiresAt()`)
 	} else {
 		w.Raw(`"", "", time.Time{}`)
 	}
-	w.Raw(`, subjects, onOpen, onClose, fn)
+	w.Raw(`,
+		subjects, onOpen, onClose, fn)
 }
 `)
 }
@@ -1647,18 +1649,7 @@ func (w *Writer) writeCallStreamConfig() {
 func (s *Server) callStreamConfig(
 	handler string, fn func() (datapages.StreamConfig, error),
 ) (conf datapages.StreamConfig, err error) {
-	defer func() {
-		v := recover()
-		if v == nil {
-			return
-		}
-		stack := debug.Stack()
-		s.Logger().Error("recovered panic",
-			slog.String("handler", handler),
-			slog.Any("panic", v),
-			slog.String("stack", string(stack)))
-		err = datapages.PanicError{Value: v, Stack: stack}
-	}()
+	defer s.recoverPanicInto(&err, handler)
 	return fn()
 }
 `)
@@ -1750,7 +1741,8 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 // the error page answer. The stack is logged whatever they do with it.
 //
 // The PageError500 GET handler registers recoverPanicFinal instead, for the
-// same reason it reports its error through httpErrFinal.
+// same reason it reports its error through httpErrFinal. StreamConfig and
+// StreamOpen register recoverPanicInto, since the stream reports their errors.
 func (w *Writer) writeRecoverPanic(m *model.App) {
 	w.Raw(`
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -1771,6 +1763,23 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 `)
+	if w.usage.streamConfig || w.usage.streamOpen {
+		w.Raw(`
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
+}
+`)
+	}
 	if w.usage.files {
 		w.Raw(`
 // recoverPanicFile is recoverPanic for a handler that answers with a file.
@@ -2054,7 +2063,7 @@ func (w *Writer) writeMethodCall(
 		// Void return or only error.
 		if h.OutputErr != nil {
 			w.Raw("\tif err := ")
-			w.writeCallExpr(receiver, methodName, args)
+			w.writeCallExpr(receiver, methodName, args, 1)
 			w.Raw("; err != nil {\n")
 			w.Raw("\t\ts.httpErrIntern(w, r, " + sseRef + ", \"handling action ")
 			w.Raw(actionOwnerName(p, isAppLevel))
@@ -2064,7 +2073,7 @@ func (w *Writer) writeMethodCall(
 			w.Line(1, "}")
 		} else {
 			w.Byte('\t')
-			w.writeCallExpr(receiver, methodName, args)
+			w.writeCallExpr(receiver, methodName, args, 1)
 			w.Byte('\n')
 		}
 		return
@@ -2073,7 +2082,7 @@ func (w *Writer) writeMethodCall(
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
-	w.writeCallExpr(receiver, methodName, args)
+	w.writeCallExpr(receiver, methodName, args, 1)
 	w.Byte('\n')
 
 	if h.OutputErr != nil {
@@ -2339,7 +2348,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
-	w.writeCallExpr("p", "GET", args)
+	w.writeCallExpr("p", "GET", args, 1)
 	w.Byte('\n')
 
 	if h.OutputErr != nil {

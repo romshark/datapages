@@ -130,7 +130,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -149,6 +151,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 // recoverPanicFile is recoverPanic for a handler that answers with a file.
@@ -564,7 +580,11 @@ func (s pageCloseStateHandlers) GETStream(w http.ResponseWriter, r *http.Request
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			if !slot.dead {
-				if err := p.StreamClose(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
+				if err := p.StreamClose(
+					r,
+					streamID,
+					datapages.State[dpapp.StateFilters]{Values: slot.state},
+				); err != nil {
 					s.LogErr("handling PageCloseState.StreamClose", err)
 				}
 			}
@@ -615,7 +635,11 @@ func (s pageCloseStateHandlers) POSTMark(
 	p := dpapp.PageCloseState{
 		App: s.app,
 	}
-	err := p.POSTMark(r, datapages.State[dpapp.StateFilters]{Values: slot.state}, signals)
+	err := p.POSTMark(
+		r,
+		datapages.State[dpapp.StateFilters]{Values: slot.state},
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageCloseState.Mark", err)
 		return
@@ -691,10 +715,15 @@ func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageFailOpen.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				streamID,
+				datapages.State[dpapp.StateFilters]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateFilters(instanceID, slot)
@@ -782,10 +811,15 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				streamID,
+				datapages.State[dpapp.StateFilters]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateFilters(instanceID, slot)
@@ -865,7 +899,13 @@ func (s pageIndexHandlers) POSTUpdate(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTUpdate(r, datapages.State[dpapp.StateFilters]{Values: slot.state}, stateID, signals, dispatchFiltersUpdated)
+	err := p.POSTUpdate(
+		r,
+		datapages.State[dpapp.StateFilters]{Values: slot.state},
+		stateID,
+		signals,
+		dispatchFiltersUpdated,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Update", err)
 		return
@@ -902,7 +942,10 @@ func (s pageIndexHandlers) POSTExport(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	file, err := p.POSTExport(r, datapages.State[dpapp.StateFilters]{Values: slot.state})
+	file, err := p.POSTExport(
+		r,
+		datapages.State[dpapp.StateFilters]{Values: slot.state},
+	)
 	// The tab's other handlers don't wait for the client to read the file.
 	unlock()
 	if err != nil {
@@ -989,7 +1032,11 @@ func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Reque
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			if !slot.dead {
-				if err := p.StreamClose(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
+				if err := p.StreamClose(
+					r,
+					streamID,
+					datapages.State[dpapp.StateFilters]{Values: slot.state},
+				); err != nil {
 					s.LogErr("handling PagePanicOnClose.StreamClose", err)
 				}
 			}

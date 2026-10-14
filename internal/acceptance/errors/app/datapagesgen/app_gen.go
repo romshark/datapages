@@ -538,7 +538,10 @@ func (s pageIndexHandlers) POSTStreamFail(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStreamFail(r, sse)
+	err := p.POSTStreamFail(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamFail", err)
 		return
@@ -558,7 +561,10 @@ func (s pageIndexHandlers) POSTStreamPanic(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStreamPanic(r, sse)
+	err := p.POSTStreamPanic(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamPanic", err)
 		return

@@ -129,7 +129,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -148,6 +150,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 type Server struct {
@@ -476,7 +492,12 @@ func (s appHandlers) POSTBump(w http.ResponseWriter, r *http.Request) {
 
 	dispatchChanged := dispatcherEventChanged{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "App.Bump")
-	err := s.app.POSTBump(r, datapages.State[dpapp.TabContext]{Values: slot.state}, stateID, dispatchChanged)
+	err := s.app.POSTBump(
+		r,
+		datapages.State[dpapp.TabContext]{Values: slot.state},
+		stateID,
+		dispatchChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Bump", err)
 		return
@@ -562,10 +583,14 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, datapages.State[dpapp.TabContext]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.TabContext]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseTabContext(instanceID, slot)
@@ -647,7 +672,13 @@ func (s pageIndexHandlers) POSTNote(
 			App: s.app,
 		},
 	}
-	err := p.POSTNote(r, datapages.State[dpapp.TabContext]{Values: slot.state}, stateID, signals, dispatchChanged)
+	err := p.POSTNote(
+		r,
+		datapages.State[dpapp.TabContext]{Values: slot.state},
+		stateID,
+		signals,
+		dispatchChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Note", err)
 		return
@@ -729,10 +760,14 @@ func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageOther.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, datapages.State[dpapp.TabContext]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.TabContext]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseTabContext(instanceID, slot)

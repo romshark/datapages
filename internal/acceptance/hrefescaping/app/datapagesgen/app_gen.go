@@ -72,7 +72,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -291,7 +293,10 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
 		return
@@ -377,7 +382,12 @@ func (s pageItemHandlers) POSTRename(
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	err := p.POSTRename(r, sse, path, query)
+	err := p.POSTRename(
+		r,
+		sse,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageItem.Rename", err)
 		return
@@ -397,7 +407,10 @@ func (s pageQuotedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageQuoted.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageQuoted.GET", err)
 		return
@@ -479,7 +492,10 @@ func (s pageQuotedHandlers) POSTPing(
 	p := dpapp.PageQuoted{
 		App: s.app,
 	}
-	err := p.POSTPing(r, sse)
+	err := p.POSTPing(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuoted.Ping", err)
 		return
@@ -504,7 +520,11 @@ func (s pageQuotedHandlers) POSTFind(
 	p := dpapp.PageQuoted{
 		App: s.app,
 	}
-	err := p.POSTFind(r, sse, query)
+	err := p.POSTFind(
+		r,
+		sse,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuoted.Find", err)
 		return
@@ -529,7 +549,11 @@ func (s pageQuotedItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageQuotedItem.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageQuotedItem.GET", err)
 		return
@@ -624,7 +648,11 @@ func (s pageQuotedItemHandlers) POSTRename(
 	p := dpapp.PageQuotedItem{
 		App: s.app,
 	}
-	err := p.POSTRename(r, sse, path)
+	err := p.POSTRename(
+		r,
+		sse,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuotedItem.Rename", err)
 		return
@@ -654,7 +682,12 @@ func (s pageQuotedItemHandlers) POSTMove(
 	p := dpapp.PageQuotedItem{
 		App: s.app,
 	}
-	err := p.POSTMove(r, sse, path, query)
+	err := p.POSTMove(
+		r,
+		sse,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageQuotedItem.Move", err)
 		return
@@ -685,7 +718,10 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageSearch.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSearch.GET", err)
 		return

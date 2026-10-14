@@ -251,7 +251,12 @@ func (s pageIndexHandlers) QUERYInput(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.QUERYInput(r, sse, query, signals)
+	err := p.QUERYInput(
+		r,
+		sse,
+		query,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Input", err)
 		return

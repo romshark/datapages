@@ -63,7 +63,8 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[dpapp.SessionData],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+	sessKey string, sess datapages.Session[dpapp.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -76,7 +77,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		sessKey, sess.UserID(), sess.ExpiresAt(),
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -261,7 +264,11 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "App.SignOut")
-	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatchSessionClosed)
+	closeSession, redirect, err := s.app.POSTSignOut(
+		r,
+		sess,
+		dispatchSessionClosed,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
@@ -294,7 +301,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, head, err := p.GET(r, sess)
+	body, head, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -378,7 +388,10 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
-	body, head, redirect, err := p.GET(r, sess)
+	body, head, redirect, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
@@ -419,7 +432,11 @@ func (s pageLoginHandlers) QUERYValidate(
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	body, err := p.QUERYValidate(r, sess, signals)
+	body, err := p.QUERYValidate(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Validate", err)
 		return
@@ -456,7 +473,11 @@ func (s pageLoginHandlers) POSTSubmit(
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
+	body, redirect, newSession, err := p.POSTSubmit(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Submit", err)
 		return
@@ -493,7 +514,10 @@ func (s pageRegisterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageRegister.GET")
-	body, head, redirect, err := p.GET(r, sess)
+	body, head, redirect, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageRegister.GET", err)
 		return
@@ -535,7 +559,11 @@ func (s pageRegisterHandlers) QUERYValidate(
 	p := dpapp.PageRegister{
 		App: s.app,
 	}
-	body, err := p.QUERYValidate(r, sess, signals)
+	body, err := p.QUERYValidate(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRegister.Validate", err)
 		return
@@ -573,7 +601,11 @@ func (s pageRegisterHandlers) POSTSubmit(
 	p := dpapp.PageRegister{
 		App: s.app,
 	}
-	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
+	body, redirect, newSession, err := p.POSTSubmit(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRegister.Submit", err)
 		return

@@ -248,7 +248,11 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, sess, signals)
+	body, err := p.GET(
+		r,
+		sess,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -276,7 +280,10 @@ func (s pageIndexHandlers) POSTLeave(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	closeSession, err := p.POSTLeave(r, sess)
+	closeSession, err := p.POSTLeave(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Leave", err)
 		return
@@ -317,7 +324,11 @@ func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageNested.GET")
-	body, err := p.GET(r, signals, query)
+	body, err := p.GET(
+		r,
+		signals,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageNested.GET", err)
 		return

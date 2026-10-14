@@ -121,7 +121,8 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[struct{}],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+	sessKey string, sess datapages.Session[struct{}],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -134,7 +135,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		sessKey, sess.UserID(), sess.ExpiresAt(),
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -153,6 +156,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 type Server struct {
@@ -781,7 +798,10 @@ func (s pageBackgroundPostHandlers) GET(w http.ResponseWriter, r *http.Request) 
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageBackgroundPost.GET")
-	body, enableBackgroundStreaming, err := p.GET(r, path)
+	body, enableBackgroundStreaming, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBackgroundPost.GET", err)
 		return
@@ -948,7 +968,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -1033,11 +1056,18 @@ func (s pagePanicHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
-			return p.StreamOpen(r, streamID)
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PagePanic.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+			)
 		},
 		func(streamID datapages.StreamID) {
-			if err := p.StreamClose(r, streamID); err != nil {
+			if err := p.StreamClose(
+				r,
+				streamID,
+			); err != nil {
 				s.LogErr("handling PagePanic.StreamClose", err)
 			}
 		},
@@ -1100,11 +1130,18 @@ func (s pagePanicHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
-			return p.StreamOpen(r, streamID)
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PagePanic.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+			)
 		},
 		func(streamID datapages.StreamID) {
-			if err := p.StreamClose(r, streamID); err != nil {
+			if err := p.StreamClose(
+				r,
+				streamID,
+			); err != nil {
 				s.LogErr("handling PagePanic.StreamClose", err)
 			}
 		},
@@ -1149,7 +1186,10 @@ func (s pagePanicHandlers) POSTFault(
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	err := p.POSTFault(r, dispatchFaulted)
+	err := p.POSTFault(
+		r,
+		dispatchFaulted,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PagePanic.Fault", err)
 		return
@@ -1173,7 +1213,11 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePost.GET")
-	body, err := p.GET(r, path, sess)
+	body, err := p.GET(
+		r,
+		path,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
 		return
@@ -1519,7 +1563,11 @@ func (s pageRoomsHandlers) POSTPost(
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTPost(r, signals, dispatchRoomPosted)
+	err := p.POSTPost(
+		r,
+		signals,
+		dispatchRoomPosted,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Post", err)
 		return
@@ -1551,7 +1599,11 @@ func (s pageRoomsHandlers) POSTNotice(
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTNotice(r, signals, dispatchNoticed)
+	err := p.POSTNotice(
+		r,
+		signals,
+		dispatchNoticed,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Notice", err)
 		return
@@ -1653,10 +1705,15 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageTabs.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				streamID,
+				datapages.State[dpapp.StateTab]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateTab(instanceID, slot)
@@ -1754,10 +1811,15 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageTabs.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				streamID,
+				datapages.State[dpapp.StateTab]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateTab(instanceID, slot)
@@ -1831,7 +1893,11 @@ func (s pageTabsHandlers) POSTBump(
 	p := dpapp.PageTabs{
 		App: s.app,
 	}
-	err := p.POSTBump(r, datapages.State[dpapp.StateTab]{Values: slot.state}, dispatchTicked)
+	err := p.POSTBump(
+		r,
+		datapages.State[dpapp.StateTab]{Values: slot.state},
+		dispatchTicked,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageTabs.Bump", err)
 		return

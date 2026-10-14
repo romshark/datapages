@@ -434,7 +434,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -501,7 +504,10 @@ func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageSubpage.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSubpage.GET", err)
 		return

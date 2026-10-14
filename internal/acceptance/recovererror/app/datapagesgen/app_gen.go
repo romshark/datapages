@@ -69,7 +69,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -88,6 +90,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 // recoverPanicFinal turns a panic into an error response without rendering PageError500.
@@ -109,18 +125,7 @@ func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
 func (s *Server) callStreamConfig(
 	handler string, fn func() (datapages.StreamConfig, error),
 ) (conf datapages.StreamConfig, err error) {
-	defer func() {
-		v := recover()
-		if v == nil {
-			return
-		}
-		stack := debug.Stack()
-		s.Logger().Error("recovered panic",
-			slog.String("handler", handler),
-			slog.Any("panic", v),
-			slog.String("stack", string(stack)))
-		err = datapages.PanicError{Value: v, Stack: stack}
-	}()
+	defer s.recoverPanicInto(&err, handler)
 	return fn()
 }
 
@@ -583,7 +588,9 @@ func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Reques
 	}
 	compression, err := s.StreamCompression(s.callStreamConfig(
 		"PageStreamPanic.StreamConfig",
-		func() (datapages.StreamConfig, error) { return p.StreamConfig(r) },
+		func() (datapages.StreamConfig, error) {
+			return p.StreamConfig(r)
+		},
 	))
 	if err != nil {
 		s.streams.Fail(w, r, s.SSECompression(), "handling PageStreamPanic.StreamConfig", err)
@@ -593,8 +600,12 @@ func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Reques
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
-			return p.StreamOpen(r, streamID)
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageStreamPanic.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+			)
 		},
 		nil,
 		func(

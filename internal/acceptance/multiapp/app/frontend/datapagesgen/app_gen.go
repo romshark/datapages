@@ -76,7 +76,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -249,7 +251,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -345,7 +350,11 @@ func (s pageIndexHandlers) POSTAnnounce(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTAnnounce(r, signals, dispatchAnnouncement)
+	err := p.POSTAnnounce(
+		r,
+		signals,
+		dispatchAnnouncement,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Announce", err)
 		return
@@ -375,7 +384,10 @@ func (s pageIndexHandlers) POSTSignIn(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	newSession, redirect, err := p.POSTSignIn(r, signals)
+	newSession, redirect, err := p.POSTSignIn(
+		r,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.SignIn", err)
 		return
@@ -415,7 +427,11 @@ func (s pageIndexHandlers) POSTNotice(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTNotice(r, signals, dispatchNotice)
+	err := p.POSTNotice(
+		r,
+		signals,
+		dispatchNotice,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Notice", err)
 		return

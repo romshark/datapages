@@ -250,7 +250,10 @@ func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageConflict.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageConflict.GET", err)
 		return
@@ -277,7 +280,10 @@ func (s pageFilesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageFiles.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageFiles.GET", err)
 		return
@@ -398,7 +404,10 @@ func (s pageIntsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageInts.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageInts.GET", err)
 		return
@@ -451,7 +460,11 @@ func (s pageMixedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageMixed.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMixed.GET", err)
 		return
@@ -518,7 +531,10 @@ func (s pagePathHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePath.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePath.GET", err)
 		return
@@ -611,7 +627,10 @@ func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageQuery.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageQuery.GET", err)
 		return
@@ -664,7 +683,10 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageReflect.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageReflect.GET", err)
 		return
@@ -732,7 +754,11 @@ func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageShop.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageShop.GET", err)
 		return
@@ -797,7 +823,11 @@ func (s pageSlugHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageSlug.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSlug.GET", err)
 		return
@@ -822,7 +852,10 @@ func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageTitled.GET")
-	body, head, err := p.GET(r, path)
+	body, head, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageTitled.GET", err)
 		return
@@ -867,7 +900,10 @@ func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageWhen.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageWhen.GET", err)
 		return

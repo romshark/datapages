@@ -85,7 +85,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -351,7 +353,11 @@ func (s pageIndexHandlers) POSTAnnounce(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTAnnounce(r, signals, dispatchAnnouncement)
+	err := p.POSTAnnounce(
+		r,
+		signals,
+		dispatchAnnouncement,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Announce", err)
 		return
@@ -378,7 +384,11 @@ func (s pageIndexHandlers) POSTReport(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTReport(r, signals, dispatchReport)
+	err := p.POSTReport(
+		r,
+		signals,
+		dispatchReport,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Report", err)
 		return

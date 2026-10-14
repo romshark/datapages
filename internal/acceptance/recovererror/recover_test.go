@@ -116,13 +116,21 @@ func TestRecoveredPanics(t *testing.T) {
 		require.NotContains(t, body, "the component panicked")
 	})
 
-	// A panic in StreamOpen reaches RecoverError instead of aborting the  connection.
+	// A panic in StreamOpen reaches RecoverError instead of aborting the connection,
+	// and logs its stack.
 	t.Run("stream open", func(t *testing.T) {
-		srv := newServer(t)
+		var log testlog.Buffer
+		srv := httptest.NewServer(mustNewServer(t, &app.App{},
+			inmem.New(messaging.DefaultBrokerChanBuffer),
+			datapages.WithLogger(log.Logger())))
+		t.Cleanup(srv.Close)
 		_, body := getStream(t, srv, "/stream-panic/_$/")
 		require.Contains(t, body, `<div id="toast">panic</div>`)
 		require.NotContains(t, body, "the stream open hook panicked",
 			"the panic value reached the client")
+		log.RequireMatch(t, `^level=ERROR msg="recovered panic" `+
+			`handler=PageStreamPanic\.StreamOpen `+
+			`panic="the stream open hook panicked" stack=`)
 	})
 
 	// A request-scoped StreamConfig panic reaches RecoverError and logs its stack.

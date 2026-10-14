@@ -388,6 +388,7 @@ type appUsage struct {
 	// streamAuth: whether any stream handler needs auth (page has private events).
 	streamAuth   bool
 	streamConfig bool
+	streamOpen   bool
 	pageCache    bool
 	offlinePage  bool
 	// stateRuntime: whether any page (including via stream embeds)
@@ -447,6 +448,9 @@ func computeAppUsage(m *model.App) appUsage {
 			}
 			if streamConfigPerStream(p) {
 				u.streamConfig = true
+			}
+			if p.StreamOpen != nil {
+				u.streamOpen = true
 			}
 		}
 		for _, h := range p.Actions {
@@ -689,24 +693,21 @@ func (w *Writer) writeCommaSep(items []string) {
 	}
 }
 
-// writeCallExpr writes "receiver.method(args...)" to the buffer.
-func (w *Writer) writeCallExpr(receiver, method string, args []string) {
-	w.Raw(receiver)
-	w.Byte('.')
-	w.Raw(method)
-	w.Byte('(')
-	w.writeCommaSep(args)
-	w.Byte(')')
-}
-
-// writeMultilineCallExpr writes 1 argument per line. ind is the indentation
-// of the call expression; arguments are indented 1 level further.
-func (w *Writer) writeMultilineCallExpr(
+// writeCallExpr writes "receiver.method(args...)", with 1 argument per line
+// when there are 2 or more. ind is the indentation of the call expression;
+// arguments are indented 1 level further.
+func (w *Writer) writeCallExpr(
 	receiver, method string, args []string, ind int,
 ) {
 	w.Raw(receiver)
 	w.Byte('.')
 	w.Raw(method)
+	if len(args) < 2 {
+		w.Byte('(')
+		w.writeCommaSep(args)
+		w.Byte(')')
+		return
+	}
 	w.Raw("(\n")
 	argTabs := strings.Repeat("\t", ind+1)
 	for _, arg := range args {

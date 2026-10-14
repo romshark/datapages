@@ -219,7 +219,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, redirect, err := p.GET(r, query)
+	body, redirect, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -248,7 +251,10 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, redirect, err := p.GET(r, query)
+	body, redirect, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -304,7 +310,10 @@ func (s pageIndexHandlers) POSTStreamFail(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStreamFail(r, sse)
+	err := p.POSTStreamFail(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamFail", err)
 		return

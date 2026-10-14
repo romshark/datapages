@@ -133,7 +133,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -152,6 +154,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 // recoverPanicFile is recoverPanic for a handler that answers with a file.
@@ -538,7 +554,10 @@ func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.ID = r.PathValue("id")
 	defer s.recoverPanicFile(w, r, "App.File")
-	file, err := s.app.GETFile(r, path)
+	file, err := s.app.GETFile(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrFile(w, r, "handling action App.File", err)
 		return
@@ -631,10 +650,14 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, datapages.State[dpapp.StateIndex]{Values: slot.state})
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.StateIndex]{Values: slot.state},
+			)
 		},
 		func(streamID datapages.StreamID) {
 			// Both of these run even when the hook below panics.
@@ -644,7 +667,12 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			if !slot.dead {
-				if err := p.StreamClose(r, datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, dispatchClosedFilesChanged); err != nil {
+				if err := p.StreamClose(
+					r,
+					datapages.State[dpapp.StateIndex]{Values: slot.state},
+					stateID,
+					dispatchClosedFilesChanged,
+				); err != nil {
 					s.LogErr("handling PageIndex.StreamClose", err)
 				}
 			}
@@ -727,7 +755,11 @@ func (s pageIndexHandlers) DELETEFile(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.DELETEFile(r, path, dispatchFilesChanged)
+	err := p.DELETEFile(
+		r,
+		path,
+		dispatchFilesChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.File", err)
 		return
@@ -752,7 +784,11 @@ func (s pageIndexHandlers) POSTLimits(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTLimits(r, signals, dispatchLimitsChanged)
+	err := p.POSTLimits(
+		r,
+		signals,
+		dispatchLimitsChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Limits", err)
 		return
@@ -799,7 +835,12 @@ func (s pageIndexHandlers) POSTStage(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStage(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state}, signals)
+	err := p.POSTStage(
+		r,
+		sse,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Stage", err)
 		return
@@ -838,7 +879,11 @@ func (s pageIndexHandlers) POSTCancel(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTCancel(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state})
+	err := p.POSTCancel(
+		r,
+		sse,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Cancel", err)
 		return
@@ -879,7 +924,13 @@ func (s pageIndexHandlers) POSTStart(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStart(r, datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, dispatchFilesChanged, dispatchUploadStarted)
+	err := p.POSTStart(
+		r,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		stateID,
+		dispatchFilesChanged,
+		dispatchUploadStarted,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Start", err)
 		return
@@ -917,7 +968,12 @@ func (s pageIndexHandlers) PUTChunk(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.PUTChunk(r, path, query, dispatchFilesChanged)
+	err := p.PUTChunk(
+		r,
+		path,
+		query,
+		dispatchFilesChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Chunk", err)
 		return
@@ -961,7 +1017,13 @@ func (s pageIndexHandlers) POSTPause(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTPause(r, datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, path, dispatchFilesChanged)
+	err := p.POSTPause(
+		r,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		stateID,
+		path,
+		dispatchFilesChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Pause", err)
 		return
@@ -1008,7 +1070,14 @@ func (s pageIndexHandlers) POSTResume(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTResume(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, path, dispatchFilesChanged)
+	err := p.POSTResume(
+		r,
+		sse,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		stateID,
+		path,
+		dispatchFilesChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Resume", err)
 		return
@@ -1060,7 +1129,14 @@ func (s pageIndexHandlers) POSTReattach(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTReattach(r, sse, datapages.State[dpapp.StateIndex]{Values: slot.state}, stateID, signals, dispatchFilesChanged)
+	err := p.POSTReattach(
+		r,
+		sse,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		stateID,
+		signals,
+		dispatchFilesChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Reattach", err)
 		return

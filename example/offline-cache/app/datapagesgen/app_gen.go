@@ -604,7 +604,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -631,7 +634,11 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.recoverPanic(w, r, nil, "App.SignOut")
 	pageCache := newPageCache(w, s.Server, r)
-	closeSession, redirect, err := s.app.POSTSignOut(r, sess, pageCache)
+	closeSession, redirect, err := s.app.POSTSignOut(
+		r,
+		sess,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
@@ -662,7 +669,10 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -728,7 +738,12 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, sess, pageCache, query)
+	body, err := p.GET(
+		r,
+		sess,
+		pageCache,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -781,7 +796,11 @@ func (s pageIndexHandlers) QUERYSearch(
 			App: s.app,
 		},
 	}
-	err := p.QUERYSearch(r, sse, signals)
+	err := p.QUERYSearch(
+		r,
+		sse,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Search", err)
 		return
@@ -806,7 +825,12 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
-	body, redirect, err := p.GET(r, sess, pageCache, query)
+	body, redirect, err := p.GET(
+		r,
+		sess,
+		pageCache,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
@@ -849,7 +873,12 @@ func (s pageLoginHandlers) POSTSubmit(
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	body, redirect, newSession, err := p.POSTSubmit(r, sess, pageCache, signals)
+	body, redirect, newSession, err := p.POSTSubmit(
+		r,
+		sess,
+		pageCache,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Submit", err)
 		return
@@ -916,7 +945,11 @@ func (s pagePurchaseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	defer s.recoverPanic(w, r, nil, "PagePurchase.GET")
-	body, redirect, err := p.GET(r, sess, path)
+	body, redirect, err := p.GET(
+		r,
+		sess,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePurchase.GET", err)
 		return
@@ -957,7 +990,12 @@ func (s pagePurchaseHandlers) POSTConfirm(
 			App: s.app,
 		},
 	}
-	redirect, err := p.POSTConfirm(r, pageCache, sess, path)
+	redirect, err := p.POSTConfirm(
+		r,
+		pageCache,
+		sess,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PagePurchase.Confirm", err)
 		return
@@ -988,7 +1026,12 @@ func (s pageShowHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	defer s.recoverPanic(w, r, nil, "PageShow.GET")
-	body, head, err := p.GET(r, sess, pageCache, path)
+	body, head, err := p.GET(
+		r,
+		sess,
+		pageCache,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageShow.GET", err)
 		return
@@ -1024,7 +1067,12 @@ func (s pageTicketHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	defer s.recoverPanic(w, r, nil, "PageTicket.GET")
-	body, redirect, err := p.GET(r, sess, pageCache, path)
+	body, redirect, err := p.GET(
+		r,
+		sess,
+		pageCache,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageTicket.GET", err)
 		return
@@ -1058,7 +1106,11 @@ func (s pageTicketsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	defer s.recoverPanic(w, r, nil, "PageTickets.GET")
-	body, redirect, err := p.GET(r, sess, pageCache)
+	body, redirect, err := p.GET(
+		r,
+		sess,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageTickets.GET", err)
 		return

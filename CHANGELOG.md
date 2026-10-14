@@ -146,6 +146,7 @@ Run `datapages gen` to apply these.
 - Recover and log a panic in `RecoverError` once. It previously invoked `RecoverError` again and could write 2 compressed streams in 1 response.
 - Send `Vary: X-Datapages-Offline-Version` before opening an SSE response from an action that takes `datapages.PageCacheWriter`.
 - Log errors from bodies passed to `PageCacheWriter.Set` or `SetShim` when rendering an action's event stream or redirect script.
+- Log the stack of a panic in `StreamOpen`, as for a panic in `GET`, an action or `OnXXX`. The log previously held only the panic value.
 
 #### Runtime and modules
 

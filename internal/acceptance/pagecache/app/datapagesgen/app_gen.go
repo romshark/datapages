@@ -535,7 +535,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -557,7 +560,10 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 
 	defer s.recoverPanic(w, r, nil, "App.AppPrecache")
 	pageCache := newPageCache(w, s.Server, r)
-	err := s.app.POSTAppPrecache(r, pageCache)
+	err := s.app.POSTAppPrecache(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppPrecache", err)
 		return
@@ -572,7 +578,10 @@ func (s appHandlers) POSTAppPrecacheFail(w http.ResponseWriter, r *http.Request)
 
 	defer s.recoverPanic(w, r, nil, "App.AppPrecacheFail")
 	pageCache := newPageCache(w, s.Server, r)
-	err := s.app.POSTAppPrecacheFail(r, pageCache)
+	err := s.app.POSTAppPrecacheFail(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppPrecacheFail", err)
 		return
@@ -587,7 +596,10 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 
 	defer s.recoverPanic(w, r, nil, "App.AppBody")
 	pageCache := newPageCache(w, s.Server, r)
-	body, err := s.app.POSTAppBody(r, pageCache)
+	body, err := s.app.POSTAppBody(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppBody", err)
 		return
@@ -607,7 +619,10 @@ func (s appHandlers) POSTAppRedirect(w http.ResponseWriter, r *http.Request) {
 
 	defer s.recoverPanic(w, r, nil, "App.AppRedirect")
 	pageCache := newPageCache(w, s.Server, r)
-	redirect, err := s.app.POSTAppRedirect(r, pageCache)
+	redirect, err := s.app.POSTAppRedirect(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppRedirect", err)
 		return
@@ -625,7 +640,10 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -652,7 +670,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -680,7 +701,11 @@ func (s pageIndexHandlers) POSTStream(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStream(r, sse, pageCache)
+	err := p.POSTStream(
+		r,
+		sse,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Stream", err)
 		return
@@ -702,7 +727,11 @@ func (s pageIndexHandlers) POSTStreamFail(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTStreamFail(r, sse, pageCache)
+	err := p.POSTStreamFail(
+		r,
+		sse,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamFail", err)
 		return
@@ -721,7 +750,10 @@ func (s pageIndexHandlers) POSTRedirect(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	redirect, err := p.POSTRedirect(r, pageCache)
+	redirect, err := p.POSTRedirect(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Redirect", err)
 		return
@@ -742,7 +774,10 @@ func (s pageIndexHandlers) POSTRedirectFail(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	redirect, err := p.POSTRedirectFail(r, pageCache)
+	redirect, err := p.POSTRedirectFail(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.RedirectFail", err)
 		return
@@ -766,7 +801,11 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	redirect, err := p.POSTStreamRedirect(r, sse, pageCache)
+	redirect, err := p.POSTStreamRedirect(
+		r,
+		sse,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamRedirect", err)
 		return
@@ -797,7 +836,11 @@ func (s pageIndexHandlers) POSTBranch(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	body, redirect, err := p.POSTBranch(r, pageCache, query)
+	body, redirect, err := p.POSTBranch(
+		r,
+		pageCache,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Branch", err)
 		return
@@ -827,7 +870,11 @@ func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageList.GET")
-	body, err := p.GET(r, pageCache, query)
+	body, err := p.GET(
+		r,
+		pageCache,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageList.GET", err)
 		return
@@ -870,7 +917,10 @@ func (s pageWriterProbeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageWriterProbe.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageWriterProbe.GET", err)
 		return

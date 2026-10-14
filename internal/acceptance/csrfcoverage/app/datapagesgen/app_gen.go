@@ -61,7 +61,8 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[struct{}],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+	sessKey string, sess datapages.Session[struct{}],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -74,7 +75,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		sessKey, sess.UserID(), sess.ExpiresAt(),
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -331,7 +334,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -457,7 +463,10 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
 		return
@@ -488,7 +497,10 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 		App: s.app,
 	}
 	defer s.recoverPanicFinal(w, "PageError500.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
 		return
@@ -622,7 +634,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -658,7 +673,10 @@ func (s pageIndexHandlers) POSTSignIn(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	newSession, err := p.POSTSignIn(r, signals)
+	newSession, err := p.POSTSignIn(
+		r,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.SignIn", err)
 		return
@@ -693,7 +711,10 @@ func (s pageIndexHandlers) POSTDelete(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTDelete(r, signals)
+	err := p.POSTDelete(
+		r,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Delete", err)
 		return
@@ -714,7 +735,10 @@ func (s pageIndexHandlers) QUERYCount(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	body, err := p.QUERYCount(r, sess)
+	body, err := p.QUERYCount(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Count", err)
 		return

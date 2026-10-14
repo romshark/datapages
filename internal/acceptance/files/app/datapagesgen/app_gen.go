@@ -360,7 +360,11 @@ func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.Name = r.PathValue("name")
 	defer s.recoverPanicFile(w, r, "App.File")
-	file, err := s.app.GETFile(r, path, query)
+	file, err := s.app.GETFile(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrFile(w, r, "handling action App.File", err)
 		return
@@ -399,7 +403,10 @@ func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageDoc.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageDoc.GET", err)
 		return
@@ -425,7 +432,10 @@ func (s pageDocHandlers) GETExport(
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	file, err := p.GETExport(r, path)
+	file, err := p.GETExport(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrFile(w, r, "handling action PageDoc.Export", err)
 		return

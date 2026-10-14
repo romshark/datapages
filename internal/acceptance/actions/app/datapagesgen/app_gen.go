@@ -314,7 +314,10 @@ func (s pageFormHandlers) POSTSubmit(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTSubmit(r, signals)
+	err := p.POSTSubmit(
+		r,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageForm.Submit", err)
 		return
@@ -390,7 +393,10 @@ func (s pageFormHandlers) QUERYSearch(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.QUERYSearch(r, signals)
+	err := p.QUERYSearch(
+		r,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageForm.Search", err)
 		return
@@ -434,7 +440,11 @@ func (s pageFormHandlers) POSTBump(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTBump(r, path, query)
+	err := p.POSTBump(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageForm.Bump", err)
 		return
@@ -498,7 +508,10 @@ func (s pageFormHandlers) POSTGoStream(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	redirect, err := p.POSTGoStream(r, sse)
+	redirect, err := p.POSTGoStream(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.GoStream", err)
 		return
@@ -532,7 +545,11 @@ func (s pageFormHandlers) POSTPatch(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTPatch(r, sse, signals)
+	err := p.POSTPatch(
+		r,
+		sse,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.Patch", err)
 		return
@@ -561,7 +578,11 @@ func (s pageFormHandlers) POSTPatchAt(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTPatchAt(r, sse, signals)
+	err := p.POSTPatchAt(
+		r,
+		sse,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.PatchAt", err)
 		return
@@ -581,7 +602,10 @@ func (s pageFormHandlers) POSTSignalsRaw(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTSignalsRaw(r, sse)
+	err := p.POSTSignalsRaw(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.SignalsRaw", err)
 		return
@@ -601,7 +625,10 @@ func (s pageFormHandlers) POSTSignalsMissing(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTSignalsMissing(r, sse)
+	err := p.POSTSignalsMissing(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.SignalsMissing", err)
 		return
@@ -621,7 +648,10 @@ func (s pageFormHandlers) POSTSignalsBad(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTSignalsBad(r, sse)
+	err := p.POSTSignalsBad(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.SignalsBad", err)
 		return
@@ -641,7 +671,10 @@ func (s pageFormHandlers) POSTRemove(
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	err := p.POSTRemove(r, sse)
+	err := p.POSTRemove(
+		r,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.Remove", err)
 		return

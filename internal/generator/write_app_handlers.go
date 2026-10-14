@@ -429,7 +429,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
-	w.writeCallExpr("p", "GET", args)
+	w.writeCallExpr("p", "GET", args, 1)
 	w.Byte('\n')
 
 	if h.OutputErr != nil {
@@ -1369,7 +1369,7 @@ func (w *Writer) writeEventHandlerCall(
 	if eh.OutputErr != nil {
 		w.Raw(tabs)
 		w.Raw("if err := ")
-		w.writeMultilineCallExpr(receiver, methodName, args, ind)
+		w.writeCallExpr(receiver, methodName, args, ind)
 		w.Raw("; err != nil {\n")
 		w.Raw(tabs)
 		w.Raw("\ts.LogErr(\"handling ")
@@ -1380,7 +1380,7 @@ func (w *Writer) writeEventHandlerCall(
 		w.Line(ind, "}")
 	} else {
 		w.Raw(tabs)
-		w.writeMultilineCallExpr(receiver, methodName, args, ind)
+		w.writeCallExpr(receiver, methodName, args, ind)
 		w.Byte('\n')
 	}
 
@@ -1389,6 +1389,8 @@ func (w *Writer) writeEventHandlerCall(
 	}
 }
 
+// writePageStreamOpenHook emits the onOpen closure. Its own recovery logs a StreamOpen
+// panic under the page's name, which the recovery in runtime/stream doesn't know.
 func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	if p.State != nil {
 		w.writeStatefulStreamOpenHook(p)
@@ -1401,7 +1403,8 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *dpsse.Stream,")
-	w.Line(1, ") error {")
+	w.Line(1, ") (err error) {")
+	w.Linef(2, "defer s.recoverPanicInto(&err, %q)", p.TypeName+".StreamOpen")
 	if p.StreamOpen.OutputErr != nil {
 		w.Raw("\t\treturn ")
 	} else {
@@ -1409,7 +1412,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	}
 	w.writeCallExpr(
 		"p", "StreamOpen",
-		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual),
+		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual), 2,
 	)
 	w.Byte('\n')
 	if p.StreamOpen.OutputErr == nil {
@@ -1431,7 +1434,8 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *dpsse.Stream,")
-	w.Line(1, ") error {")
+	w.Line(1, ") (err error) {")
+	w.Linef(2, "defer s.recoverPanicInto(&err, %q)", p.TypeName+".StreamOpen")
 	w.Line(2, "slot.mu.Lock()")
 	w.Line(2, "defer slot.mu.Unlock()")
 	if p.StreamOpen.OutputErr != nil {
@@ -1441,7 +1445,7 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	}
 	w.writeCallExpr(
 		"p", "StreamOpen",
-		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual),
+		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual), 2,
 	)
 	w.Byte('\n')
 	if p.StreamOpen.OutputErr == nil {
@@ -1462,12 +1466,10 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		return
 	}
 	w.Line(1, "func(streamID datapages.StreamID) {")
+	args := handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual)
 	if p.StreamClose.OutputErr != nil {
 		w.Raw("\t\tif err := ")
-		w.writeCallExpr(
-			"p", "StreamClose",
-			handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
-		)
+		w.writeCallExpr("p", "StreamClose", args, 2)
 		w.Raw("; err != nil {\n")
 		w.Raw("\t\t\ts.LogErr(\"handling ")
 		w.Raw(p.TypeName)
@@ -1475,10 +1477,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Line(2, "}")
 	} else {
 		w.Raw("\t\t")
-		w.writeCallExpr(
-			"p", "StreamClose",
-			handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
-		)
+		w.writeCallExpr("p", "StreamClose", args, 2)
 		w.Byte('\n')
 	}
 	w.Line(1, "},")
@@ -1521,13 +1520,11 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 	tabs := strings.Repeat("\t", ind)
 
 	if p.StreamClose != nil {
+		args := handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual)
 		if p.StreamClose.OutputErr != nil {
 			w.Raw(tabs)
 			w.Raw("if err := ")
-			w.writeCallExpr(
-				"p", "StreamClose",
-				handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
-			)
+			w.writeCallExpr("p", "StreamClose", args, ind)
 			w.Raw("; err != nil {\n")
 			w.Raw(tabs)
 			w.Raw("\ts.LogErr(\"handling ")
@@ -1536,10 +1533,7 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 			w.Line(ind, "}")
 		} else {
 			w.Raw(tabs)
-			w.writeCallExpr(
-				"p", "StreamClose",
-				handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
-			)
+			w.writeCallExpr("p", "StreamClose", args, ind)
 			w.Byte('\n')
 		}
 	}
@@ -1876,13 +1870,13 @@ func (w *Writer) writeActionMethodCall(
 				sseRef = "sse"
 			}
 			w.Raw("\tif err := ")
-			w.writeCallExpr("p", methodName, args)
+			w.writeCallExpr("p", methodName, args, 1)
 			w.Raw("; err != nil {\n")
 			w.writeActionErrCheck(p, h, sseRef)
 			w.Line(1, "}")
 		} else {
 			w.Byte('\t')
-			w.writeCallExpr("p", methodName, args)
+			w.writeCallExpr("p", methodName, args, 1)
 			w.Byte('\n')
 		}
 		return
@@ -1891,7 +1885,7 @@ func (w *Writer) writeActionMethodCall(
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
-	w.writeCallExpr("p", methodName, args)
+	w.writeCallExpr("p", methodName, args, 1)
 	w.Byte('\n')
 
 	if h.OutputErr != nil {
@@ -1960,7 +1954,7 @@ func (w *Writer) writeFileCall(recv, owner string, h *model.Handler, args []stri
 	w.Byte('\t')
 	w.writeCommaSep(handlerOutputVars(h))
 	w.Raw(" := ")
-	w.writeCallExpr(recv, h.HTTPMethod+h.Name, args)
+	w.writeCallExpr(recv, h.HTTPMethod+h.Name, args, 1)
 	w.Byte('\n')
 	if h.InputState != nil {
 		w.Line(1, "// The tab's other handlers don't wait for the client to read the file.")
@@ -2267,9 +2261,11 @@ func (w *Writer) writeStreamConfigCall(p *model.Page) {
 	}
 	w.Line(1, "compression, err := s.StreamCompression(s.callStreamConfig(")
 	w.Linef(2, "%q,", p.TypeName+".StreamConfig")
-	w.Raw("\t\tfunc() (datapages.StreamConfig, error) { return ")
-	w.writeCallExpr("p", "StreamConfig", args)
-	w.Raw(" },\n")
+	w.Line(2, "func() (datapages.StreamConfig, error) {")
+	w.Raw("\t\t\treturn ")
+	w.writeCallExpr("p", "StreamConfig", args, 3)
+	w.Byte('\n')
+	w.Line(2, "},")
 	w.Line(1, "))")
 	w.Line(1, "if err != nil {")
 	w.Linef(2, "s.streams.Fail(w, r, s.SSECompression(), %q, err)",

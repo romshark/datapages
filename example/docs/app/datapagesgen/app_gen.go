@@ -144,7 +144,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -163,6 +165,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 // recoverPanicFile is recoverPanic for a handler that answers with a file.
@@ -606,7 +622,10 @@ func (s appHandlers) GETImage(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.Name = r.PathValue("name")
 	defer s.recoverPanicFile(w, r, "App.Image")
-	file, err := s.app.GETImage(r, path)
+	file, err := s.app.GETImage(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrFile(w, r, "handling action App.Image", err)
 		return
@@ -638,7 +657,10 @@ func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageDoc.GET")
-	body, head, enableBackgroundStreaming, err := p.GET(r, path)
+	body, head, enableBackgroundStreaming, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageDoc.GET", err)
 		return
@@ -728,10 +750,17 @@ func (s pageDocHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageDoc.StreamOpen")
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, sse, datapages.State[dpapp.StateDoc]{Values: slot.state}, signals, dispatchOpenDocChanged)
+			return p.StreamOpen(
+				r,
+				sse,
+				datapages.State[dpapp.StateDoc]{Values: slot.state},
+				signals,
+				dispatchOpenDocChanged,
+			)
 		},
 		func(streamID datapages.StreamID) {
 			// Both of these run even when the hook below panics.
@@ -741,7 +770,11 @@ func (s pageDocHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			if !slot.dead {
-				if err := p.StreamClose(r, datapages.State[dpapp.StateDoc]{Values: slot.state}, dispatchClosedDocChanged); err != nil {
+				if err := p.StreamClose(
+					r,
+					datapages.State[dpapp.StateDoc]{Values: slot.state},
+					dispatchClosedDocChanged,
+				); err != nil {
 					s.LogErr("handling PageDoc.StreamClose", err)
 				}
 			}
@@ -813,7 +846,14 @@ func (s pageDocHandlers) POSTSubmit(
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	err := p.POSTSubmit(r, sse, path, signals, dispatchDocChanged, dispatchListChanged)
+	err := p.POSTSubmit(
+		r,
+		sse,
+		path,
+		signals,
+		dispatchDocChanged,
+		dispatchListChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageDoc.Submit", err)
 		return
@@ -856,7 +896,14 @@ func (s pageDocHandlers) POSTRestore(
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	err := p.POSTRestore(r, sse, path, signals, dispatchDocChanged, dispatchListChanged)
+	err := p.POSTRestore(
+		r,
+		sse,
+		path,
+		signals,
+		dispatchDocChanged,
+		dispatchListChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageDoc.Restore", err)
 		return
@@ -892,7 +939,12 @@ func (s pageDocHandlers) POSTCursor(
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	err := p.POSTCursor(r, path, signals, dispatchDocChanged)
+	err := p.POSTCursor(
+		r,
+		path,
+		signals,
+		dispatchDocChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageDoc.Cursor", err)
 		return
@@ -926,7 +978,13 @@ func (s pageDocHandlers) POSTRename(
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	err := p.POSTRename(r, path, signals, dispatchDocChanged, dispatchListChanged)
+	err := p.POSTRename(
+		r,
+		path,
+		signals,
+		dispatchDocChanged,
+		dispatchListChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageDoc.Rename", err)
 		return
@@ -960,7 +1018,12 @@ func (s pageDocHandlers) POSTImage(
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	err := p.POSTImage(r, sse, path, signals)
+	err := p.POSTImage(
+		r,
+		sse,
+		path,
+		signals,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageDoc.Image", err)
 		return
@@ -1078,7 +1141,11 @@ func (s pageIndexHandlers) POSTCreate(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	redirect, err := p.POSTCreate(r, path, dispatchListChanged)
+	redirect, err := p.POSTCreate(
+		r,
+		path,
+		dispatchListChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Create", err)
 		return
@@ -1107,7 +1174,12 @@ func (s pageIndexHandlers) DELETEDoc(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.DELETEDoc(r, path, dispatchListChanged, dispatchDocChanged)
+	err := p.DELETEDoc(
+		r,
+		path,
+		dispatchListChanged,
+		dispatchDocChanged,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Doc", err)
 		return

@@ -70,7 +70,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -448,7 +450,10 @@ func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageMaybe.GET")
-	body, redirect, err := p.GET(r, query)
+	body, redirect, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMaybe.GET", err)
 		return

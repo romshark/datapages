@@ -76,7 +76,8 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression, sessKey string, sess datapages.Session[dpStream.SessionData],
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
+	sessKey string, sess datapages.Session[dpStream.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -89,7 +90,9 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, compression, sessKey, sess.UserID(), sess.ExpiresAt(), subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		sessKey, sess.UserID(), sess.ExpiresAt(),
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
@@ -108,6 +111,20 @@ func (s *Server) recoverPanic(
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
 }
 
 type Server struct {
@@ -259,7 +276,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, sess)
+	body, err := p.GET(
+		r,
+		sess,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -298,8 +318,13 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		func(
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
-		) error {
-			return p.StreamOpen(r, streamID, sess)
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+				sess,
+			)
 		},
 		nil,
 		func(
@@ -351,7 +376,11 @@ func (s pageIndexHandlers) POSTTick(
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTTick(r, signals, dispatchTicked)
+	err := p.POSTTick(
+		r,
+		signals,
+		dispatchTicked,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Tick", err)
 		return
@@ -396,7 +425,11 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
 		return
@@ -454,7 +487,13 @@ func (s pageItemHandlers) POSTSave(
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	err := p.POSTSave(r, path, query, signals, sse)
+	err := p.POSTSave(
+		r,
+		path,
+		query,
+		signals,
+		sse,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageItem.Save", err)
 		return
