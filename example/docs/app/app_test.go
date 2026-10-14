@@ -292,6 +292,8 @@ func TestCursor(t *testing.T) {
 	doc := s.create(t)
 	a, b := s.open(t, doc), s.open(t, doc)
 	a.submit(t, "1", "0", `[{"insert":"Hello"}]`)
+	// MoveCursor drops the cursor of a tab whose stream has not joined yet.
+	a.waitFor(t, 0, `"ack":1`)
 	b.waitFor(t, 0, `"rev":1`)
 
 	from := b.at()
