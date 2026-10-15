@@ -143,6 +143,14 @@ type parseCtx struct {
 	basePos      token.Position
 }
 
+// modulePath returns the path of the app's module, or "" outside a module.
+func (ctx *parseCtx) modulePath() string {
+	if ctx.pkg.Module == nil {
+		return ""
+	}
+	return ctx.pkg.Module.Path
+}
+
 func newParseCtx(pkg *packages.Package) parseCtx {
 	return parseCtx{
 		pkg:                 pkg,
@@ -1393,7 +1401,9 @@ func parseStreamConfig(
 				h.OrderedInputs = append(h.OrderedInputs, h.InputPath)
 			case paramvalidation.IsSignalsParam(f, info) && h.InputSignals == nil:
 				values, _ := typecheck.SignalsValuesType(f.Type, info)
-				err := paramvalidation.ValidateSignalsStruct(values, recv, fd.Name.Name)
+				err := paramvalidation.ValidateSignalsStruct(
+					values, recv, fd.Name.Name, ctx.modulePath(),
+				)
 				if err != nil {
 					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), err)
 					return nil
@@ -1531,7 +1541,9 @@ func attachHTTPHandler(
 
 	// Validate reflectsignal tags on query fields reference actual signals.
 	if herr == nil {
-		if rsErr := paramvalidation.ValidateReflectSignal(h, recv, fd.Name.Name); rsErr != nil {
+		if rsErr := paramvalidation.ValidateReflectSignal(
+			h, recv, fd.Name.Name, ctx.modulePath(),
+		); rsErr != nil {
 			p := pos
 			if h.InputQuery != nil {
 				p = ctx.pkg.Fset.Position(h.InputQuery.Expr.Pos())
@@ -2688,7 +2700,7 @@ func parseStreamHook(
 			}
 			values, _ := typecheck.SignalsValuesType(f.Type, info)
 			sigErr := paramvalidation.ValidateSignalsStruct(
-				values, recv, fd.Name.Name,
+				values, recv, fd.Name.Name, ctx.modulePath(),
 			)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
@@ -3422,7 +3434,9 @@ func parseHandler(
 				continue
 			}
 			values, _ := typecheck.SignalsValuesType(f.Type, info)
-			sigErr := paramvalidation.ValidateSignalsStruct(values, recv, fd.Name.Name)
+			sigErr := paramvalidation.ValidateSignalsStruct(
+				values, recv, fd.Name.Name, ctx.modulePath(),
+			)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
 				continue
@@ -3718,7 +3732,9 @@ func refusedByGETAction(f *ast.Field, info *types.Info) bool {
 // checkFileOutput reports a handler that returns a [datapages.File] next to
 // something it cannot deliver, and a GET action that returns none.
 // The file is the whole response: the headers and the body are its own.
-func checkFileOutput(h *model.Handler, outputs []*model.Output, kind methodkind.Kind) error {
+func checkFileOutput(
+	h *model.Handler, outputs []*model.Output, kind methodkind.Kind,
+) error {
 	if h.OutputFile == nil {
 		if kind == methodkind.ActionGETHandler {
 			return ErrGETActionMissingFile

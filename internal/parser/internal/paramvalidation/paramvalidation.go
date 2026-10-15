@@ -421,7 +421,7 @@ func IsSignalsParam(f *ast.Field, info *types.Info) bool {
 // ValidateSignalsStruct validates that t, the Values type argument of a
 // datapages.Signals parameter, is a struct with exported fields each
 // carrying a `json:"..."` tag.
-func ValidateSignalsStruct(t types.Type, recv, method string) error {
+func ValidateSignalsStruct(t types.Type, recv, method, modulePath string) error {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return fmt.Errorf("%w in %s.%s",
@@ -430,7 +430,7 @@ func ValidateSignalsStruct(t types.Type, recv, method string) error {
 	if err := checkValuesTypeExported(t, recv, method); err != nil {
 		return err
 	}
-	return validateSignalsFields(st, recv, method, map[types.Type]bool{})
+	return validateSignalsFields(st, recv, method, modulePath, map[types.Type]bool{})
 }
 
 // validateSignalsFields validates 1 level of a signals struct and every
@@ -440,7 +440,7 @@ func ValidateSignalsStruct(t types.Type, recv, method string) error {
 //
 // visited stops a type that reaches itself through a pointer.
 func validateSignalsFields(
-	st *types.Struct, recv, method string, visited map[types.Type]bool,
+	st *types.Struct, recv, method, modulePath string, visited map[types.Type]bool,
 ) error {
 	seen := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
@@ -497,13 +497,13 @@ func validateSignalsFields(
 		}
 		seen[tagVal] = true
 
-		nested, ok := signalsNestedStruct(field.Type())
+		nested, ok := signalsNestedStruct(field.Type(), modulePath)
 		// visited holds what stands above this field rather than everything seen:
 		// 2 fields of 1 struct type are 2 signals, while a type
 		// that reaches itself through a pointer is a walk that never ends.
 		if ok && !visited[nested] {
 			visited[nested] = true
-			err := validateSignalsFields(nested, recv, method, visited)
+			err := validateSignalsFields(nested, recv, method, modulePath, visited)
 			delete(visited, nested)
 			if err != nil {
 				return err
@@ -516,7 +516,7 @@ func validateSignalsFields(
 // collectSignalPaths records each signal's path and type.
 // A nested struct contributes the paths below it: {"foo":{"bar":1}} maps to foo.bar.
 func collectSignalPaths(
-	st *types.Struct, prefix string, out map[string]types.Type,
+	st *types.Struct, prefix, modulePath string, out map[string]types.Type,
 	visited map[types.Type]bool,
 ) {
 	for i := range st.NumFields() {
@@ -525,12 +525,12 @@ func collectSignalPaths(
 			continue
 		}
 		path := prefix + name
-		if nested, ok := signalsNestedStruct(st.Field(i).Type()); ok {
+		if nested, ok := signalsNestedStruct(st.Field(i).Type(), modulePath); ok {
 			if visited[nested] {
 				continue
 			}
 			visited[nested] = true
-			collectSignalPaths(nested, path+".", out, visited)
+			collectSignalPaths(nested, path+".", modulePath, out, visited)
 			delete(visited, nested)
 			continue
 		}
@@ -540,15 +540,18 @@ func collectSignalPaths(
 
 // signalsNestedStruct returns the struct a signals field carries signals of,
 // nil for a field that carries a value. A type that unmarshals itself decides
-// its own JSON, which leaves its fields out of this.
-func signalsNestedStruct(t types.Type) (*types.Struct, bool) {
+// its own JSON, which leaves its fields out of this. So does a type from
+// another module, as sql.NullString: encoding/json decides its JSON, and its
+// fields are not the app's to tag.
+func signalsNestedStruct(t types.Type, modulePath string) (*types.Struct, bool) {
 	if t == nil {
 		return nil, false
 	}
 	if ptr, ok := types.Unalias(t).(*types.Pointer); ok {
-		return signalsNestedStruct(ptr.Elem())
+		return signalsNestedStruct(ptr.Elem(), modulePath)
 	}
-	if gotypes.ImplementsJSONUnmarshaler(t) ||
+	if gotypes.DeclaredOutside(t, modulePath) ||
+		gotypes.ImplementsJSONUnmarshaler(t) ||
 		gotypes.ImplementsTextUnmarshaler(t) {
 		return nil, false
 	}
@@ -874,7 +877,7 @@ func ValidatePathAgainstRoute(
 //
 // The query field determines the seed's JSON kind. The browser returns that value
 // with the next action, where encoding/json decodes it into the signal field.
-func ValidateReflectSignal(h *model.Handler, recv, method string) error {
+func ValidateReflectSignal(h *model.Handler, recv, method, modulePath string) error {
 	if h.InputQuery == nil || h.InputSignals == nil {
 		return nil
 	}
@@ -889,7 +892,7 @@ func ValidateReflectSignal(h *model.Handler, recv, method string) error {
 	}
 
 	signals := map[string]types.Type{}
-	collectSignalPaths(sigSt, "", signals, map[types.Type]bool{})
+	collectSignalPaths(sigSt, "", modulePath, signals, map[types.Type]bool{})
 
 	for i := range querySt.NumFields() {
 		rs := structtag.ReflectSignalTagValue(querySt.Tag(i))

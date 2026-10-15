@@ -393,7 +393,7 @@ signals datapages.Signals[struct {
 }]
 ```
 
-`Signals` captures [Datastar signals](https://data-star.dev/guide/reactive_signals) in `Values`. The parameter name is unrestricted. Its type argument may be a named or anonymous struct. A defined struct type must be exported, including one behind an alias. Every field requires a `json` tag. Any JSON-serializable field type is supported, including nested structs, slices, and maps.
+`Signals` captures [Datastar signals](https://data-star.dev/guide/reactive_signals) in `Values`. The parameter name is unrestricted. Its type argument may be a named or anonymous struct. A defined struct type must be exported, including one behind an alias. Every field requires a `json` tag, down through the struct types of the app's module. Any JSON-serializable field type is supported, including nested structs, slices, and maps. A struct type from another module, such as `sql.NullString`, is 1 signal that `encoding/json` encodes.
 
 Nested structs map to nested Datastar signals using dot notation:
 
@@ -679,7 +679,7 @@ type Dispatcher[Event any] interface {
 
 `Dispatch` uses the request context in actions and the request context without cancellation in stream hooks. `DispatchCtx` uses its explicit context, including for publication after a handler returns or with a separate deadline.
 
-Event fields require `json` tags. The event type comment must have the form `// EventXXX is "xxx"`, where `xxx` is the NATS subject prefix:
+Event fields require `json` tags, down through the struct types of the app's module. A type from another module, such as `url.URL`, is encoded as `encoding/json` encodes it. The event type comment must have the form `// EventXXX is "xxx"`, where `xxx` is the NATS subject prefix:
 
 ```go
 // EventExample is "example"

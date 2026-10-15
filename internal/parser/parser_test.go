@@ -1907,6 +1907,15 @@ func TestParse_ErrQuery(t *testing.T) {
 	)
 }
 
+// TestParse_ForeignTypes tests an event field and a signals field of struct
+// types from other modules, url.URL and sql.NullString. encoding/json decides
+// their JSON, which leaves their fields out of the json-tag rules.
+func TestParse_ForeignTypes(t *testing.T) {
+	app, err := parse(t, "foreign_types")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
+}
+
 // TestParse_Signals tests the signals parameter: the struct's fields and the
 // JSON names the client sends them under.
 func TestParse_Signals(t *testing.T) {

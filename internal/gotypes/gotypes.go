@@ -3,7 +3,10 @@
 // Both the parser and the generator inspect types with it.
 package gotypes
 
-import "go/types"
+import (
+	"go/types"
+	"strings"
+)
 
 // IsString reports whether the underlying type of t is string.
 func IsString(t types.Type) bool {
@@ -288,4 +291,27 @@ func AcceptsJSONKind(t types.Type, k JSONKind) bool {
 		return IsBool(t)
 	}
 	return IsString(t)
+}
+
+// DeclaredOutside reports whether t, or what t points to, is a named type
+// declared in a package outside the module at modulePath, as url.URL is for
+// any module but the standard library. A package in a module nested below
+// modulePath counts as inside. An empty modulePath counts nothing as outside.
+func DeclaredOutside(t types.Type, modulePath string) bool {
+	if modulePath == "" {
+		return false
+	}
+	for {
+		p, ok := types.Unalias(t).(*types.Pointer)
+		if !ok {
+			break
+		}
+		t = p.Elem()
+	}
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil {
+		return false
+	}
+	path := named.Obj().Pkg().Path()
+	return path != modulePath && !strings.HasPrefix(path, modulePath+"/")
 }

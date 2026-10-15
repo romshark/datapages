@@ -124,6 +124,7 @@ Run `datapages gen` to apply these.
 - Base the suggested route for an action without a route comment on the route suggested for its page when the page also has no route comment. For `PageUser.POSTFollow`, the fix suggested `/follow` instead of `/user/follow`.
 - Report a subject that 2 applications of a module claim in `datapages lint` when 1 of them has other errors, mirroring `datapages gen` behavior.
 - Reject a `reflectsignal` query field that can't be written as text, also when the `GET` takes no `Signals`. Its value grew in the URL on every reload.
+- Accept an event or signals field of a struct type from another module, such as `url.URL` or `sql.NullString`. Its fields were held to the `json` tag rules, with errors pointing into the standard library.
 
 #### Generated code
 

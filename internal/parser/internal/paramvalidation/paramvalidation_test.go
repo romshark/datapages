@@ -482,7 +482,7 @@ func f(signals struct {
 			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
-			err := ValidateSignalsStruct(info.TypeOf(p.Type), "Recv", "Method")
+			err := ValidateSignalsStruct(info.TypeOf(p.Type), "Recv", "Method", "")
 			if tt.wantErr == nil {
 				require.NoError(t, err)
 			} else {
@@ -493,7 +493,7 @@ func f(signals struct {
 
 	t.Run("resolved type not struct", func(t *testing.T) {
 		t.Parallel()
-		err := ValidateSignalsStruct(types.Typ[types.Int], "Recv", "Method")
+		err := ValidateSignalsStruct(types.Typ[types.Int], "Recv", "Method", "")
 		require.ErrorIs(
 			t, err, ErrSignalsParamNotStruct,
 		)
@@ -861,12 +861,59 @@ func TestValidateReflectSignal(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := ValidateReflectSignal(td.handler, "Recv", "Method")
+			err := ValidateReflectSignal(td.handler, "Recv", "Method", "")
 			if td.wantErr == nil {
 				require.NoError(t, err)
 				return
 			}
 			require.ErrorIs(t, err, td.wantErr)
+		})
+	}
+}
+
+// TestSignalsForeignStruct tests a signals field of a struct type from another
+// module, as sql.NullString. It is 1 signal, whose fields are not the app's to
+// tag, and a reflectsignal reaches it by its own path. Package test declares
+// the type: module path example.com/m puts it outside the module, test inside.
+func TestSignalsForeignStruct(t *testing.T) {
+	t.Parallel()
+	sigType := namedType(t, "package test\n"+
+		"type NullString struct {\n\tString string\n\tValid  bool\n}\n"+
+		"type P struct {\n\tName NullString `json:\"name\"`\n}")
+	queryType := namedType(t, "package test\n"+
+		"type P struct {\n\tSearch string `query:\"s\" reflectsignal:\"name\"`\n}")
+	handler := &model.Handler{
+		InputQuery:   &model.Input{Type: model.Type{Resolved: queryType}},
+		InputSignals: &model.Input{Type: model.Type{Resolved: sigType}},
+	}
+
+	for name, tt := range map[string]struct {
+		module      string
+		wantStruct  error
+		wantReflect error
+	}{
+		"foreign": {
+			module: "example.com/m",
+			// A string seed does not decode into the struct.
+			wantReflect: ErrQueryReflectSignalTypeMismatch,
+		},
+		"own": {
+			module:      "test",
+			wantStruct:  ErrSignalsFieldMissingTag,
+			wantReflect: ErrQueryReflectSignalNotInSignals,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateSignalsStruct(sigType, "Recv", "Method", tt.module)
+			if tt.wantStruct == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantStruct)
+			}
+			require.ErrorIs(t,
+				ValidateReflectSignal(handler, "Recv", "Method", tt.module),
+				tt.wantReflect)
 		})
 	}
 }
