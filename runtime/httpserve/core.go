@@ -129,8 +129,13 @@ type Core struct {
 // [notBrowsableFS] unless cfg.AssetsBrowsable is set,
 // whichever option carried the file system here.
 func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
+	// Direct ServerConfig values bypass option validation.
+	if conf := cfg.SSECompression; conf != nil {
+		if err := conf.Validate(); err != nil {
+			return nil, fmt.Errorf("SSE compression: %w", err)
+		}
+	}
 	if conf := cfg.ResponseCompression; conf != nil {
-		// Direct ServerConfig values bypass option validation.
 		if err := conf.Validate(); err != nil {
 			return nil, fmt.Errorf("response compression: %w", err)
 		}

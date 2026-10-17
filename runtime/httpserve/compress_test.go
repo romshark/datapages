@@ -547,15 +547,36 @@ func TestResponseCompressionDevMode(t *testing.T) {
 	require.Equal(t, strings.Join(page, ""), w.Body.String())
 }
 
-// TestResponseCompressionInvalidConfig tests direct ServerConfig validation.
-func TestResponseCompressionInvalidConfig(t *testing.T) {
+// TestCompressionInvalidConfig tests that NewCore refuses an invalid compression
+// config set on ServerConfig directly, as a custom ServerOption can.
+func TestCompressionInvalidConfig(t *testing.T) {
 	t.Parallel()
 
-	_, err := httpserve.NewCore(datapages.ServerConfig{
-		ResponseCompression: &datapages.ResponseCompressionConfig{ZstdLevel: 99},
-	}, "")
-	require.EqualError(t, err,
-		"response compression: zstd level (99) must be from 1 to 22")
+	for name, tc := range map[string]struct {
+		cfg     datapages.ServerConfig
+		wantErr string
+	}{
+		"SSE": {
+			cfg: datapages.ServerConfig{
+				SSECompression: &datapages.SSECompressionConfig{ZstdWindow: 3},
+			},
+			wantErr: "SSE compression: " +
+				"zstd window (3) must be a power of 2 from 1 KiB to 8 MiB",
+		},
+		"response": {
+			cfg: datapages.ServerConfig{
+				ResponseCompression: &datapages.ResponseCompressionConfig{ZstdLevel: 99},
+			},
+			wantErr: "response compression: zstd level (99) must be from 1 to 22",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := httpserve.NewCore(tc.cfg, "")
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
 }
 
 type discardWriter struct {
