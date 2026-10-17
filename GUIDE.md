@@ -293,6 +293,8 @@ if err != nil {
 assets, err := assetcompress.New(assetcompress.Config{Store: store})
 ```
 
+On Unix, `disk.New` refuses a directory that every user can write to, such as the mount point of a Kubernetes `emptyDir` volume. Pass a subdirectory of it, which `disk.New` creates.
+
 See [Asset Compression](SPECIFICATION.md#asset-compression) for the rules and [`assetcompress.Config`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Config) for measurements.
 
 ## Add offline page caching

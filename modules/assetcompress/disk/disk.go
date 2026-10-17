@@ -17,6 +17,9 @@ type Store struct{ root *os.Root }
 
 // New returns a store in dir, creating missing directories with mode 0700.
 // A writer to dir can control the server's asset responses.
+// On Unix, New refuses a dir that every user can write to, such as a Kubernetes
+// emptyDir mount, or that neither the server's user nor root owns.
+// Pass a missing subdirectory instead.
 func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating the asset store: %w", err)
@@ -24,6 +27,10 @@ func New(dir string) (*Store, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the asset store: %w", err)
+	}
+	if err := checkPrivate(root); err != nil {
+		_ = root.Close()
+		return nil, fmt.Errorf("checking the asset store: %w", err)
 	}
 	return &Store{root: root}, nil
 }

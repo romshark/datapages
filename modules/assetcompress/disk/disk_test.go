@@ -1,6 +1,7 @@
 package disk_test
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -51,6 +52,44 @@ func TestNewCreatesPrivateDir(t *testing.T) {
 	st, err := os.Stat(dir)
 	require.NoError(t, err)
 	require.Equal(t, fs.FileMode(0o700), st.Mode().Perm())
+}
+
+// TestNewRefusesSharedDir tests that New refuses a directory that every user
+// can write to or that another user owns, and accepts a missing subdirectory of it,
+// which it creates.
+func TestNewRefusesSharedDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no permission bits")
+	}
+	for name, tc := range map[string]struct {
+		prepare func(t *testing.T, dir string)
+		wantErr string // %s is the directory.
+	}{
+		"writable by every user": {
+			prepare: func(t *testing.T, dir string) {
+				require.NoError(t, os.Chmod(dir, 0o777))
+			},
+			wantErr: "checking the asset store: %s is writable by every user",
+		},
+		"owned by another user": {
+			prepare: func(t *testing.T, dir string) {
+				if os.Geteuid() != 0 {
+					t.Skip("only root can give a directory away")
+				}
+				require.NoError(t, os.Chown(dir, 65534, -1))
+			},
+			wantErr: "checking the asset store: %s belongs to user 65534, " +
+				"neither the server's user nor root",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			tc.prepare(t, dir)
+			_, err := disk.New(dir)
+			require.EqualError(t, err, fmt.Sprintf(tc.wantErr, dir))
+			newStore(t, filepath.Join(dir, "assets"))
+		})
+	}
 }
 
 // TestCopiesOutliveTheStore tests persistence and the sendfile type.
