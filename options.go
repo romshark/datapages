@@ -123,7 +123,56 @@ type ServerConfig struct {
 }
 
 // ServerOption configures a generated server.
+//
+// An option may set a field of [ServerConfig] itself.
+// [NewServer] refuses a value there that the With option of the field refuses.
 type ServerOption func(*ServerConfig) error
+
+// validate refuses what the With options refuse, for an option that sets
+// a field itself. A zero field selects its default and passes.
+// A negative BodySizeLimit, ShutdownTimeout, FileSendTimeout or LogSampling
+// field passes too, because the server treats it as zero.
+func (c *ServerConfig) validate() error {
+	if err := checkMiddleware(c.Middleware); err != nil {
+		return fmt.Errorf("ServerConfig.Middleware: %w", err)
+	}
+	if c.Prometheus != nil {
+		if err := c.Prometheus.validate(); err != nil {
+			return fmt.Errorf("ServerConfig.Prometheus: %w", err)
+		}
+	}
+	if c.DatastarJS != "" {
+		if err := validateDatastarJS(c.DatastarJS); err != nil {
+			return fmt.Errorf("ServerConfig.DatastarJS: %w", err)
+		}
+	}
+	if c.AssetsCache != nil {
+		if err := c.AssetsCache.validate(); err != nil {
+			return fmt.Errorf("ServerConfig.AssetsCache: %w", err)
+		}
+	}
+	if name := c.Sessions.Cookie.Name; name != "" {
+		if err := checkCookieName(name); err != nil {
+			return fmt.Errorf("ServerConfig.Sessions: %w", err)
+		}
+	}
+	if c.SSECompression != nil {
+		if err := c.SSECompression.Validate(); err != nil {
+			return fmt.Errorf("ServerConfig.SSECompression: %w", err)
+		}
+	}
+	if c.ResponseCompression != nil {
+		if err := c.ResponseCompression.Validate(); err != nil {
+			return fmt.Errorf("ServerConfig.ResponseCompression: %w", err)
+		}
+	}
+	if c.BuildID != "" {
+		if err := checkBuildID(c.BuildID); err != nil {
+			return fmt.Errorf("ServerConfig.BuildID: %w", err)
+		}
+	}
+	return nil
+}
 
 // SessionsConfig configures how a session is carried between requests.
 //
@@ -230,14 +279,21 @@ func WithLogger(l *slog.Logger) ServerOption {
 //	a -> b -> c -> router
 func WithMiddleware(middleware ...func(http.Handler) http.Handler) ServerOption {
 	return func(c *ServerConfig) error {
-		for i, m := range middleware {
-			if m == nil {
-				return fmt.Errorf("WithMiddleware: nil middleware at index %d", i)
-			}
+		if err := checkMiddleware(middleware); err != nil {
+			return fmt.Errorf("WithMiddleware: %w", err)
 		}
 		c.Middleware = append(c.Middleware, middleware...)
 		return nil
 	}
+}
+
+func checkMiddleware(middleware []func(http.Handler) http.Handler) error {
+	for i, m := range middleware {
+		if m == nil {
+			return fmt.Errorf("nil middleware at index %d", i)
+		}
+	}
+	return nil
 }
 
 // WithHTTPServer sets a custom HTTP server.
@@ -379,37 +435,40 @@ type AssetsCacheConfig struct {
 // no-cache without Last-Modified.
 func WithAssetsCache(conf AssetsCacheConfig) ServerOption {
 	return func(c *ServerConfig) error {
-		switch {
-		case conf.MaxAge < 0:
-			return fmt.Errorf("WithAssetsCache: max age (%s) must not be negative",
-				conf.MaxAge)
-		case conf.MaxAge > 0 && conf.MaxAge < time.Second:
-			return fmt.Errorf("WithAssetsCache: max age (%s) must be at least 1s",
-				conf.MaxAge)
-		case conf.CacheControl != "" && (conf.MaxAge != 0 || conf.Immutable):
-			return fmt.Errorf(
-				"WithAssetsCache: cache control (%q) cannot be combined with "+
-					"max age (%s) or immutable (%t)",
-				conf.CacheControl, conf.MaxAge, conf.Immutable,
-			)
-		case conf.Immutable && conf.MaxAge <= 0:
-			return fmt.Errorf("WithAssetsCache: immutable (%t) requires "+
-				"a max age (%s) above 0",
-				conf.Immutable, conf.MaxAge)
-		}
-		// Reject control characters because CR or LF could inject response headers.
-		if i := strings.IndexFunc(conf.CacheControl, func(r rune) bool {
-			return r < 0x20 || r == 0x7f
-		}); i != -1 {
-			return fmt.Errorf(
-				"WithAssetsCache: cache control (%q) contains "+
-					"a control character at byte %d",
-				conf.CacheControl, i,
-			)
+		if err := conf.validate(); err != nil {
+			return fmt.Errorf("WithAssetsCache: %w", err)
 		}
 		c.AssetsCache = &conf
 		return nil
 	}
+}
+
+func (conf AssetsCacheConfig) validate() error {
+	switch {
+	case conf.MaxAge < 0:
+		return fmt.Errorf("max age (%s) must not be negative", conf.MaxAge)
+	case conf.MaxAge > 0 && conf.MaxAge < time.Second:
+		return fmt.Errorf("max age (%s) must be at least 1s", conf.MaxAge)
+	case conf.CacheControl != "" && (conf.MaxAge != 0 || conf.Immutable):
+		return fmt.Errorf(
+			"cache control (%q) cannot be combined with "+
+				"max age (%s) or immutable (%t)",
+			conf.CacheControl, conf.MaxAge, conf.Immutable,
+		)
+	case conf.Immutable && conf.MaxAge <= 0:
+		return fmt.Errorf("immutable (%t) requires a max age (%s) above 0",
+			conf.Immutable, conf.MaxAge)
+	}
+	// Reject control characters because CR or LF could inject response headers.
+	if i := strings.IndexFunc(conf.CacheControl, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}); i != -1 {
+		return fmt.Errorf(
+			"cache control (%q) contains a control character at byte %d",
+			conf.CacheControl, i,
+		)
+	}
+	return nil
 }
 
 // WithSessions sets session-based authentication configuration.
@@ -418,14 +477,19 @@ func WithSessions(o SessionsConfig) ServerOption {
 		if o.Cookie.Name == "" {
 			o.Cookie.Name = DefaultSessionCookieName
 		}
-		if !httpread.IsCookieName(o.Cookie.Name) {
-			return fmt.Errorf(
-				"WithSessions: invalid cookie name: %q", o.Cookie.Name,
-			)
+		if err := checkCookieName(o.Cookie.Name); err != nil {
+			return fmt.Errorf("WithSessions: %w", err)
 		}
 		c.Sessions = o
 		return nil
 	}
+}
+
+func checkCookieName(name string) error {
+	if !httpread.IsCookieName(name) {
+		return fmt.Errorf("invalid cookie name: %q", name)
+	}
+	return nil
 }
 
 // LogSamplingConfig is what [WithLogSampling] applies.
@@ -1008,8 +1072,8 @@ type PrometheusConfig struct {
 // which is what keeps a visitor from opening time series at will.
 func WithPrometheus(conf PrometheusConfig) ServerOption {
 	return func(c *ServerConfig) error {
-		if conf.Host == "" {
-			return errors.New("prometheus host address must not be empty")
+		if err := conf.validate(); err != nil {
+			return err
 		}
 		if conf.Registerer == nil {
 			conf.Registerer = prometheus.DefaultRegisterer
@@ -1021,6 +1085,13 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 		c.OutermostMiddleware = prom.Middleware
 		return nil
 	}
+}
+
+func (conf PrometheusConfig) validate() error {
+	if conf.Host == "" {
+		return errors.New("prometheus host address must not be empty")
+	}
+	return nil
 }
 
 // DefaultMaxConcurrentInstances is the default value of

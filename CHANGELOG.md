@@ -187,6 +187,7 @@ Run `datapages gen` to apply these.
 - Treat `/tickets` and `/tickets/` as the same page in the offline cache, as the server does. A visit to `/tickets` missed the copy cached for `/tickets/`, so the page didn't load offline, and the server sent the copy again on every online visit.
 - Count in `suppressed` every record that `datapages.WithLogSampling` holds back. A record logged at the same moment as the first one of its kind was dropped uncounted.
 - Stop appending the 500 page to a page that fails halfway through rendering behind `WithOffline` or `offline.Middleware`. The visitor got the half page and a second document after it.
+- Refuse in `datapages.NewServer` a `ServerConfig` value that a custom `ServerOption` sets and the field's `With` option refuses. A session cookie name with a space, for example, passed and kept every visitor signed out.
 
 #### `datapages init`
 
