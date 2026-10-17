@@ -20,7 +20,7 @@ Releases up to v0.10.0 have their notes on
 
 Run `datapages gen` to apply these.
 
-- Add `datapages.WithSSECompression` to configure or disable SSE compression. The presets `datapages.SSECompressionBalanced`, `datapages.SSECompressionLowMemory`, `datapages.SSECompressionLowBandwidth` and `datapages.SSECompressionLargeFragments` cover common trade-offs.
+- Add `datapages.WithSSECompression` to configure SSE compression and `datapages.WithNoSSECompression` to disable it. The presets `datapages.SSECompressionBalanced`, `datapages.SSECompressionLowMemory`, `datapages.SSECompressionLowBandwidth` and `datapages.SSECompressionLargeFragments` cover common trade-offs.
 
 #### Runtime and modules
 
@@ -65,7 +65,8 @@ Run `datapages gen` to apply these.
 - Stop copying strings written through `offline.Middleware`. A page of 22 strings drops from 35 to 14 allocations.
 - Let a file served through `offline.Middleware` use sendfile when it is an `*os.File`, as a file of an `http.Dir` or a `datapages.File` opened with `os.Open` is. Embedded files cannot.
 - Serve the embedded files of `datapages.WithAssets`, and the files of a `datapages.WithAssetsFS` file system other than `http.Dir`, without allocating a copy buffer of up to 32 KB per response. In a benchmark over HTTP/1.1, a request for a 30 KB file takes 18% less time.
-- Compress page, action and error bodies of at least 256 bytes by default with the first accepted coding among zstd, brotli and gzip. Applications previously needed custom middleware to compress these responses. An 8 KB page of cards shrinks to 19% in 14 us. Static assets, `datapages.File`, `HEAD` and dev-mode responses remain uncompressed. `datapages.WithResponseCompression` configures compression. Disable it for loopback-only clients or body-filtering proxies. Compressing proxies pass compressed bodies through. Send pages that combine secrets with attacker-controlled input with `Cache-Control: private, no-transform` to prevent compression side channels.
+- Compress page, action and error bodies of at least 256 bytes by default with the first accepted coding among zstd, brotli and gzip. Applications previously needed custom middleware to compress these responses. An 8 KB page of cards shrinks to 19% in 14 us. `datapages.File`, `HEAD` and dev-mode responses remain uncompressed. `datapages.WithResponseCompression` configures compression. `datapages.WithNoResponseCompression` disables it for loopback-only clients or body-filtering proxies. Compressing proxies pass compressed bodies through. Send pages that combine secrets with attacker-controlled input with `Cache-Control: private, no-transform` to prevent compression side channels.
+- Compress static assets by default. An asset of at least 256 bytes is eligible when its type is text, JSON, JavaScript, XML, SVG or WebAssembly. The server uses brotli first, then gzip, when the request accepts one. The first request for an asset and coding creates the copy and keeps it in memory. A copy keeps `Content-Length` and supports a single byte range; multi-range requests use the uncompressed asset. With `WithAssetsCache`, each copy has its own `ETag`. Dev mode compresses no asset. To configure codings, levels and storage, create a compressor with `assetcompress.New` and pass it to `datapages.WithAssetsCompression`. Its `Precompress` method creates every missing copy before requests, and `modules/assetcompress/disk` keeps copies across restarts. `datapages.WithNoAssetsCompression` turns it off.
 
 #### `datapages init`
 
@@ -161,6 +162,7 @@ Run `datapages gen` to apply these.
 
 #### Runtime and modules
 
+- Leave static assets unedited in `offline.Middleware`. An HTML asset got the connectivity and registration scripts, appended at its end when it had no `</head>` or `</body>`, as a fragment loaded with `fetch` has. The scripts also changed the bytes behind the asset's `ETag`.
 - Percent-encode the characters a URL path cannot carry, such as `#`, `?` and `%`, in the file names that `assets.Path` and `href.Asset` turn into URLs. `assets.Path("a#b.css")` returned `/static/a#b.css`, which a browser requests as `/static/a`, and a `%` in a file name made the server answer 400.
 - Label the HTTP metrics with the route when a middleware added with `datapages.WithMiddleware` passes on a new request, as `r.WithContext` returns when storing a CSP nonce. The request counter and the latency histogram labelled every request through such a middleware `<unmatched>`.
 - Accept `&` and `'` in the URL passed to `datapages.WithDatastarJS`, as in `https://cdn.example.com/datastar.js?v=1&min=1`. RFC 3986 allows both, and the page writes the URL escaped. Such a URL was refused.

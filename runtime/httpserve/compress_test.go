@@ -431,10 +431,13 @@ func TestResponseCompressionFilesAndAssets(t *testing.T) {
 	t.Parallel()
 
 	css := strings.Repeat("li { color: red; }\n", 500)
-	c := mustCore(t, datapages.ServerConfig{
+	cfg := datapages.ServerConfig{
 		AssetsFS:    http.FS(fstest.MapFS{"style.css": {Data: []byte(css)}}),
 		AssetsCache: &datapages.AssetsCacheConfig{},
-	}, "/static/")
+	}
+	// This test covers response compression, not asset compression.
+	require.NoError(t, datapages.WithNoAssetsCompression()(&cfg))
+	c := mustCore(t, cfg, "/static/")
 	c.Mux().HandleFunc("/file/", func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, httpserve.ServeFile(w, r, datapages.File{
 			Body: nopSeekCloser{strings.NewReader(css)},

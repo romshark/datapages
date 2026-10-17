@@ -1,10 +1,12 @@
-// Package contentcoding pools response encoders and negotiates Accept-Encoding.
+// Package contentcoding pools response encoders, negotiates Accept-Encoding
+// and decides which media types to compress.
 package contentcoding
 
 import (
 	"compress/gzip"
 	"io"
 	"math/bits"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -207,4 +209,36 @@ func zeroQuality(params string) bool {
 		}
 	}
 	return false
+}
+
+// Compressible reports whether compression usually shrinks
+// the media type of contentType. The SSE package handles event streams.
+func Compressible(contentType string) bool {
+	mt, _, _ := strings.Cut(contentType, ";")
+	mt = strings.ToLower(strings.TrimSpace(mt))
+	switch {
+	case mt == "text/event-stream":
+		return false
+	case strings.HasPrefix(mt, "text/"),
+		strings.HasSuffix(mt, "+json"), strings.HasSuffix(mt, "+xml"):
+		return true
+	}
+	switch mt {
+	case "application/json", "application/javascript", "application/xml",
+		"application/wasm":
+		return true
+	}
+	return false
+}
+
+// AddVary adds name to the Vary header of h unless it lists name or *.
+func AddVary(h http.Header, name string) {
+	for _, v := range h.Values("Vary") {
+		for t := range strings.SplitSeq(v, ",") {
+			if t = strings.TrimSpace(t); t == "*" || strings.EqualFold(t, name) {
+				return
+			}
+		}
+	}
+	h.Add("Vary", name)
 }

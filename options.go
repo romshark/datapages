@@ -104,6 +104,11 @@ type ServerConfig struct {
 	// ResponseCompression is nil for the defaults.
 	ResponseCompression *ResponseCompressionConfig
 
+	// AssetsCompressor is what [WithAssetsCompression] and
+	// [WithNoAssetsCompression] carry. Nil selects a compressor with the defaults of
+	// [github.com/romshark/datapages/modules/assetcompress.Config].
+	AssetsCompressor AssetsCompressor
+
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
 
@@ -539,8 +544,9 @@ func WithFileSendTimeout(d time.Duration) ServerOption {
 // Coding is a content coding a response can be compressed with.
 type Coding string
 
-// The content codings of [SSECompressionConfig.Codings] and
-// [ResponseCompressionConfig.Codings].
+// The content codings of [SSECompressionConfig.Codings],
+// [ResponseCompressionConfig.Codings] and
+// [github.com/romshark/datapages/modules/assetcompress.Config.Codings].
 const (
 	CodingZstd   Coding = "zstd"
 	CodingBrotli Coding = "br"
@@ -645,8 +651,7 @@ func SSECompressionLargeFragments() SSECompressionConfig {
 //
 // By default, a response uses the first accepted coding among zstd, brotli and gzip.
 // A page's or an action's [StreamConfig] method replaces it.
-//
-// Disable it for loopback-only entry points and before proxy body filters.
+// [WithNoSSECompression] turns compression off.
 func WithSSECompression(conf SSECompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := conf.Validate(); err != nil {
@@ -654,6 +659,16 @@ func WithSSECompression(conf SSECompressionConfig) ServerOption {
 		}
 		conf.Codings = slices.Clone(conf.Codings)
 		c.SSECompression = &conf
+		return nil
+	}
+}
+
+// WithNoSSECompression sends SSE responses uncompressed. Use it for
+// loopback-only entry points and before proxy body filters.
+// A page's or an action's [StreamConfig] method replaces it.
+func WithNoSSECompression() ServerOption {
+	return func(c *ServerConfig) error {
+		c.SSECompression = &SSECompressionConfig{Disabled: true}
 		return nil
 	}
 }
@@ -715,8 +730,8 @@ const (
 const maxResponseCompressionMinSize = 1 << 20
 
 // ResponseCompressionConfig configures non-SSE response compression.
-// Its zero value selects the defaults. Static assets and [File] responses
-// are excluded because they offer byte ranges.
+// Its zero value selects the defaults. [File] responses stay uncompressed,
+// and [WithAssetsCompression] compresses static assets.
 //
 // Each response holds an encoder only while it's written.
 // BenchmarkResponseCompression in runtime/httpserve measures each preset:
@@ -786,8 +801,7 @@ func ResponseCompressionLowBandwidth() ResponseCompressionConfig {
 // By default, text bodies of at least 256 bytes use the first accepted coding
 // among zstd, brotli and gzip. Compression runs after middleware.
 // Encoded, no-transform, range, HEAD and dev-mode responses pass through.
-//
-// Disable it for loopback-only entry points and before proxy body filters.
+// [WithNoResponseCompression] turns compression off.
 func WithResponseCompression(conf ResponseCompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := conf.Validate(); err != nil {
@@ -795,6 +809,15 @@ func WithResponseCompression(conf ResponseCompressionConfig) ServerOption {
 		}
 		conf.Codings = slices.Clone(conf.Codings)
 		c.ResponseCompression = &conf
+		return nil
+	}
+}
+
+// WithNoResponseCompression sends page, action and error bodies uncompressed.
+// Use it for loopback-only entry points and before proxy body filters.
+func WithNoResponseCompression() ServerOption {
+	return func(c *ServerConfig) error {
+		c.ResponseCompression = &ResponseCompressionConfig{Disabled: true}
 		return nil
 	}
 }
@@ -819,6 +842,53 @@ func (conf ResponseCompressionConfig) Validate() error {
 		return fmt.Errorf("gzip level (%d) must be from 1 to 9", conf.GzipLevel)
 	}
 	return nil
+}
+
+// AssetsCompressor compresses the static assets of [WithAssets] and [WithAssetsFS].
+// [github.com/romshark/datapages/modules/assetcompress.New] returns one.
+type AssetsCompressor interface {
+	// Handler returns a handler that sends a compressed copy of a file of fsys
+	// and passes other requests to next, which sends the files of fsys.
+	// The server calls it once and passes it its logger.
+	Handler(fsys http.FileSystem, next http.Handler, logger *slog.Logger) http.Handler
+}
+
+// WithAssetsCompression sets the compressor of static assets.
+//
+// Optional. Without it the server uses a compressor with the defaults of
+// [github.com/romshark/datapages/modules/assetcompress.Config], which compresses
+// eligible assets of at least 256 bytes with brotli or gzip on first request
+// and keeps the copies in memory. Dev mode sends assets uncompressed.
+// [WithNoAssetsCompression] turns compression off.
+//
+// Pass a compressor from [github.com/romshark/datapages/modules/assetcompress.New]
+// to configure compression or to precompress the assets before requests.
+func WithAssetsCompression(c AssetsCompressor) ServerOption {
+	return func(cfg *ServerConfig) error {
+		if c == nil {
+			return errors.New("WithAssetsCompression: nil compressor")
+		}
+		cfg.AssetsCompressor = c
+		return nil
+	}
+}
+
+// WithNoAssetsCompression sends static assets uncompressed. Use it for
+// loopback-only entry points and before proxy body filters.
+func WithNoAssetsCompression() ServerOption {
+	return func(cfg *ServerConfig) error {
+		cfg.AssetsCompressor = uncompressedAssets{}
+		return nil
+	}
+}
+
+// uncompressedAssets is the compressor of [WithNoAssetsCompression].
+type uncompressedAssets struct{}
+
+func (uncompressedAssets) Handler(
+	_ http.FileSystem, next http.Handler, _ *slog.Logger,
+) http.Handler {
+	return next
 }
 
 // maxBuildIDLen limits IDs accepted by [WithBuildID].

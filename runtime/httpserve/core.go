@@ -24,6 +24,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/logsample"
+	"github.com/romshark/datapages/modules/assetcompress"
 	"github.com/romshark/datapages/runtime/prom"
 	"github.com/romshark/datapages/runtime/sse"
 )
@@ -94,6 +95,8 @@ type Core struct {
 	fileSendTimeout     time.Duration
 	sseCompression      *sse.Compression
 	responseCompression *responseCompression // Nil when disabled.
+	// assetsCompressor is nil for the compressor of the zero [assetcompress.Config].
+	assetsCompressor datapages.AssetsCompressor
 
 	// streamCompressions shares encoders by [sse.CompressionKey].
 	lockStreamCompressions sync.Mutex
@@ -150,6 +153,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		fileSendTimeout:     cfg.FileSendTimeout,
 		sseCompression:      sse.NewCompression(cfg.SSECompression),
 		responseCompression: newResponseCompression(cfg.ResponseCompression),
+		assetsCompressor:    cfg.AssetsCompressor,
 	}
 	c.shutdown, c.cancelShutdown = context.WithCancel(context.Background())
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
@@ -253,7 +257,13 @@ func (c *Core) Build() {
 		if !c.assetsBrowsable {
 			fsys = notBrowsableFS{fsys: fsys}
 		}
-		h := http.FileServer(fsys)
+		compressor := c.assetsCompressor
+		if compressor == nil {
+			// New accepts the zero Config.
+			compressor, _ = assetcompress.New(assetcompress.Config{})
+		}
+		// Compressed ETags extend the cache middleware's base tag.
+		h := compressor.Handler(fsys, http.FileServer(fsys), c.sampledLogger)
 		switch {
 		case datapages.IsDevMode():
 			// Dev files may change while the server runs. The browser asks
@@ -263,7 +273,7 @@ func (c *Core) Build() {
 			h = newAssetsCache(fsys, *c.assetsCache, h)
 		}
 		c.mux.Handle("GET "+c.assetsURLPrefix,
-			http.StripPrefix(c.assetsURLPrefix, limitingFileWrites(h)))
+			http.StripPrefix(c.assetsURLPrefix, servingAssets(h)))
 	}
 
 	c.handler = http.Handler(c.mux)
@@ -290,9 +300,12 @@ func (c *Core) Build() {
 	c.httpServer.Handler = c
 }
 
-// limitingFileWrites limits the writes of the files next sends, see [limitFileWrites].
-func limitingFileWrites(next http.Handler) http.Handler {
+// servingAssets marks the responses of next as files, as [ServeFile] does.
+// Middleware that edits bodies passes them through unchanged,
+// and [limitFileWrites] limits their writes.
+func servingAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		passFileThrough(w)
 		limitFileWrites(w)
 		next.ServeHTTP(w, r)
 	})

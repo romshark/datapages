@@ -250,8 +250,9 @@ func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 // responses. It adds registration when [datapages.HeaderWorkerVersion] is absent or
 // lower than the configured worker version. Non-HTML responses pass through unchanged.
 //
-// So do a range response, whose Content-Range a script would contradict, and the
-// response of a [datapages.File], whose bytes are the file's whatever its type.
+// So do a range response, whose Content-Range a script would contradict,
+// and the response of a [datapages.File] or a static asset,
+// whose bytes are the file's whatever its type.
 //
 // An encoded response passes through because [Middleware] cannot edit it.
 // Datapages response compression runs after middleware.

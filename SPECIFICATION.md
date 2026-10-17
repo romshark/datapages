@@ -552,7 +552,7 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 By default, an SSE response uses the first coding explicitly accepted by the request in the order zstd, brotli, gzip. A wildcard selects gzip only. If no configured coding is accepted, the response is uncompressed. The default zstd and brotli windows are 1 MiB.
 
-`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `Disabled: true` disables SSE compression. `datapages.SSECompressionBalanced` returns the defaults, `datapages.SSECompressionLowMemory` 256 KiB windows for many streams with small fragments, `datapages.SSECompressionLowBandwidth` brotli first for slow or metered clients, and `datapages.SSECompressionLargeFragments` 4 MiB windows for fragments above about 1 MB. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled. The coding depends only on the request's `Accept-Encoding`, not on the client address.
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `datapages.WithNoSSECompression` disables SSE compression. `datapages.SSECompressionBalanced` returns the defaults, `datapages.SSECompressionLowMemory` 256 KiB windows for many streams with small fragments, `datapages.SSECompressionLowBandwidth` brotli first for slow or metered clients, and `datapages.SSECompressionLargeFragments` 4 MiB windows for fragments above about 1 MB. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled. The coding depends only on the request's `Accept-Encoding`, not on the client address.
 
 See [datapages.go](datapages.go) for method definitions.
 
@@ -1008,9 +1008,21 @@ Compression runs after every `WithMiddleware` middleware. These responses pass t
 
 Compression removes `Content-Length` and weakens a strong `ETag`. The server buffers up to the minimum size, or until the handler flushes or returns.
 
-`datapages.WithResponseCompression` sets the codings, order, minimum size and levels. `Disabled: true` disables it. `datapages.ResponseCompressionBalanced` returns the zero-value defaults. `datapages.ResponseCompressionLowCPU` orders zstd, gzip, brotli and sets every level or quality to 1. `datapages.ResponseCompressionLowBandwidth` orders brotli, zstd, gzip.
+`datapages.WithResponseCompression` sets the codings, order, minimum size and levels. `datapages.WithNoResponseCompression` disables it. `datapages.ResponseCompressionBalanced` returns the zero-value defaults. `datapages.ResponseCompressionLowCPU` orders zstd, gzip, brotli and sets every level or quality to 1. `datapages.ResponseCompressionLowBandwidth` orders brotli, zstd, gzip.
 
 Dev mode sends bodies uncompressed.
+
+## Asset Compression
+
+By default, assets of at least 256 bytes are eligible when their media type is `text/*`, `application/json`, `application/javascript`, `application/xml` or `application/wasm`, or ends in `+json` or `+xml`, which includes SVG. Eligible assets use the first explicitly accepted coding from brotli 6 and gzip 9. Brotli uses a 4 MiB window. Other assets stay uncompressed. Dev mode disables asset compression.
+
+The first request creates a missing copy. Concurrent requests share that work, and a compressor compresses 1 asset at a time. `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding. It returns the first failed read or store and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
+
+Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` therefore creates the copies the server looks up in its subdirectory. A size or modification-time change causes a new hash. A file changed during compression is not stored under its old hash.
+
+Compressed responses keep `Content-Length` and byte ranges. Multi-range requests use the uncompressed file. Eligible responses send `Vary: Accept-Encoding` even when uncompressed. With `datapages.WithAssetsCache`, a copy's `ETag` appends its coding and level, as in `"tag.br6"`. Store errors are logged and the request falls back to the uncompressed file.
+
+`modules/assetcompress.New` returns a compressor with the codings, order, levels and store of its `Config`. `datapages.WithAssetsCompression` passes it to the server, which otherwise uses the defaults. `datapages.WithNoAssetsCompression` disables compression. A nil `Store` uses memory; `modules/assetcompress/disk` persists copies in a directory. The option accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server.
 
 ## Dev Mode
 
@@ -1020,7 +1032,7 @@ Set `TEMPL_DEV_MODE=true` before starting the process to enable templ hot reload
 
 `datapages watch` uses templier, which sets `TEMPL_DEV_MODE` before it starts the application.
 
-Dev mode reads static assets from the source tree and sets `Cache-Control: no-cache` without `Last-Modified` on asset responses, ignoring `datapages.WithAssetsCache`. It sends bodies uncompressed, ignoring `datapages.WithResponseCompression`; see [Response Compression](#response-compression). The server logs a startup warning.
+Dev mode reads assets from the source tree and sends `Cache-Control: no-cache` without `Last-Modified`. It ignores `datapages.WithAssetsCache`, `datapages.WithResponseCompression` and `datapages.WithAssetsCompression`; see [Response Compression](#response-compression) and [Asset Compression](#asset-compression). The server logs a startup warning.
 
 Outside dev mode, Datapages adds no `Cache-Control` or `ETag` header unless `datapages.WithAssetsCache` is set. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
 
@@ -1119,7 +1131,7 @@ The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecac
 
 The worker scope covers the whole origin, regardless of the script URL. The registration script requests scope `/`, and the script response sets `Service-Worker-Allowed: /`.
 
-The offline middleware writes the connectivity script into every HTML response, and the registration script into those for a client whose worker is missing or older than the server's. Responses with `Content-Encoding`, range responses (206) and [`datapages.File`](#return-value-datapagesfile) responses pass through. [Response compression](#response-compression) runs after the middleware. Put a custom compressing middleware before `WithOffline`.
+The offline middleware writes the connectivity script into every HTML response, and the registration script into those for a client whose worker is missing or older than the server's. Responses with `Content-Encoding`, range responses (206), [`datapages.File`](#return-value-datapagesfile) responses and static assets pass through. [Response compression](#response-compression) runs after the middleware. Put a custom compressing middleware before `WithOffline`.
 
 Offline support writes inline scripts, which are the connectivity and worker registration scripts and the queued cache writes in a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence for the connectivity and registration scripts. The queued cache writes always use the nonce from `WithCSPNonce`.
 

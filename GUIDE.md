@@ -231,15 +231,16 @@ Datapages compresses page and action bodies of at least 256 bytes. The default p
 datapages.WithResponseCompression(datapages.ResponseCompressionLowCPU()),
 ```
 
-Static assets and `datapages.File` responses remain uncompressed to preserve byte ranges. To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Give each representation its own `ETag` and send `Vary: Accept-Encoding`. See [Choose where compression runs](#choose-where-compression-runs) for loopback clients and proxies. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
+`datapages.File` responses remain uncompressed. Static assets use separate compression; see [Serve static assets](#serve-static-assets). To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Give each representation its own `ETag` and send `Vary: Accept-Encoding`. See [Choose where compression runs](#choose-where-compression-runs) for loopback clients and proxies. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
 
 ## Choose where compression runs
 
 Disable it for loopback-only clients:
 
 ```go
-datapages.WithResponseCompression(datapages.ResponseCompressionConfig{Disabled: true}),
-datapages.WithSSECompression(datapages.SSECompressionConfig{Disabled: true}),
+datapages.WithNoResponseCompression(),
+datapages.WithNoSSECompression(),
+datapages.WithNoAssetsCompression(),
 ```
 
 Behind a reverse proxy, keep it on unless a body filter such as nginx `sub_filter` must read the HTML. Then disable it, or set `proxy_set_header Accept-Encoding "";`. Caches must honor `Vary: Accept-Encoding`.
@@ -264,6 +265,35 @@ The default build ID is a hash of the executable. If you set `datapages.WithBuil
 ## Serve static assets
 
 Enable the scaffold's `embed.FS` example, pass it to `datapages.WithAssets`, and write URLs with the generated `assets` or `href` helper. Configure production caching with `datapages.WithAssetsCache`. See [Dev Mode](SPECIFICATION.md#dev-mode) and [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets).
+
+Datapages compresses eligible assets on first request and keeps the copies in memory. Brotli 6 takes a few milliseconds per 200 KB file; brotli 11 takes 140 to 215 ms. To avoid this request delay, create the compressor and precompress the embedded files:
+
+```go
+assets, err := assetcompress.New(assetcompress.Config{})
+if err != nil {
+	return err
+}
+opts = append(opts, datapages.WithAssetsCompression(assets))
+go func() {
+	if err := assets.Precompress(ctx, app.StaticFS); err != nil {
+		slog.Error("precompressing assets", slog.Any("err", err))
+	}
+}()
+```
+
+A copy is stored under the content of its file, not its path. Precompressing the whole `embed.FS` therefore creates the copies the server looks up in its subdirectory. Requests still compress missing copies. Precompression stops at the first error; later files remain for their first requests. Omit `go` to finish before serving. This delays startup and fills the in-memory store with every eligible copy.
+
+Persist copies to compress each build once:
+
+```go
+store, err := disk.New("/var/cache/myapp/assets")
+if err != nil {
+	return err
+}
+assets, err := assetcompress.New(assetcompress.Config{Store: store})
+```
+
+See [Asset Compression](SPECIFICATION.md#asset-compression) for the rules and [`assetcompress.Config`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Config) for measurements.
 
 ## Add offline page caching
 

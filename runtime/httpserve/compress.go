@@ -293,7 +293,7 @@ func (cw *compressingWriter) check() bool {
 		return false
 	}
 	ct, declared := cw.Header()["Content-Type"]
-	if cw.refuses() || declared && (len(ct) == 0 || !compressible(ct[0])) {
+	if cw.refuses() || declared && (len(ct) == 0 || !contentcoding.Compressible(ct[0])) {
 		cw.sendHeld()
 		return true
 	}
@@ -341,12 +341,12 @@ func (cw *compressingWriter) decide(final bool) {
 	case len(ctValues) > 0:
 		ct = ctValues[0]
 	}
-	if !compressible(ct) {
+	if !contentcoding.Compressible(ct) {
 		cw.sendHeld()
 		return
 	}
 	// Other requests to the same URL may get a coding this one doesn't.
-	addVary(h, "Accept-Encoding")
+	contentcoding.AddVary(h, "Accept-Encoding")
 	if cw.coding == nil {
 		cw.sendHeld()
 		return
@@ -466,26 +466,6 @@ func (cw *compressingWriter) releaseBuf() {
 	cw.bufp, cw.buf = nil, nil
 }
 
-// compressible reports whether compression usually shrinks ct.
-// The SSE package handles event streams.
-func compressible(ct string) bool {
-	mt, _, _ := strings.Cut(ct, ";")
-	mt = strings.ToLower(strings.TrimSpace(mt))
-	switch {
-	case mt == "text/event-stream":
-		return false
-	case strings.HasPrefix(mt, "text/"),
-		strings.HasSuffix(mt, "+json"), strings.HasSuffix(mt, "+xml"):
-		return true
-	}
-	switch mt {
-	case "application/json", "application/javascript", "application/xml",
-		"application/wasm":
-		return true
-	}
-	return false
-}
-
 func hasToken(values []string, token string) bool {
 	for _, v := range values {
 		for t := range strings.SplitSeq(v, ",") {
@@ -495,15 +475,4 @@ func hasToken(values []string, token string) bool {
 		}
 	}
 	return false
-}
-
-func addVary(h http.Header, name string) {
-	for _, v := range h.Values("Vary") {
-		for t := range strings.SplitSeq(v, ",") {
-			if t = strings.TrimSpace(t); t == "*" || strings.EqualFold(t, name) {
-				return
-			}
-		}
-	}
-	h.Add("Vary", name)
 }

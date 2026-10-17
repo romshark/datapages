@@ -4,6 +4,7 @@ package acceptance_test
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"io"
@@ -11,7 +12,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +27,8 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/assets"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/assetcompress"
+	assetinmem "github.com/romshark/datapages/modules/assetcompress/inmem"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -159,6 +164,61 @@ func TestPageIsCompressed(t *testing.T) {
 	require.Equal(t, string(want), string(got))
 	_, err = raw.ReadByte()
 	require.ErrorIs(t, err, io.EOF, "the page has bytes after its gzip stream")
+}
+
+// countingStore counts the copies put into it.
+type countingStore struct {
+	assetcompress.Store
+	puts atomic.Int64
+}
+
+func (s *countingStore) Put(key string, r io.Reader) error {
+	s.puts.Add(1)
+	return s.Store.Put(key, r)
+}
+
+// TestAssetIsCompressed tests that precompressing the embed.FS passed to
+// WithAssets creates the copies the generated server sends from its
+// subdirectory.
+func TestAssetIsCompressed(t *testing.T) {
+	t.Parallel()
+	store := &countingStore{Store: assetinmem.New()}
+	compressor, err := assetcompress.New(assetcompress.Config{Store: store})
+	require.NoError(t, err)
+	srv := newServer(t, datapages.WithAssetsCompression(compressor))
+	require.NoError(t, compressor.Precompress(context.Background(), app.StaticFS))
+	// Brotli and gzip copies of theme.css. The other files are below 256 bytes.
+	require.Equal(t, int64(2), store.puts.Load())
+
+	want, err := app.StaticFS.ReadFile("static/theme.css")
+	require.NoError(t, err, "reading theme.css")
+	plain := get(t, srv, href.Asset("theme.css"))
+	defer func() { _ = plain.Body.Close() }()
+	b, err := io.ReadAll(plain.Body)
+	require.NoError(t, err, "reading the uncompressed asset")
+	require.Empty(t, plain.Header.Get("Content-Encoding"))
+	require.Equal(t, string(want), string(b))
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+href.Asset("theme.css"), nil,
+	)
+	require.NoError(t, err, "building GET theme.css")
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "GET theme.css")
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
+	compressed, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading the copy")
+	require.Equal(t, strconv.Itoa(len(compressed)), resp.Header.Get("Content-Length"))
+	zr, err := gzip.NewReader(bytes.NewReader(compressed))
+	require.NoError(t, err, "reading the gzip header")
+	got, err := io.ReadAll(zr)
+	require.NoError(t, err, "decoding the copy")
+	require.Equal(t, string(want), string(got))
+	require.Equal(t, int64(2), store.puts.Load(), "the request created a copy")
 }
 
 // TestAssetsNotBrowsable tests browsable false: a request for a directory

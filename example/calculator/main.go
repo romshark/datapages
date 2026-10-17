@@ -41,10 +41,9 @@ func main() {
 		datapages.WithAssets(app.StaticFS, false),
 		// The webview is the only client and connects over loopback,
 		// where compression costs CPU and saves no transfer.
-		datapages.WithSSECompression(datapages.SSECompressionConfig{Disabled: true}),
-		datapages.WithResponseCompression(datapages.ResponseCompressionConfig{
-			Disabled: true,
-		}),
+		datapages.WithNoSSECompression(),
+		datapages.WithNoResponseCompression(),
+		datapages.WithNoAssetsCompression(),
 	)
 	if err != nil {
 		panic(err)

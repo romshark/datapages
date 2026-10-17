@@ -22,12 +22,12 @@ type assetsCache struct {
 	fsys         http.FileSystem
 	cacheControl string
 
-	// etags holds file digests by cleaned path. It is nil when ETags are disabled.
+	// etags holds file digests by cleaned path, which every request reads
+	// without a lock. It is nil when ETags are disabled.
 	//
 	// Missing paths leave no entry, which bounds the map by the files in fsys
 	// instead of the paths clients request.
-	lockETags sync.RWMutex
-	etags     map[string]string
+	etags *sync.Map
 }
 
 // newAssetsCache adds the headers in conf to files next serves from fsys.
@@ -47,7 +47,7 @@ func newAssetsCache(
 		}
 	}
 	if !conf.DisableETag {
-		c.etags = make(map[string]string)
+		c.etags = new(sync.Map)
 	}
 	return c
 }
@@ -67,11 +67,8 @@ func (c *assetsCache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (c *assetsCache) lookup(name string) (tag string, isFile bool) {
 	name = path.Clean("/" + name)
 	if c.etags != nil {
-		c.lockETags.RLock()
-		tag, isFile = c.etags[name]
-		c.lockETags.RUnlock()
-		if isFile {
-			return tag, true
+		if v, ok := c.etags.Load(name); ok {
+			return v.(string), true
 		}
 	}
 
@@ -92,9 +89,7 @@ func (c *assetsCache) lookup(name string) (tag string, isFile bool) {
 	// contains no character that needs escaping inside a quoted ETag.
 	tag = `"` + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:16]) + `"`
 
-	c.lockETags.Lock()
-	c.etags[name] = tag
-	c.lockETags.Unlock()
+	c.etags.Store(name, tag)
 	return tag, true
 }
 

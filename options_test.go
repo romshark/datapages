@@ -1,6 +1,7 @@
 package datapages_test
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -354,6 +355,48 @@ func TestWithResponseCompressionCopiesCodings(t *testing.T) {
 	require.Equal(t,
 		[]datapages.Coding{datapages.CodingGzip},
 		cfg.ResponseCompression.Codings)
+}
+
+// passingCompressor sends every asset uncompressed.
+type passingCompressor struct{}
+
+func (passingCompressor) Handler(
+	_ http.FileSystem, next http.Handler, _ *slog.Logger,
+) http.Handler {
+	return next
+}
+
+// TestWithAssetsCompression tests that the option stores its compressor and rejects nil.
+func TestWithAssetsCompression(t *testing.T) {
+	t.Parallel()
+
+	var cfg datapages.ServerConfig
+	require.EqualError(t, datapages.WithAssetsCompression(nil)(&cfg),
+		"WithAssetsCompression: nil compressor")
+	require.Nil(t, cfg.AssetsCompressor)
+
+	require.NoError(t, datapages.WithAssetsCompression(passingCompressor{})(&cfg))
+	require.Equal(t, passingCompressor{}, cfg.AssetsCompressor)
+}
+
+// TestWithNoCompression tests that each option turns its compression off.
+// The asset compressor passes every request to the file server.
+func TestWithNoCompression(t *testing.T) {
+	t.Parallel()
+
+	var cfg datapages.ServerConfig
+	for _, opt := range []datapages.ServerOption{
+		datapages.WithNoResponseCompression(),
+		datapages.WithNoSSECompression(),
+		datapages.WithNoAssetsCompression(),
+	} {
+		require.NoError(t, opt(&cfg))
+	}
+	require.Equal(t,
+		&datapages.ResponseCompressionConfig{Disabled: true}, cfg.ResponseCompression)
+	require.Equal(t, &datapages.SSECompressionConfig{Disabled: true}, cfg.SSECompression)
+	next := http.NewServeMux()
+	require.Same(t, next, cfg.AssetsCompressor.Handler(nil, next, nil))
 }
 
 // TestWithBuildID tests that IDs fit unchanged in an HTTP header.

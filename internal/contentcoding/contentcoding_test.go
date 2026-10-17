@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -168,6 +169,66 @@ func TestNegotiateOrder(t *testing.T) {
 				got = c.Name()
 			}
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestCompressible tests which media types compression shrinks, parameters
+// and case ignored.
+func TestCompressible(t *testing.T) {
+	for contentType, want := range map[string]bool{
+		"text/html; charset=utf-8":  true,
+		"TEXT/CSS":                  true,
+		"application/json":          true,
+		"application/ld+json":       true,
+		"image/svg+xml":             true,
+		"application/javascript":    true,
+		"application/wasm":          true,
+		"text/event-stream":         false,
+		"image/png":                 false,
+		"application/octet-stream":  false,
+		"":                          false,
+		" application/xml ; q=1 ":   true,
+		"application/json-seq":      false,
+		"multipart/form-data; a=b":  false,
+		"application/xhtml+xml;v=1": true,
+	} {
+		require.Equal(t, want, Compressible(contentType), "%q", contentType)
+	}
+}
+
+// TestAddVary tests that a name is added once, whatever its case,
+// and never next to *.
+func TestAddVary(t *testing.T) {
+	for name, tc := range map[string]struct {
+		vary []string
+		want []string
+	}{
+		"none": {
+			vary: nil,
+			want: []string{"Accept-Encoding"},
+		},
+		"other": {
+			vary: []string{"Cookie"},
+			want: []string{"Cookie", "Accept-Encoding"},
+		},
+		"listed": {
+			vary: []string{"Cookie, accept-encoding"},
+			want: []string{"Cookie, accept-encoding"},
+		},
+		"in 2nd value": {
+			vary: []string{"Cookie", "Accept-Encoding"},
+			want: []string{"Cookie", "Accept-Encoding"},
+		},
+		"star": {[]string{"*"}, []string{"*"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := http.Header{}
+			for _, v := range tc.vary {
+				h.Add("Vary", v)
+			}
+			AddVary(h, "Accept-Encoding")
+			require.Equal(t, tc.want, h.Values("Vary"))
 		})
 	}
 }
