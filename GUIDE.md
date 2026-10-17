@@ -221,7 +221,7 @@ func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
 }
 ```
 
-A method replaces the server setting. Zero fields use package defaults. Disable Datapages compression when a proxy compresses the response. See [`SSECompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#SSECompressionConfig) for the presets and [`StreamConfig`](SPECIFICATION.md#streamconfig) for valid method signatures.
+A method replaces the server setting. Zero fields use package defaults. See [Choose where compression runs](#choose-where-compression-runs) before disabling compression. See [`SSECompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#SSECompressionConfig) for the presets and [`StreamConfig`](SPECIFICATION.md#streamconfig) for valid method signatures.
 
 ## Tune response compression
 
@@ -231,7 +231,18 @@ Datapages compresses page and action bodies of at least 256 bytes. The default p
 datapages.WithResponseCompression(datapages.ResponseCompressionLowCPU()),
 ```
 
-Static assets and `datapages.File` responses remain uncompressed to preserve byte ranges. See [`datapages.File`](SPECIFICATION.md#return-value-datapagesfile) for precompressed responses. Disable compression behind a compressing proxy and for loopback-only clients. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
+Static assets and `datapages.File` responses remain uncompressed to preserve byte ranges. To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Give each representation its own `ETag` and send `Vary: Accept-Encoding`. See [Choose where compression runs](#choose-where-compression-runs) for loopback clients and proxies. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
+
+## Choose where compression runs
+
+Disable it for loopback-only clients:
+
+```go
+datapages.WithResponseCompression(datapages.ResponseCompressionConfig{Disabled: true}),
+datapages.WithSSECompression(datapages.SSECompressionConfig{Disabled: true}),
+```
+
+Behind a reverse proxy, keep it on unless a body filter such as nginx `sub_filter` must read the HTML. Then disable it, or set `proxy_set_header Accept-Encoding "";`. Caches must honor `Vary: Accept-Encoding`.
 
 ## Choose modules for the deployment
 

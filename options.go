@@ -645,6 +645,8 @@ func SSECompressionLargeFragments() SSECompressionConfig {
 //
 // By default, a response uses the first accepted coding among zstd, brotli and gzip.
 // A page's or an action's [StreamConfig] method replaces it.
+//
+// Disable it for loopback-only entry points and before proxy body filters.
 func WithSSECompression(conf SSECompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := conf.Validate(); err != nil {
@@ -784,6 +786,8 @@ func ResponseCompressionLowBandwidth() ResponseCompressionConfig {
 // By default, text bodies of at least 256 bytes use the first accepted coding
 // among zstd, brotli and gzip. Compression runs after middleware.
 // Encoded, no-transform, range, HEAD and dev-mode responses pass through.
+//
+// Disable it for loopback-only entry points and before proxy body filters.
 func WithResponseCompression(conf ResponseCompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := conf.Validate(); err != nil {
