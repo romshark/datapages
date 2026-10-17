@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 
@@ -211,14 +212,26 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		}
 	}
 	if p := cfg.Prometheus; p != nil {
+		// An option other than [datapages.WithPrometheus] can set p without
+		// the defaults of that option.
+		reg, gatherer := p.Registerer, p.Gatherer
+		if reg == nil {
+			reg = prometheus.DefaultRegisterer
+		}
+		if gatherer == nil {
+			gatherer = prometheus.DefaultGatherer
+		}
+		if c.outermost == nil {
+			c.outermost = prom.Middleware
+		}
 		// The registering happens here rather than in [datapages.WithPrometheus]
 		// so a rejected configuration leaves the registerer as it found it.
-		if err := prom.Register(p.Registerer, p.Collectors...); err != nil {
+		if err := prom.Register(reg, p.Collectors...); err != nil {
 			return nil, fmt.Errorf("registering prometheus metrics: %w", err)
 		}
 		h := p.Handler
 		if h == nil {
-			h = promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
+			h = promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{})
 		}
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", h)

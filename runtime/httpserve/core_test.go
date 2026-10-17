@@ -908,6 +908,50 @@ func TestStateInstancesMetric(t *testing.T) {
 	require.Zero(t, gaugeValue(t, reg, metric))
 }
 
+// TestPrometheusDefaults tests that a PrometheusConfig an option sets without
+// WithPrometheus gets the defaults of that option: the default registerer and
+// gatherer, and the middleware that counts requests.
+func TestPrometheusDefaults(t *testing.T) {
+	// The metrics server binds the address it is given and reports none back.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	metricsAddr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	c := mustCore(t, datapages.ServerConfig{
+		Prometheus: &datapages.PrometheusConfig{Host: metricsAddr},
+	}, "")
+	c.Mux().HandleFunc(
+		"GET /prometheus-defaults/", func(http.ResponseWriter, *http.Request) {},
+	)
+	c.Build()
+
+	done := make(chan error, 1)
+	go func() { done <- c.ListenAndServe(t.Context(), "127.0.0.1:0") }()
+	addr := awaitAddr(t, c, done)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://" + addr + "/prometheus-defaults/")
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	var metrics string
+	require.Eventually(t, func() bool {
+		resp, err := client.Get("http://" + metricsAddr + "/metrics")
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		metrics = string(b)
+		return err == nil && resp.StatusCode == http.StatusOK
+	}, 5*time.Second, 10*time.Millisecond, "the metrics server never answered")
+	require.Contains(t, metrics, `path="GET /prometheus-defaults/"`,
+		"the request was not counted")
+
+	shutdownAndWait(t, c, done, "ListenAndServe")
+}
+
 // gaugeValue reads the value of the named gauge from g.
 func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
 	t.Helper()

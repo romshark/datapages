@@ -39,7 +39,8 @@ type ServerConfig struct {
 	// Middleware wraps the router, in the order it was added.
 	Middleware []func(http.Handler) http.Handler
 
-	// OutermostMiddleware wraps every other middleware.
+	// OutermostMiddleware wraps every other middleware. With Prometheus set,
+	// nil selects the middleware that counts the HTTP metrics.
 	OutermostMiddleware func(http.Handler) http.Handler
 
 	// HTTPServer serves the application. Its Addr and Handler are always overwritten.
