@@ -356,6 +356,24 @@ func TestHandlerMultipartRange(t *testing.T) {
 	require.Contains(t, w.Body.String(), assetCSS[:10])
 }
 
+// TestHandlerZstdLevels tests that zstd levels that compress alike share their
+// copies and ETags.
+func TestHandlerZstdLevels(t *testing.T) {
+	t.Parallel()
+
+	store := newCountingStore()
+	for _, level := range []int{19, 22} {
+		h := withETag(`"base"`, newHandler(newCompressor(t, assetcompress.Config{
+			Store:     store,
+			Codings:   []datapages.Coding{datapages.CodingZstd},
+			ZstdLevel: level,
+		}), http.FS(assetFiles()), nil))
+		w := get(t, h, http.MethodGet, "/style.css", "zstd", nil)
+		require.Equal(t, `"base.zstd10"`, w.Header().Get("Etag"), "level %d", level)
+	}
+	require.Equal(t, int64(1), store.puts.Load(), "copies of levels 19 and 22")
+}
+
 // TestHandlerETag tests that each copy appends its coding and level to the tag
 // set before the handler, and that a conditional request matches its own tag.
 func TestHandlerETag(t *testing.T) {
@@ -829,7 +847,7 @@ func BenchmarkPrecompress(b *testing.B) {
 			{"br11", assetcompress.Config{
 				Codings: []datapages.Coding{datapages.CodingBrotli}, BrotliQuality: 11,
 			}},
-			{"zstd19", assetcompress.Config{
+			{"zstd10", assetcompress.Config{
 				Codings: []datapages.Coding{datapages.CodingZstd},
 			}},
 			{"gzip9", assetcompress.Config{

@@ -82,6 +82,19 @@ func TestEncoderReuse(t *testing.T) {
 	}
 }
 
+// TestZstdLevel tests that each level maps to 1, 3, 6 or 10, the levels the docs
+// of the ZstdLevel config fields list as the ones that differ.
+func TestZstdLevel(t *testing.T) {
+	for level, want := range map[int]int{
+		1: 1, 2: 1,
+		3: 3, 5: 3,
+		6: 6, 9: 6,
+		10: 10, 19: 10, 22: 10,
+	} {
+		require.Equal(t, want, ZstdLevel(level), "level %d", level)
+	}
+}
+
 // TestNegotiateNoCodings tests that no codings select identity.
 func TestNegotiateNoCodings(t *testing.T) {
 	require.Nil(t, Negotiate(nil, []string{"gzip, deflate, br, zstd"}))

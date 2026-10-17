@@ -656,9 +656,9 @@ type SSECompressionConfig struct {
 	// The default is zstd, brotli and gzip.
 	Codings []Coding
 
-	// ZstdLevel is from 1 to 22. 0 selects [DefaultSSEZstdLevel].
-	// At level 10 and above, BenchmarkReRender in runtime/sse
-	// retains about 35 MiB per stream.
+	// ZstdLevel is from 1 to 22, and 0 selects [DefaultSSEZstdLevel]. Only 1, 3,
+	// 6 and 10 differ, and any other level compresses like the closest of them below it.
+	// At 10, BenchmarkReRender in runtime/sse retains about 35 MiB per stream.
 	ZstdLevel int
 
 	// ZstdWindow is how far back zstd finds repeated data, a power of 2 from
@@ -827,7 +827,9 @@ type ResponseCompressionConfig struct {
 	// MinSize bytes of its body until it can decide.
 	MinSize int
 
-	// ZstdLevel is from 1 to 22. 0 selects [DefaultResponseZstdLevel].
+	// ZstdLevel is from 1 to 22, and 0 selects [DefaultResponseZstdLevel]. Only
+	// 1, 3, 6 and 10 differ, and any other level compresses like the closest
+	// of them below it.
 	ZstdLevel int
 
 	// BrotliQuality is from 1 to 11. 0 selects [DefaultResponseBrotliQuality].

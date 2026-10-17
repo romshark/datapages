@@ -69,6 +69,18 @@ func NewZstd(level, window int) *Coding {
 	}
 }
 
+// ZstdLevel returns the lowest level that compresses like level, since
+// klauspost/compress maps the levels 1 to 22 onto 4 encoder levels.
+func ZstdLevel(level int) int {
+	want := zstd.EncoderLevelFromZstd(level)
+	for l := 1; l < level; l++ {
+		if zstd.EncoderLevelFromZstd(l) == want {
+			return l
+		}
+	}
+	return level
+}
+
 // NewBrotli returns brotli at quality 1 to 11 with a window that is a power
 // of 2 from 1 KiB to 16 MiB.
 func NewBrotli(quality, window int) *Coding {

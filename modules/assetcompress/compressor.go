@@ -28,7 +28,7 @@ import (
 
 // The defaults of [Config].
 const (
-	DefaultZstdLevel     = 19
+	DefaultZstdLevel     = 10
 	DefaultBrotliQuality = 6
 	DefaultGzipLevel     = 9
 )
@@ -49,7 +49,7 @@ var errChanged = errors.New("the file changed while it was compressed")
 //	              editor.js, 222 KB   basecoat.css, 218 KB   allocated
 //	brotli 6      27.9% in 4 ms       8.8% in 1.5 ms         12 MiB
 //	brotli 11     25.6% in 215 ms     7.9% in 142 ms         61 MiB
-//	zstd 19       28.6% in 6 ms       9.2% in 2.3 ms         39 MiB
+//	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms         39 MiB
 //	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms        1.3 MiB
 type Config struct {
 	// Store keeps the copies of the content served now, in memory when nil.
@@ -61,7 +61,9 @@ type Config struct {
 	// [datapages.SSECompressionConfig.Codings]. The default is brotli and gzip.
 	Codings []datapages.Coding
 
-	// ZstdLevel is from 1 to 22. 0 selects [DefaultZstdLevel].
+	// ZstdLevel is from 1 to 22, and 0 selects [DefaultZstdLevel]. Only 1, 3, 6
+	// and 10 differ, and any other level compresses like the closest of them
+	// below it, whose number the keys and ETags of the copies carry.
 	ZstdLevel int
 
 	// BrotliQuality is from 1 to 11. 0 selects [DefaultBrotliQuality].
@@ -136,7 +138,7 @@ func New(conf Config) (*Compressor, error) {
 		var level int
 		switch name {
 		case datapages.CodingZstd:
-			level = cmp.Or(conf.ZstdLevel, DefaultZstdLevel)
+			level = contentcoding.ZstdLevel(cmp.Or(conf.ZstdLevel, DefaultZstdLevel))
 			cd = contentcoding.NewZstd(level, window)
 		case datapages.CodingBrotli:
 			level = cmp.Or(conf.BrotliQuality, DefaultBrotliQuality)
