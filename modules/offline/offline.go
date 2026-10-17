@@ -253,9 +253,9 @@ func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 // So do a range response, whose Content-Range a script would contradict, and the
 // response of a [datapages.File], whose bytes are the file's whatever its type.
 //
-// A response that already carries a Content-Encoding passes through unchanged,
-// because an encoded body cannot be edited as bytes. Register a compressing
-// middleware before [Middleware]. The compressor then receives the rewritten HTML.
+// An encoded response passes through because [Middleware] cannot edit it.
+// Datapages response compression runs after middleware.
+// Put a custom compressor before [Middleware].
 //
 // Applications declaring PageOffline should use the generated
 // datapagesgen.WithOffline option. It supplies offlinePath from that page's route.
@@ -552,8 +552,8 @@ func indexFoldASCII(s, marker []byte) int {
 	}
 }
 
-// indexLowerASCII is [indexFoldASCII] for dense candidates. It lowercases A to
-// Z of s chunk by chunk, which keeps offsets, and searches each chunk with [bytes.Index].
+// indexLowerASCII is [indexFoldASCII] for dense candidates. It lowercases A to Z of
+// s chunk by chunk, which keeps offsets, and searches each chunk with [bytes.Index].
 func indexLowerASCII(s, marker []byte) int {
 	// BenchmarkMiddleware shows no improvement at 8 KB
 	// and a 5-15% regression at 512 bytes.

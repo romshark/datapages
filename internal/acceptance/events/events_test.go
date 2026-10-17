@@ -692,7 +692,7 @@ func TestStreamConfigCompression(t *testing.T) {
 		"server's": {want: "zstd"},
 		"gzip only": {
 			conf: &datapages.SSECompressionConfig{
-				Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+				Codings: []datapages.Coding{datapages.CodingGzip},
 			},
 			want: "gzip",
 		},

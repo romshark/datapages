@@ -223,6 +223,16 @@ func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
 
 A method replaces the server setting. Zero fields use package defaults. Disable Datapages compression when a proxy compresses the response. See [`SSECompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#SSECompressionConfig) for the presets and [`StreamConfig`](SPECIFICATION.md#streamconfig) for valid method signatures.
 
+## Tune response compression
+
+Datapages compresses page and action bodies of at least 256 bytes. The default preset balances CPU, memory and size. `datapages.ResponseCompressionLowCPU()` reduces CPU and memory. `datapages.ResponseCompressionLowBandwidth()` prefers brotli for slow or metered clients.
+
+```go
+datapages.WithResponseCompression(datapages.ResponseCompressionLowCPU()),
+```
+
+Static assets and `datapages.File` responses remain uncompressed to preserve byte ranges. See [`datapages.File`](SPECIFICATION.md#return-value-datapagesfile) for precompressed responses. Disable compression behind a compressing proxy and for loopback-only clients. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
+
 ## Choose modules for the deployment
 
 The scaffold uses NATS for messaging and sessions. A single-process deployment can use the in-memory modules:
@@ -319,7 +329,7 @@ Keep snapshots safe and current:
 
 Same-origin assets enter the cache on their first online load unless excluded. `Config.Assets` precaches required files. Use the `is-offline` class on `<html>` to disable controls that need the network.
 
-Register response compression before `WithOffline`. With a nonce-based CSP, `WithCSPNonce` must return the same nonce for every call with 1 request.
+Response compression runs after `WithOffline`. Put a custom compressing middleware before it. With a nonce-based CSP, `WithCSPNonce` must return the same nonce for every call with 1 request.
 
 See [`pageCache`](SPECIFICATION.md#parameter-pagecache-datapagespagecachewriter), [Service Worker](SPECIFICATION.md#service-worker), and the complete [`example/offline-cache`](example/offline-cache/).
 

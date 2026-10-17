@@ -789,14 +789,14 @@ func TestCompressionConfig(t *testing.T) {
 			acceptEncoding: browser,
 		},
 		"gzip preferred": {
-			conf: datapages.SSECompressionConfig{Codings: []datapages.SSECoding{
-				datapages.SSECodingGzip, datapages.SSECodingZstd,
+			conf: datapages.SSECompressionConfig{Codings: []datapages.Coding{
+				datapages.CodingGzip, datapages.CodingZstd,
 			}},
 			acceptEncoding: browser, want: "gzip",
 		},
 		"zstd only, client without zstd": {
-			conf: datapages.SSECompressionConfig{Codings: []datapages.SSECoding{
-				datapages.SSECodingZstd,
+			conf: datapages.SSECompressionConfig{Codings: []datapages.Coding{
+				datapages.CodingZstd,
 			}},
 			acceptEncoding: "gzip, br",
 		},

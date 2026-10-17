@@ -182,7 +182,7 @@ func TestRecoveredPanics(t *testing.T) {
 	})
 }
 
-// TestHalfWrittenPageGetsNoEvents tests that recovery does not append SSE to HTML.
+// TestHalfWrittenPageGetsNoEvents tests that recovery appends neither SSE nor a 2nd gzip stream.
 func TestHalfWrittenPageGetsNoEvents(t *testing.T) {
 	t.Parallel()
 
@@ -197,16 +197,30 @@ func TestHalfWrittenPageGetsNoEvents(t *testing.T) {
 			resp, err := srv.Client().Do(req)
 			require.NoError(t, err, "GET /render-panic/")
 			defer func() { _ = resp.Body.Close() }()
-			b, err := io.ReadAll(resp.Body)
+			raw, err := io.ReadAll(resp.Body)
 			require.NoError(t, err, "reading body")
+
+			b := raw
+			switch ce := resp.Header.Get("Content-Encoding"); ce {
+			case "":
+				require.NotContains(t, string(raw), "\x1f\x8b",
+					"a gzip stream was appended to the page")
+			case coding:
+				r := bytes.NewReader(raw)
+				zr, err := gzip.NewReader(r)
+				require.NoError(t, err, "reading the gzip header")
+				zr.Multistream(false)
+				b, err = io.ReadAll(zr)
+				require.NoError(t, err, "decoding the page")
+				require.Zero(t, r.Len(), "a stream was appended to the page")
+			default:
+				t.Fatalf("Content-Encoding %q for Accept-Encoding %q", ce, coding)
+			}
 
 			body := string(b)
 			require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
-			require.Empty(t, resp.Header.Get("Content-Encoding"))
 			require.Contains(t, body, "<!DOCTYPE html>")
 			require.NotContains(t, body, "event:", "RecoverError wrote into the page")
-			require.NotContains(t, body, "\x1f\x8b",
-				"a gzip stream was appended to the page")
 		})
 	}
 }

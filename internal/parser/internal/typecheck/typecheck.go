@@ -383,6 +383,24 @@ func TypeArgExpr(expr ast.Expr) ast.Expr {
 	return expr
 }
 
+// ImportsDatapages reports whether pkg is datapages or imports it transitively.
+// memo caches prior answers.
+func ImportsDatapages(pkg *packages.Package, memo map[*packages.Package]bool) bool {
+	if v, ok := memo[pkg]; ok {
+		return v
+	}
+	memo[pkg] = false
+	v := pkg.PkgPath == datapagesPkgPath
+	for _, imp := range pkg.Imports {
+		if v {
+			break
+		}
+		v = ImportsDatapages(imp, memo)
+	}
+	memo[pkg] = v
+	return v
+}
+
 // maxSubjectDeriveDepth caps the declaration chain [DerivedSubjectKindOf] follows.
 // Go rejects a cycle among type declarations:
 // the cap only guards against an unexpected type graph.

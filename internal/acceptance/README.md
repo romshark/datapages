@@ -86,10 +86,10 @@ It names no generated code. A case keeps everything the model decides.
 [`multiapp/instances_test.go`](multiapp/instances_test.go) uses a page load,
 an action, a stream and a cookie jar.
 
-SSE responses are compressed by default. The client asks for
-`Accept-Encoding: identity`, which makes what a test reads the bytes the
-handler wrote. The in-memory broker matches subjects the way NATS does: `*`
-covers 1 token, `>` covers the rest. See `wildcardsubjects`.
+SSE streams and bodies of at least 256 bytes are compressed by default.
+The client asks for `Accept-Encoding: identity` to read the handler's bytes.
+The in-memory broker matches NATS subjects. `*` covers 1 token, and `>` covers
+the rest. See `wildcardsubjects`.
 
 ## Where the calls live
 

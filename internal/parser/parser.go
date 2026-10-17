@@ -19,6 +19,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/gotypes"
+	"github.com/romshark/datapages/internal/parser/internal/loadcache"
 	"github.com/romshark/datapages/internal/parser/internal/methodkind"
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/internal/parser/internal/structinspect"
@@ -31,13 +32,36 @@ import (
 	"github.com/romshark/datapages/internal/subject"
 )
 
-func Parse(appPackagePath string) (app *model.App, errs Errors) {
+func Parse(appPackagePath string) (*model.App, Errors) {
+	app, errs, _ := parseLoad(appPackagePath, true)
+	return app, errs
+}
+
+type loadReport struct {
+	hit     bool
+	retried bool
+}
+
+func parseLoad(appPackagePath string, cached bool) (*model.App, Errors, loadReport) {
+	app, errs, res := parse(appPackagePath, cached, nil)
+	r := loadReport{hit: res != nil}
+	// A dependency read from export data has positions without a column.
+	if leaked := res.Leaked(errs.files, errs.messages()); len(leaked) > 0 {
+		app, errs, _ = parse(appPackagePath, cached, leaked)
+		r.retried = true
+	}
+	return app, errs, r
+}
+
+func parse(
+	appPackagePath string, cached bool, source []string,
+) (app *model.App, errs Errors, res *loadcache.Result) {
 	defer sortErrors(&errs)
 
-	pkg, err := loadPackage(appPackagePath)
+	pkg, res, err := loadPackage(appPackagePath, cached, source)
 	if err != nil {
 		errs.Err(err)
-		return nil, errs
+		return nil, errs, nil
 	}
 
 	// A package that does not compile has no model to validate.
@@ -56,10 +80,10 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	if pkg.Types == nil || pkg.TypesInfo == nil {
 		errs.ErrAt(earliestPkgPos(pkg),
 			errors.New("missing source package type information"))
-		return nil, errs
+		return nil, errs, res
 	}
 	if len(pkg.Errors) > 0 {
-		return nil, errs
+		return nil, errs, res
 	}
 
 	ctx := newParseCtx(pkg)
@@ -93,9 +117,9 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
-		return nil, errs
+		return nil, errs, res
 	}
-	return ctx.app, errs
+	return ctx.app, errs, res
 }
 
 type parseCtx struct {
@@ -981,7 +1005,9 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 						if suffix == "" {
 							errs.ErrAt(pos,
 								fmt.Errorf("%w: %s", ErrActionNameMissing, fd.Name.Name))
-						} else if err := validate.ActionMethodName(fd.Name.Name); err != nil {
+						} else if err := validate.ActionMethodName(
+							fd.Name.Name,
+						); err != nil {
 							errs.ErrAt(pos,
 								fmt.Errorf("%w: %s", ErrActionNameInvalid, fd.Name.Name))
 						}
@@ -2815,41 +2841,51 @@ func parseStreamHook(
 	return h, nil
 }
 
-func loadPackage(appPackagePath string) (*packages.Package, error) {
-	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedFiles |
-			packages.NeedCompiledGoFiles |
-			packages.NeedImports |
-			packages.NeedDeps |
-			packages.NeedTypes |
-			packages.NeedTypesInfo |
-			packages.NeedSyntax |
-			packages.NeedModule,
-	}
+// loadPackage uses loadcache for a directory when cached is set.
+// source lists packages that a retry must load from source.
+func loadPackage(
+	appPackagePath string, cached bool, source []string,
+) (*packages.Package, *loadcache.Result, error) {
+	cfg := &packages.Config{Mode: loadcache.Mode}
 
 	// Accept either an import path/pattern or a directory.
 	if st, err := os.Stat(appPackagePath); err == nil && st.IsDir() {
+		var c *loadcache.Cache
+		if cached {
+			c = loadcache.Open(appPackagePath)
+		}
+		if len(source) == 0 {
+			pkg, res := c.Load(func(roots []string) loadcache.ParseFunc {
+				return bodilessParser(appPackagePath, roots)
+			})
+			if pkg != nil {
+				return pkg, res, nil
+			}
+		}
 		cfg.Dir = appPackagePath
-		return loadSingle(cfg, ".")
+		roots := goRoots(appPackagePath)
+		cfg.ParseFile = bodilessParser(appPackagePath, roots)
+		pkg, err := loadSingle(cfg, ".")
+		if err == nil && cfg.ParseFile != nil {
+			c.Store(pkg, roots, keepsSyntax(pkg), source)
+		}
+		return pkg, nil, err
 	}
 
 	// go list rejects an absolute pattern. The parent directory holds
 	// another package, which would be parsed as the app.
 	if filepath.IsAbs(appPackagePath) {
-		return nil, fmt.Errorf("%w: %s", ErrAppDirMissing, appPackagePath)
+		return nil, nil, fmt.Errorf("%w: %s", ErrAppDirMissing, appPackagePath)
 	}
 
 	// A relative path that is no directory is loaded as an import pattern.
-	return loadSingle(cfg, appPackagePath)
+	pkg, err := loadSingle(cfg, appPackagePath)
+	return pkg, nil, err
 }
 
 func loadSingle(
 	cfg *packages.Config, pattern string,
 ) (*packages.Package, error) {
-	if cfg.Dir != "" {
-		cfg.ParseFile = bodilessParser(cfg.Dir)
-	}
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
 		return nil, err
@@ -2862,19 +2898,40 @@ func loadSingle(
 	return pkgs[0], nil
 }
 
-// bodilessParser skips function bodies in GOROOT and the module cache,
-// which saves about 25% of load CPU. It returns nil to use the default parser
-// when go env fails or appDir is under either root.
-//
-// Skipped bodies cause soft errors and mark dependencies and the app IllTyped,
-// so callers must check the app package's Errors. Export data without NeedDeps
-// uses less CPU, but reports compiler-only errors and makes go list compile
-// every package on a cold cache, tripling load time.
-func bodilessParser(
-	appDir string,
-) func(*token.FileSet, string, []byte) (*ast.File, error) {
+// keepsSyntax selects packages whose declarations the parser reads.
+// These are the root module for [templcheck.Check], event declarations read by
+// [typecheck.TypeDeclOf] and types derived from a subject type.
+func keepsSyntax(root *packages.Package) func(*packages.Package) bool {
+	memo := map[*packages.Package]bool{}
+	return func(p *packages.Package) bool {
+		if root.Module != nil && p.Module != nil && p.Module.Path == root.Module.Path {
+			return true
+		}
+		if p.Types == nil {
+			return false
+		}
+		derives := typecheck.ImportsDatapages(p, memo)
+		scope := p.Types.Scope()
+		for _, name := range scope.Names() {
+			tn, ok := scope.Lookup(name).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			if validate.EventTypeName(name) == nil {
+				return true
+			}
+			if derives && typecheck.DerivedSubjectKindOf(tn.Type(), p).IsSubject() {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// goRoots returns GOROOT and GOMODCACHE with trailing separators.
+func goRoots(dir string) []string {
 	cmd := exec.Command("go", "env", "GOROOT", "GOMODCACHE")
-	cmd.Dir = appDir
+	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
@@ -2884,6 +2941,21 @@ func bodilessParser(
 		if root := strings.TrimSpace(line); root != "" {
 			roots = append(roots, filepath.Clean(root)+string(filepath.Separator))
 		}
+	}
+	return roots
+}
+
+// bodilessParser skips function bodies in roots, GOROOT and the module cache,
+// which saves about 25% of load CPU. It returns nil to use the default parser
+// when roots is nil or appDir is under either root.
+//
+// Skipped bodies cause soft errors and mark dependencies and the app IllTyped,
+// so callers must check the app package's Errors. Export data without NeedDeps
+// uses less CPU, but reports compiler-only errors and makes go list compile
+// every package on a cold cache, tripling load time.
+func bodilessParser(appDir string, roots []string) loadcache.ParseFunc {
+	if roots == nil {
+		return nil
 	}
 	inRoots := func(path string) bool {
 		return slices.ContainsFunc(roots, func(root string) bool {

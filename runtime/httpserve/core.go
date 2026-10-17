@@ -71,28 +71,29 @@ type Core struct {
 	lockRun   sync.Mutex
 	runCancel context.CancelFunc
 
-	httpServer       *http.Server
-	metricsServer    *http.Server
-	mux              *http.ServeMux
-	handler          http.Handler
-	logger           *slog.Logger
-	sampledLogger    *slog.Logger
-	middleware       []func(http.Handler) http.Handler
-	outermost        func(http.Handler) http.Handler
-	assetsFS         http.FileSystem
-	assetsBrowsable  bool
-	assetsCache      *datapages.AssetsCacheConfig
-	crossOrigin      *http.CrossOriginProtection
-	datastarJSSrc    string
-	htmlPrefix       string
-	htmlHead         string
-	htmlDatastar     string
-	datastarJSSrcEsc string
-	cspNonce         func(*http.Request) string
-	bodySizeLimit    int64
-	shutdownTimeout  time.Duration
-	fileSendTimeout  time.Duration
-	sseCompression   *sse.Compression
+	httpServer          *http.Server
+	metricsServer       *http.Server
+	mux                 *http.ServeMux
+	handler             http.Handler
+	logger              *slog.Logger
+	sampledLogger       *slog.Logger
+	middleware          []func(http.Handler) http.Handler
+	outermost           func(http.Handler) http.Handler
+	assetsFS            http.FileSystem
+	assetsBrowsable     bool
+	assetsCache         *datapages.AssetsCacheConfig
+	crossOrigin         *http.CrossOriginProtection
+	datastarJSSrc       string
+	htmlPrefix          string
+	htmlHead            string
+	htmlDatastar        string
+	datastarJSSrcEsc    string
+	cspNonce            func(*http.Request) string
+	bodySizeLimit       int64
+	shutdownTimeout     time.Duration
+	fileSendTimeout     time.Duration
+	sseCompression      *sse.Compression
+	responseCompression *responseCompression // Nil when disabled.
 
 	// streamCompressions shares encoders by [sse.CompressionKey].
 	lockStreamCompressions sync.Mutex
@@ -125,23 +126,30 @@ type Core struct {
 // [notBrowsableFS] unless cfg.AssetsBrowsable is set,
 // whichever option carried the file system here.
 func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
+	if conf := cfg.ResponseCompression; conf != nil {
+		// Direct ServerConfig values bypass option validation.
+		if err := conf.Validate(); err != nil {
+			return nil, fmt.Errorf("response compression: %w", err)
+		}
+	}
 	c := &Core{
-		assetsURLPrefix: assetsURLPrefix,
-		mux:             http.NewServeMux(),
-		middleware:      cfg.Middleware,
-		outermost:       cfg.OutermostMiddleware,
-		assetsFS:        cfg.AssetsFS,
-		assetsBrowsable: cfg.AssetsBrowsable,
-		assetsCache:     cfg.AssetsCache,
-		crossOrigin:     http.NewCrossOriginProtection(),
-		datastarJSSrc:   cfg.DatastarJS,
-		cspNonce:        cfg.CSPNonce,
-		logger:          cfg.Logger,
-		httpServer:      cfg.HTTPServer,
-		bodySizeLimit:   cfg.BodySizeLimit,
-		shutdownTimeout: cfg.ShutdownTimeout,
-		fileSendTimeout: cfg.FileSendTimeout,
-		sseCompression:  sse.NewCompression(cfg.SSECompression),
+		assetsURLPrefix:     assetsURLPrefix,
+		mux:                 http.NewServeMux(),
+		middleware:          cfg.Middleware,
+		outermost:           cfg.OutermostMiddleware,
+		assetsFS:            cfg.AssetsFS,
+		assetsBrowsable:     cfg.AssetsBrowsable,
+		assetsCache:         cfg.AssetsCache,
+		crossOrigin:         http.NewCrossOriginProtection(),
+		datastarJSSrc:       cfg.DatastarJS,
+		cspNonce:            cfg.CSPNonce,
+		logger:              cfg.Logger,
+		httpServer:          cfg.HTTPServer,
+		bodySizeLimit:       cfg.BodySizeLimit,
+		shutdownTimeout:     cfg.ShutdownTimeout,
+		fileSendTimeout:     cfg.FileSendTimeout,
+		sseCompression:      sse.NewCompression(cfg.SSECompression),
+		responseCompression: newResponseCompression(cfg.ResponseCompression),
 	}
 	c.shutdown, c.cancelShutdown = context.WithCancel(context.Background())
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
@@ -271,6 +279,10 @@ func (c *Core) Build() {
 	}
 	for _, h := range c.middleware {
 		c.handler = h(c.handler)
+	}
+	if c.responseCompression != nil {
+		// Application middleware reads and edits the uncompressed body.
+		c.handler = c.responseCompression.wrap(c.handler)
 	}
 	if c.outermost != nil {
 		c.handler = c.outermost(c.handler)

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/contentcoding"
 )
 
 // Datastar event types for the client version loaded by
@@ -44,11 +45,11 @@ type Stream struct {
 	ctx    context.Context
 	w      http.ResponseWriter
 	rc     *http.ResponseController
-	coding *coding // Nil without compression.
+	coding *contentcoding.Coding // Nil without compression.
 
 	lock   sync.Mutex
-	enc    *pooledEncoder // Taken from coding by the first event.
-	err    error          // The first failed write, which every later event returns.
+	enc    *contentcoding.Encoder // Taken from coding by the first event.
+	err    error                  // First write error, returned by later events.
 	closed bool
 }
 
@@ -73,7 +74,7 @@ func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 		h.Add("Vary", "Accept-Encoding")
 	}
 	if cd := c.negotiate(r.Header["Accept-Encoding"]); cd != nil {
-		h.Set("Content-Encoding", cd.name)
+		h.Set("Content-Encoding", cd.Name())
 		s.coding = cd
 	}
 	if err := s.rc.Flush(); err != nil {
@@ -107,11 +108,11 @@ func (s *Stream) Close() {
 		if s.err == nil {
 			s.err = s.enc.Close()
 		}
-		s.coding.put(s.enc)
+		s.coding.Put(s.enc)
 		s.enc = nil
 	case s.err == nil:
 		// Send a valid empty stream for the announced coding.
-		_, s.err = s.w.Write(s.coding.empty)
+		_, s.err = s.w.Write(s.coding.Empty())
 	}
 }
 
@@ -315,7 +316,7 @@ func (s *Stream) write(e *event) error {
 		return s.rc.Flush()
 	}
 	if s.enc == nil {
-		s.enc = s.coding.take(s.w)
+		s.enc = s.coding.Get(s.w)
 	}
 	if err := e.writeFrames(s.enc); err != nil {
 		return err

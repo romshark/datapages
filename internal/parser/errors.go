@@ -460,6 +460,17 @@ func (e errorEntry) Unwrap() error { return e.err }
 type Errors struct {
 	errs []errorEntry
 	seq  uint64
+
+	// files holds position filenames before [normPos].
+	files []string
+}
+
+func (e *Errors) messages() []string {
+	msgs := make([]string, len(e.errs))
+	for i, en := range e.errs {
+		msgs[i] = en.err.Error()
+	}
+	return msgs
 }
 
 func (e *Errors) Error() string {
@@ -504,6 +515,9 @@ func (e *Errors) ErrAt(pos token.Position, err error) {
 		seq: e.seq,
 		err: err,
 	})
+	if pos.Filename != "" {
+		e.files = append(e.files, pos.Filename)
+	}
 }
 
 func sortErrors(e *Errors) {

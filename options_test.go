@@ -140,9 +140,9 @@ func TestWithSSECompression(t *testing.T) {
 	t.Parallel()
 
 	const (
-		zstd   = datapages.SSECodingZstd
-		brotli = datapages.SSECodingBrotli
-		gzip   = datapages.SSECodingGzip
+		zstd   = datapages.CodingZstd
+		brotli = datapages.CodingBrotli
+		gzip   = datapages.CodingGzip
 	)
 	for name, tc := range map[string]struct {
 		conf    datapages.SSECompressionConfig
@@ -158,16 +158,16 @@ func TestWithSSECompression(t *testing.T) {
 			Disabled: true, ZstdLevel: 99,
 		}},
 		"codings": {conf: datapages.SSECompressionConfig{
-			Codings: []datapages.SSECoding{gzip, brotli, zstd},
+			Codings: []datapages.Coding{gzip, brotli, zstd},
 		}},
 		"gzip only": {conf: datapages.SSECompressionConfig{
-			Codings: []datapages.SSECoding{gzip},
+			Codings: []datapages.Coding{gzip},
 		}},
 		"zstd only": {conf: datapages.SSECompressionConfig{
-			Codings: []datapages.SSECoding{zstd},
+			Codings: []datapages.Coding{zstd},
 		}},
 		"zstd, else brotli": {conf: datapages.SSECompressionConfig{
-			Codings: []datapages.SSECoding{zstd, brotli},
+			Codings: []datapages.Coding{zstd, brotli},
 		}},
 		"larger zstd window": {conf: datapages.SSECompressionConfig{
 			ZstdLevel: 3, ZstdWindow: 4 << 20,
@@ -184,13 +184,13 @@ func TestWithSSECompression(t *testing.T) {
 		}},
 		"unknown coding": {
 			conf: datapages.SSECompressionConfig{
-				Codings: []datapages.SSECoding{"deflate"},
+				Codings: []datapages.Coding{"deflate"},
 			},
 			wantErr: `unknown coding "deflate"`,
 		},
 		"coding listed 2 times": {
 			conf: datapages.SSECompressionConfig{
-				Codings: []datapages.SSECoding{gzip, zstd, gzip},
+				Codings: []datapages.Coding{gzip, zstd, gzip},
 			},
 			wantErr: `coding "gzip" listed 2 times`,
 		},
@@ -247,15 +247,113 @@ func TestWithSSECompression(t *testing.T) {
 func TestWithSSECompressionCopiesCodings(t *testing.T) {
 	t.Parallel()
 
-	codings := []datapages.SSECoding{datapages.SSECodingGzip}
+	codings := []datapages.Coding{datapages.CodingGzip}
 	var cfg datapages.ServerConfig
 	require.NoError(t, datapages.WithSSECompression(
 		datapages.SSECompressionConfig{Codings: codings},
 	)(&cfg))
-	codings[0] = datapages.SSECodingZstd
+	codings[0] = datapages.CodingZstd
 	require.Equal(t,
-		[]datapages.SSECoding{datapages.SSECodingGzip},
+		[]datapages.Coding{datapages.CodingGzip},
 		cfg.SSECompression.Codings)
+}
+
+// TestWithResponseCompression tests valid and invalid response compression settings.
+func TestWithResponseCompression(t *testing.T) {
+	t.Parallel()
+
+	const (
+		zstd   = datapages.CodingZstd
+		brotli = datapages.CodingBrotli
+		gzip   = datapages.CodingGzip
+	)
+	for name, tc := range map[string]struct {
+		conf    datapages.ResponseCompressionConfig
+		wantErr string
+	}{
+		"zero":          {},
+		"balanced":      {conf: datapages.ResponseCompressionBalanced()},
+		"low cpu":       {conf: datapages.ResponseCompressionLowCPU()},
+		"low bandwidth": {conf: datapages.ResponseCompressionLowBandwidth()},
+		"disabled":      {conf: datapages.ResponseCompressionConfig{Disabled: true}},
+		"disabled ignores the rest": {conf: datapages.ResponseCompressionConfig{
+			Disabled: true, MinSize: -1, ZstdLevel: 99,
+		}},
+		"gzip only": {conf: datapages.ResponseCompressionConfig{
+			Codings: []datapages.Coding{gzip},
+		}},
+		"brotli, else zstd": {conf: datapages.ResponseCompressionConfig{
+			Codings: []datapages.Coding{brotli, zstd},
+		}},
+		"every body": {conf: datapages.ResponseCompressionConfig{MinSize: 1}},
+		"bounds": {conf: datapages.ResponseCompressionConfig{
+			MinSize: 1 << 20, ZstdLevel: 22, BrotliQuality: 11, GzipLevel: 9,
+		}},
+		"lower bounds": {conf: datapages.ResponseCompressionConfig{
+			MinSize: 1, ZstdLevel: 1, BrotliQuality: 1, GzipLevel: 1,
+		}},
+		"unknown coding": {
+			conf: datapages.ResponseCompressionConfig{
+				Codings: []datapages.Coding{"deflate"},
+			},
+			wantErr: `unknown coding "deflate"`,
+		},
+		"coding listed 2 times": {
+			conf: datapages.ResponseCompressionConfig{
+				Codings: []datapages.Coding{zstd, gzip, zstd},
+			},
+			wantErr: `coding "zstd" listed 2 times`,
+		},
+		"min size negative": {
+			conf:    datapages.ResponseCompressionConfig{MinSize: -1},
+			wantErr: "min size (-1) must be from 0 to 1 MiB",
+		},
+		"min size too large": {
+			conf:    datapages.ResponseCompressionConfig{MinSize: 1<<20 + 1},
+			wantErr: "min size (1048577) must be from 0 to 1 MiB",
+		},
+		"zstd level too high": {
+			conf:    datapages.ResponseCompressionConfig{ZstdLevel: 23},
+			wantErr: "zstd level (23) must be from 1 to 22",
+		},
+		"brotli quality negative": {
+			conf:    datapages.ResponseCompressionConfig{BrotliQuality: -1},
+			wantErr: "brotli quality (-1) must be from 1 to 11",
+		},
+		"gzip level too high": {
+			conf:    datapages.ResponseCompressionConfig{GzipLevel: 10},
+			wantErr: "gzip level (10) must be from 1 to 9",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var cfg datapages.ServerConfig
+			err := datapages.WithResponseCompression(tc.conf)(&cfg)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, "WithResponseCompression: "+tc.wantErr)
+				require.Nil(t, cfg.ResponseCompression)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, &tc.conf, cfg.ResponseCompression)
+		})
+	}
+}
+
+// TestWithResponseCompressionCopiesCodings tests that caller mutation has no effect.
+func TestWithResponseCompressionCopiesCodings(t *testing.T) {
+	t.Parallel()
+
+	codings := []datapages.Coding{datapages.CodingGzip}
+	var cfg datapages.ServerConfig
+	require.NoError(t, datapages.WithResponseCompression(
+		datapages.ResponseCompressionConfig{Codings: codings},
+	)(&cfg))
+	codings[0] = datapages.CodingZstd
+	require.Equal(t,
+		[]datapages.Coding{datapages.CodingGzip},
+		cfg.ResponseCompression.Codings)
 }
 
 // TestWithBuildID tests that IDs fit unchanged in an HTTP header.

@@ -42,6 +42,9 @@ func main() {
 		// The webview is the only client and connects over loopback,
 		// where compression costs CPU and saves no transfer.
 		datapages.WithSSECompression(datapages.SSECompressionConfig{Disabled: true}),
+		datapages.WithResponseCompression(datapages.ResponseCompressionConfig{
+			Disabled: true,
+		}),
 	)
 	if err != nil {
 		panic(err)

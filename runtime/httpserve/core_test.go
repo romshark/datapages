@@ -185,6 +185,10 @@ func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var got, before bool
 			c := mustCore(t, datapages.ServerConfig{
+				// Exclude compressor writes from wrapper attribution.
+				ResponseCompression: &datapages.ResponseCompressionConfig{
+					Disabled: true,
+				},
 				OutermostMiddleware: func(next http.Handler) http.Handler {
 					return http.HandlerFunc(
 						func(w http.ResponseWriter, r *http.Request) {
@@ -973,7 +977,7 @@ func TestOpenSSECompression(t *testing.T) {
 		"gzip only": {
 			opts: []datapages.ServerOption{datapages.WithSSECompression(
 				datapages.SSECompressionConfig{
-					Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+					Codings: []datapages.Coding{datapages.CodingGzip},
 				},
 			)},
 			want: "gzip",

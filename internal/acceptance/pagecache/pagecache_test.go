@@ -292,9 +292,13 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	require.Equal(t, "X-Datapages-Offline-Version", c.Get(t, "/").Header.Get("Vary"))
-	require.Empty(t, c.Get(t, "/offline/").Header.Get("Vary"),
-		"a page that never touches the cache does not vary")
+	require.Contains(t,
+		c.Get(t, "/").Header.Values("Vary"),
+		"X-Datapages-Offline-Version")
+	// Its response compression varies by Accept-Encoding.
+	require.NotContains(t,
+		c.Get(t, "/offline/").Header.Values("Vary"), "X-Datapages-Offline-Version",
+		"a page that never touches the cache does not vary by its version")
 	require.Contains(t,
 		c.Action(t, http.MethodPost, "/stream-write/", "").Header.Values("Vary"),
 		"X-Datapages-Offline-Version")

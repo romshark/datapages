@@ -854,6 +854,8 @@ func (memBody) Close() error { return nil }
 
 [`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. An `ETag` with a character outside `etagc` of that section produces 500. A handler with a session parameter sends [`Vary: Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary). Serve a file that is the same for every visitor from a handler without a session parameter. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options). Serve a visitor-uploaded file with `Disposition.Download`. To serve it inline, restrict `Type` to an allowlist and set `Content-Security-Policy: sandbox` in `Header`.
 
+[Response compression](#response-compression) leaves a `datapages.File` unchanged. To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Each representation has its own `ETag` and sends `Vary: Accept-Encoding`. Ranges address encoded bytes. `ServeContent` omits `Content-Length` when `Content-Encoding` is set.
+
 An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with [`Sec-Fetch-Dest: document`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest), status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. A panic in `Body` takes the same path. Once the status went out, it's logged with its stack and the response ends early, also for a request with several ranges. A panic before the status gets an error response without the headers of the file.
 
 See [datapages.go](datapages.go) for field definitions.
@@ -991,6 +993,25 @@ Shutdown resets a stream by panicking with `http.ErrAbortHandler`. Middleware ad
 
 During a rolling deployment, route each client to 1 build until the old servers stop. Session affinity is one way to keep the route stable.
 
+## Response Compression
+
+This section covers response bodies other than [SSE streams](#parameter-sse-datapagessse).
+
+By default, a body of at least 256 bytes uses the first explicitly accepted coding in the order zstd, brotli, gzip. A wildcard selects gzip only. The default levels are zstd 3, brotli 5 and gzip 6, with 256 KiB zstd and brotli windows. An eligible response carries `Vary: Accept-Encoding` even when the request accepts no configured coding.
+
+Compression runs after every `WithMiddleware` middleware. These responses pass through:
+
+- Responses with `Content-Encoding` or `Cache-Control: no-transform`.
+- Status 101, 204, 205, 206 or 304, and `HEAD` responses.
+- Responses with `Content-Range` or an `Accept-Ranges` value other than `none`.
+- Bodies other than `text/*`, JSON, JavaScript, XML, SVG and WebAssembly. The server sniffs the first 512 bytes when `Content-Type` is absent. `text/event-stream` also passes through.
+
+Compression removes `Content-Length` and weakens a strong `ETag`. The server buffers up to the minimum size, or until the handler flushes or returns.
+
+`datapages.WithResponseCompression` sets the codings, order, minimum size and levels. `Disabled: true` disables it. `datapages.ResponseCompressionBalanced` returns the zero-value defaults. `datapages.ResponseCompressionLowCPU` orders zstd, gzip, brotli and sets every level or quality to 1. `datapages.ResponseCompressionLowBandwidth` orders brotli, zstd, gzip.
+
+Dev mode sends bodies uncompressed.
+
 ## Dev Mode
 
 Datapages dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty.
@@ -999,7 +1020,7 @@ Set `TEMPL_DEV_MODE=true` before starting the process to enable templ hot reload
 
 `datapages watch` uses templier, which sets `TEMPL_DEV_MODE` before it starts the application.
 
-Dev mode reads static assets from the source tree and sets `Cache-Control: no-cache` without `Last-Modified` on asset responses, ignoring `datapages.WithAssetsCache`. The server logs a startup warning.
+Dev mode reads static assets from the source tree and sets `Cache-Control: no-cache` without `Last-Modified` on asset responses, ignoring `datapages.WithAssetsCache`. It sends bodies uncompressed, ignoring `datapages.WithResponseCompression`; see [Response Compression](#response-compression). The server logs a startup warning.
 
 Outside dev mode, Datapages adds no `Cache-Control` or `ETag` header unless `datapages.WithAssetsCache` is set. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
 
@@ -1098,7 +1119,7 @@ The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecac
 
 The worker scope covers the whole origin, regardless of the script URL. The registration script requests scope `/`, and the script response sets `Service-Worker-Allowed: /`.
 
-The offline middleware writes the connectivity script into every HTML response, and the registration script into those for a client whose worker is missing or older than the server's. A response that already carries a `Content-Encoding` passes through unchanged. So do a range response (206) and the response of a [`datapages.File`](#return-value-datapagesfile). Register a compressing middleware before `WithOffline`.
+The offline middleware writes the connectivity script into every HTML response, and the registration script into those for a client whose worker is missing or older than the server's. Responses with `Content-Encoding`, range responses (206) and [`datapages.File`](#return-value-datapagesfile) responses pass through. [Response compression](#response-compression) runs after the middleware. Put a custom compressing middleware before `WithOffline`.
 
 Offline support writes inline scripts, which are the connectivity and worker registration scripts and the queued cache writes in a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence for the connectivity and registration scripts. The queued cache writes always use the nonce from `WithCSPNonce`.
 

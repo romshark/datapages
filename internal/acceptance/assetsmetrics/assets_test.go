@@ -3,6 +3,8 @@
 package acceptance_test
 
 import (
+	"bufio"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -124,6 +126,39 @@ func TestAssetsAreServed(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPageIsCompressed tests that gzip wraps the complete identity response once.
+func TestPageIsCompressed(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	plain := get(t, srv, "/")
+	defer func() { _ = plain.Body.Close() }()
+	want, err := io.ReadAll(plain.Body)
+	require.NoError(t, err, "reading the uncompressed page")
+	require.Empty(t, plain.Header.Get("Content-Encoding"))
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/", nil,
+	)
+	require.NoError(t, err, "building GET /")
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "GET /")
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
+	raw := bufio.NewReader(resp.Body)
+	zr, err := gzip.NewReader(raw)
+	require.NoError(t, err, "reading the gzip header")
+	zr.Multistream(false)
+	got, err := io.ReadAll(zr)
+	require.NoError(t, err, "decoding the page")
+	require.Equal(t, string(want), string(got))
+	_, err = raw.ReadByte()
+	require.ErrorIs(t, err, io.EOF, "the page has bytes after its gzip stream")
 }
 
 // TestAssetsNotBrowsable tests browsable false: a request for a directory

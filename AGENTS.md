@@ -42,6 +42,7 @@ Internal, used by the CLI and build tooling:
 - `internal/gotypes/` - go/types predicates and renderings that know nothing about Datapages. Shared by the parser and the generator.
 - `internal/buildconstraint/` - which `//go:build` lines exclude a file from every build. Shared by the parser and `internal/serverscan/`.
 - `internal/logsample/` - the throttling `slog.Handler` behind `datapages.WithLogSampling`.
+- `internal/contentcoding/` - pooled encoders and `Accept-Encoding` negotiation shared by `runtime/sse` and `runtime/httpserve`.
 - `internal/testlog/` - collects what code under test logs, 1 line per record without its time, for tests to compare exactly. Examples keep their own loggers because they model application code, which cannot import it.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.
 - `internal/structtag/` - the `path`, `query`, `json` and `reflectsignal` tags.
@@ -61,7 +62,7 @@ Public, imported by application or generated code:
 - `cmd/datapages/` - the shipped binary.
 - `modules/` - pluggable modules: csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
-  - `httpserve` - the generated server core: listener, routes, middleware, logging, shutdown, redirects, request checks, assets, HTML and SSE responses.
+  - `httpserve` - the generated server core: listener, routes, middleware, logging, shutdown, redirects, request checks, assets, HTML and SSE responses, response compression.
   - `auth` - session cookie, the record behind it and the CSRF check. Generic over the application's session data.
   - `sse` - writes and compresses the Datastar events of an SSE response and reads the signals of a request. `Stream` implements `datapages.SSE`.
   - `stream` - serves the SSE event stream of a page: the broker subscription behind it, the session that may end it and the shutdown that closes it.

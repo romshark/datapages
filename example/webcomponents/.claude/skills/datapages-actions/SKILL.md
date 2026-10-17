@@ -107,6 +107,8 @@ Datapages template linter.
 
 Serve a file a visitor uploaded with `Disposition: datapages.FileDisposition{Download: true}`, or show inline only types from an allowlist. The type of an upload is what the uploading browser reported, and `text/html` or `image/svg+xml` runs script on the application's origin when shown. `X-Content-Type-Options: nosniff`, which Datapages always sends, does not prevent that.
 
+Datapages leaves `datapages.File` responses uncompressed to preserve `Content-Length`, ranges and `ETag`. For smaller transfers, serve a precompressed archive such as `export.csv.gz` with `Type: "application/gzip"`, or negotiate `Accept-Encoding`. A negotiated representation needs `Content-Encoding` in `Header`, its own `ETag` and `Vary: Accept-Encoding`.
+
 The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. Without `MaxAge` or `NoStore`, Datapages adds `no-cache`, also next to `Private`. `NoStore` also keeps the file out of the offline worker's cache. A handler that takes `Session` sends `Vary: Cookie`, which keeps one visitor from getting the copy a browser or CDN stored for another. Serve a file that is the same for every visitor from a handler without `Session`, which a CDN can share.
 
 ## SSE
@@ -153,4 +155,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:9272b8c4f1eef570 -->
+<!-- written by datapages sha256:7c690d34ffced4b7 -->

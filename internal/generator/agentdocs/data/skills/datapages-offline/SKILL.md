@@ -78,7 +78,7 @@ Style offline state in CSS, no Go code:
 .is-offline [data-needs-network] { opacity: .5; pointer-events: none }
 ```
 
-Register a compressing middleware before `WithOffline`. Middleware runs in the order it is given, and the offline middleware rewrites the HTML it receives. A response that already carries a `Content-Encoding` passes through unchanged, which leaves the page without the worker registration.
+Datapages compresses after `WithOffline`, so compressed pages keep the worker registration. Put a custom compressing middleware before `WithOffline`. An already encoded response passes through `WithOffline` unchanged and gets no worker registration.
 
 Offline support writes inline scripts: the connectivity script, the worker registration and queued cache writes. Each script uses the nonce from `WithCSPNonce`. `WithOffline` reads the nonce when each request arrives, independent of option order. Set `offline.Config.CSPNonce` to use a different nonce for the connectivity and registration scripts. The queued cache writes always use the nonce from `WithCSPNonce`.
 

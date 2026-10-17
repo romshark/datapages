@@ -101,6 +101,9 @@ type ServerConfig struct {
 	// Nil selects the defaults of [SSECompressionConfig].
 	SSECompression *SSECompressionConfig
 
+	// ResponseCompression is nil for the defaults.
+	ResponseCompression *ResponseCompressionConfig
+
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
 
@@ -130,9 +133,9 @@ type SessionsConfig struct {
 	// The token is a bearer credential: whoever holds it is the session,
 	// which is why it has to be unguessable.
 	//
-	// Optional. Defaults to sessions.DefaultTokenGenerator with sessions.DefaultTokenLen
-	// (32 random bytes). Replace it to lengthen the token or to draw the
-	// randomness from somewhere else.
+	// Optional. Defaults to sessions.DefaultTokenGenerator with
+	// [sessions.DefaultTokenLen] (32 random bytes). Replace it to
+	// lengthen the token or to draw the randomness from somewhere else.
 	TokenGenerator sessions.TokenGenerator
 
 	// Cookie is the cookie the token travels in.
@@ -533,14 +536,15 @@ func WithFileSendTimeout(d time.Duration) ServerOption {
 	}
 }
 
-// SSECoding is a content coding an SSE response can be compressed with.
-type SSECoding string
+// Coding is a content coding a response can be compressed with.
+type Coding string
 
-// The content codings of [SSECompressionConfig.Codings].
+// The content codings of [SSECompressionConfig.Codings] and
+// [ResponseCompressionConfig.Codings].
 const (
-	SSECodingZstd   SSECoding = "zstd"
-	SSECodingBrotli SSECoding = "br"
-	SSECodingGzip   SSECoding = "gzip"
+	CodingZstd   Coding = "zstd"
+	CodingBrotli Coding = "br"
+	CodingGzip   Coding = "gzip"
 )
 
 // The defaults of [SSECompressionConfig].
@@ -579,7 +583,7 @@ type SSECompressionConfig struct {
 	// request gets an uncompressed response.
 	//
 	// The default is zstd, brotli and gzip.
-	Codings []SSECoding
+	Codings []Coding
 
 	// ZstdLevel is from 1 to 22. 0 selects [DefaultSSEZstdLevel].
 	// At level 10 and above, BenchmarkReRender in runtime/sse
@@ -625,7 +629,7 @@ func SSECompressionLowMemory() SSECompressionConfig {
 // its memory per stream. Use it for few streams with slow or metered clients.
 func SSECompressionLowBandwidth() SSECompressionConfig {
 	return SSECompressionConfig{
-		Codings: []SSECoding{SSECodingBrotli, SSECodingZstd, SSECodingGzip},
+		Codings: []Coding{CodingBrotli, CodingZstd, CodingGzip},
 	}
 }
 
@@ -658,15 +662,8 @@ func (conf SSECompressionConfig) Validate() error {
 	if conf.Disabled {
 		return nil
 	}
-	for i, coding := range conf.Codings {
-		switch coding {
-		case SSECodingZstd, SSECodingBrotli, SSECodingGzip:
-		default:
-			return fmt.Errorf("unknown coding %q", coding)
-		}
-		if slices.Contains(conf.Codings[:i], coding) {
-			return fmt.Errorf("coding %q listed 2 times", coding)
-		}
+	if err := validateCodings(conf.Codings); err != nil {
+		return err
 	}
 	switch {
 	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
@@ -687,6 +684,137 @@ func (conf SSECompressionConfig) Validate() error {
 
 func powerOf2In(n, lo, hi int) bool {
 	return n >= lo && n <= hi && n&(n-1) == 0
+}
+
+func validateCodings(codings []Coding) error {
+	for i, coding := range codings {
+		switch coding {
+		case CodingZstd, CodingBrotli, CodingGzip:
+		default:
+			return fmt.Errorf("unknown coding %q", coding)
+		}
+		if slices.Contains(codings[:i], coding) {
+			return fmt.Errorf("coding %q listed 2 times", coding)
+		}
+	}
+	return nil
+}
+
+// The defaults of [ResponseCompressionConfig].
+const (
+	// DefaultResponseCompressionMinSize is about where zstd shrinks a body
+	// by the 47 bytes of Content-Encoding and Vary that compression adds.
+	DefaultResponseCompressionMinSize = 256
+	DefaultResponseZstdLevel          = 3
+	DefaultResponseBrotliQuality      = 5
+	DefaultResponseGzipLevel          = 6
+)
+
+const maxResponseCompressionMinSize = 1 << 20
+
+// ResponseCompressionConfig configures non-SSE response compression.
+// Its zero value selects the defaults. Static assets and [File] responses
+// are excluded because they offer byte ranges.
+//
+// Each response holds an encoder only while it's written.
+// BenchmarkResponseCompression in runtime/httpserve measures each preset:
+//
+//	              sent, 8 KB / 100 KB   time, 8 KB / 100 KB   heap per response
+//	Balanced      19.0% / 11.4%         14 / 98 us            1.8 / 1.9 MiB
+//	LowCPU        19.9% / 12.1%         12 / 92 us            0.7 / 0.8 MiB
+//	LowBandwidth  16.4% / 10.5%         64 / 563 us           1.7 / 2.6 MiB
+//	uncompressed  100%                  0.7 / 2.4 us          0
+//
+// Compression can expose a secret placed beside attacker-controlled input
+// through the response size. Send affected pages with
+// Cache-Control: private, no-transform.
+type ResponseCompressionConfig struct {
+	// Disabled sends bodies uncompressed and ignores the other fields.
+	Disabled bool
+
+	// Codings lists the content codings a body may use, in the order the
+	// server prefers them. They select a coding the way
+	// [SSECompressionConfig.Codings] do.
+	//
+	// The default is zstd, brotli and gzip.
+	Codings []Coding
+
+	// MinSize is the size in bytes below which a body is sent uncompressed,
+	// from 1 to 1 MiB. 0 selects [DefaultResponseCompressionMinSize], and 1
+	// compresses every body that is not empty. A response holds back up to
+	// MinSize bytes of its body until it can decide.
+	MinSize int
+
+	// ZstdLevel is from 1 to 22. 0 selects [DefaultResponseZstdLevel].
+	ZstdLevel int
+
+	// BrotliQuality is from 1 to 11. 0 selects [DefaultResponseBrotliQuality].
+	BrotliQuality int
+
+	// GzipLevel is from 1 to 9. 0 selects [DefaultResponseGzipLevel].
+	GzipLevel int
+}
+
+// ResponseCompressionBalanced returns the zero value, which selects zstd at level 3,
+// brotli at quality 5 and gzip at level 6.
+func ResponseCompressionBalanced() ResponseCompressionConfig {
+	return ResponseCompressionConfig{}
+}
+
+// ResponseCompressionLowCPU returns zstd and gzip at level 1 ahead of
+// brotli at quality 1. Use it for a CPU-limited server.
+func ResponseCompressionLowCPU() ResponseCompressionConfig {
+	return ResponseCompressionConfig{
+		Codings:       []Coding{CodingZstd, CodingGzip, CodingBrotli},
+		ZstdLevel:     1,
+		BrotliQuality: 1,
+		GzipLevel:     1,
+	}
+}
+
+// ResponseCompressionLowBandwidth prefers brotli for slow or metered clients.
+func ResponseCompressionLowBandwidth() ResponseCompressionConfig {
+	return ResponseCompressionConfig{
+		Codings: []Coding{CodingBrotli, CodingZstd, CodingGzip},
+	}
+}
+
+// WithResponseCompression sets how response bodies are compressed.
+//
+// By default, text bodies of at least 256 bytes use the first accepted coding
+// among zstd, brotli and gzip. Compression runs after middleware.
+// Encoded, no-transform, range, HEAD and dev-mode responses pass through.
+func WithResponseCompression(conf ResponseCompressionConfig) ServerOption {
+	return func(c *ServerConfig) error {
+		if err := conf.Validate(); err != nil {
+			return fmt.Errorf("WithResponseCompression: %w", err)
+		}
+		conf.Codings = slices.Clone(conf.Codings)
+		c.ResponseCompression = &conf
+		return nil
+	}
+}
+
+// Validate reports the first field of conf that [WithResponseCompression] refuses.
+// A disabled conf is valid whatever its other fields hold.
+func (conf ResponseCompressionConfig) Validate() error {
+	if conf.Disabled {
+		return nil
+	}
+	if err := validateCodings(conf.Codings); err != nil {
+		return err
+	}
+	switch {
+	case conf.MinSize < 0 || conf.MinSize > maxResponseCompressionMinSize:
+		return fmt.Errorf("min size (%d) must be from 0 to 1 MiB", conf.MinSize)
+	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
+		return fmt.Errorf("zstd level (%d) must be from 1 to 22", conf.ZstdLevel)
+	case conf.BrotliQuality != 0 && (conf.BrotliQuality < 1 || conf.BrotliQuality > 11):
+		return fmt.Errorf("brotli quality (%d) must be from 1 to 11", conf.BrotliQuality)
+	case conf.GzipLevel != 0 && (conf.GzipLevel < 1 || conf.GzipLevel > 9):
+		return fmt.Errorf("gzip level (%d) must be from 1 to 9", conf.GzipLevel)
+	}
+	return nil
 }
 
 // maxBuildIDLen limits IDs accepted by [WithBuildID].
@@ -713,8 +841,8 @@ func WithBuildID(id string) ServerOption {
 	}
 }
 
-// checkBuildID rejects an id that would not reach the server unchanged in
-// [HeaderBuild]. Fetch rejects control chars and chars above U+00FF,
+// checkBuildID rejects an id that would not reach the server unchanged
+// in [HeaderBuild]. Fetch rejects control chars and chars above U+00FF,
 // strips surrounding whitespace and sends U+0080 to U+00FF as Latin-1 bytes.
 // A changed ID makes every Datastar request fail or reload its page.
 // An empty ID would select the executable hash,
