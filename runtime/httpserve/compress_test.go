@@ -123,7 +123,7 @@ func TestResponseCompression(t *testing.T) {
 	body := strings.Join(page, "")
 	small := `<!DOCTYPE html><html><body>` + strings.Repeat("<p>small</p>", 10) +
 		`</body></html>`
-	require.Less(t, len(small), datapages.DefaultResponseCompressionMinSize)
+	require.Less(t, len(small), datapages.DefaultResponseMinSize)
 	pageWith := func(header http.Header, status int) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			for k, v := range header {

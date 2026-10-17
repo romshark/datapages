@@ -784,12 +784,12 @@ func validateCodings(codings []Coding) error {
 
 // The defaults of [ResponseCompressionConfig].
 const (
-	// DefaultResponseCompressionMinSize is about where zstd shrinks a body
+	// DefaultResponseMinSize is about where zstd shrinks a body
 	// by the 47 bytes of Content-Encoding and Vary that compression adds.
-	DefaultResponseCompressionMinSize = 256
-	DefaultResponseZstdLevel          = 3
-	DefaultResponseBrotliQuality      = 5
-	DefaultResponseGzipLevel          = 6
+	DefaultResponseMinSize       = 256
+	DefaultResponseZstdLevel     = 3
+	DefaultResponseBrotliQuality = 5
+	DefaultResponseGzipLevel     = 6
 )
 
 const maxResponseCompressionMinSize = 1 << 20
@@ -822,7 +822,7 @@ type ResponseCompressionConfig struct {
 	Codings []Coding
 
 	// MinSize is the size in bytes below which a body is sent uncompressed,
-	// from 1 to 1 MiB. 0 selects [DefaultResponseCompressionMinSize], and 1
+	// from 1 to 1 MiB. 0 selects [DefaultResponseMinSize], and 1
 	// compresses every body that is not empty. A response holds back up to
 	// MinSize bytes of its body until it can decide.
 	MinSize int

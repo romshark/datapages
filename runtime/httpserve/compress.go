@@ -56,7 +56,7 @@ func newResponseCompression(
 		}
 	}
 	bc := &responseCompression{
-		minSize: cmp.Or(c.MinSize, datapages.DefaultResponseCompressionMinSize),
+		minSize: cmp.Or(c.MinSize, datapages.DefaultResponseMinSize),
 	}
 	for _, name := range codings {
 		switch name {

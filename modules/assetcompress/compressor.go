@@ -28,6 +28,9 @@ import (
 
 // The defaults of [Config].
 const (
+	// DefaultMinSize is about where compression saves more than the
+	// Content-Encoding and Vary headers it adds.
+	DefaultMinSize       = 256
 	DefaultZstdLevel     = 10
 	DefaultBrotliQuality = 6
 	DefaultGzipLevel     = 9
@@ -61,6 +64,11 @@ type Config struct {
 	// [datapages.SSECompressionConfig.Codings]. The default is brotli and gzip.
 	Codings []datapages.Coding
 
+	// MinSize is the size in bytes below which a file stays uncompressed.
+	// 0 selects [DefaultMinSize], and 1 compresses every eligible file that
+	// is not empty.
+	MinSize int
+
 	// ZstdLevel is from 1 to 22, and 0 selects [DefaultZstdLevel]. Only 1, 3, 6
 	// and 10 differ, and any other level compresses like the closest of them
 	// below it, whose number the keys and ETags of the copies carry.
@@ -79,8 +87,8 @@ type Config struct {
 // Compressor compresses static assets and serves the compressed copies.
 // Pass it to [datapages.WithAssetsCompression].
 //
-// A file of at least 256 bytes is eligible when its type is text, HTML
-// included, JSON, JavaScript, XML including SVG, or WASM. Each eligible file
+// A file of at least [Config.MinSize] bytes is eligible when its type is text,
+// HTML included, JSON, JavaScript, XML including SVG, or WASM. Each eligible file
 // is compressed once per coding, on its first request or by
 // [Compressor.Precompress]. Its copy is stored under the file's SHA-256, the
 // coding and the level. Dev mode disables compression.
@@ -92,6 +100,7 @@ type Compressor struct {
 	// level, as in br6.
 	suffixes map[*contentcoding.Coding]string
 	store    Store
+	minSize  int64
 
 	// compressing limits encoder memory to 1 file at a time.
 	compressing chan struct{}
@@ -126,6 +135,7 @@ func New(conf Config) (*Compressor, error) {
 	c := &Compressor{
 		suffixes:    make(map[*contentcoding.Coding]string, len(codings)),
 		store:       conf.Store,
+		minSize:     int64(cmp.Or(conf.MinSize, DefaultMinSize)),
 		compressing: make(chan struct{}, 1),
 		puts:        make(map[string]*assetPut),
 		refs:        make(map[string]int),
@@ -165,6 +175,8 @@ func (conf Config) validate() error {
 		}
 	}
 	switch {
+	case conf.MinSize < 0:
+		return fmt.Errorf("min size (%d) must not be negative", conf.MinSize)
 	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
 		return fmt.Errorf("zstd level (%d) must be from 1 to 22", conf.ZstdLevel)
 	case conf.BrotliQuality != 0 && (conf.BrotliQuality < 1 || conf.BrotliQuality > 11):
@@ -231,7 +243,7 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) error {
 	if err != nil || st.IsDir() {
 		return err
 	}
-	info, err := describe(name, st, f)
+	info, err := c.describe(name, st, f)
 	if err != nil || !info.compressible {
 		return err
 	}
@@ -395,7 +407,7 @@ func (h *handler) file(name string) (assetFile, bool) {
 			return info, true
 		}
 	}
-	info, err := describe(name, st, f)
+	info, err := h.c.describe(name, st, f)
 	if err != nil {
 		return assetFile{}, false
 	}
@@ -480,7 +492,9 @@ func (h *handler) dropUnused(sum string) {
 
 // describe returns the type of f, the file name with the metadata st,
 // and the hash of f when it is eligible.
-func describe(name string, st fs.FileInfo, f io.Reader) (assetFile, error) {
+func (c *Compressor) describe(
+	name string, st fs.FileInfo, f io.Reader,
+) (assetFile, error) {
 	info := assetFile{size: st.Size(), modTime: st.ModTime()}
 	var head [sniffLen]byte
 	n, err := io.ReadFull(f, head[:])
@@ -492,7 +506,7 @@ func describe(name string, st fs.FileInfo, f io.Reader) (assetFile, error) {
 	if info.contentType == "" {
 		info.contentType = http.DetectContentType(head[:n])
 	}
-	info.compressible = info.size >= datapages.DefaultResponseCompressionMinSize &&
+	info.compressible = info.size >= c.minSize &&
 		contentcoding.Compressible(info.contentType)
 	if info.compressible {
 		sum := sha256.New()

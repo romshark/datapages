@@ -183,7 +183,7 @@ func TestNew(t *testing.T) {
 			ZstdLevel: 22, BrotliQuality: 11, GzipLevel: 9,
 		}},
 		"lower bounds": {conf: assetcompress.Config{
-			ZstdLevel: 1, BrotliQuality: 1, GzipLevel: 1,
+			MinSize: 1, ZstdLevel: 1, BrotliQuality: 1, GzipLevel: 1,
 		}},
 		"unknown coding": {
 			conf:    assetcompress.Config{Codings: []datapages.Coding{"deflate"}},
@@ -196,6 +196,10 @@ func TestNew(t *testing.T) {
 				},
 			},
 			wantErr: `assetcompress: coding "br" listed 2 times`,
+		},
+		"min size negative": {
+			conf:    assetcompress.Config{MinSize: -1},
+			wantErr: "assetcompress: min size (-1) must not be negative",
 		},
 		"zstd level too high": {
 			conf:    assetcompress.Config{ZstdLevel: 23},
@@ -354,6 +358,20 @@ func TestHandlerMultipartRange(t *testing.T) {
 	require.True(t, strings.HasPrefix(w.Header().Get("Content-Type"),
 		"multipart/byteranges"))
 	require.Contains(t, w.Body.String(), assetCSS[:10])
+}
+
+// TestHandlerMinSize tests that a file below the minimum size stays uncompressed,
+// and that MinSize 1 compresses it.
+func TestHandlerMinSize(t *testing.T) {
+	t.Parallel()
+
+	for minSize, want := range map[int]string{0: "", 1: "br"} {
+		h := newHandler(newCompressor(t, assetcompress.Config{MinSize: minSize}),
+			http.FS(assetFiles()), nil)
+		w := get(t, h, http.MethodGet, "/small.css", "br", nil)
+		require.Equal(t, want, w.Header().Get("Content-Encoding"), "min size %d", minSize)
+		require.Equal(t, "b { color: red }", decode(t, want, w.Body.Bytes()))
+	}
 }
 
 // TestHandlerZstdLevels tests that zstd levels that compress alike share their
