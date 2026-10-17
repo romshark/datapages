@@ -14,6 +14,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -165,14 +166,11 @@ func (conf Config) validate() error {
 	return nil
 }
 
-// Handler implements [datapages.AssetsCompressor]. It returns a handler that
-// sends the copy of a file of fsys that the request accepts, creating the copy
-// when it is missing, and passes other requests to next.
-//
-// An ETag set on the response before the handler runs gets the coding and level
-// appended, as in "tag.br6", which gives each copy its own tag. A copy that
-// cannot be created or read is logged to logger, and next sends the file
-// uncompressed.
+// Handler implements [datapages.AssetsCompressor] with a handler that sends
+// the copy of a file of fsys that the request accepts, creating it when missing,
+// and passes other requests to next. An ETag set before it runs gets the coding
+// and level appended, as in "tag.br6". When a copy can't be created or read,
+// the handler logs why and next sends the file uncompressed.
 func (c *Compressor) Handler(
 	fsys http.FileSystem, next http.Handler, logger *slog.Logger,
 ) http.Handler {
@@ -183,17 +181,15 @@ func (c *Compressor) Handler(
 }
 
 // Precompress creates the missing copies of every eligible file of fsys in
-// every coding. It does nothing in dev mode.
-// It stops at the first failed read or store and when ctx ends.
+// every coding, except in dev mode. It stops at the first error or when ctx ends.
+// A panic while it creates a copy returns as a [datapages.PanicError].
 //
-// A copy is stored under the content of its file, never under its path.
-// Precompressing the embed.FS passed to [datapages.WithAssets] therefore
-// creates the copies the server looks up, whichever subdirectory of it the
-// server serves. A file the server does not serve adds a copy no request reads.
+// Copies are keyed by content, not path. Precompressing the embed.FS passed to
+// [datapages.WithAssets] therefore covers the subdirectory the server serves.
 //
-// Requests create the copies that are still missing. Per 200 KB, brotli 6
-// takes a few milliseconds and brotli 11 takes 140 to 215 ms.
-// Run Precompress in a goroutine to serve meanwhile.
+// Requests create the copies still missing. Per 200 KB, brotli 6 takes a few
+// milliseconds and brotli 11 takes 140 to 215 ms. Run Precompress in
+// a goroutine to serve meanwhile.
 func (c *Compressor) Precompress(ctx context.Context, fsys fs.FS) error {
 	if datapages.IsDevMode() {
 		return nil
@@ -301,7 +297,16 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		// Size and modification time did not expose this edit.
 		h.files.Delete(name)
 	}
-	if err != nil {
+	var panicked datapages.PanicError
+	switch {
+	case errors.As(err, &panicked):
+		h.logger.Error("recovered panic while compressing an asset",
+			slog.String("path", name),
+			slog.String("coding", cd.Name()),
+			slog.Any("panic", panicked.Value),
+			slog.String("stack", string(panicked.Stack)))
+		return false
+	case err != nil:
 		h.logger.Warn("compressing an asset",
 			slog.String("path", name),
 			slog.String("coding", cd.Name()),
@@ -447,28 +452,38 @@ func (c *Compressor) compress(
 	return p.err
 }
 
+// put returns a panic of the store or the file system as a [datapages.PanicError],
+// which keeps [Compressor.compress] from leaving the key and the semaphore taken.
 func (c *Compressor) put(
 	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
-) error {
+) (err error) {
+	defer recoverPanic(&err)
 	f, err := fsys.Open(name)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 	pr, pw := io.Pipe()
+	encoded := make(chan struct{})
 	go func() {
+		defer close(encoded)
 		pw.CloseWithError(encodeChecked(pw, f, sum, cd))
 	}()
-	err = c.store.Put(key, pr)
-	// Stop the encoder when the store stops reading early.
-	_ = pr.CloseWithError(err)
-	return err
+	defer func() {
+		// Stop the encoder when the store stops reading early or panics,
+		// and let it finish reading f before f closes.
+		_ = pr.CloseWithError(err)
+		<-encoded
+	}()
+	return c.store.Put(key, pr)
 }
 
 // encodeChecked encodes src and rejects a source that does not hash to sum.
+// A panic returns as an error, since on its own goroutine it would end the process.
 func encodeChecked(
 	w io.Writer, src io.Reader, sum string, cd *contentcoding.Coding,
-) error {
+) (err error) {
+	defer recoverPanic(&err)
 	enc := cd.Get(w)
 	defer cd.Put(enc)
 	digest := sha256.New()
@@ -479,6 +494,13 @@ func encodeChecked(
 		return errChanged
 	}
 	return enc.Close()
+}
+
+// recoverPanic turns a panic into *err as a [datapages.PanicError].
+func recoverPanic(err *error) {
+	if v := recover(); v != nil {
+		*err = datapages.PanicError{Value: v, Stack: debug.Stack()}
+	}
 }
 
 func hashIs(digest hash.Hash, sum string) bool {

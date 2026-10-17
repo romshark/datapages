@@ -571,6 +571,87 @@ func TestStoreFailure(t *testing.T) {
 	}
 }
 
+// panickingStore panics in its first Put.
+type panickingStore struct {
+	assetcompress.Store
+	panicked atomic.Bool
+}
+
+func (s *panickingStore) Put(key string, r io.Reader) error {
+	if s.panicked.CompareAndSwap(false, true) {
+		panic("put failed")
+	}
+	return s.Store.Put(key, r)
+}
+
+// panickingFS panics in the 2nd read pass of style.css. The 1st hashes it on
+// the goroutine of the request, the 2nd encodes it on a goroutine of its own.
+type panickingFS struct {
+	http.FileSystem
+	opens atomic.Int64
+}
+
+func (fsys *panickingFS) Open(name string) (http.File, error) {
+	f, err := fsys.FileSystem.Open(name)
+	if err != nil || name != "/style.css" || fsys.opens.Add(1) != 2 {
+		return f, err
+	}
+	return panickingFile{f}, nil
+}
+
+type panickingFile struct{ http.File }
+
+func (panickingFile) Read([]byte) (int, error) { panic("read failed") }
+
+// TestHandlerPanic tests that a panic in the store or the file system is logged
+// and falls back to the uncompressed file, and the next request gets the copy.
+func TestHandlerPanic(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		store assetcompress.Store // Nil for the default.
+		fsys  http.FileSystem
+		value string
+	}{
+		"store": {
+			store: &panickingStore{Store: inmem.New()},
+			fsys:  http.FS(assetFiles()),
+			value: "put failed",
+		},
+		"file system": {
+			fsys:  &panickingFS{FileSystem: http.FS(assetFiles())},
+			value: "read failed",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var log testlog.Buffer
+			h := newHandler(
+				newCompressor(t,
+					assetcompress.Config{Store: tc.store}), tc.fsys, log.Logger(),
+			)
+			w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+			require.Empty(t, w.Header().Get("Content-Encoding"))
+			require.Equal(t, assetCSS, w.Body.String())
+			log.RequireMatch(t,
+				`level=ERROR msg="recovered panic while compressing an asset" `+
+					`path=/style.css coding=br panic="`+tc.value+`" stack="goroutine `)
+
+			// A compressor that the panic left locked never answers.
+			next := make(chan *httptest.ResponseRecorder, 1)
+			go func() { next <- get(t, h, http.MethodGet, "/style.css", "br", nil) }()
+			select {
+			case w := <-next:
+				require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+				require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+			case <-time.After(5 * time.Second):
+				t.Fatal("the request after the panic got no answer")
+			}
+		})
+	}
+}
+
 // TestDevMode tests that dev mode sends files uncompressed and stores no copy.
 func TestDevMode(t *testing.T) {
 	t.Setenv(datapages.EnvVarDevMode, "1")
