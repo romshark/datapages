@@ -5,6 +5,8 @@ import (
 	"cmp"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +32,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/assetcompress"
+	"github.com/romshark/datapages/modules/assetcompress/disk"
 	"github.com/romshark/datapages/modules/assetcompress/inmem"
 )
 
@@ -464,6 +467,77 @@ func TestHandlerChangedFile(t *testing.T) {
 	require.NoError(t, os.Chtimes(file, later, later))
 	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
 	require.Equal(t, changed, decode(t, "br", w.Body.Bytes()))
+}
+
+// TestHandlerDropsOldCopies tests that a store with Delete loses the copies of
+// content that no served file has after a change or a deletion, and keeps
+// those that another file has.
+func TestHandlerDropsOldCopies(t *testing.T) {
+	t.Parallel()
+
+	for name, newStore := range map[string]func(t *testing.T) assetcompress.Store{
+		"memory": func(*testing.T) assetcompress.Store { return inmem.New() },
+		"disk": func(t *testing.T) assetcompress.Store {
+			s, err := disk.New(t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, s.Close()) })
+			return s
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			store := newStore(t)
+			h := newHandler(newCompressor(t,
+				assetcompress.Config{Store: store}), http.Dir(dir), nil)
+			version := 0
+			write := func(name, data string) {
+				t.Helper()
+				file := filepath.Join(dir, name)
+				require.NoError(t, os.WriteFile(file, []byte(data), 0o600))
+				// http.Dir reports a change through the modification time.
+				version++
+				mt := time.Unix(1_700_000_000+int64(version), 0)
+				require.NoError(t, os.Chtimes(file, mt, mt))
+			}
+			request := func(name string) {
+				get(t, h, http.MethodGet, "/"+name, "br", nil)
+			}
+			stored := func(data string) bool {
+				sum := sha256.Sum256([]byte(data))
+				f, err := store.Open(hex.EncodeToString(sum[:]) + ".br6")
+				if err != nil {
+					return false
+				}
+				require.NoError(t, f.Close())
+				return true
+			}
+
+			v1 := assetCSS
+			v2 := strings.ReplaceAll(assetCSS, "#ddd", "#eee")
+			v3 := assetCSS + "/* v3 */\n"
+			write("style.css", v1)
+			write("copy.css", v1)
+			request("style.css")
+			request("copy.css")
+			require.True(t, stored(v1))
+
+			write("style.css", v2)
+			request("style.css")
+			require.True(t, stored(v2))
+			require.True(t, stored(v1), "copy.css still has v1")
+
+			require.NoError(t, os.Remove(filepath.Join(dir, "copy.css")))
+			request("copy.css")
+			require.False(t, stored(v1), "no file has v1 anymore")
+
+			write("style.css", v3)
+			request("style.css")
+			require.True(t, stored(v3))
+			require.False(t, stored(v2), "no file has v2 anymore")
+		})
+	}
 }
 
 // changingFS changes style.css after its first open, keeping its size.

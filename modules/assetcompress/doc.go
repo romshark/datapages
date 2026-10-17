@@ -6,9 +6,9 @@
 //
 // Stores:
 //   - [github.com/romshark/datapages/modules/assetcompress/inmem] is the default.
-//     Each restart compresses the files again, which takes 4 to 10 ms
-//     per 220 KB file at the default levels.
+//     It keeps the copies of the files served now and compresses them again
+//     after each restart, which takes 4 to 10 ms per 220 KB file at the default levels.
 //   - [github.com/romshark/datapages/modules/assetcompress/disk] keeps the
-//     copies across restarts. Use it with brotli quality 11, which takes 143 to
-//     213 ms per 220 KB file. It never deletes old copies.
+//     copies across restarts, those of earlier builds included.
+//     Use it with brotli quality 11, which takes 143 to 213 ms per 220 KB file.
 package assetcompress

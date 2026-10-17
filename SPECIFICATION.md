@@ -1018,7 +1018,7 @@ By default, assets of at least 256 bytes are eligible when their media type is `
 
 The first request creates a missing copy. Concurrent requests share that work, and a compressor compresses 1 asset at a time. `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding. It returns the first failed read or store and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
 
-Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` therefore creates the copies the server looks up in its subdirectory. A size or modification-time change causes a new hash. A file changed during compression is not stored under its old hash.
+Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` therefore creates the copies the server looks up in its subdirectory. A size or modification-time change causes a new hash. A file changed during compression is not stored under its old hash. The compressor deletes the copies of content that no served file has anymore from its store, also after a file is deleted.
 
 Compressed responses keep `Content-Length` and byte ranges. Multi-range requests use the uncompressed file. Eligible responses send `Vary: Accept-Encoding` even when uncompressed. With `datapages.WithAssetsCache`, a copy's `ETag` appends its coding and level, as in `"tag.br6"`. Store errors are logged and the request falls back to the uncompressed file. A panic in the store or the file system while a copy is created takes the same path and is logged with its stack.
 

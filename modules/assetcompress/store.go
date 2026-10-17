@@ -13,4 +13,9 @@ type Store interface {
 	// Put stores r under key atomically. Repeated puts of 1 key contain the
 	// same bytes and may keep the first copy.
 	Put(key string, r io.Reader) error
+
+	// Delete removes the copy under key, which may be missing, and leaves a copy
+	// opened before readable. The compressor deletes the copies of content that
+	// no served file has anymore.
+	Delete(key string) error
 }

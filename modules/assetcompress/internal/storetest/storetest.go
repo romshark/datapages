@@ -68,6 +68,14 @@ func Run(t *testing.T, newStore func(t *testing.T) assetcompress.Store) {
 		require.NoError(t, s.Put(key, strings.NewReader("compressed bytes")))
 		require.Equal(t, "compressed bytes", readAll(t, s, key))
 	})
+	t.Run("delete", func(t *testing.T) {
+		s := newStore(t)
+		require.NoError(t, s.Put(key, strings.NewReader("compressed bytes")))
+		require.NoError(t, s.Delete(key))
+		_, err := s.Open(key)
+		require.ErrorIs(t, err, fs.ErrNotExist)
+		require.NoError(t, s.Delete(key), "a missing copy")
+	})
 	t.Run("concurrent", func(t *testing.T) {
 		s := newStore(t)
 		data := bytes.Repeat([]byte("copy "), 64<<10)

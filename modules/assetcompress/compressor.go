@@ -52,7 +52,7 @@ var errChanged = errors.New("the file changed while it was compressed")
 //	zstd 19       28.6% in 6 ms       9.2% in 2.3 ms         39 MiB
 //	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms        1.3 MiB
 type Config struct {
-	// Store keeps the copies. Nil keeps them in memory until the process exits.
+	// Store keeps the copies of the content served now, in memory when nil.
 	// A store from [github.com/romshark/datapages/modules/assetcompress/disk.New]
 	// keeps them across restarts.
 	Store Store
@@ -96,6 +96,12 @@ type Compressor struct {
 
 	lockPuts sync.Mutex
 	puts     map[string]*assetPut // By store key.
+
+	// lockRefs serializes changes to refs and to the files of every handler.
+	lockRefs sync.Mutex
+	// refs counts the files of all handlers per content sum, and the copies
+	// of a sum go with its last file.
+	refs map[string]int
 }
 
 var _ datapages.AssetsCompressor = (*Compressor)(nil)
@@ -120,6 +126,7 @@ func New(conf Config) (*Compressor, error) {
 		store:       conf.Store,
 		compressing: make(chan struct{}, 1),
 		puts:        make(map[string]*assetPut),
+		refs:        make(map[string]int),
 	}
 	if c.store == nil {
 		c.store = inmem.New()
@@ -295,7 +302,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	copied, err := h.c.copyOf(h.fsys, name, info.hash, key, cd)
 	if errors.Is(err, errChanged) {
 		// Size and modification time did not expose this edit.
-		h.files.Delete(name)
+		h.forget(name)
 	}
 	var panicked datapages.PanicError
 	switch {
@@ -314,6 +321,11 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	defer func() { _ = copied.Close() }()
+	if cur, ok := h.files.Load(name); !ok || cur.(assetFile).hash != info.hash {
+		// The file changed while the copy was created, which may have dropped
+		// the copies of info.hash before this one was stored.
+		h.dropUnused(info.hash)
+	}
 	// ServeContent returns 500 for a copy that cannot seek.
 	_, err = copied.Seek(0, io.SeekEnd)
 	if err == nil {
@@ -365,6 +377,9 @@ func (w codedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func (h *handler) file(name string) (assetFile, bool) {
 	f, err := h.fsys.Open(name)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			h.forget(name)
+		}
 		return assetFile{}, false
 	}
 	defer func() { _ = f.Close() }()
@@ -382,8 +397,83 @@ func (h *handler) file(name string) (assetFile, bool) {
 	if err != nil {
 		return assetFile{}, false
 	}
-	h.files.Store(name, info)
+	h.remember(name, info)
 	return info, true
+}
+
+// remember stores info for name and drops the copies of the content it
+// replaces that no file of any handler has anymore.
+func (h *handler) remember(name string, info assetFile) {
+	h.c.lockRefs.Lock()
+	if info.hash != "" {
+		h.c.refs[info.hash]++
+	}
+	var gone string
+	if old, had := h.files.Swap(name, info); had {
+		gone = h.c.release(old.(assetFile).hash)
+	}
+	h.c.lockRefs.Unlock()
+	h.drop(gone)
+}
+
+// forget drops the description of name, whose file is gone or changed,
+// and the copies of its content that no other file has.
+func (h *handler) forget(name string) {
+	if _, ok := h.files.Load(name); !ok {
+		return
+	}
+	h.c.lockRefs.Lock()
+	var gone string
+	if old, had := h.files.LoadAndDelete(name); had {
+		gone = h.c.release(old.(assetFile).hash)
+	}
+	h.c.lockRefs.Unlock()
+	h.drop(gone)
+}
+
+// release counts down the files with content sum while c.lockRefs is held
+// and returns sum after the last one, whose copies the caller drops.
+func (c *Compressor) release(sum string) string {
+	if sum == "" {
+		return ""
+	}
+	c.refs[sum]--
+	if c.refs[sum] > 0 {
+		return ""
+	}
+	delete(c.refs, sum)
+	return sum
+}
+
+// drop deletes the copies of sum, waiting for a compression under way that
+// would store one after the deletion.
+func (h *handler) drop(sum string) {
+	if sum == "" {
+		return
+	}
+	for _, cd := range h.c.codings {
+		key := sum + "." + h.c.suffixes[cd]
+		h.c.lockPuts.Lock()
+		p := h.c.puts[key]
+		h.c.lockPuts.Unlock()
+		if p != nil {
+			<-p.done
+		}
+		if err := h.c.store.Delete(key); err != nil {
+			h.logger.Warn("deleting a compressed asset",
+				slog.String("key", key), slog.Any("err", err))
+		}
+	}
+}
+
+// dropUnused drops the copies of sum when no file of any handler has it.
+func (h *handler) dropUnused(sum string) {
+	h.c.lockRefs.Lock()
+	_, used := h.c.refs[sum]
+	h.c.lockRefs.Unlock()
+	if !used {
+		h.drop(sum)
+	}
 }
 
 // describe returns the type of f, the file name with the metadata st,

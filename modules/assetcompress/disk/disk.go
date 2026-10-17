@@ -45,6 +45,16 @@ func (s *Store) Open(key string) (io.ReadSeekCloser, error) {
 	return s.root.Open(key)
 }
 
+func (s *Store) Delete(key string) error {
+	if !validKey(key) {
+		return &fs.PathError{Op: "delete", Path: key, Err: fs.ErrInvalid}
+	}
+	if err := s.root.Remove(key); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // Put stores r atomically through a temporary file.
 // A crash may leave the dot-prefixed temporary file behind.
 func (s *Store) Put(key string, r io.Reader) error {

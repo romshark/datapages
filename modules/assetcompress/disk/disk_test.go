@@ -120,6 +120,7 @@ func TestInvalidKeys(t *testing.T) {
 			require.ErrorIs(t, s.Put(key, strings.NewReader("x")), fs.ErrInvalid)
 			_, err := s.Open(key)
 			require.ErrorIs(t, err, fs.ErrInvalid)
+			require.ErrorIs(t, s.Delete(key), fs.ErrInvalid)
 		})
 	}
 }
