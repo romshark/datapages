@@ -192,6 +192,51 @@ for (const code of [401, 403, 404, 410]) {
   assert.deepEqual(await w.load('/files/4'), { status: 200, body: 'v1' });
 }
 
+// dated answers with body, cacheControl, a Date secondsAgo in the past and an
+// optional Age, as net/http sends a static asset.
+const dated = (body, cacheControl, secondsAgo = 0, age = undefined) => () =>
+  new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/css',
+      'Cache-Control': cacheControl,
+      Date: new Date(Date.now() - secondsAgo * 1000).toUTCString(),
+      ...(age === undefined ? {} : { Age: String(age) }),
+    },
+  });
+
+// A same-origin asset younger than its max-age, counted from its Date and Age
+// headers, answers without a request. WithAssetsCache with Immutable sends
+// such a max-age for assets whose URLs change with their content.
+{
+  const w = worker();
+  w.server = dated('v1', 'public, max-age=31536000, immutable');
+  await w.load('/static/app.css');
+  let requests = 0;
+  w.server = (r) => { requests++; return dated('v2', 'public, max-age=60')(r); };
+  assert.deepEqual(await w.load('/static/app.css'), { status: 200, body: 'v1' });
+  assert.equal(requests, 0, 'a fresh asset was revalidated');
+}
+
+// An asset past its max-age by its Date or its Age, one with max-age=0, which the
+// zero AssetsCacheConfig sends, and one without Date answer from the cache and
+// are then revalidated.
+for (const [name, first] of [
+  ['Date past max-age', dated('v1', 'public, max-age=60', 120)],
+  ['Age past max-age', dated('v1', 'public, max-age=60', 0, 120)],
+  ['max-age=0', dated('v1', 'public, max-age=0')],
+  ['no Date', ok('v1', 'public, max-age=3600')],
+]) {
+  const w = worker();
+  w.server = first;
+  await w.load('/static/app.css');
+  let revalidations = 0;
+  w.server = (r) => { revalidations++; return dated('v2', 'public, max-age=60')(r); };
+  assert.deepEqual(await w.load('/static/app.css'), { status: 200, body: 'v1' }, name);
+  assert.equal(revalidations, 1, `${name}: not revalidated`);
+  assert.deepEqual(await w.load('/static/app.css'), { status: 200, body: 'v2' }, name);
+}
+
 // A page entry is stored with the trailing slash the server serves its page with,
 // whatever URL it was written for. A navigation without the slash finds it:
 // online it reports the held version, offline it gets the entry.

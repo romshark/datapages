@@ -42,9 +42,10 @@ type Config struct {
 	// [Config.Assets] and PageOffline only during installation.
 	//
 	// A changed same-origin asset at an unchanged URL doesn't require a new
-	// worker version. The worker serves the stored copy and then refreshes it
-	// from the network. It never refreshes a cross-origin asset: give a changed
-	// one a new URL or increase WorkerVersion.
+	// worker version. The worker serves the stored copy and, once the copy is
+	// past its max-age or has none, refreshes it from the network. It never
+	// refreshes a cross-origin asset: give a changed one a new URL or increase
+	// WorkerVersion.
 	WorkerVersion uint64
 
 	// ScriptURL is the path the worker script is served from.

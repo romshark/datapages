@@ -177,6 +177,23 @@ function hasDirective(res, name) {
   });
 }
 
+// isFresh reports whether res is within its max-age by its Date and Age.
+// The Cache API keeps no storage time, so client clock skew shifts the result.
+function isFresh(res) {
+  const cc = res.headers.get('Cache-Control');
+  const date = Date.parse(res.headers.get('Date'));
+  if (cc === null || isNaN(date)) return false;
+  for (const d of cc.toLowerCase().split(',')) {
+    const [name, value] = d.split('=');
+    if (name.trim() !== 'max-age') continue;
+    const maxAge = parseInt((value || '').trim().replace(/^"|"$/g, ''), 10);
+    const age = Math.max(0, Date.now() - date) / 1000 +
+      (parseInt(res.headers.get('Age'), 10) || 0);
+    return age < maxAge;
+  }
+  return false;
+}
+
 // GONE holds the statuses that withdraw a stored copy: the visitor may no
 // longer read the resource, or it no longer exists.
 const GONE = [401, 403, 404, 410];
@@ -302,9 +319,9 @@ self.addEventListener('fetch', function (e) {
       // A copy marked no-cache must be revalidated before every use.
       // It answers only while the network is down.
       if (hit && !hasDirective(hit, 'no-cache')) {
-        // Refresh same-origin assets after responding because their URLs have
-        // no content hash. Opaque cross-origin responses cannot be compared.
-        if (sameOrigin) e.waitUntil(revalidate(cache, req));
+        // Refresh a stale same-origin asset after responding because its URL
+        // has no content hash. Opaque cross-origin responses cannot be compared.
+        if (sameOrigin && !isFresh(hit)) e.waitUntil(revalidate(cache, req));
         return hit;
       }
       try {
