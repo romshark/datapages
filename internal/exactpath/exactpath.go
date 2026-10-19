@@ -3,6 +3,7 @@
 package exactpath
 
 import (
+	"io/fs"
 	"net/http"
 	"path"
 	"strings"
@@ -69,13 +70,20 @@ func (l *Listings) list(dir string) map[string]struct{} {
 		return nil
 	}
 	defer func() { _ = f.Close() }()
-	infos, err := f.Readdir(-1)
+	// ReadDir skips the stat of each entry that Readdir takes.
+	if d, ok := f.(fs.ReadDirFile); ok {
+		return nameSet(d.ReadDir(-1))
+	}
+	return nameSet(f.Readdir(-1))
+}
+
+func nameSet[E interface{ Name() string }](entries []E, err error) map[string]struct{} {
 	if err != nil {
 		return nil
 	}
-	names := make(map[string]struct{}, len(infos))
-	for _, info := range infos {
-		names[info.Name()] = struct{}{}
+	names := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		names[e.Name()] = struct{}{}
 	}
 	return names
 }

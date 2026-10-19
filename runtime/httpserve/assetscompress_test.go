@@ -183,7 +183,7 @@ func TestAssetsSpellings(t *testing.T) {
 }
 
 // TestAssetsSpellingsDevMode tests that dev mode answers other spellings 404
-// and serves a file added while the server runs.
+// and follows files added and renamed while the server runs.
 func TestAssetsSpellingsDevMode(t *testing.T) {
 	t.Setenv(datapages.EnvVarDevMode, "1")
 
@@ -198,8 +198,15 @@ func TestAssetsSpellingsDevMode(t *testing.T) {
 	}
 
 	files["added.css"] = &fstest.MapFile{Data: []byte("b { color: red }")}
-	w := getAsset(t, c, http.MethodGet, "/static/added.css", "", nil)
-	require.Equal(t, http.StatusOK, w.Code)
+	files["Style.css"] = files["style.css"]
+	delete(files, "style.css")
+	for p, want := range map[string]int{
+		"/static/added.css": http.StatusOK,
+		"/static/style.css": http.StatusNotFound,
+		"/static/Style.css": http.StatusOK,
+	} {
+		require.Equal(t, want, getAsset(t, c, http.MethodGet, p, "", nil).Code, p)
+	}
 }
 
 // TestAssetsFontType tests that an OpenType font goes out as font/otf,
