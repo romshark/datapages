@@ -386,10 +386,10 @@ func WithAssets(fsys embed.FS, browsable bool) ServerOption {
 // other directory. Dev mode still sends every file with Cache-Control: no-cache.
 //
 // The files of fsys must not change while the server runs. The server keeps
-// the [WithAssetsCache] ETag and the compressed copies of a file from its first
-// request until it exits, which after a change or a deletion sends browsers the
-// old content and every client the old ETag. A restart serves the files as they
-// are then. Serve files that change through a GET action that returns a [File].
+// the [WithAssetsCache] ETag of a file from its first request until it exits.
+// After a change, every response carries the old ETag, and a compressed one
+// can carry the old content, also after a deletion. A restart serves the files
+// as they are then. Serve files that change through a GET action that returns a [File].
 //
 // browsable true lists a directory that has no index.html, false returns 404.
 // Pass browsable=false in production to avoid exposing every embedded file.

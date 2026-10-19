@@ -1006,7 +1006,7 @@ Compression runs after every `WithMiddleware` middleware. These responses pass t
 - Responses with `Content-Range` or an `Accept-Ranges` value other than `none`.
 - Bodies other than `text/*`, JSON, JavaScript, XML, SVG and WebAssembly. The server sniffs the first 512 bytes when `Content-Type` is absent. `text/event-stream` also passes through.
 
-Compression removes `Content-Length` and weakens a strong `ETag`, because the encoded bytes of 1 body depend on when the handler flushes. A `HEAD` response gets the headers of its `GET` response. The server buffers up to the minimum size, or until the handler flushes or returns. A response without `Content-Type`, such as a page, buffers up to 512 bytes when the minimum size is smaller, to sniff its type.
+Compression removes `Content-Length` and weakens a strong `ETag`. A `HEAD` response gets the headers of its `GET` response. The server buffers up to the minimum size, or until the handler flushes or returns. A response without `Content-Type`, such as a page, buffers up to 512 bytes when the minimum size is smaller.
 
 `datapages.WithResponseCompression` sets the codings, order, minimum size and levels. `datapages.WithNoResponseCompression` disables it. `datapages.ResponseCompressionBalanced` returns the zero-value defaults. `datapages.ResponseCompressionLowCPU` orders zstd, gzip, brotli and sets every level or quality to 1. `datapages.ResponseCompressionLowBandwidth` orders brotli, zstd, gzip.
 
@@ -1014,26 +1014,30 @@ Dev mode sends bodies uncompressed.
 
 ## Asset Compression
 
-By default, assets of at least 256 bytes are eligible when their media type is `text/*`, `application/json`, `application/javascript`, `application/xml` or `application/wasm`, or ends in `+json` or `+xml`, which includes SVG. A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheControl` or a middleware can set, is not eligible, as in response compression. Eligible assets use the first explicitly accepted coding from brotli 6 and gzip 9. Brotli uses a 4 MiB window. Other assets stay uncompressed. Dev mode disables asset compression.
+By default, assets of at least 256 bytes are eligible when their media type is `text/*`, `application/json`, `application/javascript`, `application/xml` or `application/wasm`, or ends in `+json` or `+xml`, which includes SVG. A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheControl` or a middleware can set, is not eligible. Eligible assets use the first explicitly accepted coding from brotli 6 and gzip 9. Brotli uses a 4 MiB window. Other assets stay uncompressed. Dev mode disables asset compression.
 
 The first request creates a missing copy. Concurrent requests share that work, and a compressor compresses 1 asset at a time. `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding. It returns the first failed read or store and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
 
 Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` therefore creates the copies the server looks up in its subdirectory. The server hashes each file at its first request. A file changed during compression is not stored under its old hash.
 
-Compressed responses keep `Content-Length` and byte ranges. Multi-range requests use the uncompressed file. Eligible responses send `Vary: Accept-Encoding` even when uncompressed. With `datapages.WithAssetsCache`, a copy's `ETag` appends its coding and level, as in `"tag.br6"`, and stays strong, because every response sends the stored bytes of the copy. Store errors are logged and the request falls back to the uncompressed file. A panic in the store or the file system while a copy is created takes the same path and is logged with its stack.
+Compressed responses keep `Content-Length` and byte ranges. Multi-range requests use the uncompressed file. Eligible responses send `Vary: Accept-Encoding` even when uncompressed. With `datapages.WithAssetsCache`, a copy's `ETag` is the strong `ETag` of the file with the coding and level appended, such as `"tag.br6"`. Store errors are logged and the request falls back to the uncompressed file. A panic in the store or the file system while a copy is created takes the same path and is logged with its stack.
 
 `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels and store of its `Config`. `datapages.WithAssetsCompression` passes it to the server, which otherwise uses the defaults. `datapages.WithNoAssetsCompression` disables compression. A nil `Store` uses memory; `modules/assetcompress/disk` persists copies in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700. The option accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server.
 
 ## Changing Assets
 
-Assets must not change while the server runs, as the files of an `embed.FS` cannot. The server keeps the `ETag` that `datapages.WithAssetsCache` adds and the compressed copies of a file from its first request until it exits. A file that changes anyway has these effects until the next restart:
+Outside dev mode, the files of `datapages.WithAssetsFS` must not change while the server runs, unless `datapages.WithNoAssetsCompression` disables asset compression and `datapages.WithAssetsCache` adds no `ETag`. A GET action that returns [`datapages.File`](#return-value-datapagesfile) serves files that change.
 
-- Uncompressed responses send the new content with the old `ETag`. A client that revalidates with that `ETag` receives 304 and keeps the old content.
-- A client that accepts compression receives the old content if the copy was created before the change, also after the file is deleted. A change before the copy exists is detected while compressing, and the next request compresses the new content.
+The server computes the `ETag` that `datapages.WithAssetsCache` adds at the first request for a file and keeps it until it exits. After a file changes, until the server restarts:
 
-A restart serves the files as they are then. `ETag`s and copies follow the content, and a file that did not change reuses its copies in the `disk` store. Whenever a server starts, that store deletes the copies that no server opened for `disk.Config.MaxUnused`, 7 days by default, which removes those of earlier content. A client may still reuse an asset with a positive `MaxAge` until it expires; see [Dev Mode](#dev-mode).
+- Every response for the file carries that `ETag`, with the coding and level appended for a copy. A conditional request with it receives 304.
+- An uncompressed response carries the new content.
+- A compressed response carries the existing copy in its coding. A request in a coding without a copy detects the change and receives the new content uncompressed. After a detection, compressed responses in every coding carry copies of the new content.
+- The store keeps the copies of the previous content. The in-memory store keeps them until the server exits. Each detection adds at most 1 copy per coding.
 
-Serve files that change while the server runs through a GET action that returns [`datapages.File`](#return-value-datapagesfile).
+After a file is deleted, a compressed response in a coding with a copy carries that copy. Every other request for the file receives 404.
+
+After a restart, `ETag`s and copies match the files. The `disk` store keeps the copies of unchanged files. When a server starts, the `disk` store deletes the copies that no server opened within `disk.Config.MaxUnused`, 7 days by default.
 
 ## Dev Mode
 
