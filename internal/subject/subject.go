@@ -68,8 +68,24 @@ type AppEvent struct {
 	Claim
 }
 
-// CheckAcrossApps reports 2 events of different applications of
-// 1 module that claim the same subject.
+// Conflict is 2 events of different applications of 1 module
+// that claim the same subject.
+type Conflict struct {
+	// First comes before Event in the input.
+	First, Event AppEvent
+}
+
+func (c Conflict) Error() string {
+	return fmt.Sprintf(
+		"%s.%s claims subject %q and %s.%s claims %q: "+
+			"2 applications of 1 module must not claim the same subject",
+		c.Event.App, c.Event.TypeName, c.Event.Subject,
+		c.First.App, c.First.TypeName, c.First.Subject,
+	)
+}
+
+// Conflicts returns the events of different applications of 1 module
+// that claim the same subject, 1 [Conflict] per pair.
 //
 // 1 module may build several applications, and 2 of them given the
 // same broker is the ordinary deployment. A subject both claim carries each
@@ -79,8 +95,8 @@ type AppEvent struct {
 // The events of 1 application are checked while it is parsed.
 // This is the rest of the rule and needs every parsed model of the module at once.
 // Order the input by application and the message names the first claim.
-func CheckAcrossApps(events []AppEvent) error {
-	var errs []error
+func Conflicts(events []AppEvent) []Conflict {
+	var conflicts []Conflict
 	for i, e := range events {
 		for _, first := range events[:i] {
 			if first.App == e.App || first.Decl == e.Decl {
@@ -92,13 +108,17 @@ func CheckAcrossApps(events []AppEvent) error {
 			if e.Subject != first.Subject && !e.Overlaps(first.Claim) {
 				continue
 			}
-			errs = append(errs, fmt.Errorf(
-				"%s.%s claims subject %q and %s.%s claims %q: "+
-					"2 applications of 1 module must not claim the same subject",
-				e.App, e.TypeName, e.Subject,
-				first.App, first.TypeName, first.Subject,
-			))
+			conflicts = append(conflicts, Conflict{First: first, Event: e})
 		}
+	}
+	return conflicts
+}
+
+// CheckAcrossApps joins the [Conflicts] of events into 1 error.
+func CheckAcrossApps(events []AppEvent) error {
+	var errs []error
+	for _, c := range Conflicts(events) {
+		errs = append(errs, c)
 	}
 	return errors.Join(errs...)
 }

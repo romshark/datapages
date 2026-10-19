@@ -130,6 +130,10 @@ Run `datapages gen` to apply these.
 - Report a subject that 2 applications of a module claim in `datapages lint` when 1 of them has other errors, mirroring `datapages gen` behavior.
 - Reject a `reflectsignal` query field that can't be written as text, also when the `GET` takes no `Signals`. Its value grew in the URL on every reload.
 - Accept an event or signals field of a struct type from another module, such as `url.URL` or `sql.NullString`. Its fields were held to the `json` tag rules, with errors pointing into the standard library.
+- Keep the generated code when `datapages gen` rejects the `SessionData` type argument of `datapages.NewServer`. It was replaced and did not compile with the call.
+- Keep the generated code of 2 applications whose events claim the same subject. It was replaced before the error was reported.
+- Replace generated files only once all are written. A full disk or a killed `datapages gen` could leave a package that did not compile.
+- Rerun `datapages gen` in `datapages watch` when the package calling `datapages.NewServer` changes. A new `Metrics` type argument took effect only after the next change to the app package.
 
 #### Generated code
 

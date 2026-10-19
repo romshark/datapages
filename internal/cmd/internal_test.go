@@ -539,6 +539,52 @@ func TestSelectApp(t *testing.T) {
 	}
 }
 
+// TestWatchInclude tests that watch re-runs gen when an app package or a
+// package calling NewServer changes.
+func TestWatchInclude(t *testing.T) {
+	app := func(dir string, callDirs ...string) serverscan.App {
+		a := serverscan.App{Dir: dir}
+		for _, d := range callDirs {
+			a.Calls = append(a.Calls, serverscan.Call{Dir: d})
+		}
+		return a
+	}
+	cmdDir := filepath.Join("cmd", "server")
+	for name, tt := range map[string]struct {
+		apps []serverscan.App
+		want []string
+	}{
+		"no call": {
+			apps: []serverscan.App{app("app")},
+			want: []string{"app/**/*.go", "datapages.yaml", "datapages.yml"},
+		},
+		"call in a command": {
+			apps: []serverscan.App{app("app", cmdDir)},
+			want: []string{
+				"app/**/*.go", "cmd/server/*.go", "datapages.yaml", "datapages.yml",
+			},
+		},
+		"call in the module root": {
+			apps: []serverscan.App{app("app", ".")},
+			want: []string{"app/**/*.go", "*.go", "datapages.yaml", "datapages.yml"},
+		},
+		"2 apps built in 1 command": {
+			apps: []serverscan.App{
+				app(filepath.Join("app", "admin"), cmdDir),
+				app(filepath.Join("app", "frontend"), cmdDir),
+			},
+			want: []string{
+				"app/admin/**/*.go", "cmd/server/*.go", "app/frontend/**/*.go",
+				"datapages.yaml", "datapages.yml",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, watchInclude(serverscan.Result{Apps: tt.apps}))
+		})
+	}
+}
+
 // TestModuleVersionExistsEndsWithTheContext tests that a
 // stalled module query returns when its context expires.
 func TestModuleVersionExistsEndsWithTheContext(t *testing.T) {
