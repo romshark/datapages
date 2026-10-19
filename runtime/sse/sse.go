@@ -54,7 +54,8 @@ type Stream struct {
 }
 
 // Open starts and flushes an event stream. It selects the first coding of c
-// that r accepts by name, else gzip when r accepts *, and none when c is nil.
+// that r accepts by name, else gzip when r accepts *, and none when c is nil
+// or the response already has Cache-Control: no-transform.
 // The caller must call [Stream.Close].
 // The headers and the first flush follow the [SDK specification].
 //
@@ -65,7 +66,14 @@ type Stream struct {
 func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 	s := &Stream{ctx: r.Context(), w: w, rc: http.NewResponseController(w)}
 	h := w.Header()
-	h.Set("Cache-Control", "no-cache")
+	if contentcoding.NoTransform(h) {
+		// Events would compress against each other in 1 window, as attacker
+		// input against a secret sent earlier.
+		c = nil
+		h.Set("Cache-Control", "no-cache, no-transform")
+	} else {
+		h.Set("Cache-Control", "no-cache")
+	}
 	h.Set("Content-Type", "text/event-stream")
 	if r.ProtoMajor == 1 {
 		h.Set("Connection", "keep-alive")

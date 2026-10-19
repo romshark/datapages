@@ -163,6 +163,24 @@ func TestOpen(t *testing.T) {
 	}
 }
 
+// TestOpenNoTransform tests that a Cache-Control: no-transform set before Open
+// keeps the stream uncompressed and stays in the header.
+func TestOpenNoTransform(t *testing.T) {
+	t.Parallel()
+
+	r := streamRequest()
+	r.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	w := &recorder{h: http.Header{"Cache-Control": {"private, no-transform"}}}
+	s := sse.Open(w, r, compression)
+	require.NoError(t, s.PatchElement(element))
+	s.Close()
+	require.NoError(t, s.Err())
+	require.Empty(t, w.h.Get("Content-Encoding"))
+	require.Empty(t, w.h.Values("Vary"))
+	require.Equal(t, "no-cache, no-transform", w.h.Get("Cache-Control"))
+	require.Contains(t, w.buf.String(), `<div id="out">x</div>`)
+}
+
 // TestOpenWithoutFlushPanics tests a writer that hides [http.Flusher].
 func TestOpenWithoutFlushPanics(t *testing.T) {
 	t.Parallel()

@@ -20,7 +20,7 @@ Releases up to v0.10.0 have their notes on
 
 Run `datapages gen` to apply these.
 
-- Add `datapages.WithSSECompression` to configure SSE compression and `datapages.WithNoSSECompression` to disable it. The presets `datapages.SSECompressionBalanced`, `datapages.SSECompressionLowMemory`, `datapages.SSECompressionLowBandwidth` and `datapages.SSECompressionLargeFragments` cover common trade-offs.
+- Add `datapages.WithSSECompression` to configure SSE compression and `datapages.WithNoSSECompression` to disable it. The presets `datapages.SSECompressionBalanced`, `datapages.SSECompressionLowMemory`, `datapages.SSECompressionLowBandwidth` and `datapages.SSECompressionLargeFragments` cover common trade-offs. A `Cache-Control: no-transform` set before a stream opens keeps it uncompressed.
 
 #### Runtime and modules
 
