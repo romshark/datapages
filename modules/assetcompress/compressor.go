@@ -433,8 +433,9 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	}
 	rel := exactpath.Clean(r.URL.Path)
 	switch {
-	case strings.HasSuffix(r.URL.Path, "/"):
+	case r.URL.Path == "" || strings.HasSuffix(r.URL.Path, "/"):
 		// http.FileServer answers a directory with its index.html.
+		// An empty path is the root that http.StripPrefix leaves of its prefix.
 		rel = path.Join(rel, "index.html")
 	case rel == "index.html" || strings.HasSuffix(rel, "/index.html"):
 		// http.FileServer redirects it to its directory.

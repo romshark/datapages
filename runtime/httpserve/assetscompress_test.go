@@ -37,6 +37,9 @@ func assetFiles() fstest.MapFS {
 		"docs/index.html": {
 			Data: []byte("<!DOCTYPE html>" + strings.Repeat("<p>docs</p>", 500)),
 		},
+		"index.html": {
+			Data: []byte("<!DOCTYPE html>" + strings.Repeat("<p>home</p>", 500)),
+		},
 	}
 }
 
@@ -89,6 +92,11 @@ func TestAssetsCompression(t *testing.T) {
 			path: "/static/docs/", accept: browserCodings,
 			wantCoding: "br",
 			wantBody:   "<!DOCTYPE html>" + strings.Repeat("<p>docs</p>", 500),
+		},
+		"root index": {
+			path: "/static/", accept: browserCodings,
+			wantCoding: "br",
+			wantBody:   "<!DOCTYPE html>" + strings.Repeat("<p>home</p>", 500),
 		},
 		"directory": {
 			path: "/static/sub/", accept: browserCodings,
