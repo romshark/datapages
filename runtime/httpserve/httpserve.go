@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/romshark/datapages"
@@ -147,6 +148,21 @@ func (f noModTimeFile) Stat() (fs.FileInfo, error) {
 type noModTimeInfo struct{ fs.FileInfo }
 
 func (noModTimeInfo) ModTime() time.Time { return time.Time{} }
+
+// exactSpellings answers a path that exact rejects with the 404 of a missing file.
+func exactSpellings(exact func(string) bool, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		if path.Clean(p) != p {
+			p = path.Clean("/" + p)[1:]
+		}
+		if !exact(p) {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // notBrowsableFS returns fs.ErrNotExist for a directory that holds no index.html,
 // which [http.FileServer] turns into 404.

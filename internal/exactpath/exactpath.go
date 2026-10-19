@@ -1,0 +1,69 @@
+// Package exactpath reports whether a path spells its elements as their
+// directories list them. NTFS and APFS also open other spellings.
+package exactpath
+
+import (
+	"net/http"
+	"strings"
+	"sync"
+)
+
+// Listings caches the names in the directories of a file system.
+type Listings struct {
+	fsys http.FileSystem
+	// dirs maps an exact directory path to its names, nil when the directory
+	// cannot be listed. Exact keys bound it by the directories of fsys.
+	dirs sync.Map
+}
+
+// New returns the listings of fsys, each read on first use.
+func New(fsys http.FileSystem) *Listings { return &Listings{fsys: fsys} }
+
+// Exact reports whether each element of p, a clean path relative to the root,
+// appears in the listing of its directory. An element in a directory that
+// cannot be listed counts as exact. The empty path is the root.
+func (l *Listings) Exact(p string) bool {
+	for start := 0; start < len(p); {
+		end := strings.IndexByte(p[start:], '/')
+		if end < 0 {
+			end = len(p)
+		} else {
+			end += start
+		}
+		names := l.names(p[:max(start-1, 0)])
+		if names == nil {
+			return true
+		}
+		if _, ok := names[p[start:end]]; !ok {
+			return false
+		}
+		start = end + 1
+	}
+	return true
+}
+
+// names returns the names in dir, nil when dir cannot be listed.
+func (l *Listings) names(dir string) map[string]struct{} {
+	if v, ok := l.dirs.Load(dir); ok {
+		return v.(map[string]struct{})
+	}
+	v, _ := l.dirs.LoadOrStore(dir, l.list(dir))
+	return v.(map[string]struct{})
+}
+
+func (l *Listings) list(dir string) map[string]struct{} {
+	f, err := l.fsys.Open("/" + dir)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	infos, err := f.Readdir(-1)
+	if err != nil {
+		return nil
+	}
+	names := make(map[string]struct{}, len(infos))
+	for _, info := range infos {
+		names[info.Name()] = struct{}{}
+	}
+	return names
+}

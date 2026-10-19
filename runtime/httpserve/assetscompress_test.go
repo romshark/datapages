@@ -3,13 +3,16 @@ package httpserve_test
 import (
 	"cmp"
 	"io"
+	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -110,6 +113,85 @@ func TestAssetsCompression(t *testing.T) {
 			}
 		})
 	}
+}
+
+// foldingFS opens files and directories by every case spelling, as NTFS and APFS do.
+type foldingFS struct{ files fstest.MapFS }
+
+func (f foldingFS) Open(name string) (http.File, error) {
+	name = strings.TrimPrefix(path.Clean("/"+name), "/")
+	if name == "" {
+		return http.FS(f.files).Open("/")
+	}
+	for p := range f.files {
+		for listed := p; listed != "."; listed = path.Dir(listed) {
+			if strings.EqualFold(listed, name) {
+				return http.FS(f.files).Open("/" + listed)
+			}
+		}
+	}
+	return nil, fs.ErrNotExist
+}
+
+// TestAssetsSpellings tests that other spellings of an asset path,
+// which a file system that folds case opens, get 404 as on Linux.
+func TestAssetsSpellings(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		cache            *datapages.AssetsCacheConfig
+		wantETag         bool
+		wantCacheControl string
+	}{
+		"cache": {
+			cache:            &datapages.AssetsCacheConfig{MaxAge: time.Hour},
+			wantETag:         true,
+			wantCacheControl: "public, max-age=3600",
+		},
+		"no cache": {wantCacheControl: "public, max-age=0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := assetsCore(t,
+				foldingFS{assetFiles()}, datapages.ServerConfig{AssetsCache: tc.cache})
+			w := getAsset(t, c, http.MethodGet, "/static/sub/nested.css", "br", nil)
+			require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+			require.Equal(t, tc.wantETag, w.Header().Get("ETag") != "")
+			require.Equal(t, tc.wantCacheControl, w.Header().Get("Cache-Control"))
+
+			for _, p := range []string{
+				"/static/SUB/nested.css",
+				"/static/sub/Nested.css",
+			} {
+				w := getAsset(t, c, http.MethodGet, p, "br", nil)
+				require.Equal(t, http.StatusNotFound, w.Code, p)
+				require.Empty(t, w.Header().Get("Content-Encoding"), p)
+				require.Empty(t, w.Header().Get("ETag"), p)
+				require.Empty(t, w.Header().Get("Cache-Control"), p)
+			}
+		})
+	}
+}
+
+// TestAssetsSpellingsDevMode tests that dev mode answers other spellings 404
+// and serves a file added while the server runs.
+func TestAssetsSpellingsDevMode(t *testing.T) {
+	t.Setenv(datapages.EnvVarDevMode, "1")
+
+	files := assetFiles()
+	c := assetsCore(t, foldingFS{files}, datapages.ServerConfig{})
+	for p, want := range map[string]int{
+		"/static/style.css": http.StatusOK,
+		"/static/Style.css": http.StatusNotFound,
+		"/static/added.css": http.StatusNotFound,
+	} {
+		require.Equal(t, want, getAsset(t, c, http.MethodGet, p, "", nil).Code, p)
+	}
+
+	files["added.css"] = &fstest.MapFile{Data: []byte("b { color: red }")}
+	w := getAsset(t, c, http.MethodGet, "/static/added.css", "", nil)
+	require.Equal(t, http.StatusOK, w.Code)
 }
 
 // TestAssetsFontType tests that an OpenType font goes out as font/otf,

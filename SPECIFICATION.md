@@ -1052,6 +1052,10 @@ These options and modules configure asset compression:
 - `datapages.WithNoAssetsCompression` disables compression.
 - A nil `Store` keeps copies in memory, and `modules/assetcompress/disk` keeps them in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700.
 
+## Asset Paths
+
+A request reaches an asset only when each element of its path is spelled byte for byte as the listing of its directory spells it, on every system and in dev mode. Any other spelling receives 404, such as `/static/App.js` for the file `app.js`, including on file systems that fold case or Unicode normalization. In dev mode, files added or renamed while the server runs match by their new names. Every spelling matches within a directory that the file system cannot list.
+
 ## Changing Assets
 
 Outside dev mode, the files of `datapages.WithAssetsFS` must not change while the server runs, unless `datapages.WithNoAssetsCompression` disables asset compression and `datapages.WithAssetsCache` adds no `ETag`. A GET action that returns [`datapages.File`](#return-value-datapagesfile) serves files that change.

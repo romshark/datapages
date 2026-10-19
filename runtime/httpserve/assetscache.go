@@ -40,8 +40,9 @@ type assetsCache struct {
 	// etags holds file digests by cleaned path, which every request reads
 	// without a lock. It is nil when ETags are disabled.
 	//
-	// Missing paths leave no entry, which bounds the map by the files in fsys
-	// instead of the paths clients request.
+	// Missing paths leave no entry, and [exactSpellings] passes only paths
+	// spelled as listed, which bounds the map by the files in fsys instead of
+	// the paths clients request.
 	etags *sync.Map
 }
 

@@ -934,7 +934,8 @@ type AssetsCompressor interface {
 	// Handler returns a handler that sends a compressed copy of a file of fsys
 	// and passes other requests to next, which sends the files of fsys.
 	// The server calls it once and passes it the logger that [WithLogSampling]
-	// throttles.
+	// throttles. Requests reach the handler only for paths spelled as the
+	// directories of fsys list them, unless a directory cannot be listed.
 	Handler(fsys http.FileSystem, next http.Handler, logger *slog.Logger) http.Handler
 }
 

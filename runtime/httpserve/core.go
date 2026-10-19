@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/exactpath"
 	"github.com/romshark/datapages/internal/logsample"
 	"github.com/romshark/datapages/modules/assetcompress"
 	"github.com/romshark/datapages/runtime/prom"
@@ -282,16 +283,20 @@ func (c *Core) Build() {
 		}
 		// Compressed ETags extend the cache middleware's base tag.
 		h := compressor.Handler(fsys, typedFonts(http.FileServer(fsys)), c.sampledLogger)
+		// c.assetsFS lists the directories that fsys hides.
+		exact := exactpath.New(c.assetsFS).Exact
 		switch {
 		case datapages.IsDevMode():
 			// Dev files may change while the server runs. The browser asks
 			// before every reuse, and without Last-Modified it gets the file.
 			h = DevNoCache(typedFonts(http.FileServer(noModTimeFS{fsys})))
+			exact = func(p string) bool { return exactpath.New(c.assetsFS).Exact(p) }
 		case c.assetsCache != nil && !c.assetsCache.Disabled:
 			h = newAssetsCache(fsys, *c.assetsCache, h)
 		default:
 			h = revalidated(h)
 		}
+		h = exactSpellings(exact, h)
 		c.mux.Handle("GET "+c.assetsURLPrefix,
 			http.StripPrefix(c.assetsURLPrefix, servingAssets(h)))
 	}
