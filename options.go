@@ -529,8 +529,11 @@ type LogSamplingConfig struct {
 //   - an action option [github.com/romshark/datapages/runtime/actionexpr]
 //     drops for an invalid value
 //   - a URL the generated href.External cannot use
+//   - a static asset the compressor of [WithAssetsCompression] cannot
+//     compress or read, and a panic it recovers while compressing
 //
-// Since such warnings are written per page render, 1 bad value may spike log volume.
+// Since such warnings are written per render or request, 1 cause may spike
+// log volume.
 // This applies to the warnings named above and to nothing else,
 // neither to what the application logs nor to the rest of the built-in ones.
 //
@@ -930,7 +933,8 @@ func (conf ResponseCompressionConfig) Validate() error {
 type AssetsCompressor interface {
 	// Handler returns a handler that sends a compressed copy of a file of fsys
 	// and passes other requests to next, which sends the files of fsys.
-	// The server calls it once and passes it its logger.
+	// The server calls it once and passes it the logger that [WithLogSampling]
+	// throttles.
 	Handler(fsys http.FileSystem, next http.Handler, logger *slog.Logger) http.Handler
 }
 

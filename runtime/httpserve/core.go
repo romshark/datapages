@@ -341,7 +341,8 @@ func (c *Core) Mux() *http.ServeMux { return c.mux }
 // Logger is the logger the server writes to.
 func (c *Core) Logger() *slog.Logger { return c.logger }
 
-// SampledLogger is the logger for a warning the framework emits on every render.
+// SampledLogger is the logger for a warning the framework emits on every render
+// or request.
 // It writes 1 record of each kind per interval and counts what it throttles,
 // which [github.com/romshark/datapages.WithLogSampling] configures.
 // Application code writes to [Core.Logger] instead.
