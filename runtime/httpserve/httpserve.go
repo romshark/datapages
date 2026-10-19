@@ -12,6 +12,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/contentcoding"
+	"github.com/romshark/datapages/internal/exactpath"
 )
 
 // IsDatastarRequest reports whether h carries the header the Datastar client sends.
@@ -152,11 +153,7 @@ func (noModTimeInfo) ModTime() time.Time { return time.Time{} }
 // exactSpellings answers a path that exact rejects with the 404 of a missing file.
 func exactSpellings(exact func(string) bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/")
-		if path.Clean(p) != p {
-			p = path.Clean("/" + p)[1:]
-		}
-		if !exact(p) {
+		if !exact(exactpath.Clean(strings.TrimSuffix(r.URL.Path, "/"))) {
 			http.NotFound(w, r)
 			return
 		}

@@ -71,10 +71,10 @@ func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 		h.Set("Connection", "keep-alive")
 	}
 	if c != nil {
-		contentcoding.AddVary(h, "Accept-Encoding")
+		contentcoding.AddVaryAcceptEncoding(h)
 	}
 	if cd := c.negotiate(r.Header["Accept-Encoding"]); cd != nil {
-		h.Set("Content-Encoding", cd.Name())
+		cd.SetContentEncoding(h)
 		s.coding = cd
 	}
 	if err := s.rc.Flush(); err != nil {

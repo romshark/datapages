@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/exactpath"
 )
 
 // defaultCacheControl is the Cache-Control of assets without an
@@ -35,10 +36,10 @@ func revalidated(next http.Handler) http.Handler {
 type assetsCache struct {
 	next         http.Handler
 	fsys         http.FileSystem
-	cacheControl string
+	cacheControl []string // Shared by every response.
 
-	// etags holds file digests by cleaned path, which every request reads
-	// without a lock. It is nil when ETags are disabled.
+	// etags holds the ETag values of files by [exactpath.Clean] path, which
+	// every request reads without a lock. It is nil when ETags are disabled.
 	//
 	// Missing paths leave no entry, and [exactSpellings] passes only paths
 	// spelled as listed, which bounds the map by the files in fsys instead of
@@ -50,17 +51,18 @@ type assetsCache struct {
 func newAssetsCache(
 	fsys http.FileSystem, conf datapages.AssetsCacheConfig, next http.Handler,
 ) *assetsCache {
+	cacheControl := conf.CacheControl
+	if cacheControl == "" {
+		cacheControl = "public, max-age=" +
+			strconv.FormatInt(int64(conf.MaxAge.Seconds()), 10)
+		if conf.Immutable {
+			cacheControl += ", immutable"
+		}
+	}
 	c := &assetsCache{
 		next:         next,
 		fsys:         fsys,
-		cacheControl: conf.CacheControl,
-	}
-	if conf.CacheControl == "" {
-		c.cacheControl = "public, max-age=" +
-			strconv.FormatInt(int64(conf.MaxAge.Seconds()), 10)
-		if conf.Immutable {
-			c.cacheControl += ", immutable"
-		}
+		cacheControl: []string{cacheControl},
 	}
 	if !conf.DisableETag {
 		c.etags = new(sync.Map)
@@ -70,42 +72,43 @@ func newAssetsCache(
 
 func (c *assetsCache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if tag, ok := c.lookup(r.URL.Path); ok {
-		w.Header().Set("Cache-Control", c.cacheControl)
-		if tag != "" {
-			w.Header().Set("ETag", tag)
+		h := w.Header()
+		h["Cache-Control"] = c.cacheControl
+		if tag != nil {
+			h["Etag"] = tag
 		}
 	}
 	c.next.ServeHTTP(w, r)
 }
 
-// lookup reports whether name resolves to a file and returns its ETag.
-// The tag is empty when ETags are disabled or the file cannot be read.
-func (c *assetsCache) lookup(name string) (tag string, isFile bool) {
-	name = path.Clean("/" + name)
+// lookup reports whether p resolves to a file and returns its ETag value.
+// The value is nil when ETags are disabled or the file cannot be read.
+func (c *assetsCache) lookup(p string) (tag []string, isFile bool) {
+	rel := exactpath.Clean(p)
 	if c.etags != nil {
-		if v, ok := c.etags.Load(name); ok {
-			return v.(string), true
+		if v, ok := c.etags.Load(rel); ok {
+			return v.([]string), true
 		}
 	}
 
-	f, ok := c.openFile(name)
+	f, ok := c.openFile("/" + rel)
 	if !ok {
-		return "", false
+		return nil, false
 	}
 	defer func() { _ = f.Close() }()
 	if c.etags == nil {
-		return "", true
+		return nil, true
 	}
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return "", true
+		return nil, true
 	}
 	// Truncate the digest to 128 bits to keep the header short. Raw URL encoding
 	// contains no character that needs escaping inside a quoted ETag.
-	tag = `"` + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:16]) + `"`
+	tag = []string{`"` + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:16]) + `"`}
 
-	c.etags.Store(name, tag)
+	c.etags.Store(rel, tag)
 	return tag, true
 }
 

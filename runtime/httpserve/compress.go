@@ -87,8 +87,16 @@ func newResponseCompression(
 	return bc
 }
 
-func (bc *responseCompression) wrap(next http.Handler) http.Handler {
+// wrap compresses the responses of next except under assetsPrefix,
+// whose handlers pass every response through.
+func (bc *responseCompression) wrap(
+	next http.Handler, assetsPrefix string,
+) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if assetsPrefix != "" && strings.HasPrefix(r.URL.Path, assetsPrefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		// Compressing HEAD gives it the headers of GET. net/http drops the body.
 		cw := &compressingWriter{
 			ResponseWriter: w,
@@ -399,7 +407,7 @@ func (cw *compressingWriter) decide(final bool) {
 		return
 	}
 	// Other requests to the same URL may get a coding this one doesn't.
-	contentcoding.AddVary(h, "Accept-Encoding")
+	contentcoding.AddVaryAcceptEncoding(h)
 	if cw.coding == nil {
 		cw.sendHeld()
 		return
@@ -407,9 +415,9 @@ func (cw *compressingWriter) decide(final bool) {
 	cw.decided = true
 	if !declared {
 		// net/http would sniff the encoded bytes.
-		h.Set("Content-Type", ct)
+		h["Content-Type"] = sniffedType(ct)
 	}
-	h.Set("Content-Encoding", cw.coding.Name())
+	cw.coding.SetContentEncoding(h)
 	h.Del("Content-Length")
 	if tag := h.Get("Etag"); strings.HasPrefix(tag, `"`) {
 		// A strong tag would claim the encoded bytes equal the uncompressed ones.
@@ -420,6 +428,18 @@ func (cw *compressingWriter) decide(final bool) {
 	// its output back for long after the handler wrote it.
 	cw.ResponseWriter.WriteHeader(cmp.Or(cw.status, http.StatusOK))
 	cw.enc = cw.coding.Get(cw.ResponseWriter)
+}
+
+// sniffedTypes holds a shared value slice per type that
+// [http.DetectContentType] returns, a fixed set.
+var sniffedTypes sync.Map // Type to []string.
+
+func sniffedType(ct string) []string {
+	if v, ok := sniffedTypes.Load(ct); ok {
+		return v.([]string)
+	}
+	v, _ := sniffedTypes.LoadOrStore(ct, []string{ct})
+	return v.([]string)
 }
 
 // sendHeld writes the buffer uncompressed and passes later writes through.

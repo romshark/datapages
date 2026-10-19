@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/andybalholm/brotli"
@@ -36,10 +37,12 @@ func listItems(n int) []string {
 	var items []string
 	for size := 0; size < n; {
 		var b strings.Builder
-		b.WriteString(`<li id="item-` + strconv.Itoa(len(items)) +
-			`"><input type="checkbox">`)
+		b.WriteString(`<li id="item-`)
+		b.WriteString(strconv.Itoa(len(items)))
+		b.WriteString(`"><input type="checkbox">`)
 		for range 3 + r.IntN(4) {
-			b.WriteString(" " + words[r.IntN(len(words))])
+			b.WriteString(" ")
+			b.WriteString(words[r.IntN(len(words))])
 		}
 		b.WriteString("</li>")
 		items = append(items, b.String())
@@ -693,6 +696,10 @@ func (d *discardWriter) WriteString(s string) (int, error) {
 func (d *discardWriter) WriteHeader(int) {}
 
 func (d *discardWriter) Flush() {}
+
+// SetWriteDeadline spares [http.ResponseController] the error a writer
+// without deadlines gets, which a connection does not allocate.
+func (d *discardWriter) SetWriteDeadline(time.Time) error { return nil }
 
 // cardPage returns about n bytes of deterministic, varied listing cards.
 func cardPage(n int) []string {

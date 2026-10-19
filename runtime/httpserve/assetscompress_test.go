@@ -415,3 +415,18 @@ func BenchmarkAssetsServeParallel(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkCachedCompressedAsset measures a request for an asset whose
+// compressed copy and ETag are cached.
+func BenchmarkCachedCompressedAsset(b *testing.B) {
+	c := assetsCore(b, http.FS(assetFiles()), datapages.ServerConfig{
+		AssetsCache: &datapages.AssetsCacheConfig{},
+	})
+	r := httptest.NewRequest(http.MethodGet, "/static/sub/nested.css", nil)
+	r.Header.Set("Accept-Encoding", "br")
+	c.ServeHTTP(&discardWriter{h: http.Header{}}, r)
+	b.ReportAllocs()
+	for b.Loop() {
+		c.ServeHTTP(&discardWriter{h: http.Header{}}, r)
+	}
+}

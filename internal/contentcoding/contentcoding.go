@@ -24,14 +24,18 @@ type encoder interface {
 
 // Coding pools the encoders of 1 content coding at 1 setting.
 type Coding struct {
-	name   string // The Content-Encoding token.
-	accept int    // Its index in the result of [accepted].
-	empty  []byte // The coding of no data.
+	name   string   // The Content-Encoding token.
+	values []string // name, shared by every header it is set in.
+	accept int      // Its index in the result of [accepted].
+	empty  []byte   // The coding of no data.
 	pool   sync.Pool
 }
 
 // Name returns the Content-Encoding token of c.
 func (c *Coding) Name() string { return c.name }
+
+// SetContentEncoding sets the Content-Encoding of h to c.
+func (c *Coding) SetContentEncoding(h http.Header) { h["Content-Encoding"] = c.values }
 
 // Empty returns a valid encoding of no data.
 func (c *Coding) Empty() []byte { return c.empty }
@@ -52,7 +56,10 @@ var (
 // from 1 KiB to 8 MiB.
 func NewZstd(level, window int) *Coding {
 	return &Coding{
-		name: "zstd", accept: acceptZstd, empty: emptyZstd,
+		name:   "zstd",
+		values: []string{"zstd"},
+		accept: acceptZstd,
+		empty:  emptyZstd,
 		pool: sync.Pool{New: func() any {
 			return newEncoder(func(w io.Writer) encoder {
 				e, err := zstd.NewWriter(w,
@@ -86,7 +93,10 @@ func ZstdLevel(level int) int {
 // of 2 from 1 KiB to 16 MiB.
 func NewBrotli(quality, window int) *Coding {
 	return &Coding{
-		name: "br", accept: acceptBrotli, empty: emptyBrotli,
+		name:   "br",
+		values: []string{"br"},
+		accept: acceptBrotli,
+		empty:  emptyBrotli,
 		pool: sync.Pool{New: func() any {
 			return newEncoder(func(w io.Writer) encoder {
 				return brotli.NewWriterOptions(w, brotli.WriterOptions{
@@ -101,7 +111,10 @@ func NewBrotli(quality, window int) *Coding {
 // NewGzip returns gzip at level 1 to 9.
 func NewGzip(level int) *Coding {
 	return &Coding{
-		name: "gzip", accept: acceptGzip, empty: emptyGzip,
+		name:   "gzip",
+		values: []string{"gzip"},
+		accept: acceptGzip,
+		empty:  emptyGzip,
 		pool: sync.Pool{New: func() any {
 			return newEncoder(func(w io.Writer) encoder {
 				e, err := gzip.NewWriterLevel(w, level)
@@ -286,14 +299,24 @@ func NoTransform(h http.Header) bool {
 	return false
 }
 
-// AddVary adds name to the Vary header of h unless it lists name or *.
-func AddVary(h http.Header, name string) {
-	for _, v := range h.Values("Vary") {
+// varyAcceptEncoding is shared by every header it is set in.
+var varyAcceptEncoding = []string{"Accept-Encoding"}
+
+// AddVaryAcceptEncoding adds Accept-Encoding to the Vary header of h unless it
+// lists Accept-Encoding or *.
+func AddVaryAcceptEncoding(h http.Header) {
+	vary := h["Vary"]
+	if vary == nil {
+		h["Vary"] = varyAcceptEncoding
+		return
+	}
+	for _, v := range vary {
 		for t := range strings.SplitSeq(v, ",") {
-			if t = strings.TrimSpace(t); t == "*" || strings.EqualFold(t, name) {
+			t = strings.TrimSpace(t)
+			if t == "*" || strings.EqualFold(t, "Accept-Encoding") {
 				return
 			}
 		}
 	}
-	h.Add("Vary", name)
+	h["Vary"] = append(vary, "Accept-Encoding")
 }

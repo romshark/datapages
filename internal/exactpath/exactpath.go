@@ -4,9 +4,21 @@ package exactpath
 
 import (
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 )
+
+// Clean returns p cleaned and without its leading slash, the form [Listings.Exact] takes.
+// It allocates only for a p that is not clean.
+func Clean(p string) string {
+	rel := strings.TrimPrefix(p, "/")
+	if path.Clean(rel) == rel && rel != "." && rel != ".." &&
+		!strings.HasPrefix(rel, "/") && !strings.HasPrefix(rel, "../") {
+		return rel
+	}
+	return path.Clean("/" + rel)[1:]
+}
 
 // Listings caches the names in the directories of a file system.
 type Listings struct {

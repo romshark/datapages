@@ -265,9 +265,9 @@ func TestNoTransform(t *testing.T) {
 	}
 }
 
-// TestAddVary tests that a name is added once, whatever its case,
-// and never next to *.
-func TestAddVary(t *testing.T) {
+// TestAddVaryAcceptEncoding tests that Accept-Encoding is added once,
+// whatever its case, and never next to *.
+func TestAddVaryAcceptEncoding(t *testing.T) {
 	for name, tc := range map[string]struct {
 		vary []string
 		want []string
@@ -295,8 +295,25 @@ func TestAddVary(t *testing.T) {
 			for _, v := range tc.vary {
 				h.Add("Vary", v)
 			}
-			AddVary(h, "Accept-Encoding")
+			AddVaryAcceptEncoding(h)
 			require.Equal(t, tc.want, h.Values("Vary"))
 		})
 	}
+}
+
+// TestSharedValues tests that adding to a header leaves the values it shares
+// with other headers intact.
+func TestSharedValues(t *testing.T) {
+	cd := NewGzip(1)
+	first := http.Header{}
+	AddVaryAcceptEncoding(first)
+	cd.SetContentEncoding(first)
+	first.Add("Vary", "Cookie")
+	first.Add("Content-Encoding", "br")
+
+	second := http.Header{}
+	AddVaryAcceptEncoding(second)
+	cd.SetContentEncoding(second)
+	require.Equal(t, []string{"Accept-Encoding"}, second["Vary"])
+	require.Equal(t, []string{"gzip"}, second["Content-Encoding"])
 }

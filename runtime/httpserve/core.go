@@ -317,7 +317,11 @@ func (c *Core) Build() {
 	}
 	if c.responseCompression != nil {
 		// Application middleware reads and edits the uncompressed body.
-		c.handler = c.responseCompression.wrap(c.handler)
+		assetsPrefix := c.assetsURLPrefix
+		if c.assetsFS == nil {
+			assetsPrefix = ""
+		}
+		c.handler = c.responseCompression.wrap(c.handler, assetsPrefix)
 	}
 	if c.outermost != nil {
 		c.handler = c.outermost(c.handler)

@@ -19,11 +19,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/backoff"
 	"github.com/romshark/datapages/internal/contentcoding"
+	"github.com/romshark/datapages/internal/exactpath"
 	"github.com/romshark/datapages/modules/assetcompress/inmem"
 )
 
@@ -337,9 +339,10 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) error {
 	if err != nil || !info.compressible {
 		return err
 	}
-	for _, cd := range c.codings {
-		err := c.precompressCopy(fsys, name, info.hash, info.hash+"."+c.suffixes[cd], cd)
-		if err != nil {
+	for i, cd := range c.codings {
+		if err := c.precompressCopy(
+			fsys, name, info.hash, info.keys[i], cd,
+		); err != nil {
 			return err
 		}
 	}
@@ -382,11 +385,36 @@ type handler struct {
 }
 
 type assetFile struct {
+	name         string // The path that opens the file, with a leading slash.
 	size         int64
 	modTime      time.Time
-	contentType  string
+	contentType  []string // Shared by every response.
 	compressible bool
 	hash         string // Hex SHA-256 of the file, empty when not compressible.
+	// keys and etags follow the order of [Compressor.codings].
+	keys  []string
+	etags []atomic.Pointer[taggedETag]
+}
+
+// taggedETag is the ETag of a copy, made from the ETag of its file.
+type taggedETag struct {
+	file, suffix string
+	value        []string // Shared by every response.
+}
+
+// etag returns the ETag of the copy in the coding at i, made from suffix and file,
+// the ETag of the file.
+func (f assetFile) etag(i int, file, suffix string) []string {
+	if t := f.etags[i].Load(); t != nil && t.file == file && t.suffix == suffix {
+		return t.value
+	}
+	t := &taggedETag{
+		file:   file,
+		suffix: suffix,
+		value:  []string{file[:len(file)-1] + "." + suffix + `"`},
+	}
+	f.etags[i].Store(t)
+	return t.value
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -404,37 +432,38 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		// The response compressor of the server passes such a response through.
 		return false
 	}
-	name := path.Clean("/" + r.URL.Path)
+	rel := exactpath.Clean(r.URL.Path)
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/"):
 		// http.FileServer answers a directory with its index.html.
-		name = path.Join(name, "index.html")
-	case strings.HasSuffix(name, "/index.html"):
+		rel = path.Join(rel, "index.html")
+	case rel == "index.html" || strings.HasSuffix(rel, "/index.html"):
 		// http.FileServer redirects it to its directory.
 		return false
 	}
 	// Skip the open when the extension rules out compression, as [describe] would.
-	ct := contentcoding.TypeByExtension(path.Ext(name))
+	ct := contentcoding.TypeByExtension(path.Ext(rel))
 	if ct != "" && !contentcoding.Compressible(ct) {
 		return false
 	}
-	info, ok := h.file(name)
+	info, ok := h.file(rel)
 	if !ok || !info.compressible {
 		return false
 	}
 	header := w.Header()
-	contentcoding.AddVary(header, "Accept-Encoding")
+	contentcoding.AddVaryAcceptEncoding(header)
 	cd := contentcoding.Negotiate(h.c.codings, r.Header["Accept-Encoding"])
 	if cd == nil {
 		return false
 	}
-	key := info.hash + "." + h.c.suffixes[cd]
-	copied, suffix, err := h.c.copyOf(h.fsys, name, info.hash, key, cd, h.logger)
+	i := slices.Index(h.c.codings, cd)
+	key := info.keys[i]
+	copied, suffix, err := h.c.copyOf(h.fsys, info.name, info.hash, key, cd, h.logger)
 	if errors.Is(err, errChanged) {
-		h.files.Delete(name)
+		h.files.Delete(rel)
 	}
 	if err != nil {
-		logCompressFailure(h.logger, name, cd, err)
+		logCompressFailure(h.logger, info.name, cd, err)
 		return false
 	}
 	defer func() { _ = copied.Close() }()
@@ -445,15 +474,16 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if err != nil {
 		h.logger.Warn("reading a compressed asset",
-			slog.String("path", name), slog.String("key", key), slog.Any("err", err))
+			slog.String("path", info.name),
+			slog.String("key", key), slog.Any("err", err))
 		return false
 	}
-	header.Set("Content-Type", info.contentType)
+	header["Content-Type"] = info.contentType
 	if tag := header.Get("Etag"); strings.HasSuffix(tag, `"`) {
 		// Strong tags differ by representation.
-		header.Set("Etag", tag[:len(tag)-1]+"."+suffix+`"`)
+		header["Etag"] = info.etag(i, tag, suffix)
 	}
-	http.ServeContent(codedWriter{w, cd.Name()}, r, "", info.modTime, copied)
+	http.ServeContent(codedWriter{w, cd}, r, "", info.modTime, copied)
 	return true
 }
 
@@ -461,8 +491,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 func logCompressFailure(
 	logger *slog.Logger, name string, cd *contentcoding.Coding, err error,
 ) {
-	var panicked datapages.PanicError
-	if errors.As(err, &panicked) {
+	if panicked, ok := errors.AsType[datapages.PanicError](err); ok {
 		logger.Error("recovered panic while compressing an asset",
 			slog.String("path", name),
 			slog.String("coding", cd.Name()),
@@ -482,12 +511,12 @@ func logCompressFailure(
 // It also retains early headers on bodyless 412 responses.
 type codedWriter struct {
 	http.ResponseWriter
-	coding string
+	coding *contentcoding.Coding
 }
 
 func (w codedWriter) WriteHeader(code int) {
 	if code == http.StatusOK || code == http.StatusPartialContent {
-		w.Header().Set("Content-Encoding", w.coding)
+		w.coding.SetContentEncoding(w.Header())
 	}
 	w.ResponseWriter.WriteHeader(code)
 }
@@ -503,11 +532,13 @@ func (w codedWriter) ReadFrom(src io.Reader) (int64, error) {
 // Unwrap returns the underlying writer for [http.ResponseController].
 func (w codedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// file returns name's cached description or creates it once.
-func (h *handler) file(name string) (assetFile, bool) {
-	if v, ok := h.files.Load(name); ok {
+// file returns the cached description of the file at rel, an [exactpath.Clean]
+// path, or creates it once.
+func (h *handler) file(rel string) (assetFile, bool) {
+	if v, ok := h.files.Load(rel); ok {
 		return v.(assetFile), true
 	}
+	name := "/" + rel
 	f, err := h.fsys.Open(name)
 	if err != nil {
 		return assetFile{}, false
@@ -521,7 +552,7 @@ func (h *handler) file(name string) (assetFile, bool) {
 	if err != nil {
 		return assetFile{}, false
 	}
-	h.files.Store(name, info)
+	h.files.Store(rel, info)
 	return info, true
 }
 
@@ -529,19 +560,19 @@ func (h *handler) file(name string) (assetFile, bool) {
 func (c *Compressor) describe(
 	name string, st fs.FileInfo, f io.Reader,
 ) (assetFile, error) {
-	info := assetFile{size: st.Size(), modTime: st.ModTime()}
+	info := assetFile{name: name, size: st.Size(), modTime: st.ModTime()}
 	var head [sniffLen]byte
 	n, err := io.ReadFull(f, head[:])
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return assetFile{}, err
 	}
 	// Match http.FileServer by preferring the extension over sniffing.
-	info.contentType = contentcoding.TypeByExtension(path.Ext(name))
-	if info.contentType == "" {
-		info.contentType = http.DetectContentType(head[:n])
+	ct := contentcoding.TypeByExtension(path.Ext(name))
+	if ct == "" {
+		ct = http.DetectContentType(head[:n])
 	}
-	info.compressible = info.size >= c.minSize &&
-		contentcoding.Compressible(info.contentType)
+	info.contentType = []string{ct}
+	info.compressible = info.size >= c.minSize && contentcoding.Compressible(ct)
 	if info.compressible {
 		sum := sha256.New()
 		_, _ = sum.Write(head[:n])
@@ -549,6 +580,11 @@ func (c *Compressor) describe(
 			return assetFile{}, err
 		}
 		info.hash = hex.EncodeToString(sum.Sum(nil))
+		info.keys = make([]string, len(c.codings))
+		for i, cd := range c.codings {
+			info.keys[i] = info.hash + "." + c.suffixes[cd]
+		}
+		info.etags = make([]atomic.Pointer[taggedETag], len(c.codings))
 	}
 	return info, nil
 }

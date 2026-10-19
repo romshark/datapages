@@ -41,6 +41,31 @@ func TestExact(t *testing.T) {
 	}
 }
 
+// TestClean tests clean, unclean and root paths.
+func TestClean(t *testing.T) {
+	for p, want := range map[string]string{
+		"":          "",
+		"/":         "",
+		".":         "",
+		"..":        "",
+		"a.css":     "a.css",
+		"/a.css":    "a.css",
+		"sub/a.css": "sub/a.css",
+		"sub/":      "sub",
+		"//a.css":   "a.css",
+		"sub//a":    "sub/a",
+		"./a.css":   "a.css",
+		"sub/../a":  "a",
+		"../a.css":  "a.css",
+		"..a.css":   "..a.css",
+	} {
+		require.Equal(t, want, exactpath.Clean(p), p)
+	}
+	require.Zero(t, testing.AllocsPerRun(10, func() {
+		_ = exactpath.Clean("/sub/a.css")
+	}), "a clean path")
+}
+
 // countingFS counts the directories it lists and fails to list them when
 // broken is set.
 type countingFS struct {
