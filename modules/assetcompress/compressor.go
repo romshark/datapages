@@ -425,10 +425,6 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
-	if strings.Contains(r.Header.Get("Range"), ",") {
-		// Content-Encoding applies to the multipart document, not its parts.
-		return false
-	}
 	if contentcoding.NoTransform(w.Header()) {
 		// The response compressor of the server passes such a response through.
 		return false
@@ -459,6 +455,10 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	contentcoding.AddVaryAcceptEncoding(header)
+	if strings.Contains(r.Header.Get("Range"), ",") {
+		// Content-Encoding applies to the multipart document, not its parts.
+		return false
+	}
 	cd := contentcoding.Negotiate(h.c.codings, r.Header["Accept-Encoding"])
 	if cd == nil {
 		return false

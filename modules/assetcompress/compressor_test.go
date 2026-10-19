@@ -392,7 +392,8 @@ func TestHandlerRange(t *testing.T) {
 	require.Equal(t, full[:10], w.Body.Bytes())
 }
 
-// TestHandlerMultipartRange verifies that multiple ranges use the source file.
+// TestHandlerMultipartRange tests that multiple ranges
+// use the source file and carry Vary.
 func TestHandlerMultipartRange(t *testing.T) {
 	t.Parallel()
 
@@ -403,6 +404,7 @@ func TestHandlerMultipartRange(t *testing.T) {
 	require.Empty(t, w.Header().Get("Content-Encoding"))
 	require.True(t, strings.HasPrefix(w.Header().Get("Content-Type"),
 		"multipart/byteranges"))
+	require.True(t, varies(w.Header()))
 	require.Contains(t, w.Body.String(), assetCSS[:10])
 }
 
