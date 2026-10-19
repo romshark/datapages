@@ -117,7 +117,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (method) (rate(datapages_http_requests_total{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))",
@@ -211,7 +211,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (status) (rate(datapages_http_requests_total{status=~\"4..|5..\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))",
@@ -302,7 +302,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.5, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
@@ -369,7 +369,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "datapages_http_sse_connections",
@@ -458,7 +458,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.5, rate(datapages_sse_connection_duration_seconds_bucket[$__rate_interval]))",
@@ -548,7 +548,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (reason) (rate(datapages_sse_disconnects_total[$__rate_interval]))",
@@ -651,7 +651,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (path) (rate(datapages_http_requests_total{method=\"GET\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))",
@@ -742,7 +742,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.5, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method=\"GET\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
@@ -833,7 +833,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method=\"GET\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
@@ -924,7 +924,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.99, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method=\"GET\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
@@ -1027,7 +1027,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (method, path) (rate(datapages_http_requests_total{method!=\"GET\"}[$__rate_interval]))",
@@ -1122,7 +1122,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.5, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method!=\"GET\"}[$__rate_interval]))) * 1000",
@@ -1213,7 +1213,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method!=\"GET\"}[$__rate_interval]))) * 1000",
@@ -1304,7 +1304,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "histogram_quantile(0.99, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method!=\"GET\"}[$__rate_interval]))) * 1000",
@@ -1416,7 +1416,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "rate(datapages_internal_errors_recovered_total[$__rate_interval])",
@@ -1510,7 +1510,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "rate(datapages_internal_errors_not_recovered_total[$__rate_interval])",
@@ -1616,7 +1616,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (kind) (rate(datapages_event_broker_publishes_by_kind_total[$__rate_interval]))",
@@ -1680,7 +1680,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum(rate(datapages_event_broker_deliveries_dropped_total[$__rate_interval]))",
@@ -1834,7 +1834,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (result) (rate(datapages_session_creations_total[$__rate_interval]))",
@@ -1955,7 +1955,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.0",
+      "pluginVersion": "13.2.4",
       "targets": [
         {
           "expr": "sum by (result) (rate(datapages_session_reads_total[$__rate_interval]))",
