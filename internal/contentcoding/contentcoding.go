@@ -52,6 +52,19 @@ var (
 	}
 )
 
+// New returns the coding named name, which is zstd, br or gzip,
+// at level with window, which gzip ignores.
+func New(name string, level, window int) *Coding {
+	switch name {
+	case "zstd":
+		return NewZstd(level, window)
+	case "br":
+		return NewBrotli(level, window)
+	default:
+		return NewGzip(level)
+	}
+}
+
 // NewZstd returns zstd at level 1 to 22 with a window that is a power of 2
 // from 1 KiB to 8 MiB.
 func NewZstd(level, window int) *Coding {

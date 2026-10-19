@@ -13,6 +13,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/romshark/datapages/internal/contentcoding/levels"
 	"github.com/romshark/datapages/internal/logsample"
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/sessions"
@@ -761,21 +762,21 @@ func (conf SSECompressionConfig) Validate() error {
 	if err := validateCodings(conf.Codings); err != nil {
 		return err
 	}
-	switch {
-	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
-		return fmt.Errorf("zstd level (%d) must be from 1 to 22", conf.ZstdLevel)
-	case conf.ZstdWindow != 0 && !powerOf2In(conf.ZstdWindow, 1<<10, 8<<20):
+	if err := levels.Zstd("", conf.ZstdLevel); err != nil {
+		return err
+	}
+	if conf.ZstdWindow != 0 && !powerOf2In(conf.ZstdWindow, 1<<10, 8<<20) {
 		return fmt.Errorf("zstd window (%d) must be a power of 2 from 1 KiB to 8 MiB",
 			conf.ZstdWindow)
-	case conf.BrotliQuality != 0 && (conf.BrotliQuality < 1 || conf.BrotliQuality > 11):
-		return fmt.Errorf("brotli quality (%d) must be from 1 to 11", conf.BrotliQuality)
-	case conf.BrotliWindow != 0 && !powerOf2In(conf.BrotliWindow, 1<<10, 16<<20):
+	}
+	if err := levels.Brotli("", conf.BrotliQuality); err != nil {
+		return err
+	}
+	if conf.BrotliWindow != 0 && !powerOf2In(conf.BrotliWindow, 1<<10, 16<<20) {
 		return fmt.Errorf("brotli window (%d) must be a power of 2 from 1 KiB to 16 MiB",
 			conf.BrotliWindow)
-	case conf.GzipLevel != 0 && (conf.GzipLevel < 1 || conf.GzipLevel > 9):
-		return fmt.Errorf("gzip level (%d) must be from 1 to 9", conf.GzipLevel)
 	}
-	return nil
+	return levels.Gzip("", conf.GzipLevel)
 }
 
 func powerOf2In(n, lo, hi int) bool {
@@ -915,17 +916,10 @@ func (conf ResponseCompressionConfig) Validate() error {
 	if err := validateCodings(conf.Codings); err != nil {
 		return err
 	}
-	switch {
-	case conf.MinSize < 0 || conf.MinSize > maxResponseCompressionMinSize:
+	if conf.MinSize < 0 || conf.MinSize > maxResponseCompressionMinSize {
 		return fmt.Errorf("min size (%d) must be from 0 to 1 MiB", conf.MinSize)
-	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
-		return fmt.Errorf("zstd level (%d) must be from 1 to 22", conf.ZstdLevel)
-	case conf.BrotliQuality != 0 && (conf.BrotliQuality < 1 || conf.BrotliQuality > 11):
-		return fmt.Errorf("brotli quality (%d) must be from 1 to 11", conf.BrotliQuality)
-	case conf.GzipLevel != 0 && (conf.GzipLevel < 1 || conf.GzipLevel > 9):
-		return fmt.Errorf("gzip level (%d) must be from 1 to 9", conf.GzipLevel)
 	}
-	return nil
+	return levels.All("", conf.ZstdLevel, conf.BrotliQuality, conf.GzipLevel)
 }
 
 // AssetsCompressor compresses the static assets of [WithAssets] and [WithAssetsFS].

@@ -61,22 +61,15 @@ func newResponseCompression(
 		minSize: cmp.Or(c.MinSize, datapages.DefaultResponseMinSize),
 	}
 	for _, name := range codings {
+		level := cmp.Or(c.GzipLevel, datapages.DefaultResponseGzipLevel)
 		switch name {
 		case datapages.CodingZstd:
-			bc.codings = append(bc.codings, contentcoding.NewZstd(
-				cmp.Or(c.ZstdLevel, datapages.DefaultResponseZstdLevel),
-				responseWindow,
-			))
+			level = cmp.Or(c.ZstdLevel, datapages.DefaultResponseZstdLevel)
 		case datapages.CodingBrotli:
-			bc.codings = append(bc.codings, contentcoding.NewBrotli(
-				cmp.Or(c.BrotliQuality, datapages.DefaultResponseBrotliQuality),
-				responseWindow,
-			))
-		case datapages.CodingGzip:
-			bc.codings = append(bc.codings, contentcoding.NewGzip(
-				cmp.Or(c.GzipLevel, datapages.DefaultResponseGzipLevel),
-			))
+			level = cmp.Or(c.BrotliQuality, datapages.DefaultResponseBrotliQuality)
 		}
+		bc.codings = append(bc.codings,
+			contentcoding.New(string(name), level, responseWindow))
 	}
 	size := max(bc.minSize, stageSize)
 	bc.bufs.New = func() any {

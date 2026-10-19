@@ -25,6 +25,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/backoff"
 	"github.com/romshark/datapages/internal/contentcoding"
+	"github.com/romshark/datapages/internal/contentcoding/levels"
 	"github.com/romshark/datapages/internal/exactpath"
 	"github.com/romshark/datapages/modules/assetcompress/inmem"
 )
@@ -133,18 +134,7 @@ func (l Levels) of(coding datapages.Coding) int {
 
 // validate returns the first level out of range, prefixing its message.
 func (l Levels) validate(prefix string) error {
-	switch {
-	case l.ZstdLevel < 0 || l.ZstdLevel > 22:
-		return fmt.Errorf("%szstd level (%d) must be from 1 to 22",
-			prefix, l.ZstdLevel)
-	case l.BrotliQuality < 0 || l.BrotliQuality > 11:
-		return fmt.Errorf("%sbrotli quality (%d) must be from 1 to 11",
-			prefix, l.BrotliQuality)
-	case l.GzipLevel < 0 || l.GzipLevel > 9:
-		return fmt.Errorf("%sgzip level (%d) must be from 1 to 9",
-			prefix, l.GzipLevel)
-	}
-	return nil
+	return levels.All(prefix, l.ZstdLevel, l.BrotliQuality, l.GzipLevel)
 }
 
 // Compressor serves compressed static assets through
@@ -227,28 +217,17 @@ func New(conf Config) (*Compressor, error) {
 	initialLevels := conf.InitialLevels.or(levels)
 	for _, name := range codings {
 		level, initial := levels.of(name), initialLevels.of(name)
-		cd := newCoding(name, level)
+		cd := contentcoding.New(string(name), level, window)
 		f := copyFormat{suffix: cd.Name() + strconv.Itoa(level), initial: cd}
 		f.initialSuffix = f.suffix
 		if initial != level {
-			f.initial = newCoding(name, initial)
+			f.initial = contentcoding.New(string(name), initial, window)
 			f.initialSuffix = cd.Name() + strconv.Itoa(initial)
 		}
 		c.codings = append(c.codings, cd)
 		c.formats = append(c.formats, f)
 	}
 	return c, nil
-}
-
-func newCoding(coding datapages.Coding, level int) *contentcoding.Coding {
-	switch coding {
-	case datapages.CodingZstd:
-		return contentcoding.NewZstd(level, window)
-	case datapages.CodingBrotli:
-		return contentcoding.NewBrotli(level, window)
-	default:
-		return contentcoding.NewGzip(level)
-	}
 }
 
 func (conf Config) validate() error {

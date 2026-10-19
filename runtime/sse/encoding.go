@@ -25,16 +25,14 @@ func NewCompression(conf *datapages.SSECompressionConfig) *Compression {
 	}
 	comp := new(Compression)
 	for _, name := range c.Codings {
+		level, window := c.GzipLevel, 0
 		switch name {
 		case datapages.CodingZstd:
-			comp.codings = append(comp.codings,
-				contentcoding.NewZstd(c.ZstdLevel, c.ZstdWindow))
+			level, window = c.ZstdLevel, c.ZstdWindow
 		case datapages.CodingBrotli:
-			comp.codings = append(comp.codings,
-				contentcoding.NewBrotli(c.BrotliQuality, c.BrotliWindow))
-		case datapages.CodingGzip:
-			comp.codings = append(comp.codings, contentcoding.NewGzip(c.GzipLevel))
+			level, window = c.BrotliQuality, c.BrotliWindow
 		}
+		comp.codings = append(comp.codings, contentcoding.New(string(name), level, window))
 	}
 	return comp
 }

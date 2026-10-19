@@ -317,3 +317,12 @@ func TestSharedValues(t *testing.T) {
 	require.Equal(t, []string{"Accept-Encoding"}, second["Vary"])
 	require.Equal(t, []string{"gzip"}, second["Content-Encoding"])
 }
+
+// TestNew tests that each name selects its coding.
+func TestNew(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"zstd", "br", "gzip"} {
+		require.Equal(t, name, New(name, 1, 1<<10).Name())
+	}
+}
