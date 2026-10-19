@@ -1106,6 +1106,62 @@ func TestPrecompress(t *testing.T) {
 	require.Equal(t, int64(eligibleCopies), store.puts.Load())
 }
 
+// readPanickingFS panics on every read of a file.
+type readPanickingFS struct{ fstest.MapFS }
+
+func (fsys readPanickingFS) Open(name string) (fs.File, error) {
+	f, err := fsys.MapFS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if st, err := f.Stat(); err == nil && !st.IsDir() {
+		return readPanickingFile{f}, nil
+	}
+	return f, nil
+}
+
+type readPanickingFile struct{ fs.File }
+
+func (readPanickingFile) Read([]byte) (int, error) {
+	panic("read failed")
+}
+
+type openPanickingStore struct{ assetcompress.Store }
+
+func (openPanickingStore) Open(string) (io.ReadSeekCloser, error) {
+	panic("open failed")
+}
+
+// TestPrecompressPanic tests that a panic of the file system or of
+// [assetcompress.Store.Open] returns as a PanicError for the file.
+func TestPrecompressPanic(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		fsys  fs.FS
+		store assetcompress.Store
+		want  string
+	}{
+		"file system": {fsys: readPanickingFS{assetFiles()}, want: "read failed"},
+		"store open": {
+			fsys:  assetFiles(),
+			store: openPanickingStore{inmem.New()},
+			want:  "open failed",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newCompressor(t, assetcompress.Config{Store: tc.store})
+			err := c.Precompress(context.Background(), tc.fsys)
+			var panicked datapages.PanicError
+			require.ErrorAs(t, err, &panicked)
+			require.Equal(t, tc.want, panicked.Value)
+			require.ErrorContains(t, err, "precompressing app.js")
+		})
+	}
+}
+
 // TestPrecompressSubdirectory covers serving a subdirectory of an embed.FS.
 func TestPrecompressSubdirectory(t *testing.T) {
 	t.Parallel()

@@ -304,7 +304,8 @@ func (c *Compressor) Handler(
 //
 // Content-based keys let the embed.FS passed to [datapages.WithAssets] cover
 // its served subdirectory. Run Precompress in a goroutine to serve meanwhile.
-func (c *Compressor) Precompress(ctx context.Context, fsys fs.FS) error {
+func (c *Compressor) Precompress(ctx context.Context, fsys fs.FS) (err error) {
+	defer recoverPanic(&err)
 	if datapages.IsDevMode() {
 		return nil
 	}
@@ -326,7 +327,8 @@ func (c *Compressor) Precompress(ctx context.Context, fsys fs.FS) error {
 	})
 }
 
-func (c *Compressor) precompressFile(fsys http.FileSystem, name string) error {
+func (c *Compressor) precompressFile(fsys http.FileSystem, name string) (err error) {
+	defer recoverPanic(&err)
 	f, err := fsys.Open(name)
 	if err != nil {
 		return err
