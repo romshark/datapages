@@ -361,13 +361,9 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) (err err
 func (c *Compressor) precompressCopy(
 	fsys http.FileSystem, name, sum, key string, i int,
 ) error {
-	if _, ok := c.memory.Load(key); ok {
-		// A request created it.
-		return nil
-	}
-	copied, err := c.store.Open(key)
-	if err == nil {
-		return copied.Close()
+	_, file, _, err := c.lookup(key, i)
+	if err == nil && file != nil {
+		return file.Close()
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -627,12 +623,11 @@ func (c *Compressor) describe(
 	return info, nil
 }
 
-// copyOf returns the copy under key and its suffix, creating it from name when absent.
-// The copy comes as bytes, or as an open file from a store that is not a [BytesStore].
-// name must hash to sum. The creating call finishes the copy,
-// which stays in memory until stored so no other call creates it again.
-func (c *Compressor) copyOf(
-	fsys http.FileSystem, name, sum, key string, i int, logger *slog.Logger,
+// lookup returns the copy under key in the coding at i and its suffix, from
+// memory or the store. The copy comes as bytes, or as an open file from a store that
+// is not a [BytesStore]. The error wraps [fs.ErrNotExist] when neither has the copy.
+func (c *Compressor) lookup(
+	key string, i int,
 ) (data []byte, file io.ReadSeekCloser, suffix string, err error) {
 	if v, ok := c.memory.Load(key); ok {
 		m := v.(compressed)
@@ -643,10 +638,20 @@ func (c *Compressor) copyOf(
 	} else {
 		file, err = c.store.Open(key)
 	}
-	f := c.formats[i]
+	return data, file, c.formats[i].suffix, err
+}
+
+// copyOf returns the copy under key and its suffix like [Compressor.lookup],
+// creating it from name when absent. name must hash to sum. The creating call finishes
+// the copy, which stays in memory until stored so no other call creates it again.
+func (c *Compressor) copyOf(
+	fsys http.FileSystem, name, sum, key string, i int, logger *slog.Logger,
+) (data []byte, file io.ReadSeekCloser, suffix string, err error) {
+	data, file, suffix, err = c.lookup(key, i)
 	if !errors.Is(err, fs.ErrNotExist) {
-		return data, file, f.suffix, err
+		return data, file, suffix, err
 	}
+	f := c.formats[i]
 	m, created, err := c.compress(fsys, name, sum, key, f.initial, f.initialSuffix)
 	if err != nil {
 		return nil, nil, "", err
