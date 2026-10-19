@@ -779,6 +779,25 @@ func TestHandlerKeepsContentType(t *testing.T) {
 	}
 }
 
+// bytesOnlyStore serves its copies through Bytes only.
+type bytesOnlyStore struct{ *inmem.Store }
+
+func (bytesOnlyStore) Open(string) (io.ReadSeekCloser, error) { panic("Open called") }
+
+// TestHandlerBytesStore tests that copies of a BytesStore go out without Open.
+func TestHandlerBytesStore(t *testing.T) {
+	t.Parallel()
+
+	c := newCompressor(t, assetcompress.Config{Store: bytesOnlyStore{inmem.New()}})
+	h := newHandler(c, http.FS(assetFiles()), nil)
+	for range 2 {
+		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+		require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+		require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+		assetcompress.WaitBackground(c)
+	}
+}
+
 // TestHandlerSharedCompressor covers different content at 1 path on 2 servers.
 func TestHandlerSharedCompressor(t *testing.T) {
 	t.Parallel()

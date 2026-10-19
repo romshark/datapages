@@ -18,11 +18,20 @@ type Store struct {
 func New() *Store { return new(Store) }
 
 func (s *Store) Open(key string) (io.ReadSeekCloser, error) {
+	b, err := s.Bytes(key)
+	if err != nil {
+		return nil, err
+	}
+	return file{bytes.NewReader(b)}, nil
+}
+
+// Bytes returns the copy under key, which callers must not modify.
+func (s *Store) Bytes(key string) ([]byte, error) {
 	b, ok := s.files.Load(key)
 	if !ok {
 		return nil, &fs.PathError{Op: "open", Path: key, Err: fs.ErrNotExist}
 	}
-	return file{bytes.NewReader(b.([]byte))}, nil
+	return b.([]byte), nil
 }
 
 // Put stores r atomically.

@@ -163,7 +163,9 @@ type Compressor struct {
 	// suffixes maps each coding to a key and ETag suffix such as br6.
 	suffixes map[*contentcoding.Coding]string
 	store    Store
-	minSize  int64
+	// byteStore is store when it keeps copies in memory.
+	byteStore BytesStore
+	minSize   int64
 
 	lockPuts sync.Mutex
 	puts     map[string]*assetPut // By store key.
@@ -179,7 +181,10 @@ type Compressor struct {
 	writeRetry time.Duration
 }
 
-var _ datapages.AssetsCompressor = (*Compressor)(nil)
+var (
+	_ datapages.AssetsCompressor = (*Compressor)(nil)
+	_ BytesStore                 = (*inmem.Store)(nil)
+)
 
 type assetPut struct {
 	done   chan struct{}
@@ -216,6 +221,7 @@ func New(conf Config) (*Compressor, error) {
 	if c.store == nil {
 		c.store = inmem.New()
 	}
+	c.byteStore, _ = c.store.(BytesStore)
 	levels := conf.Levels.or(defaultLevels)
 	initialLevels := conf.InitialLevels.or(levels)
 	for _, name := range codings {
@@ -468,7 +474,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	}
 	i := slices.Index(h.c.codings, cd)
 	key := info.keys[i]
-	copied, suffix, err := h.c.copyOf(h.fsys, info.name, info.hash, key, cd, h.logger)
+	data, file, suffix, err := h.c.copyOf(h.fsys, info.name, info.hash, key, cd, h.logger)
 	if errors.Is(err, errChanged) {
 		h.files.Delete(rel)
 	}
@@ -476,17 +482,19 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		logCompressFailure(h.logger, info.name, cd, err)
 		return false
 	}
-	defer func() { _ = copied.Close() }()
-	// ServeContent returns 500 for a copy that cannot seek.
-	_, err = copied.Seek(0, io.SeekEnd)
-	if err == nil {
-		_, err = copied.Seek(0, io.SeekStart)
-	}
-	if err != nil {
-		h.logger.Warn("reading a compressed asset",
-			slog.String("path", info.name),
-			slog.String("key", key), slog.Any("err", err))
-		return false
+	if file != nil {
+		defer func() { _ = file.Close() }()
+		// ServeContent returns 500 for a copy that cannot seek.
+		_, err = file.Seek(0, io.SeekEnd)
+		if err == nil {
+			_, err = file.Seek(0, io.SeekStart)
+		}
+		if err != nil {
+			h.logger.Warn("reading a compressed asset",
+				slog.String("path", info.name),
+				slog.String("key", key), slog.Any("err", err))
+			return false
+		}
 	}
 	if !typed {
 		header["Content-Type"] = info.contentType
@@ -495,9 +503,28 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		// Strong tags differ by representation.
 		header["Etag"] = info.etag(i, tag, suffix)
 	}
-	http.ServeContent(codedWriter{w, cd}, r, "", info.modTime, copied)
+	s := servings.Get().(*serving)
+	s.w = codedWriter{w, cd}
+	var content io.ReadSeeker = file
+	if file == nil {
+		s.reader.Reset(data)
+		content = &s.reader
+	}
+	http.ServeContent(&s.w, r, "", info.modTime, content)
+	s.w = codedWriter{}
+	s.reader.Reset(nil)
+	servings.Put(s)
 	return true
 }
+
+// serving holds what [http.ServeContent] uses for 1 response.
+// Nothing keeps it after the call, which lets a pool reuse it.
+type serving struct {
+	w      codedWriter
+	reader bytes.Reader
+}
+
+var servings = sync.Pool{New: func() any { return new(serving) }}
 
 // logCompressFailure logs a failed copy of name in cd.
 func logCompressFailure(
@@ -601,33 +628,35 @@ func (c *Compressor) describe(
 	return info, nil
 }
 
-// copyOf opens key and returns its suffix, creating it from name when absent.
-// name must hash to sum. The creating call finishes the copy, which stays in
-// memory until stored so no other call creates it again.
+// copyOf returns the copy under key and its suffix, creating it from name when absent.
+// The copy comes as bytes, or as an open file from a store that is not a [BytesStore].
+// name must hash to sum. The creating call finishes the copy,
+// which stays in memory until stored so no other call creates it again.
 func (c *Compressor) copyOf(
 	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
 	logger *slog.Logger,
-) (io.ReadSeekCloser, string, error) {
+) (data []byte, file io.ReadSeekCloser, suffix string, err error) {
 	if v, ok := c.memory.Load(key); ok {
 		m := v.(compressed)
-		return memoryCopy{bytes.NewReader(m.data)}, m.suffix, nil
+		return m.data, nil, m.suffix, nil
 	}
-	if copied, err := c.store.Open(key); !errors.Is(err, fs.ErrNotExist) {
-		return copied, c.suffixes[cd], err
+	if c.byteStore != nil {
+		data, err = c.byteStore.Bytes(key)
+	} else {
+		file, err = c.store.Open(key)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return data, file, c.suffixes[cd], err
 	}
 	m, created, err := c.compress(fsys, name, sum, key, c.initial[cd])
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	if created {
 		c.background.Go(func() { c.finish(fsys, name, sum, key, cd, m, logger) })
 	}
-	return memoryCopy{bytes.NewReader(m.data)}, m.suffix, nil
+	return m.data, nil, m.suffix, nil
 }
-
-type memoryCopy struct{ *bytes.Reader }
-
-func (memoryCopy) Close() error { return nil }
 
 // finish replaces m at the level of cd if needed, then stores it.
 func (c *Compressor) finish(

@@ -14,3 +14,13 @@ type Store interface {
 	// same bytes and may keep the first copy.
 	Put(key string, r io.Reader) error
 }
+
+// BytesStore is a [Store] that keeps copies in memory.
+// The compressor reads its copies with Bytes instead of Open.
+type BytesStore interface {
+	Store
+
+	// Bytes returns the copy under key or an error wrapping [io/fs.ErrNotExist].
+	// Callers must not modify the bytes.
+	Bytes(key string) ([]byte, error)
+}
