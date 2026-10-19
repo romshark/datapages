@@ -42,6 +42,7 @@ Internal, used by the CLI and build tooling:
 - `internal/gotypes/` - go/types predicates and renderings that know nothing about Datapages. Shared by the parser and the generator.
 - `internal/buildconstraint/` - which `//go:build` lines exclude a file from every build. Shared by the parser and `internal/serverscan/`.
 - `internal/logsample/` - the throttling `slog.Handler` behind `datapages.WithLogSampling`.
+- `internal/backoff/` - an iterator over retry attempts with growing, randomized pauses. Used by `modules/assetcompress` for store writes.
 - `internal/contentcoding/` - pooled encoders, `Accept-Encoding` negotiation and the compressible media types, shared by `runtime/sse`, `runtime/httpserve` and `modules/assetcompress`.
 - `internal/testlog/` - collects what code under test logs, 1 line per record without its time, for tests to compare exactly. Examples keep their own loggers because they model application code, which cannot import it.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.

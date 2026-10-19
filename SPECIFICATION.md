@@ -1026,7 +1026,11 @@ The media type of a font asset is `font/otf` for `.otf`, `font/ttf` for `.ttf`, 
 
 A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheControl` or a middleware can set, is not eligible. Eligible assets use the first explicitly accepted coding from brotli 6 and gzip 9. Brotli uses a 4 MiB window. Other assets stay uncompressed. Dev mode disables asset compression.
 
-The first request creates a missing copy. Concurrent requests share that work, and a compressor compresses 1 asset at a time. `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding. It returns the first failed read or store and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
+The first request creates a missing copy in memory and receives it. Concurrent requests for that copy wait for its compression instead of starting another, and requests for different copies compress them in parallel. The server then writes the copy to the store in the background, in up to 5 attempts within 15 seconds, and serves it from memory until the store has it. Requests meanwhile start no other compression or write. A copy that no attempt stores stays in memory until the server exits.
+
+A nonzero level of `Config.InitialLevels` applies to the copy that the first request creates. A background compression at the configured level replaces that copy in memory before the write. Background compressions run 1 at a time. A copy whose replacement fails is logged and stays in memory at its initial level until the server exits.
+
+`Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding at the configured level. It returns the first failed read or store, which leaves that copy missing, and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
 
 Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` creates the copies the server looks up in its subdirectory. The server hashes each file at its first request. A file changed during compression is not stored under its old hash.
 
@@ -1036,12 +1040,14 @@ Asset responses follow these rules:
 - A multi-range request receives the uncompressed file.
 - An eligible response carries `Vary: Accept-Encoding`, also when uncompressed.
 - With `datapages.WithAssetsCache`, a copy's `ETag` is the strong `ETag` of the file with the coding and level appended, such as `"tag.br6"`.
-- A store error is logged, and the request receives the uncompressed file.
-- A panic in the store or the file system while a copy is created is logged with its stack, and the request receives the uncompressed file.
+- An error of the store while it opens a copy is logged, and the request receives the uncompressed file.
+- A copy that no attempt stores is logged once, after the last attempt.
+- A panic of the file system while a copy is compressed is logged with its stack, and the request receives the uncompressed file.
+- A panic of the store while it writes a copy is logged with its stack, and the next attempt writes the copy again.
 
 These options and modules configure asset compression:
 
-- `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels and store of its `Config`.
+- `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels, initial levels and store of its `Config`.
 - `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server.
 - `datapages.WithNoAssetsCompression` disables compression.
 - A nil `Store` keeps copies in memory, and `modules/assetcompress/disk` keeps them in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700.

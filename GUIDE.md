@@ -283,6 +283,15 @@ go func() {
 
 A copy is stored under the content of its file, not its path. Precompressing the whole `embed.FS` therefore creates the copies the server looks up in its subdirectory. Requests still compress missing copies. Precompression stops at the first error; later files remain for their first requests. Omit `go` to finish before serving. This delays startup and fills the in-memory store with every eligible copy.
 
+With brotli 11, also set a brotli 6 initial level. A request that finds no copy then waits a few milliseconds for a brotli 6 copy instead of up to 215 ms, and a background compression replaces it at quality 11:
+
+```go
+assets, err := assetcompress.New(assetcompress.Config{
+	Levels:        assetcompress.Levels{BrotliQuality: 11},
+	InitialLevels: assetcompress.Levels{BrotliQuality: 6},
+})
+```
+
 Persist copies to compress each build once:
 
 ```go

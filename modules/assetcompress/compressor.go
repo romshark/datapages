@@ -1,6 +1,7 @@
 package assetcompress
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/backoff"
 	"github.com/romshark/datapages/internal/contentcoding"
 	"github.com/romshark/datapages/modules/assetcompress/inmem"
 )
@@ -43,16 +45,25 @@ const sniffLen = 512
 
 var errChanged = errors.New("the file changed while it was compressed")
 
+// writeAttempts, writeRetry and writeFactor pause 1/2 to all of 1, 2, 4 and 8 s
+// between writes.
+const (
+	writeAttempts = 5
+	writeRetry    = time.Second
+	writeFactor   = 2
+)
+
 // Config configures a [Compressor]. Its zero value selects the defaults.
 //
-// A Compressor compresses 1 file at a time. BenchmarkPrecompress in
-// modules/assetcompress measures example CSS and JavaScript files:
+// Requests compress in parallel. Replacements run 1 at a time.
+// BenchmarkPrecompress in modules/assetcompress measures example CSS and
+// JavaScript files:
 //
 //	              editor.js, 222 KB   basecoat-1.0.2.css, 218 KB   allocated
 //	brotli 6      27.9% in 4 ms       8.8% in 1.5 ms               12 MiB
 //	brotli 11     25.6% in 215 ms     7.9% in 142 ms               61 MiB
-//	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms               39 MiB
-//	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms              1.3 MiB
+//	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms               40 MiB
+//	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms              1.4 MiB
 type Config struct {
 	// Store keeps copies. Nil uses memory; a store from
 	// [github.com/romshark/datapages/modules/assetcompress/disk.New] survives restarts.
@@ -66,18 +77,72 @@ type Config struct {
 	// and 1 compresses every nonempty eligible file.
 	MinSize int
 
-	// ZstdLevel ranges from 1 to 22; 0 selects [DefaultZstdLevel]. Levels other
-	// than 1, 3, 6 and 10 use the nearest lower level, including in keys and ETags.
+	// Levels applies to stored copies. 0 selects the defaults.
+	Levels Levels
+
+	// InitialLevels, at most Levels, applies to the copy that a request creates
+	// until a background compression at Levels replaces it. 0 selects Levels.
+	InitialLevels Levels
+}
+
+// Levels sets a level per coding.
+type Levels struct {
+	// ZstdLevel ranges from 1 to 22. Levels other than 1, 3, 6 and 10 use the
+	// nearest lower level, including in keys and ETags.
 	ZstdLevel int
 
-	// BrotliQuality is from 1 to 11. 0 selects [DefaultBrotliQuality].
-	// Quality 11 saves 6% to 11% over 6 but takes 45 to 95 times longer and
-	// uses 4 to 5 times the memory. Use [Compressor.Precompress] to avoid
-	// request latency.
+	// BrotliQuality is from 1 to 11. Quality 11 saves 6% to 11% over 6 but
+	// takes 45 to 95 times longer and uses 4 to 5 times the memory. Use
+	// [Compressor.Precompress] or [Config.InitialLevels] to avoid request
+	// latency.
 	BrotliQuality int
 
-	// GzipLevel is from 1 to 9. 0 selects [DefaultGzipLevel].
+	// GzipLevel is from 1 to 9.
 	GzipLevel int
+}
+
+// defaultLevels replaces the zero levels of [Config.Levels].
+var defaultLevels = Levels{
+	ZstdLevel:     DefaultZstdLevel,
+	BrotliQuality: DefaultBrotliQuality,
+	GzipLevel:     DefaultGzipLevel,
+}
+
+// or replaces the zero levels of l with those of fallback.
+func (l Levels) or(fallback Levels) Levels {
+	return Levels{
+		ZstdLevel:     cmp.Or(l.ZstdLevel, fallback.ZstdLevel),
+		BrotliQuality: cmp.Or(l.BrotliQuality, fallback.BrotliQuality),
+		GzipLevel:     cmp.Or(l.GzipLevel, fallback.GzipLevel),
+	}
+}
+
+// of returns the level that coding uses.
+func (l Levels) of(coding datapages.Coding) int {
+	switch coding {
+	case datapages.CodingZstd:
+		return contentcoding.ZstdLevel(l.ZstdLevel)
+	case datapages.CodingBrotli:
+		return l.BrotliQuality
+	default:
+		return l.GzipLevel
+	}
+}
+
+// validate returns the first level out of range, prefixing its message.
+func (l Levels) validate(prefix string) error {
+	switch {
+	case l.ZstdLevel < 0 || l.ZstdLevel > 22:
+		return fmt.Errorf("%szstd level (%d) must be from 1 to 22",
+			prefix, l.ZstdLevel)
+	case l.BrotliQuality < 0 || l.BrotliQuality > 11:
+		return fmt.Errorf("%sbrotli quality (%d) must be from 1 to 11",
+			prefix, l.BrotliQuality)
+	case l.GzipLevel < 0 || l.GzipLevel > 9:
+		return fmt.Errorf("%sgzip level (%d) must be from 1 to 9",
+			prefix, l.GzipLevel)
+	}
+	return nil
 }
 
 // Compressor serves compressed static assets through
@@ -91,23 +156,39 @@ type Config struct {
 // A Compressor is safe for concurrent use by several servers.
 type Compressor struct {
 	codings []*contentcoding.Coding
-	// suffixes maps each coding to a store-key suffix such as br6.
+	// initial maps each coding to the coding of initial copies.
+	initial map[*contentcoding.Coding]*contentcoding.Coding
+	// suffixes maps each coding to a key and ETag suffix such as br6.
 	suffixes map[*contentcoding.Coding]string
 	store    Store
 	minSize  int64
 
-	// compressing permits 1 active encoder.
-	compressing chan struct{}
-
 	lockPuts sync.Mutex
 	puts     map[string]*assetPut // By store key.
+
+	// memory holds copies until stored, an initial copy under the key of its
+	// replacement.
+	memory sync.Map
+	// recompressing permits 1 replacement.
+	recompressing chan struct{}
+	// background counts running [Compressor.finish] calls.
+	background sync.WaitGroup
+	// writeRetry is [writeRetry] except in tests.
+	writeRetry time.Duration
 }
 
 var _ datapages.AssetsCompressor = (*Compressor)(nil)
 
 type assetPut struct {
-	done chan struct{}
-	err  error
+	done   chan struct{}
+	copied compressed
+	err    error
+}
+
+// compressed is a copy and its suffix.
+type compressed struct {
+	data   []byte
+	suffix string
 }
 
 // New returns a compressor or the first invalid field of conf.
@@ -120,33 +201,45 @@ func New(conf Config) (*Compressor, error) {
 		codings = []datapages.Coding{datapages.CodingBrotli, datapages.CodingGzip}
 	}
 	c := &Compressor{
-		suffixes:    make(map[*contentcoding.Coding]string, len(codings)),
-		store:       conf.Store,
-		minSize:     int64(cmp.Or(conf.MinSize, DefaultMinSize)),
-		compressing: make(chan struct{}, 1),
-		puts:        make(map[string]*assetPut),
+		initial: make(map[*contentcoding.Coding]*contentcoding.Coding,
+			len(codings)),
+		suffixes: make(map[*contentcoding.Coding]string,
+			2*len(codings)),
+		store:         conf.Store,
+		minSize:       int64(cmp.Or(conf.MinSize, DefaultMinSize)),
+		puts:          make(map[string]*assetPut),
+		recompressing: make(chan struct{}, 1),
+		writeRetry:    writeRetry,
 	}
 	if c.store == nil {
 		c.store = inmem.New()
 	}
+	levels := conf.Levels.or(defaultLevels)
+	initialLevels := conf.InitialLevels.or(levels)
 	for _, name := range codings {
-		var cd *contentcoding.Coding
-		var level int
-		switch name {
-		case datapages.CodingZstd:
-			level = contentcoding.ZstdLevel(cmp.Or(conf.ZstdLevel, DefaultZstdLevel))
-			cd = contentcoding.NewZstd(level, window)
-		case datapages.CodingBrotli:
-			level = cmp.Or(conf.BrotliQuality, DefaultBrotliQuality)
-			cd = contentcoding.NewBrotli(level, window)
-		case datapages.CodingGzip:
-			level = cmp.Or(conf.GzipLevel, DefaultGzipLevel)
-			cd = contentcoding.NewGzip(level)
-		}
+		level, initial := levels.of(name), initialLevels.of(name)
+		cd := newCoding(name, level)
 		c.codings = append(c.codings, cd)
 		c.suffixes[cd] = cd.Name() + strconv.Itoa(level)
+		c.initial[cd] = cd
+		if initial != level {
+			ic := newCoding(name, initial)
+			c.initial[cd] = ic
+			c.suffixes[ic] = ic.Name() + strconv.Itoa(initial)
+		}
 	}
 	return c, nil
+}
+
+func newCoding(coding datapages.Coding, level int) *contentcoding.Coding {
+	switch coding {
+	case datapages.CodingZstd:
+		return contentcoding.NewZstd(level, window)
+	case datapages.CodingBrotli:
+		return contentcoding.NewBrotli(level, window)
+	default:
+		return contentcoding.NewGzip(level)
+	}
 }
 
 func (conf Config) validate() error {
@@ -160,15 +253,28 @@ func (conf Config) validate() error {
 			return fmt.Errorf("coding %q listed 2 times", coding)
 		}
 	}
-	switch {
-	case conf.MinSize < 0:
+	if conf.MinSize < 0 {
 		return fmt.Errorf("min size (%d) must not be negative", conf.MinSize)
-	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
-		return fmt.Errorf("zstd level (%d) must be from 1 to 22", conf.ZstdLevel)
-	case conf.BrotliQuality != 0 && (conf.BrotliQuality < 1 || conf.BrotliQuality > 11):
-		return fmt.Errorf("brotli quality (%d) must be from 1 to 11", conf.BrotliQuality)
-	case conf.GzipLevel != 0 && (conf.GzipLevel < 1 || conf.GzipLevel > 9):
-		return fmt.Errorf("gzip level (%d) must be from 1 to 9", conf.GzipLevel)
+	}
+	if err := conf.Levels.validate(""); err != nil {
+		return err
+	}
+	if err := conf.InitialLevels.validate("initial "); err != nil {
+		return err
+	}
+	levels := conf.Levels.or(defaultLevels)
+	switch initial := conf.InitialLevels; {
+	case initial.ZstdLevel > levels.ZstdLevel:
+		return fmt.Errorf("initial zstd level (%d) must not exceed zstd level (%d)",
+			initial.ZstdLevel, levels.ZstdLevel)
+	case initial.BrotliQuality > levels.BrotliQuality:
+		return fmt.Errorf(
+			"initial brotli quality (%d) must not exceed brotli quality (%d)",
+			initial.BrotliQuality, levels.BrotliQuality,
+		)
+	case initial.GzipLevel > levels.GzipLevel:
+		return fmt.Errorf("initial gzip level (%d) must not exceed gzip level (%d)",
+			initial.GzipLevel, levels.GzipLevel)
 	}
 	return nil
 }
@@ -178,6 +284,9 @@ func (conf Config) validate() error {
 // including those whose response is marked Cache-Control: no-transform.
 // Assets must not change before server exit. The handler adds the coding and
 // level to an existing ETag and logs copy failures before delegating to next.
+// New copies go out from memory and reach the store in the background,
+// in up to 5 attempts within 15 s, after any replacement at [Config.Levels].
+// Refused copies stay in memory. Requests share each compression and write.
 func (c *Compressor) Handler(
 	fsys http.FileSystem, next http.Handler, logger *slog.Logger,
 ) http.Handler {
@@ -229,13 +338,37 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) error {
 		return err
 	}
 	for _, cd := range c.codings {
-		copied, err := c.copyOf(fsys, name, info.hash, info.hash+"."+c.suffixes[cd], cd)
+		err := c.precompressCopy(fsys, name, info.hash, info.hash+"."+c.suffixes[cd], cd)
 		if err != nil {
 			return err
 		}
-		_ = copied.Close()
 	}
 	return nil
+}
+
+// precompressCopy creates and stores the copy under key when missing.
+func (c *Compressor) precompressCopy(
+	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
+) error {
+	if _, ok := c.memory.Load(key); ok {
+		// A request created it.
+		return nil
+	}
+	copied, err := c.store.Open(key)
+	if err == nil {
+		return copied.Close()
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	m, created, err := c.compress(fsys, name, sum, key, cd)
+	if err != nil || !created {
+		return err
+	}
+	// Drop the copy even after a failed put, since no request would store it.
+	err = c.put(key, m.data)
+	c.memory.Delete(key)
+	return err
 }
 
 // handler owns file descriptions because servers sharing a [Compressor] may
@@ -296,24 +429,12 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	key := info.hash + "." + h.c.suffixes[cd]
-	copied, err := h.c.copyOf(h.fsys, name, info.hash, key, cd)
+	copied, suffix, err := h.c.copyOf(h.fsys, name, info.hash, key, cd, h.logger)
 	if errors.Is(err, errChanged) {
 		h.files.Delete(name)
 	}
-	var panicked datapages.PanicError
-	switch {
-	case errors.As(err, &panicked):
-		h.logger.Error("recovered panic while compressing an asset",
-			slog.String("path", name),
-			slog.String("coding", cd.Name()),
-			slog.Any("panic", panicked.Value),
-			slog.String("stack", string(panicked.Stack)))
-		return false
-	case err != nil:
-		h.logger.Warn("compressing an asset",
-			slog.String("path", name),
-			slog.String("coding", cd.Name()),
-			slog.Any("err", err))
+	if err != nil {
+		logCompressFailure(h.logger, name, cd, err)
 		return false
 	}
 	defer func() { _ = copied.Close() }()
@@ -330,10 +451,29 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	header.Set("Content-Type", info.contentType)
 	if tag := header.Get("Etag"); strings.HasSuffix(tag, `"`) {
 		// Strong tags differ by representation.
-		header.Set("Etag", tag[:len(tag)-1]+"."+h.c.suffixes[cd]+`"`)
+		header.Set("Etag", tag[:len(tag)-1]+"."+suffix+`"`)
 	}
 	http.ServeContent(codedWriter{w, cd.Name()}, r, "", info.modTime, copied)
 	return true
+}
+
+// logCompressFailure logs a failed copy of name in cd.
+func logCompressFailure(
+	logger *slog.Logger, name string, cd *contentcoding.Coding, err error,
+) {
+	var panicked datapages.PanicError
+	if errors.As(err, &panicked) {
+		logger.Error("recovered panic while compressing an asset",
+			slog.String("path", name),
+			slog.String("coding", cd.Name()),
+			slog.Any("panic", panicked.Value),
+			slog.String("stack", string(panicked.Stack)))
+		return
+	}
+	logger.Warn("compressing an asset",
+		slog.String("path", name),
+		slog.String("coding", cd.Name()),
+		slog.Any("err", err))
 }
 
 // codedWriter adds Content-Encoding only when a response sends the copy.
@@ -413,85 +553,139 @@ func (c *Compressor) describe(
 	return info, nil
 }
 
-// copyOf opens key, creating it from name when absent. name must hash to sum.
+// copyOf opens key and returns its suffix, creating it from name when absent.
+// name must hash to sum. The creating call finishes the copy, which stays in
+// memory until stored so no other call creates it again.
 func (c *Compressor) copyOf(
 	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
-) (io.ReadSeekCloser, error) {
+	logger *slog.Logger,
+) (io.ReadSeekCloser, string, error) {
+	if v, ok := c.memory.Load(key); ok {
+		m := v.(compressed)
+		return memoryCopy{bytes.NewReader(m.data)}, m.suffix, nil
+	}
 	if copied, err := c.store.Open(key); !errors.Is(err, fs.ErrNotExist) {
-		return copied, err
+		return copied, c.suffixes[cd], err
 	}
-	if err := c.compress(fsys, name, sum, key, cd); err != nil {
-		return nil, err
+	m, created, err := c.compress(fsys, name, sum, key, c.initial[cd])
+	if err != nil {
+		return nil, "", err
 	}
-	return c.store.Open(key)
+	if created {
+		c.background.Go(func() { c.finish(fsys, name, sum, key, cd, m, logger) })
+	}
+	return memoryCopy{bytes.NewReader(m.data)}, m.suffix, nil
 }
 
-// compress creates 1 copy per key while concurrent callers wait.
+type memoryCopy struct{ *bytes.Reader }
+
+func (memoryCopy) Close() error { return nil }
+
+// finish replaces m at the level of cd if needed, then stores it.
+func (c *Compressor) finish(
+	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
+	m compressed, logger *slog.Logger,
+) {
+	if suffix := c.suffixes[cd]; m.suffix != suffix {
+		c.recompressing <- struct{}{}
+		data, err := encode(fsys, name, sum, cd)
+		<-c.recompressing
+		if err != nil {
+			logCompressFailure(logger, name, cd, err)
+			return
+		}
+		m = compressed{data: data, suffix: suffix}
+		c.memory.Store(key, m)
+	}
+	c.write(key, m.data, logger)
+}
+
+// compress creates 1 copy per key in memory while concurrent callers wait,
+// possibly for another level than cd. It reports whether this call created it.
 func (c *Compressor) compress(
 	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
-) error {
+) (copied compressed, created bool, err error) {
 	c.lockPuts.Lock()
 	if p, ok := c.puts[key]; ok {
 		c.lockPuts.Unlock()
 		<-p.done
-		return p.err
+		return p.copied, false, p.err
+	}
+	// A compression can end after the caller's look into memory.
+	if v, ok := c.memory.Load(key); ok {
+		c.lockPuts.Unlock()
+		return v.(compressed), false, nil
 	}
 	p := &assetPut{done: make(chan struct{})}
 	c.puts[key] = p
 	c.lockPuts.Unlock()
 
-	c.compressing <- struct{}{}
-	p.err = c.put(fsys, name, sum, key, cd)
-	<-c.compressing
-
+	data, err := encode(fsys, name, sum, cd)
+	p.copied, p.err = compressed{data: data, suffix: c.suffixes[cd]}, err
+	if p.err == nil {
+		c.memory.Store(key, p.copied)
+	}
 	c.lockPuts.Lock()
 	delete(c.puts, key)
 	c.lockPuts.Unlock()
 	close(p.done)
-	return p.err
+	return p.copied, true, p.err
 }
 
-// put recovers panics so [Compressor.compress] releases its key and semaphore.
-func (c *Compressor) put(
-	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
-) (err error) {
+// encode compresses name and rejects a file that does not hash to sum.
+// It recovers panics so callers release their key or permit.
+func encode(
+	fsys http.FileSystem, name, sum string, cd *contentcoding.Coding,
+) (_ []byte, err error) {
 	defer recoverPanic(&err)
 	f, err := fsys.Open(name)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	pr, pw := io.Pipe()
-	encoded := make(chan struct{})
-	go func() {
-		defer close(encoded)
-		pw.CloseWithError(encodeChecked(pw, f, sum, cd))
-	}()
-	defer func() {
-		// Stop the encoder when the store stops reading early or panics,
-		// and let it finish reading f before f closes.
-		_ = pr.CloseWithError(err)
-		<-encoded
-	}()
-	return c.store.Put(key, pr)
-}
-
-// encodeChecked encodes src and rejects a source that does not hash to sum.
-// A panic returns as an error, since on its own goroutine it would end the process.
-func encodeChecked(
-	w io.Writer, src io.Reader, sum string, cd *contentcoding.Coding,
-) (err error) {
-	defer recoverPanic(&err)
-	enc := cd.Get(w)
+	var copied bytes.Buffer
+	enc := cd.Get(&copied)
 	defer cd.Put(enc)
 	digest := sha256.New()
-	if _, err := io.Copy(enc, io.TeeReader(src, digest)); err != nil {
-		return err
+	if _, err := io.Copy(enc, io.TeeReader(f, digest)); err != nil {
+		return nil, err
 	}
 	if !hashIs(digest, sum) {
-		return errChanged
+		return nil, errChanged
 	}
-	return enc.Close()
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return copied.Bytes(), nil
+}
+
+// write stores b under key, then drops it from memory. The last failure is logged.
+func (c *Compressor) write(key string, b []byte, logger *slog.Logger) {
+	for attempt := range backoff.Attempts(writeAttempts, c.writeRetry, writeFactor) {
+		err := c.put(key, b)
+		if err == nil {
+			c.memory.Delete(key)
+			return
+		}
+		var panicked datapages.PanicError
+		switch {
+		case errors.As(err, &panicked):
+			// A store defect, logged even if a later attempt succeeds.
+			logger.Error("recovered panic while storing a compressed asset",
+				slog.String("key", key),
+				slog.Any("panic", panicked.Value),
+				slog.String("stack", string(panicked.Stack)))
+		case attempt == writeAttempts:
+			logger.Warn("storing a compressed asset", slog.String("key", key),
+				slog.Int("attempts", attempt), slog.Any("err", err))
+		}
+	}
+}
+
+// put stores b under key, returning a panic as a [datapages.PanicError].
+func (c *Compressor) put(key string, b []byte) (err error) {
+	defer recoverPanic(&err)
+	return c.store.Put(key, bytes.NewReader(b))
 }
 
 // recoverPanic turns a panic into *err as a [datapages.PanicError].

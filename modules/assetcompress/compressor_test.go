@@ -5,6 +5,8 @@ import (
 	"cmp"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +23,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"testing/synctest"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -174,10 +177,11 @@ func TestNew(t *testing.T) {
 			Codings: []datapages.Coding{datapages.CodingZstd, datapages.CodingGzip},
 		}},
 		"bounds": {conf: assetcompress.Config{
-			ZstdLevel: 22, BrotliQuality: 11, GzipLevel: 9,
+			Levels: assetcompress.Levels{ZstdLevel: 22, BrotliQuality: 11, GzipLevel: 9},
 		}},
 		"lower bounds": {conf: assetcompress.Config{
-			MinSize: 1, ZstdLevel: 1, BrotliQuality: 1, GzipLevel: 1,
+			MinSize: 1,
+			Levels:  assetcompress.Levels{ZstdLevel: 1, BrotliQuality: 1, GzipLevel: 1},
 		}},
 		"unknown coding": {
 			conf:    assetcompress.Config{Codings: []datapages.Coding{"deflate"}},
@@ -196,16 +200,65 @@ func TestNew(t *testing.T) {
 			wantErr: "assetcompress: min size (-1) must not be negative",
 		},
 		"zstd level too high": {
-			conf:    assetcompress.Config{ZstdLevel: 23},
+			conf:    assetcompress.Config{Levels: assetcompress.Levels{ZstdLevel: 23}},
 			wantErr: "assetcompress: zstd level (23) must be from 1 to 22",
 		},
 		"brotli quality too high": {
-			conf:    assetcompress.Config{BrotliQuality: 12},
+			conf: assetcompress.Config{
+				Levels: assetcompress.Levels{BrotliQuality: 12},
+			},
 			wantErr: "assetcompress: brotli quality (12) must be from 1 to 11",
 		},
 		"gzip level negative": {
-			conf:    assetcompress.Config{GzipLevel: -1},
+			conf:    assetcompress.Config{Levels: assetcompress.Levels{GzipLevel: -1}},
 			wantErr: "assetcompress: gzip level (-1) must be from 1 to 9",
+		},
+		"initial levels": {conf: assetcompress.Config{
+			Levels: assetcompress.Levels{ZstdLevel: 19, BrotliQuality: 11},
+			InitialLevels: assetcompress.Levels{
+				ZstdLevel: 3, BrotliQuality: 6, GzipLevel: 9,
+			},
+		}},
+		"initial zstd level negative": {
+			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
+				ZstdLevel: -1,
+			}},
+			wantErr: "assetcompress: initial zstd level (-1) must be from 1 to 22",
+		},
+		"initial brotli quality too high": {
+			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
+				BrotliQuality: 12,
+			}},
+			wantErr: "assetcompress: initial brotli quality (12) must be from 1 to 11",
+		},
+		"initial gzip level too high": {
+			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
+				GzipLevel: 10,
+			}},
+			wantErr: "assetcompress: initial gzip level (10) must be from 1 to 9",
+		},
+		"initial zstd level above default": {
+			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
+				ZstdLevel: 19,
+			}},
+			wantErr: "assetcompress: " +
+				"initial zstd level (19) must not exceed zstd level (10)",
+		},
+		"initial brotli quality above": {
+			conf: assetcompress.Config{
+				Levels:        assetcompress.Levels{BrotliQuality: 5},
+				InitialLevels: assetcompress.Levels{BrotliQuality: 6},
+			},
+			wantErr: "assetcompress: " +
+				"initial brotli quality (6) must not exceed brotli quality (5)",
+		},
+		"initial gzip level above": {
+			conf: assetcompress.Config{
+				Levels:        assetcompress.Levels{GzipLevel: 1},
+				InitialLevels: assetcompress.Levels{GzipLevel: 2},
+			},
+			wantErr: "assetcompress: " +
+				"initial gzip level (2) must not exceed gzip level (1)",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -443,13 +496,15 @@ func TestHandlerZstdLevels(t *testing.T) {
 
 	store := newCountingStore()
 	for _, level := range []int{19, 22} {
-		h := withETag(`"base"`, newHandler(newCompressor(t, assetcompress.Config{
-			Store:     store,
-			Codings:   []datapages.Coding{datapages.CodingZstd},
-			ZstdLevel: level,
-		}), http.FS(assetFiles()), nil))
+		c := newCompressor(t, assetcompress.Config{
+			Store:   store,
+			Codings: []datapages.Coding{datapages.CodingZstd},
+			Levels:  assetcompress.Levels{ZstdLevel: level},
+		})
+		h := withETag(`"base"`, newHandler(c, http.FS(assetFiles()), nil))
 		w := get(t, h, http.MethodGet, "/style.css", "zstd", nil)
 		require.Equal(t, `"base.zstd10"`, w.Header().Get("Etag"), "level %d", level)
+		assetcompress.WaitBackground(c)
 	}
 	require.Equal(t, int64(1), store.puts.Load(), "copies of levels 19 and 22")
 }
@@ -497,35 +552,200 @@ func TestHandlerLazy(t *testing.T) {
 	t.Parallel()
 
 	store := newCountingStore()
-	h := newHandler(newCompressor(t, assetcompress.Config{Store: store}),
-		http.FS(assetFiles()), nil)
+	c := newCompressor(t, assetcompress.Config{Store: store})
+	h := newHandler(c, http.FS(assetFiles()), nil)
 	for range 3 {
 		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
 		require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	}
+	assetcompress.WaitBackground(c)
 	require.Equal(t, int64(1), store.puts.Load())
 
 	get(t, h, http.MethodGet, "/style.css", "gzip", nil)
+	assetcompress.WaitBackground(c)
 	require.Equal(t, int64(2), store.puts.Load(), "the copy of the other coding")
 }
 
-// TestHandlerConcurrent verifies that concurrent misses share 1 put.
+// TestHandlerConcurrent tests that requests share 1 compression and 1 write.
 func TestHandlerConcurrent(t *testing.T) {
 	t.Parallel()
 
-	store := newCountingStore()
-	h := newHandler(newCompressor(t, assetcompress.Config{Store: store}),
-		http.FS(assetFiles()), nil)
-	var wg sync.WaitGroup
-	for range 16 {
-		wg.Go(func() {
-			w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+	synctest.Test(t, func(t *testing.T) {
+		fsys := newStallingFS(2)
+		defer fsys.unstall()
+		store := &lateFailingStore{Store: inmem.New()}
+		c := newCompressor(t, assetcompress.Config{Store: store})
+		h := newHandler(c, fsys, nil)
+		responses := make(chan *httptest.ResponseRecorder, 4)
+		request := func() {
+			responses <- get(t, h, http.MethodGet, "/style.css", "br", nil)
+		}
+		go request()
+		<-fsys.stalled
+		for range 3 {
+			go request()
+		}
+		synctest.Wait()
+		require.Equal(t, int64(2), fsys.opens.Load(), "opens of style.css")
+		fsys.unstall()
+		for range 4 {
+			w := <-responses
 			require.Equal(t, "br", w.Header().Get("Content-Encoding"))
 			require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-		})
+		}
+
+		synctest.Wait()
+		require.Equal(t, int64(1), store.puts.Load(), "the write waits to retry")
+		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+		require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+		assetcompress.WaitBackground(c)
+		require.Equal(t, int64(2), fsys.opens.Load(), "opens of style.css")
+		require.Equal(t, int64(5), store.puts.Load(), "attempts of 1 write")
+	})
+}
+
+// stallingFS stalls the nth open of /style.css, closing stalled, until unstall.
+// Requests open it to hash, then to compress. Create it in the synctest bubble.
+type stallingFS struct {
+	http.FileSystem
+	n       int64
+	opens   atomic.Int64 // Of /style.css.
+	stalled chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newStallingFS(n int64) *stallingFS {
+	return &stallingFS{
+		FileSystem: http.FS(assetFiles()),
+		n:          n,
+		stalled:    make(chan struct{}),
+		release:    make(chan struct{}),
 	}
-	wg.Wait()
+}
+
+func (fsys *stallingFS) Open(name string) (http.File, error) {
+	f, err := fsys.FileSystem.Open(name)
+	if err != nil || name != "/style.css" || fsys.opens.Add(1) != fsys.n {
+		return f, err
+	}
+	close(fsys.stalled)
+	<-fsys.release
+	return f, nil
+}
+
+func (fsys *stallingFS) unstall() { fsys.once.Do(func() { close(fsys.release) }) }
+
+// TestHandlerCompressesInParallel tests that different files compress in parallel.
+func TestHandlerCompressesInParallel(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		fsys := newStallingFS(2)
+		defer fsys.unstall()
+		h := newHandler(newCompressor(t, assetcompress.Config{}), fsys, nil)
+		stalled := make(chan *httptest.ResponseRecorder, 1)
+		go func() { stalled <- get(t, h, http.MethodGet, "/style.css", "br", nil) }()
+		<-fsys.stalled
+
+		w := get(t, h, http.MethodGet, "/app.js", "br", nil)
+		require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+		require.Equal(t, assetJS, decode(t, "br", w.Body.Bytes()))
+		fsys.unstall()
+		w = <-stalled
+		require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	})
+}
+
+// TestHandlerInitialLevel tests the initial copy, its replacement and the store.
+func TestHandlerInitialLevel(t *testing.T) {
+	t.Parallel()
+
+	store := newCountingStore()
+	c := newCompressor(t, assetcompress.Config{
+		Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
+	})
+	h := withETag(`"base"`, newHandler(c, http.FS(assetFiles()), nil))
+	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	assetcompress.WaitBackground(c)
 	require.Equal(t, int64(1), store.puts.Load())
+
+	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
+	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	w = get(t, h, http.MethodGet, "/style.css", "gzip", nil)
+	require.Equal(t, `"base.gzip9"`, w.Header().Get("Etag"), "no initial gzip level")
+}
+
+// TestHandlerReplacesOneAtATime tests that replacements run 1 at a time.
+func TestHandlerReplacesOneAtATime(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		// The 3rd open of /style.css replaces its copy.
+		fsys := newStallingFS(3)
+		defer fsys.unstall()
+		store := newCountingStore()
+		c := newCompressor(t, assetcompress.Config{
+			Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
+		})
+		h := withETag(`"base"`, newHandler(c, fsys, nil))
+		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+		require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+		<-fsys.stalled
+		w = get(t, h, http.MethodGet, "/app.js", "br", nil)
+		require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+		synctest.Wait()
+		require.Zero(t, store.puts.Load(), "app.js did not wait for style.css")
+
+		fsys.unstall()
+		assetcompress.WaitBackground(c)
+		require.Equal(t, int64(2), store.puts.Load())
+		for _, name := range []string{"/style.css", "/app.js"} {
+			w = get(t, h, http.MethodGet, name, "br", nil)
+			require.Equal(t, `"base.br6"`, w.Header().Get("Etag"), name)
+		}
+	})
+}
+
+// failingFS fails the nth open of /style.css.
+type failingFS struct {
+	http.FileSystem
+	n     int64
+	opens atomic.Int64
+}
+
+func (fsys *failingFS) Open(name string) (http.File, error) {
+	if name == "/style.css" && fsys.opens.Add(1) == fsys.n {
+		return nil, errors.New("open failed")
+	}
+	return fsys.FileSystem.Open(name)
+}
+
+// TestHandlerKeepsInitialCopy tests the log and the copy after a failed replacement.
+func TestHandlerKeepsInitialCopy(t *testing.T) {
+	t.Parallel()
+
+	store := newCountingStore()
+	c := newCompressor(t, assetcompress.Config{
+		Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
+	})
+	var log testlog.Buffer
+	// The 3rd open of /style.css replaces its copy.
+	fsys := &failingFS{FileSystem: http.FS(assetFiles()), n: 3}
+	h := withETag(`"base"`, newHandler(c, fsys, log.Logger()))
+	get(t, h, http.MethodGet, "/style.css", "br", nil)
+	assetcompress.WaitBackground(c)
+
+	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	require.Zero(t, store.puts.Load())
+	require.Len(t, log.Lines(), 1)
+	log.RequireMatch(t, `level=WARN msg="compressing an asset" `+
+		`path=/style.css coding=br err="open failed"`)
 }
 
 // TestHandlerSharedCompressor covers different content at 1 path on 2 servers.
@@ -637,33 +857,108 @@ func TestHandlerSkipsUncompressibleTypes(t *testing.T) {
 	require.Equal(t, int64(1), fsys.opens.Load(), "only the file server opens it")
 }
 
-// TestStoreFailure covers fallback, logging and failed precompression.
+// TestStoreFailure tests precompression and requests with a failing store.
 func TestStoreFailure(t *testing.T) {
 	t.Parallel()
 
 	errStore := errors.New("store failed")
-	for name, store := range map[string]*countingStore{
-		"open": {Store: inmem.New(), openErr: errStore},
-		"put":  {Store: inmem.New(), putErr: errStore},
+	for name, tc := range map[string]struct {
+		store      *countingStore
+		wantCoding string
+		wantLog    string
+	}{
+		"open": {
+			store: &countingStore{Store: inmem.New(), openErr: errStore},
+			wantLog: `level=WARN msg="compressing an asset" ` +
+				`path=/app.js coding=br err="store failed"`,
+		},
+		"put": {
+			store:      &countingStore{Store: inmem.New(), putErr: errStore},
+			wantCoding: "br",
+			wantLog: `level=WARN msg="storing a compressed asset" ` +
+				`key=[0-9a-f]{64}\.br6 attempts=5 err="store failed"`,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			c := newCompressor(t, assetcompress.Config{Store: store})
+			c := newCompressor(t, assetcompress.Config{Store: tc.store})
+			assetcompress.SetWriteRetry(c, time.Millisecond)
 			require.EqualError(t, c.Precompress(context.Background(), assetFiles()),
 				"precompressing app.js: store failed")
 
 			var log testlog.Buffer
 			w := get(t, newHandler(c, http.FS(assetFiles()), log.Logger()),
-				http.MethodGet, "/style.css", "br", nil)
+				http.MethodGet, "/app.js", "br", nil)
+			assetcompress.WaitBackground(c)
 			require.Equal(t, http.StatusOK, w.Code)
-			require.Empty(t, w.Header().Get("Content-Encoding"))
+			require.Equal(t, tc.wantCoding, w.Header().Get("Content-Encoding"))
 			require.True(t, varies(w.Header()))
-			require.Equal(t, assetCSS, w.Body.String())
-			log.RequireMatch(t, `level=WARN msg="compressing an asset" `+
-				`path=/style.css coding=br err="store failed"`)
+			require.Equal(t, assetJS, decode(t, tc.wantCoding, w.Body.Bytes()))
+			log.RequireMatch(t, tc.wantLog)
 		})
 	}
+}
+
+// lateFailingStore fails each write after reading it. A nonzero failures
+// limits the failed writes.
+type lateFailingStore struct {
+	assetcompress.Store
+	failures int64
+	puts     atomic.Int64
+}
+
+func (s *lateFailingStore) Put(key string, r io.Reader) error {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if n := s.puts.Add(1); s.failures == 0 || n <= s.failures {
+		return errors.New("disk full")
+	}
+	return s.Store.Put(key, bytes.NewReader(b))
+}
+
+// TestHandlerServesCopyFromMemory tests a copy that every write attempt fails.
+func TestHandlerServesCopyFromMemory(t *testing.T) {
+	t.Parallel()
+
+	store := &lateFailingStore{Store: inmem.New()}
+	c := newCompressor(t, assetcompress.Config{Store: store})
+	assetcompress.SetWriteRetry(c, time.Millisecond)
+	var log testlog.Buffer
+	h := newHandler(c, http.FS(assetFiles()), log.Logger())
+	for range 3 {
+		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+		require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+		require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+		assetcompress.WaitBackground(c)
+	}
+	require.Equal(t, int64(5), store.puts.Load(), "attempts to write the copy")
+	require.Len(t, log.Lines(), 1)
+	log.RequireMatch(t, `level=WARN msg="storing a compressed asset" `+
+		`key=[0-9a-f]{64}\.br6 attempts=5 err="disk full"`)
+}
+
+// TestHandlerRetriesWrite tests a copy stored by the 3rd attempt, unlogged.
+func TestHandlerRetriesWrite(t *testing.T) {
+	t.Parallel()
+
+	store := &lateFailingStore{Store: inmem.New(), failures: 2}
+	c := newCompressor(t, assetcompress.Config{Store: store})
+	assetcompress.SetWriteRetry(c, time.Millisecond)
+	var log testlog.Buffer
+	w := get(t, newHandler(c, http.FS(assetFiles()), log.Logger()),
+		http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	assetcompress.WaitBackground(c)
+
+	require.Equal(t, int64(3), store.puts.Load())
+	sum := sha256.Sum256([]byte(assetCSS))
+	copied, err := store.Open(hex.EncodeToString(sum[:]) + ".br6")
+	require.NoError(t, err, "the store has no copy")
+	require.NoError(t, copied.Close())
+	require.Empty(t, log.Lines())
 }
 
 type panickingStore struct {
@@ -678,7 +973,7 @@ func (s *panickingStore) Put(key string, r io.Reader) error {
 	return s.Store.Put(key, r)
 }
 
-// panickingFS panics during encoding, which runs on its own goroutine.
+// panickingFS panics while a copy of /style.css is compressed.
 type panickingFS struct {
 	http.FileSystem
 	opens atomic.Int64
@@ -696,39 +991,42 @@ type panickingFile struct{ http.File }
 
 func (panickingFile) Read([]byte) (int, error) { panic("read failed") }
 
-// TestHandlerPanic covers recovery, fallback and a successful retry.
+// TestHandlerPanic tests that store and file system panics are logged and that
+// only the latter sends the file uncompressed.
 func TestHandlerPanic(t *testing.T) {
 	t.Parallel()
 
 	for name, tc := range map[string]struct {
-		store assetcompress.Store // Nil for the default.
-		fsys  http.FileSystem
-		value string
+		store      assetcompress.Store // Nil for the default.
+		fsys       http.FileSystem
+		wantCoding string
+		wantLog    string
 	}{
 		"store": {
-			store: &panickingStore{Store: inmem.New()},
-			fsys:  http.FS(assetFiles()),
-			value: "put failed",
+			store:      &panickingStore{Store: inmem.New()},
+			fsys:       http.FS(assetFiles()),
+			wantCoding: "br",
+			wantLog: `level=ERROR msg="recovered panic while storing a compressed asset" ` +
+				`key=[0-9a-f]{64}\.br6 panic="put failed" stack="goroutine `,
 		},
 		"file system": {
-			fsys:  &panickingFS{FileSystem: http.FS(assetFiles())},
-			value: "read failed",
+			fsys: &panickingFS{FileSystem: http.FS(assetFiles())},
+			wantLog: `level=ERROR msg="recovered panic while compressing an asset" ` +
+				`path=/style.css coding=br panic="read failed" stack="goroutine `,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			var log testlog.Buffer
-			h := newHandler(
-				newCompressor(t,
-					assetcompress.Config{Store: tc.store}), tc.fsys, log.Logger(),
-			)
+			c := newCompressor(t, assetcompress.Config{Store: tc.store})
+			assetcompress.SetWriteRetry(c, time.Millisecond)
+			h := newHandler(c, tc.fsys, log.Logger())
 			w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-			require.Empty(t, w.Header().Get("Content-Encoding"))
-			require.Equal(t, assetCSS, w.Body.String())
-			log.RequireMatch(t,
-				`level=ERROR msg="recovered panic while compressing an asset" `+
-					`path=/style.css coding=br panic="`+tc.value+`" stack="goroutine `)
+			assetcompress.WaitBackground(c)
+			require.Equal(t, tc.wantCoding, w.Header().Get("Content-Encoding"))
+			require.Equal(t, assetCSS, decode(t, tc.wantCoding, w.Body.Bytes()))
+			log.RequireMatch(t, tc.wantLog)
 
 			// A compressor that the panic left locked never answers.
 			next := make(chan *httptest.ResponseRecorder, 1)
@@ -840,7 +1138,8 @@ func BenchmarkPrecompress(b *testing.B) {
 				Codings: []datapages.Coding{datapages.CodingBrotli},
 			}},
 			{"br11", assetcompress.Config{
-				Codings: []datapages.Coding{datapages.CodingBrotli}, BrotliQuality: 11,
+				Codings: []datapages.Coding{datapages.CodingBrotli},
+				Levels:  assetcompress.Levels{BrotliQuality: 11},
 			}},
 			{"zstd10", assetcompress.Config{
 				Codings: []datapages.Coding{datapages.CodingZstd},
