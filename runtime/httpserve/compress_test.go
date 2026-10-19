@@ -586,6 +586,44 @@ func TestResponseCompressionPanic(t *testing.T) {
 	require.Equal(t, strings.Join(page, ""), decode(t, "zstd", w.Body.Bytes()))
 }
 
+// TestResponseCompressionLateHeaders tests that headers set after the first
+// write are dropped, as without compression, and trailers kept.
+func TestResponseCompressionLateHeaders(t *testing.T) {
+	t.Parallel()
+
+	page := strings.Join(listPage(8<<10), "")
+	for name, body := range map[string]string{
+		"short": page[:27],
+		"long":  page,
+	} {
+		for conf, rc := range map[string]*datapages.ResponseCompressionConfig{
+			"compression":    nil,
+			"no compression": {Disabled: true},
+		} {
+			t.Run(name+"/"+conf, func(t *testing.T) {
+				t.Parallel()
+
+				c := mustCore(t, datapages.ServerConfig{ResponseCompression: rc}, "")
+				c.Mux().HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "text/html")
+					w.Header().Set("Trailer", "X-Sum")
+					_, _ = io.WriteString(w, body[:27])
+					w.Header().Set("X-Late", "1")
+					w.Header().Set("Content-Type", "image/png")
+					_, _ = io.WriteString(w, body[27:])
+					w.Header().Set("X-Sum", "1")
+				})
+				c.Build()
+
+				res := serveCompressed(t, c, http.MethodGet, browserCodings).Result()
+				require.Empty(t, res.Header.Get("X-Late"))
+				require.Equal(t, "text/html", res.Header.Get("Content-Type"))
+				require.Equal(t, "1", res.Trailer.Get("X-Sum"))
+			})
+		}
+	}
+}
+
 // TestResponseCompressionDevMode tests that dev mode disables compression.
 func TestResponseCompressionDevMode(t *testing.T) {
 	t.Setenv("DATAPAGES_DEV_MODE", "1")

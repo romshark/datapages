@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"cmp"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"strings"
@@ -30,6 +31,7 @@ type responseCompression struct {
 	codings []*contentcoding.Coding
 	minSize int
 	bufs    sync.Pool // *[]byte of capacity max(minSize, stageSize).
+	firsts  sync.Pool // Empty http.Header for [compressingWriter.first].
 }
 
 // newResponseCompression returns nil when compression is disabled.
@@ -81,6 +83,7 @@ func newResponseCompression(
 		b := make([]byte, 0, size)
 		return &b
 	}
+	bc.firsts.New = func() any { return make(http.Header) }
 	return bc
 }
 
@@ -125,6 +128,9 @@ type compressingWriter struct {
 	wrote       bool
 	passThrough bool
 	hijacked    bool
+	// first holds the headers of the first write, which net/http sends, while
+	// the body is held back.
+	first http.Header
 }
 
 // BodyWritten reports buffered and compressed writes that the underlying
@@ -298,6 +304,55 @@ func (cw *compressingWriter) check() bool {
 	if !declared {
 		cw.threshold = max(cw.threshold, sniffLen)
 	}
+	// A shallow copy keeps them, since Header methods replace or extend value
+	// slices instead of editing them.
+	cw.first = cw.bc.firsts.Get().(http.Header)
+	maps.Copy(cw.first, cw.Header())
+	return false
+}
+
+// restoreFirst resets the headers to those of the first write, except for
+// trailers, which net/http reads at the end of the handler.
+func (cw *compressingWriter) restoreFirst() {
+	if cw.first == nil {
+		return
+	}
+	h := cw.Header()
+	for k := range h {
+		if _, ok := cw.first[k]; !ok && !isTrailer(k, cw.first) {
+			delete(h, k)
+		}
+	}
+	for k, v := range cw.first {
+		if !isTrailer(k, cw.first) {
+			h[k] = v
+		}
+	}
+	cw.releaseFirst()
+}
+
+func (cw *compressingWriter) releaseFirst() {
+	if cw.first == nil {
+		return
+	}
+	clear(cw.first)
+	cw.bc.firsts.Put(cw.first)
+	cw.first = nil
+}
+
+// isTrailer reports whether net/http sends k as a trailer of a response
+// with the headers h.
+func isTrailer(k string, h http.Header) bool {
+	if strings.HasPrefix(k, http.TrailerPrefix) {
+		return true
+	}
+	for _, v := range h["Trailer"] {
+		for name := range strings.SplitSeq(v, ",") {
+			if http.CanonicalHeaderKey(strings.TrimSpace(name)) == k {
+				return true
+			}
+		}
+	}
 	return false
 }
 
@@ -324,6 +379,7 @@ func (cw *compressingWriter) refuses() bool {
 
 // decide compresses an eligible body. final means the buffer holds the full body.
 func (cw *compressingWriter) decide(final bool) {
+	cw.restoreFirst()
 	h := cw.Header()
 	ctValues, declared := h["Content-Type"]
 	switch {
@@ -368,6 +424,7 @@ func (cw *compressingWriter) decide(final bool) {
 
 // sendHeld writes the buffer uncompressed and passes later writes through.
 func (cw *compressingWriter) sendHeld() {
+	cw.restoreFirst()
 	cw.decided = true
 	if cw.status != 0 {
 		cw.ResponseWriter.WriteHeader(cw.status)
@@ -451,6 +508,7 @@ func (cw *compressingWriter) release() {
 		cw.coding.Put(cw.enc)
 		cw.enc = nil
 	}
+	cw.releaseFirst()
 	cw.releaseBuf()
 }
 

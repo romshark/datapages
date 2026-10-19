@@ -1006,7 +1006,7 @@ Compression runs after every `WithMiddleware` middleware. These responses pass t
 - Responses with `Content-Range` or an `Accept-Ranges` value other than `none`.
 - Bodies other than `text/*`, JSON, JavaScript, XML, YAML, TOML, SVG, WebAssembly, TrueType and OpenType fonts, icons and BMP images. The server sniffs the first 512 bytes when `Content-Type` is absent. `text/event-stream` also passes through.
 
-Compression removes `Content-Length` and weakens a strong `ETag`. A `HEAD` response gets the headers of its `GET` response. The server buffers up to the minimum size, or until the handler flushes or returns. A response without `Content-Type`, such as a page, buffers up to 512 bytes when the minimum size is smaller.
+Compression removes `Content-Length` and weakens a strong `ETag`. A `HEAD` response gets the headers of its `GET` response. The server buffers up to the minimum size, or until the handler flushes or returns. A response without `Content-Type`, such as a page, buffers up to 512 bytes when the minimum size is smaller. Headers set after the first write have no effect, as without compression, except trailers.
 
 `datapages.WithResponseCompression` sets the codings, order, minimum size and levels. `datapages.WithNoResponseCompression` disables it. `datapages.ResponseCompressionBalanced` returns the zero-value defaults. `datapages.ResponseCompressionLowCPU` orders zstd, gzip, brotli and sets every level or quality to 1. `datapages.ResponseCompressionLowBandwidth` orders brotli, zstd, gzip.
 
