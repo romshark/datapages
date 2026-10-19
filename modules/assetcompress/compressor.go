@@ -283,7 +283,8 @@ func (conf Config) validate() error {
 
 // Handler implements [datapages.AssetsCompressor]. It hashes each asset on its
 // first request, serves an accepted copy, and delegates other requests to next,
-// including those whose response is marked Cache-Control: no-transform.
+// including those whose response is marked Cache-Control: no-transform or
+// typed with a Content-Type that is not eligible.
 // Assets must not change before server exit. The handler adds the coding and
 // level to an existing ETag and logs copy failures before delegating to next.
 // New copies go out from memory and reach the store in the background,
@@ -451,6 +452,12 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	header := w.Header()
+	// http.FileServer keeps a type set before it. Such a type can rule out
+	// compression but cannot allow it for a file whose own type is not eligible.
+	declared, typed := header["Content-Type"]
+	if typed && (len(declared) == 0 || !contentcoding.Compressible(declared[0])) {
+		return false
+	}
 	contentcoding.AddVaryAcceptEncoding(header)
 	cd := contentcoding.Negotiate(h.c.codings, r.Header["Accept-Encoding"])
 	if cd == nil {
@@ -478,7 +485,9 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 			slog.String("key", key), slog.Any("err", err))
 		return false
 	}
-	header["Content-Type"] = info.contentType
+	if !typed {
+		header["Content-Type"] = info.contentType
+	}
 	if tag := header.Get("Etag"); strings.HasSuffix(tag, `"`) {
 		// Strong tags differ by representation.
 		header["Etag"] = info.etag(i, tag, suffix)

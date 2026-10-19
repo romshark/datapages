@@ -1039,6 +1039,7 @@ Asset responses follow these rules:
 - A compressed response keeps `Content-Length` and byte ranges.
 - A multi-range request receives the uncompressed file.
 - An eligible response carries `Vary: Accept-Encoding`, also when uncompressed.
+- A `Content-Type` that a middleware sets before the asset handler goes out unchanged. A type that is not eligible leaves the asset uncompressed.
 - With `datapages.WithAssetsCache`, a copy's `ETag` is the strong `ETag` of the file with the coding and level appended, such as `"tag.br6"`.
 - An error of the store while it opens a copy is logged, and the request receives the uncompressed file.
 - A copy that no attempt stores is logged once, after the last attempt.

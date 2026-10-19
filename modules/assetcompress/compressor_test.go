@@ -748,6 +748,35 @@ func TestHandlerKeepsInitialCopy(t *testing.T) {
 		`path=/style.css coding=br err="open failed"`)
 }
 
+// TestHandlerKeepsContentType tests that a Content-Type set before the handler
+// is kept and, when not eligible, rules out compression.
+func TestHandlerKeepsContentType(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		contentType string
+		wantCoding  string
+	}{
+		"eligible":     {contentType: "text/plain; charset=utf-8", wantCoding: "br"},
+		"not eligible": {contentType: "application/octet-stream"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil)
+			typed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				h.ServeHTTP(w, r)
+			})
+			for accept, wantCoding := range map[string]string{"": "", "br": tc.wantCoding} {
+				w := get(t, typed, http.MethodGet, "/page.html", accept, nil)
+				require.Equal(t, tc.contentType, w.Header().Get("Content-Type"), accept)
+				require.Equal(t, wantCoding, w.Header().Get("Content-Encoding"), accept)
+			}
+		})
+	}
+}
+
 // TestHandlerSharedCompressor covers different content at 1 path on 2 servers.
 func TestHandlerSharedCompressor(t *testing.T) {
 	t.Parallel()
