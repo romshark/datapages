@@ -158,11 +158,9 @@ func (l Levels) validate(prefix string) error {
 // A Compressor is safe for concurrent use by several servers.
 type Compressor struct {
 	codings []*contentcoding.Coding
-	// initial maps each coding to the coding of initial copies.
-	initial map[*contentcoding.Coding]*contentcoding.Coding
-	// suffixes maps each coding to a key and ETag suffix such as br6.
-	suffixes map[*contentcoding.Coding]string
-	store    Store
+	// formats holds the copy format of each coding, at the same index.
+	formats []copyFormat
+	store   Store
 	// byteStore is store when it keeps copies in memory.
 	byteStore BytesStore
 	minSize   int64
@@ -179,6 +177,13 @@ type Compressor struct {
 	background sync.WaitGroup
 	// writeRetry is [writeRetry] except in tests.
 	writeRetry time.Duration
+}
+
+// copyFormat is how 1 coding names its copies and creates the initial ones.
+type copyFormat struct {
+	suffix        string                // Of store keys and ETags, such as br6.
+	initial       *contentcoding.Coding // Of the copies that requests create.
+	initialSuffix string
 }
 
 var (
@@ -208,10 +213,6 @@ func New(conf Config) (*Compressor, error) {
 		codings = []datapages.Coding{datapages.CodingBrotli, datapages.CodingGzip}
 	}
 	c := &Compressor{
-		initial: make(map[*contentcoding.Coding]*contentcoding.Coding,
-			len(codings)),
-		suffixes: make(map[*contentcoding.Coding]string,
-			2*len(codings)),
 		store:         conf.Store,
 		minSize:       int64(cmp.Or(conf.MinSize, DefaultMinSize)),
 		puts:          make(map[string]*assetPut),
@@ -227,14 +228,14 @@ func New(conf Config) (*Compressor, error) {
 	for _, name := range codings {
 		level, initial := levels.of(name), initialLevels.of(name)
 		cd := newCoding(name, level)
-		c.codings = append(c.codings, cd)
-		c.suffixes[cd] = cd.Name() + strconv.Itoa(level)
-		c.initial[cd] = cd
+		f := copyFormat{suffix: cd.Name() + strconv.Itoa(level), initial: cd}
+		f.initialSuffix = f.suffix
 		if initial != level {
-			ic := newCoding(name, initial)
-			c.initial[cd] = ic
-			c.suffixes[ic] = ic.Name() + strconv.Itoa(initial)
+			f.initial = newCoding(name, initial)
+			f.initialSuffix = cd.Name() + strconv.Itoa(initial)
 		}
+		c.codings = append(c.codings, cd)
+		c.formats = append(c.formats, f)
 	}
 	return c, nil
 }
@@ -348,19 +349,17 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) (err err
 	if err != nil || !info.compressible {
 		return err
 	}
-	for i, cd := range c.codings {
-		if err := c.precompressCopy(
-			fsys, name, info.hash, info.keys[i], cd,
-		); err != nil {
+	for i := range c.codings {
+		if err := c.precompressCopy(fsys, name, info.hash, info.keys[i], i); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// precompressCopy creates and stores the copy under key when missing.
+// precompressCopy creates and stores the copy under key in the coding at i when missing.
 func (c *Compressor) precompressCopy(
-	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
+	fsys http.FileSystem, name, sum, key string, i int,
 ) error {
 	if _, ok := c.memory.Load(key); ok {
 		// A request created it.
@@ -373,7 +372,7 @@ func (c *Compressor) precompressCopy(
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	m, created, err := c.compress(fsys, name, sum, key, cd)
+	m, created, err := c.compress(fsys, name, sum, key, c.codings[i], c.formats[i].suffix)
 	if err != nil || !created {
 		return err
 	}
@@ -474,7 +473,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	}
 	i := slices.Index(h.c.codings, cd)
 	key := info.keys[i]
-	data, file, suffix, err := h.c.copyOf(h.fsys, info.name, info.hash, key, cd, h.logger)
+	data, file, suffix, err := h.c.copyOf(h.fsys, info.name, info.hash, key, i, h.logger)
 	if errors.Is(err, errChanged) {
 		h.files.Delete(rel)
 	}
@@ -620,8 +619,8 @@ func (c *Compressor) describe(
 		}
 		info.hash = hex.EncodeToString(sum.Sum(nil))
 		info.keys = make([]string, len(c.codings))
-		for i, cd := range c.codings {
-			info.keys[i] = info.hash + "." + c.suffixes[cd]
+		for i, f := range c.formats {
+			info.keys[i] = info.hash + "." + f.suffix
 		}
 		info.etags = make([]atomic.Pointer[taggedETag], len(c.codings))
 	}
@@ -633,8 +632,7 @@ func (c *Compressor) describe(
 // name must hash to sum. The creating call finishes the copy,
 // which stays in memory until stored so no other call creates it again.
 func (c *Compressor) copyOf(
-	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
-	logger *slog.Logger,
+	fsys http.FileSystem, name, sum, key string, i int, logger *slog.Logger,
 ) (data []byte, file io.ReadSeekCloser, suffix string, err error) {
 	if v, ok := c.memory.Load(key); ok {
 		m := v.(compressed)
@@ -645,25 +643,27 @@ func (c *Compressor) copyOf(
 	} else {
 		file, err = c.store.Open(key)
 	}
+	f := c.formats[i]
 	if !errors.Is(err, fs.ErrNotExist) {
-		return data, file, c.suffixes[cd], err
+		return data, file, f.suffix, err
 	}
-	m, created, err := c.compress(fsys, name, sum, key, c.initial[cd])
+	m, created, err := c.compress(fsys, name, sum, key, f.initial, f.initialSuffix)
 	if err != nil {
 		return nil, nil, "", err
 	}
 	if created {
-		c.background.Go(func() { c.finish(fsys, name, sum, key, cd, m, logger) })
+		c.background.Go(func() { c.finish(fsys, name, sum, key, i, m, logger) })
 	}
 	return m.data, nil, m.suffix, nil
 }
 
-// finish replaces m at the level of cd if needed, then stores it.
+// finish replaces m at the level of the coding at i if needed, then stores it.
 func (c *Compressor) finish(
-	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
-	m compressed, logger *slog.Logger,
+	fsys http.FileSystem, name, sum, key string, i int, m compressed,
+	logger *slog.Logger,
 ) {
-	if suffix := c.suffixes[cd]; m.suffix != suffix {
+	if suffix := c.formats[i].suffix; m.suffix != suffix {
+		cd := c.codings[i]
 		c.recompressing <- struct{}{}
 		data, err := encode(fsys, name, sum, cd)
 		<-c.recompressing
@@ -677,10 +677,12 @@ func (c *Compressor) finish(
 	c.write(key, m.data, logger)
 }
 
-// compress creates 1 copy per key in memory while concurrent callers wait,
-// possibly for another level than cd. It reports whether this call created it.
+// compress creates 1 copy per key in memory, in cd and with suffix,
+// while concurrent callers wait, possibly for another level.
+// It reports whether this call created it.
 func (c *Compressor) compress(
 	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
+	suffix string,
 ) (copied compressed, created bool, err error) {
 	c.lockPuts.Lock()
 	if p, ok := c.puts[key]; ok {
@@ -698,7 +700,7 @@ func (c *Compressor) compress(
 	c.lockPuts.Unlock()
 
 	data, err := encode(fsys, name, sum, cd)
-	p.copied, p.err = compressed{data: data, suffix: c.suffixes[cd]}, err
+	p.copied, p.err = compressed{data: data, suffix: suffix}, err
 	if p.err == nil {
 		c.memory.Store(key, p.copied)
 	}
