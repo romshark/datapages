@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,6 +78,37 @@ func TestAssetsCacheHeaders(t *testing.T) {
 			require.NotEmpty(t, w.Header().Get("ETag"))
 		})
 	}
+}
+
+// openCountingFS counts the files it opens.
+type openCountingFS struct {
+	http.FileSystem
+	opens atomic.Int64
+}
+
+func (fsys *openCountingFS) Open(name string) (http.File, error) {
+	fsys.opens.Add(1)
+	return fsys.FileSystem.Open(name)
+}
+
+// TestAssetsCacheWithoutETagOpensOnce tests that without
+// ETags the cache opens a file on its first request only.
+func TestAssetsCacheWithoutETagOpensOnce(t *testing.T) {
+	t.Parallel()
+
+	fsys := &openCountingFS{FileSystem: http.FS(assetFiles())}
+	c := assetsCore(t, fsys, datapages.ServerConfig{
+		AssetsCache: &datapages.AssetsCacheConfig{MaxAge: time.Hour, DisableETag: true},
+	})
+	w := getAsset(t, c, http.MethodGet, "/static/style.css", "br", nil)
+	require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+	opens := fsys.opens.Load()
+	for range 3 {
+		w := getAsset(t, c, http.MethodGet, "/static/style.css", "br", nil)
+		require.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+		require.Empty(t, w.Header().Get("ETag"))
+	}
+	require.Equal(t, opens, fsys.opens.Load(), "opens after the first request")
 }
 
 // TestAssetsCacheConditionalRequest tests that a matching If-None-Match value

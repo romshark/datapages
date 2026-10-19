@@ -37,14 +37,15 @@ type assetsCache struct {
 	next         http.Handler
 	fsys         http.FileSystem
 	cacheControl []string // Shared by every response.
+	etag         bool
 
-	// etags holds the ETag values of files by [exactpath.Clean] path, which
-	// every request reads without a lock. It is nil when ETags are disabled.
+	// files holds the ETag value of each file by [exactpath.Clean] path, nil
+	// without ETags, which every request reads without a lock.
 	//
 	// Missing paths leave no entry, and [exactSpellings] passes only paths
 	// spelled as listed, which bounds the map by the files in fsys instead of
 	// the paths clients request.
-	etags *sync.Map
+	files sync.Map
 }
 
 // newAssetsCache adds the headers in conf to files next serves from fsys.
@@ -59,15 +60,12 @@ func newAssetsCache(
 			cacheControl += ", immutable"
 		}
 	}
-	c := &assetsCache{
+	return &assetsCache{
 		next:         next,
 		fsys:         fsys,
 		cacheControl: []string{cacheControl},
+		etag:         !conf.DisableETag,
 	}
-	if !conf.DisableETag {
-		c.etags = new(sync.Map)
-	}
-	return c
 }
 
 func (c *assetsCache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -85,10 +83,8 @@ func (c *assetsCache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // The value is nil when ETags are disabled or the file cannot be read.
 func (c *assetsCache) lookup(p string) (tag []string, isFile bool) {
 	rel := exactpath.Clean(p)
-	if c.etags != nil {
-		if v, ok := c.etags.Load(rel); ok {
-			return v.([]string), true
-		}
+	if v, ok := c.files.Load(rel); ok {
+		return v.([]string), true
 	}
 
 	f, ok := c.openFile("/" + rel)
@@ -96,19 +92,16 @@ func (c *assetsCache) lookup(p string) (tag []string, isFile bool) {
 		return nil, false
 	}
 	defer func() { _ = f.Close() }()
-	if c.etags == nil {
-		return nil, true
+	if c.etag {
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			return nil, true
+		}
+		// Truncate the digest to 128 bits to keep the header short.
+		// Raw URL encoding has no character that needs escaping inside a quoted ETag.
+		tag = []string{`"` + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:16]) + `"`}
 	}
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, true
-	}
-	// Truncate the digest to 128 bits to keep the header short. Raw URL encoding
-	// contains no character that needs escaping inside a quoted ETag.
-	tag = []string{`"` + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:16]) + `"`}
-
-	c.etags.Store(rel, tag)
+	c.files.Store(rel, tag)
 	return tag, true
 }
 
