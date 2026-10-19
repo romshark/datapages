@@ -9,7 +9,7 @@ import (
 )
 
 // Store implements [github.com/romshark/datapages/modules/assetcompress.Store]
-// in memory.
+// in memory until process exit.
 type Store struct {
 	files sync.Map // Key to []byte.
 }
@@ -32,11 +32,6 @@ func (s *Store) Put(key string, r io.Reader) error {
 		return err
 	}
 	s.files.LoadOrStore(key, b)
-	return nil
-}
-
-func (s *Store) Delete(key string) error {
-	s.files.Delete(key)
 	return nil
 }
 

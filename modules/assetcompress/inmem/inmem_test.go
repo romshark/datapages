@@ -8,7 +8,7 @@ import (
 	"github.com/romshark/datapages/modules/assetcompress/internal/storetest"
 )
 
-// TestStore tests the [assetcompress.Store] contract.
+// TestStore covers the [assetcompress.Store] contract.
 func TestStore(t *testing.T) {
 	storetest.Run(t, func(*testing.T) assetcompress.Store { return inmem.New() })
 }

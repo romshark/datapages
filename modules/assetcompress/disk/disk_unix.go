@@ -8,9 +8,8 @@ import (
 	"syscall"
 )
 
-// checkPrivate refuses a directory that every user can write to or that
-// neither the server's user nor root owns, because such a user could plant
-// a copy under a predictable key. Group write passes for shared directories.
+// checkPrivate rejects world-writable directories and untrusted owners.
+// Group-writable directories remain valid.
 func checkPrivate(root *os.Root) error {
 	st, err := root.Stat(".")
 	if err != nil {

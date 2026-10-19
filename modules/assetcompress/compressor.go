@@ -55,23 +55,20 @@ var errChanged = errors.New("the file changed while it was compressed")
 //	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms         39 MiB
 //	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms        1.3 MiB
 type Config struct {
-	// Store keeps the copies of the content served now, in memory when nil.
-	// A store from [github.com/romshark/datapages/modules/assetcompress/disk.New]
-	// keeps them across restarts.
+	// Store keeps copies. Nil uses memory; a store from
+	// [github.com/romshark/datapages/modules/assetcompress/disk.New] survives restarts.
 	Store Store
 
-	// Codings lists codings in preference order and negotiates them like
-	// [datapages.SSECompressionConfig.Codings]. The default is brotli and gzip.
+	// Codings lists codings in preference order. The default is brotli then gzip.
+	// Negotiation matches [datapages.SSECompressionConfig.Codings].
 	Codings []datapages.Coding
 
-	// MinSize is the size in bytes below which a file stays uncompressed.
-	// 0 selects [DefaultMinSize], and 1 compresses every eligible file that
-	// is not empty.
+	// MinSize leaves smaller files uncompressed. 0 selects [DefaultMinSize],
+	// and 1 compresses every nonempty eligible file.
 	MinSize int
 
-	// ZstdLevel is from 1 to 22, and 0 selects [DefaultZstdLevel]. Only 1, 3, 6
-	// and 10 differ, and any other level compresses like the closest of them
-	// below it, whose number the keys and ETags of the copies carry.
+	// ZstdLevel ranges from 1 to 22; 0 selects [DefaultZstdLevel]. Levels other
+	// than 1, 3, 6 and 10 use the nearest lower level, including in keys and ETags.
 	ZstdLevel int
 
 	// BrotliQuality is from 1 to 11. 0 selects [DefaultBrotliQuality].
@@ -84,35 +81,26 @@ type Config struct {
 	GzipLevel int
 }
 
-// Compressor compresses static assets and serves the compressed copies.
-// Pass it to [datapages.WithAssetsCompression].
+// Compressor serves compressed static assets through
+// [datapages.WithAssetsCompression].
 //
-// A file of at least [Config.MinSize] bytes is eligible when its type is text,
-// HTML included, JSON, JavaScript, XML including SVG, or WASM. Each eligible file
-// is compressed once per coding, on its first request or by
-// [Compressor.Precompress]. Its copy is stored under the file's SHA-256, the
-// coding and the level. Dev mode disables compression.
+// Eligible types are text, JSON, JavaScript, XML, SVG and WASM. Each eligible
+// content is compressed once per coding, lazily or by [Compressor.Precompress],
+// and keyed by its SHA-256, coding and level. Dev mode disables compression.
 //
-// A Compressor is safe for concurrent use, also by several servers.
+// A Compressor is safe for concurrent use by several servers.
 type Compressor struct {
 	codings []*contentcoding.Coding
-	// suffixes maps a coding to the suffix of its store keys, its name and
-	// level, as in br6.
+	// suffixes maps each coding to a store-key suffix such as br6.
 	suffixes map[*contentcoding.Coding]string
 	store    Store
 	minSize  int64
 
-	// compressing limits encoder memory to 1 file at a time.
+	// compressing permits 1 active encoder.
 	compressing chan struct{}
 
 	lockPuts sync.Mutex
 	puts     map[string]*assetPut // By store key.
-
-	// lockRefs serializes changes to refs and to the files of every handler.
-	lockRefs sync.Mutex
-	// refs counts the files of all handlers per content sum, and the copies
-	// of a sum go with its last file.
-	refs map[string]int
 }
 
 var _ datapages.AssetsCompressor = (*Compressor)(nil)
@@ -122,8 +110,7 @@ type assetPut struct {
 	err  error
 }
 
-// New returns a compressor configured by conf.
-// It reports the first invalid field of conf.
+// New returns a compressor or the first invalid field of conf.
 func New(conf Config) (*Compressor, error) {
 	if err := conf.validate(); err != nil {
 		return nil, fmt.Errorf("assetcompress: %w", err)
@@ -138,7 +125,6 @@ func New(conf Config) (*Compressor, error) {
 		minSize:     int64(cmp.Or(conf.MinSize, DefaultMinSize)),
 		compressing: make(chan struct{}, 1),
 		puts:        make(map[string]*assetPut),
-		refs:        make(map[string]int),
 	}
 	if c.store == nil {
 		c.store = inmem.New()
@@ -187,11 +173,10 @@ func (conf Config) validate() error {
 	return nil
 }
 
-// Handler implements [datapages.AssetsCompressor] with a handler that sends
-// the copy of a file of fsys that the request accepts, creating it when missing,
-// and passes other requests to next. An ETag set before it runs gets the coding
-// and level appended, as in "tag.br6". When a copy can't be created or read,
-// the handler logs why and next sends the file uncompressed.
+// Handler implements [datapages.AssetsCompressor]. It hashes each asset on its
+// first request, serves an accepted copy, and delegates other requests to next.
+// Assets must not change before server exit. The handler adds the coding and
+// level to an existing ETag and logs copy failures before delegating to next.
 func (c *Compressor) Handler(
 	fsys http.FileSystem, next http.Handler, logger *slog.Logger,
 ) http.Handler {
@@ -201,16 +186,11 @@ func (c *Compressor) Handler(
 	return &handler{c: c, fsys: fsys, next: next, logger: logger}
 }
 
-// Precompress creates the missing copies of every eligible file of fsys in
-// every coding, except in dev mode. It stops at the first error or when ctx ends.
-// A panic while it creates a copy returns as a [datapages.PanicError].
+// Precompress creates every missing copy of fsys except in dev mode. It stops
+// at the first error or when ctx ends. A panic returns as a [datapages.PanicError].
 //
-// Copies are keyed by content, not path. Precompressing the embed.FS passed to
-// [datapages.WithAssets] therefore covers the subdirectory the server serves.
-//
-// Requests create the copies still missing. Per 200 KB, brotli 6 takes a few
-// milliseconds and brotli 11 takes 140 to 215 ms. Run Precompress in
-// a goroutine to serve meanwhile.
+// Content-based keys let the embed.FS passed to [datapages.WithAssets] cover
+// its served subdirectory. Run Precompress in a goroutine to serve meanwhile.
 func (c *Compressor) Precompress(ctx context.Context, fsys fs.FS) error {
 	if datapages.IsDevMode() {
 		return nil
@@ -257,9 +237,8 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) error {
 	return nil
 }
 
-// handler sends the copies of 1 file system. It describes the files itself
-// because 2 servers that share a [Compressor] may serve different files under
-// 1 path.
+// handler owns file descriptions because servers sharing a [Compressor] may
+// serve different content at the same path.
 type handler struct {
 	c      *Compressor
 	fsys   http.FileSystem
@@ -268,7 +247,6 @@ type handler struct {
 	files  sync.Map // Cleaned path to assetFile, read without a lock per request.
 }
 
-// assetFile describes a file as it was when hashed.
 type assetFile struct {
 	size         int64
 	modTime      time.Time
@@ -315,8 +293,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	key := info.hash + "." + h.c.suffixes[cd]
 	copied, err := h.c.copyOf(h.fsys, name, info.hash, key, cd)
 	if errors.Is(err, errChanged) {
-		// Size and modification time did not expose this edit.
-		h.forget(name)
+		h.files.Delete(name)
 	}
 	var panicked datapages.PanicError
 	switch {
@@ -335,11 +312,6 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	defer func() { _ = copied.Close() }()
-	if cur, ok := h.files.Load(name); !ok || cur.(assetFile).hash != info.hash {
-		// The file changed while the copy was created, which may have dropped
-		// the copies of info.hash before this one was stored.
-		h.dropUnused(info.hash)
-	}
 	// ServeContent returns 500 for a copy that cannot seek.
 	_, err = copied.Seek(0, io.SeekEnd)
 	if err == nil {
@@ -386,14 +358,13 @@ func (w codedWriter) ReadFrom(src io.Reader) (int64, error) {
 // Unwrap returns the underlying writer for [http.ResponseController].
 func (w codedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// file returns the description of name, which it keeps until the size or the
-// modification time changes. It reports false when name is not a file.
+// file returns name's cached description or creates it once.
 func (h *handler) file(name string) (assetFile, bool) {
+	if v, ok := h.files.Load(name); ok {
+		return v.(assetFile), true
+	}
 	f, err := h.fsys.Open(name)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			h.forget(name)
-		}
 		return assetFile{}, false
 	}
 	defer func() { _ = f.Close() }()
@@ -401,97 +372,15 @@ func (h *handler) file(name string) (assetFile, bool) {
 	if err != nil || st.IsDir() {
 		return assetFile{}, false
 	}
-	if v, ok := h.files.Load(name); ok {
-		info := v.(assetFile)
-		if info.size == st.Size() && info.modTime.Equal(st.ModTime()) {
-			return info, true
-		}
-	}
 	info, err := h.c.describe(name, st, f)
 	if err != nil {
 		return assetFile{}, false
 	}
-	h.remember(name, info)
+	h.files.Store(name, info)
 	return info, true
 }
 
-// remember stores info for name and drops the copies of the content it
-// replaces that no file of any handler has anymore.
-func (h *handler) remember(name string, info assetFile) {
-	h.c.lockRefs.Lock()
-	if info.hash != "" {
-		h.c.refs[info.hash]++
-	}
-	var gone string
-	if old, had := h.files.Swap(name, info); had {
-		gone = h.c.release(old.(assetFile).hash)
-	}
-	h.c.lockRefs.Unlock()
-	h.drop(gone)
-}
-
-// forget drops the description of name, whose file is gone or changed,
-// and the copies of its content that no other file has.
-func (h *handler) forget(name string) {
-	if _, ok := h.files.Load(name); !ok {
-		return
-	}
-	h.c.lockRefs.Lock()
-	var gone string
-	if old, had := h.files.LoadAndDelete(name); had {
-		gone = h.c.release(old.(assetFile).hash)
-	}
-	h.c.lockRefs.Unlock()
-	h.drop(gone)
-}
-
-// release counts down the files with content sum while c.lockRefs is held
-// and returns sum after the last one, whose copies the caller drops.
-func (c *Compressor) release(sum string) string {
-	if sum == "" {
-		return ""
-	}
-	c.refs[sum]--
-	if c.refs[sum] > 0 {
-		return ""
-	}
-	delete(c.refs, sum)
-	return sum
-}
-
-// drop deletes the copies of sum, waiting for a compression under way that
-// would store one after the deletion.
-func (h *handler) drop(sum string) {
-	if sum == "" {
-		return
-	}
-	for _, cd := range h.c.codings {
-		key := sum + "." + h.c.suffixes[cd]
-		h.c.lockPuts.Lock()
-		p := h.c.puts[key]
-		h.c.lockPuts.Unlock()
-		if p != nil {
-			<-p.done
-		}
-		if err := h.c.store.Delete(key); err != nil {
-			h.logger.Warn("deleting a compressed asset",
-				slog.String("key", key), slog.Any("err", err))
-		}
-	}
-}
-
-// dropUnused drops the copies of sum when no file of any handler has it.
-func (h *handler) dropUnused(sum string) {
-	h.c.lockRefs.Lock()
-	_, used := h.c.refs[sum]
-	h.c.lockRefs.Unlock()
-	if !used {
-		h.drop(sum)
-	}
-}
-
-// describe returns the type of f, the file name with the metadata st,
-// and the hash of f when it is eligible.
+// describe hashes f when its size and type permit compression.
 func (c *Compressor) describe(
 	name string, st fs.FileInfo, f io.Reader,
 ) (assetFile, error) {
@@ -519,8 +408,7 @@ func (c *Compressor) describe(
 	return info, nil
 }
 
-// copyOf opens the copy under key and creates it when it is missing.
-// The file name of fsys must hash to sum.
+// copyOf opens key, creating it from name when absent. name must hash to sum.
 func (c *Compressor) copyOf(
 	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
 ) (io.ReadSeekCloser, error) {
@@ -558,8 +446,7 @@ func (c *Compressor) compress(
 	return p.err
 }
 
-// put returns a panic of the store or the file system as a [datapages.PanicError],
-// which keeps [Compressor.compress] from leaving the key and the semaphore taken.
+// put recovers panics so [Compressor.compress] releases its key and semaphore.
 func (c *Compressor) put(
 	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
 ) (err error) {

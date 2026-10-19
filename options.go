@@ -383,6 +383,12 @@ func WithAssets(fsys embed.FS, browsable bool) ServerOption {
 // It serves fsys as it is. No subdirectory is extracted, and dev mode reads no
 // other directory. Dev mode still sends every file with Cache-Control: no-cache.
 //
+// The files of fsys must not change while the server runs. The server keeps
+// the [WithAssetsCache] ETag and the compressed copies of a file from its first
+// request until it exits, which after a change or a deletion sends browsers the
+// old content and every client the old ETag. A restart serves the files as they
+// are then. Serve files that change through a GET action that returns a [File].
+//
 // browsable true lists a directory that has no index.html, false returns 404.
 // Pass browsable=false in production to avoid exposing every embedded file.
 func WithAssetsFS(fsys http.FileSystem, browsable bool) ServerOption {
@@ -417,8 +423,7 @@ type AssetsCacheConfig struct {
 	CacheControl string
 
 	// DisableETag prevents [WithAssetsCache] from adding an ETag.
-	// Use it when a CDN or compressing middleware writes its own ETag,
-	// or when files can change during the process lifetime.
+	// Use it when a CDN or compressing middleware writes its own ETag.
 	DisableETag bool
 }
 
@@ -427,10 +432,9 @@ type AssetsCacheConfig struct {
 //
 // Optional. Without it Datapages adds neither header.
 //
-// The server computes each ETag on the first request and caches it for the
-// process lifetime. This matches the embedded file system used by [WithAssets].
-// Set [AssetsCacheConfig.DisableETag] for a [WithAssetsFS] file system whose
-// files can change while the server runs.
+// The server computes the ETag of a file at its first request and keeps it
+// until it exits, since assets must not change. See [WithAssetsFS] for files
+// that change anyway.
 //
 // Dev mode ignores this option and sends Cache-Control:
 // no-cache without Last-Modified.

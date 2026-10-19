@@ -1018,11 +1018,22 @@ By default, assets of at least 256 bytes are eligible when their media type is `
 
 The first request creates a missing copy. Concurrent requests share that work, and a compressor compresses 1 asset at a time. `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding. It returns the first failed read or store and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
 
-Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` therefore creates the copies the server looks up in its subdirectory. A size or modification-time change causes a new hash. A file changed during compression is not stored under its old hash. The compressor deletes the copies of content that no served file has anymore from its store, also after a file is deleted.
+Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` therefore creates the copies the server looks up in its subdirectory. The server hashes each file at its first request. A file changed during compression is not stored under its old hash.
 
 Compressed responses keep `Content-Length` and byte ranges. Multi-range requests use the uncompressed file. Eligible responses send `Vary: Accept-Encoding` even when uncompressed. With `datapages.WithAssetsCache`, a copy's `ETag` appends its coding and level, as in `"tag.br6"`. Store errors are logged and the request falls back to the uncompressed file. A panic in the store or the file system while a copy is created takes the same path and is logged with its stack.
 
 `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels and store of its `Config`. `datapages.WithAssetsCompression` passes it to the server, which otherwise uses the defaults. `datapages.WithNoAssetsCompression` disables compression. A nil `Store` uses memory; `modules/assetcompress/disk` persists copies in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700. The option accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server.
+
+## Changing Assets
+
+Assets must not change while the server runs, as the files of an `embed.FS` cannot. The server keeps the `ETag` that `datapages.WithAssetsCache` adds and the compressed copies of a file from its first request until it exits. A file that changes anyway has these effects until the next restart:
+
+- Uncompressed responses send the new content with the old `ETag`. A client that revalidates with that `ETag` receives 304 and keeps the old content.
+- A client that accepts compression receives the old content if the copy was created before the change, also after the file is deleted. A change before the copy exists is detected while compressing, and the next request compresses the new content.
+
+A restart serves the files as they are then. `ETag`s and copies follow the content, and a file that did not change reuses its copies in the `disk` store. Whenever a server starts, that store deletes the copies that no server opened for `disk.Config.MaxUnused`, 7 days by default, which removes those of earlier content. A client may still reuse an asset with a positive `MaxAge` until it expires; see [Dev Mode](#dev-mode).
+
+Serve files that change while the server runs through a GET action that returns [`datapages.File`](#return-value-datapagesfile).
 
 ## Dev Mode
 

@@ -4,6 +4,5 @@ package disk
 
 import "os"
 
-// checkPrivate accepts every directory outside Unix.
-// Windows controls access with ACLs, which [os.FileMode] doesn't reflect.
+// checkPrivate accepts platforms without Unix ownership checks.
 func checkPrivate(*os.Root) error { return nil }

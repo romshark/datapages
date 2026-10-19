@@ -264,7 +264,7 @@ The default build ID is a hash of the executable. If you set `datapages.WithBuil
 
 ## Serve static assets
 
-Enable the scaffold's `embed.FS` example, pass it to `datapages.WithAssets`, and write URLs with the generated `assets` or `href` helper. Configure production caching with `datapages.WithAssetsCache`. See [Dev Mode](SPECIFICATION.md#dev-mode) and [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets).
+Enable the scaffold's `embed.FS` example, pass it to `datapages.WithAssets`, and write URLs with the generated `assets` or `href` helper. Configure production caching with `datapages.WithAssetsCache`. Assets must not change while the server runs, and files that do belong in a GET action that returns `datapages.File`. See [Changing Assets](SPECIFICATION.md#changing-assets), [Dev Mode](SPECIFICATION.md#dev-mode) and [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets).
 
 Datapages compresses eligible assets on first request and keeps the copies in memory. Brotli 6 takes a few milliseconds per 200 KB file; brotli 11 takes 140 to 215 ms. To avoid this request delay, create the compressor and precompress the embedded files:
 
@@ -286,14 +286,14 @@ A copy is stored under the content of its file, not its path. Precompressing the
 Persist copies to compress each build once:
 
 ```go
-store, err := disk.New("/var/cache/myapp/assets")
+store, err := disk.New("/var/cache/myapp/assets", disk.Config{})
 if err != nil {
 	return err
 }
 assets, err := assetcompress.New(assetcompress.Config{Store: store})
 ```
 
-On Unix, `disk.New` refuses a directory that every user can write to, such as the mount point of a Kubernetes `emptyDir` volume. Pass a subdirectory of it, which `disk.New` creates.
+On Unix, `disk.New` refuses a directory that every user can write to, such as the mount point of a Kubernetes `emptyDir` volume. Pass a subdirectory of it, which `disk.New` creates. Whenever a server starts, `disk.New` deletes the copies that no server opened for `disk.Config.MaxUnused`, 7 days by default.
 
 See [Asset Compression](SPECIFICATION.md#asset-compression) for the rules and [`assetcompress.Config`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Config) for measurements.
 

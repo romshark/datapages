@@ -5,8 +5,6 @@ import (
 	"cmp"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +30,6 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/assetcompress"
-	"github.com/romshark/datapages/modules/assetcompress/disk"
 	"github.com/romshark/datapages/modules/assetcompress/inmem"
 )
 
@@ -62,12 +59,10 @@ func assetFiles() fstest.MapFS {
 	}
 }
 
-// eligibleCopies is the number of copies the compressor of the zero Config
-// stores for assetFiles: brotli and gzip for 5 contents. sub/copy.css repeats
-// style.css, small.css is below 256 bytes and image.png is no text.
+// Zero Config creates brotli and gzip copies for 5 unique eligible contents.
 const eligibleCopies = 10
 
-// countingStore counts puts and injects failures.
+// countingStore counts puts and injects errors.
 type countingStore struct {
 	assetcompress.Store
 	puts    atomic.Int64
@@ -99,8 +94,7 @@ func newCompressor(t testing.TB, conf assetcompress.Config) *assetcompress.Compr
 	return c
 }
 
-// newHandler puts c in front of [http.FileServer], as the server does.
-// A nil logger discards the log.
+// newHandler matches the server's middleware order. A nil logger discards logs.
 func newHandler(
 	c *assetcompress.Compressor, fsys http.FileSystem, logger *slog.Logger,
 ) http.Handler {
@@ -166,7 +160,7 @@ func varies(h http.Header) bool {
 	return false
 }
 
-// TestNew tests valid and invalid configurations.
+// TestNew covers valid and invalid configurations.
 func TestNew(t *testing.T) {
 	t.Parallel()
 
@@ -229,7 +223,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-// TestHandler tests eligibility, negotiation and headers.
+// TestHandler covers eligibility, negotiation and headers.
 func TestHandler(t *testing.T) {
 	t.Parallel()
 
@@ -317,7 +311,7 @@ func TestHandler(t *testing.T) {
 	}
 }
 
-// TestHandlerHEAD tests that HEAD describes the selected copy.
+// TestHandlerHEAD verifies that HEAD describes the selected copy.
 func TestHandlerHEAD(t *testing.T) {
 	t.Parallel()
 
@@ -329,7 +323,7 @@ func TestHandlerHEAD(t *testing.T) {
 	require.Empty(t, head.Body.String())
 }
 
-// TestHandlerRange tests a range of a copy.
+// TestHandlerRange verifies a range of a copy.
 func TestHandlerRange(t *testing.T) {
 	t.Parallel()
 
@@ -345,8 +339,7 @@ func TestHandlerRange(t *testing.T) {
 	require.Equal(t, full[:10], w.Body.Bytes())
 }
 
-// TestHandlerMultipartRange tests that a request for several ranges gets them
-// from the uncompressed file.
+// TestHandlerMultipartRange verifies that multiple ranges use the source file.
 func TestHandlerMultipartRange(t *testing.T) {
 	t.Parallel()
 
@@ -360,8 +353,7 @@ func TestHandlerMultipartRange(t *testing.T) {
 	require.Contains(t, w.Body.String(), assetCSS[:10])
 }
 
-// TestHandlerMinSize tests that a file below the minimum size stays uncompressed,
-// and that MinSize 1 compresses it.
+// TestHandlerMinSize covers the default threshold and MinSize 1.
 func TestHandlerMinSize(t *testing.T) {
 	t.Parallel()
 
@@ -374,8 +366,7 @@ func TestHandlerMinSize(t *testing.T) {
 	}
 }
 
-// TestHandlerZstdLevels tests that zstd levels that compress alike share their
-// copies and ETags.
+// TestHandlerZstdLevels verifies that equivalent levels share copies and ETags.
 func TestHandlerZstdLevels(t *testing.T) {
 	t.Parallel()
 
@@ -392,8 +383,7 @@ func TestHandlerZstdLevels(t *testing.T) {
 	require.Equal(t, int64(1), store.puts.Load(), "copies of levels 19 and 22")
 }
 
-// TestHandlerETag tests that each copy appends its coding and level to the tag
-// set before the handler, and that a conditional request matches its own tag.
+// TestHandlerETag covers representation tags and conditional requests.
 func TestHandlerETag(t *testing.T) {
 	t.Parallel()
 
@@ -417,7 +407,7 @@ func TestHandlerETag(t *testing.T) {
 		"the tag of the uncompressed file matched the copy")
 }
 
-// TestHandlerPreconditionFailed tests that a 412 carries no header of the copy.
+// TestHandlerPreconditionFailed verifies that a 412 omits copy headers.
 func TestHandlerPreconditionFailed(t *testing.T) {
 	t.Parallel()
 
@@ -431,7 +421,7 @@ func TestHandlerPreconditionFailed(t *testing.T) {
 	require.Empty(t, w.Body.String())
 }
 
-// TestHandlerLazy tests that a request stores the copy of its coding once.
+// TestHandlerLazy verifies 1 stored copy per requested coding.
 func TestHandlerLazy(t *testing.T) {
 	t.Parallel()
 
@@ -448,8 +438,7 @@ func TestHandlerLazy(t *testing.T) {
 	require.Equal(t, int64(2), store.puts.Load(), "the copy of the other coding")
 }
 
-// TestHandlerConcurrent tests that concurrent requests for a missing copy share
-// 1 put.
+// TestHandlerConcurrent verifies that concurrent misses share 1 put.
 func TestHandlerConcurrent(t *testing.T) {
 	t.Parallel()
 
@@ -468,9 +457,7 @@ func TestHandlerConcurrent(t *testing.T) {
 	require.Equal(t, int64(1), store.puts.Load())
 }
 
-// TestHandlerSharedCompressor tests 2 handlers of 1 compressor that serve
-// different files of equal size and modification time under 1 path, as 2
-// servers sharing a compressor do.
+// TestHandlerSharedCompressor covers different content at 1 path on 2 servers.
 func TestHandlerSharedCompressor(t *testing.T) {
 	t.Parallel()
 
@@ -485,98 +472,30 @@ func TestHandlerSharedCompressor(t *testing.T) {
 	require.Equal(t, other, decode(t, "br", w.Body.Bytes()))
 }
 
-// TestHandlerChangedFile tests that a new size or modification time makes
-// the next request hash the file again.
+// TestHandlerChangedFile verifies that compressed responses keep cached content
+// until a new handler is built. Uncompressed responses read the changed file.
 func TestHandlerChangedFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	file := filepath.Join(dir, "style.css")
 	require.NoError(t, os.WriteFile(file, []byte(assetCSS), 0o600))
-	h := newHandler(newCompressor(t, assetcompress.Config{}), http.Dir(dir), nil)
+	c := newCompressor(t, assetcompress.Config{})
+	h := newHandler(c, http.Dir(dir), nil)
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 
 	changed := strings.ReplaceAll(assetCSS, "#ddd", "#eee")
 	require.NoError(t, os.WriteFile(file, []byte(changed), 0o600))
-	later := time.Now().Add(time.Minute)
-	require.NoError(t, os.Chtimes(file, later, later))
 	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	w = get(t, h, http.MethodGet, "/style.css", "", nil)
+	require.Equal(t, changed, w.Body.String())
+
+	w = get(t, newHandler(c, http.Dir(dir), nil), http.MethodGet, "/style.css", "br", nil)
 	require.Equal(t, changed, decode(t, "br", w.Body.Bytes()))
 }
 
-// TestHandlerDropsOldCopies tests that a store with Delete loses the copies of
-// content that no served file has after a change or a deletion, and keeps
-// those that another file has.
-func TestHandlerDropsOldCopies(t *testing.T) {
-	t.Parallel()
-
-	for name, newStore := range map[string]func(t *testing.T) assetcompress.Store{
-		"memory": func(*testing.T) assetcompress.Store { return inmem.New() },
-		"disk": func(t *testing.T) assetcompress.Store {
-			s, err := disk.New(t.TempDir())
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, s.Close()) })
-			return s
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			dir := t.TempDir()
-			store := newStore(t)
-			h := newHandler(newCompressor(t,
-				assetcompress.Config{Store: store}), http.Dir(dir), nil)
-			version := 0
-			write := func(name, data string) {
-				t.Helper()
-				file := filepath.Join(dir, name)
-				require.NoError(t, os.WriteFile(file, []byte(data), 0o600))
-				// http.Dir reports a change through the modification time.
-				version++
-				mt := time.Unix(1_700_000_000+int64(version), 0)
-				require.NoError(t, os.Chtimes(file, mt, mt))
-			}
-			request := func(name string) {
-				get(t, h, http.MethodGet, "/"+name, "br", nil)
-			}
-			stored := func(data string) bool {
-				sum := sha256.Sum256([]byte(data))
-				f, err := store.Open(hex.EncodeToString(sum[:]) + ".br6")
-				if err != nil {
-					return false
-				}
-				require.NoError(t, f.Close())
-				return true
-			}
-
-			v1 := assetCSS
-			v2 := strings.ReplaceAll(assetCSS, "#ddd", "#eee")
-			v3 := assetCSS + "/* v3 */\n"
-			write("style.css", v1)
-			write("copy.css", v1)
-			request("style.css")
-			request("copy.css")
-			require.True(t, stored(v1))
-
-			write("style.css", v2)
-			request("style.css")
-			require.True(t, stored(v2))
-			require.True(t, stored(v1), "copy.css still has v1")
-
-			require.NoError(t, os.Remove(filepath.Join(dir, "copy.css")))
-			request("copy.css")
-			require.False(t, stored(v1), "no file has v1 anymore")
-
-			write("style.css", v3)
-			request("style.css")
-			require.True(t, stored(v3))
-			require.False(t, stored(v2), "no file has v2 anymore")
-		})
-	}
-}
-
-// changingFS changes style.css after its first open, keeping its size.
 type changingFS struct {
 	opens atomic.Int64
 }
@@ -591,9 +510,7 @@ func (f *changingFS) Open(name string) (http.File, error) {
 	return http.FS(files).Open(name)
 }
 
-// TestHandlerFileChangesDuringCompression tests that a copy whose file no
-// longer hashes to its key is not stored, and that the next request hashes
-// the file again.
+// TestHandlerFileChangesDuringCompression rejects a changed source and retries.
 func TestHandlerFileChangesDuringCompression(t *testing.T) {
 	t.Parallel()
 
@@ -612,7 +529,7 @@ func TestHandlerFileChangesDuringCompression(t *testing.T) {
 		decode(t, "br", w.Body.Bytes()))
 }
 
-// TestHandlerCodings tests a configured zstd preference.
+// TestHandlerCodings verifies a configured zstd preference.
 func TestHandlerCodings(t *testing.T) {
 	t.Parallel()
 
@@ -637,9 +554,7 @@ func (f *openCountingFS) Open(name string) (http.File, error) {
 	return f.FileSystem.Open(name)
 }
 
-// TestHandlerSkipsUncompressibleTypes tests that a request for a file whose
-// extension has a type compression does not shrink reaches next without the
-// compressor opening the file.
+// TestHandlerSkipsUncompressibleTypes verifies that rejected extensions bypass opens.
 func TestHandlerSkipsUncompressibleTypes(t *testing.T) {
 	t.Parallel()
 
@@ -651,8 +566,7 @@ func TestHandlerSkipsUncompressibleTypes(t *testing.T) {
 	require.Equal(t, int64(1), fsys.opens.Load(), "only the file server opens it")
 }
 
-// TestStoreFailure tests that a request logs a failed store and gets the file
-// uncompressed, and that precompression stops at it.
+// TestStoreFailure covers fallback, logging and failed precompression.
 func TestStoreFailure(t *testing.T) {
 	t.Parallel()
 
@@ -681,7 +595,6 @@ func TestStoreFailure(t *testing.T) {
 	}
 }
 
-// panickingStore panics in its first Put.
 type panickingStore struct {
 	assetcompress.Store
 	panicked atomic.Bool
@@ -694,8 +607,7 @@ func (s *panickingStore) Put(key string, r io.Reader) error {
 	return s.Store.Put(key, r)
 }
 
-// panickingFS panics in the 2nd read pass of style.css. The 1st hashes it on
-// the goroutine of the request, the 2nd encodes it on a goroutine of its own.
+// panickingFS panics during encoding, which runs on its own goroutine.
 type panickingFS struct {
 	http.FileSystem
 	opens atomic.Int64
@@ -713,8 +625,7 @@ type panickingFile struct{ http.File }
 
 func (panickingFile) Read([]byte) (int, error) { panic("read failed") }
 
-// TestHandlerPanic tests that a panic in the store or the file system is logged
-// and falls back to the uncompressed file, and the next request gets the copy.
+// TestHandlerPanic covers recovery, fallback and a successful retry.
 func TestHandlerPanic(t *testing.T) {
 	t.Parallel()
 
@@ -762,7 +673,7 @@ func TestHandlerPanic(t *testing.T) {
 	}
 }
 
-// TestDevMode tests that dev mode sends files uncompressed and stores no copy.
+// TestDevMode verifies that dev mode disables compression.
 func TestDevMode(t *testing.T) {
 	t.Setenv(datapages.EnvVarDevMode, "1")
 	store := newCountingStore()
@@ -777,8 +688,7 @@ func TestDevMode(t *testing.T) {
 	require.Zero(t, store.puts.Load())
 }
 
-// TestPrecompress tests that precompression stores 1 copy per content and
-// coding, and that requests then create none.
+// TestPrecompress verifies 1 copy per content and coding with no lazy puts.
 func TestPrecompress(t *testing.T) {
 	t.Parallel()
 
@@ -796,9 +706,7 @@ func TestPrecompress(t *testing.T) {
 	require.Equal(t, int64(eligibleCopies), store.puts.Load())
 }
 
-// TestPrecompressSubdirectory tests that precompressing a file system creates
-// the copies a server of 1 of its subdirectories requests, as the server of
-// the embed.FS of datapages.WithAssets serves a subdirectory of it.
+// TestPrecompressSubdirectory covers serving a subdirectory of an embed.FS.
 func TestPrecompressSubdirectory(t *testing.T) {
 	t.Parallel()
 
@@ -825,8 +733,7 @@ func TestPrecompressSubdirectory(t *testing.T) {
 		"a request created a copy")
 }
 
-// TestPrecompressCanceled tests that a canceled context stops precompression
-// before the first file.
+// TestPrecompressCanceled stops before the first file.
 func TestPrecompressCanceled(t *testing.T) {
 	t.Parallel()
 
@@ -844,8 +751,7 @@ var exampleAssets = []string{
 	"../../example/classifieds/app/static/ds.min.js",
 }
 
-// BenchmarkPrecompress measures the time,
-// size and memory of the first copy of example assets.
+// BenchmarkPrecompress measures the first copy of example assets.
 func BenchmarkPrecompress(b *testing.B) {
 	for _, file := range exampleAssets {
 		data, err := os.ReadFile(file)

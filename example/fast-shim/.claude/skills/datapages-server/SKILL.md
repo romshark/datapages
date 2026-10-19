@@ -98,7 +98,7 @@ Without `WithAssetsCache`, Datapages sends neither `Cache-Control` nor `ETag` fo
 
 Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` omits both headers.
 
-The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
+The server computes an ETag on a file's first request and keeps it until the process exits, since assets must not change while it runs. A file that changes anyway keeps its old ETag, and browsers may get its old compressed content, until a restart. Serve files that change through a GET action that returns `datapages.File`. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
 
 Assets of at least 256 bytes use brotli 6 or gzip 9 by default when their type is text, HTML included, JSON, JavaScript, XML, SVG or WebAssembly. The first request compresses and caches its copy. Per 200 KB, brotli 6 takes a few milliseconds and brotli 11 takes 140 to 215 ms. To avoid this delay, create the compressor with `assetcompress.New`, pass it to `WithAssetsCompression`, and run `assets.Precompress(ctx, app.StaticFS)` in a goroutine that logs its error, or before `ListenAndServe`. Copies are keyed by content, not path, which is why the whole `embed.FS` precompresses the files the server serves from its subdirectory. `assetcompress.Config` sets codings, levels and storage; `modules/assetcompress/disk` persists copies. `WithNoAssetsCompression` turns it off. Dev mode disables asset compression.
 
@@ -121,4 +121,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:72d42ea198eac480 -->
+<!-- written by datapages sha256:ac8f141be7f6b2db -->
