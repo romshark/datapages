@@ -71,7 +71,7 @@ type ServerConfig struct {
 	AssetsBrowsable bool
 
 	// AssetsCache configures production asset cache headers.
-	// A nil value adds no Cache-Control or ETag header.
+	// A nil value sends Cache-Control: public, max-age=0 and no ETag.
 	AssetsCache *AssetsCacheConfig
 
 	// Sessions configures the session cookie and the token generator.
@@ -404,8 +404,9 @@ func WithAssetsFS(fsys http.FileSystem, browsable bool) ServerOption {
 // Its zero value sends "Cache-Control: public, max-age=0" and an ETag.
 // A conditional request for an unchanged asset then receives 304 with no body.
 type AssetsCacheConfig struct {
-	// Disabled prevents [WithAssetsCache] from adding headers.
-	// It supports configuration files and flags that cannot omit the option.
+	// Disabled makes [WithAssetsCache] change nothing, which leaves the headers
+	// of a server without the option. It supports configuration files and flags
+	// that cannot omit the option.
 	Disabled bool
 
 	// MaxAge is how long a browser may reuse an asset without asking again.
@@ -433,7 +434,10 @@ type AssetsCacheConfig struct {
 // WithAssetsCache adds Cache-Control and an optional ETag to static files
 // served by [WithAssets] and [WithAssetsFS].
 //
-// Optional. Without it Datapages adds neither header.
+// Optional. Without it, assets carry Cache-Control: public, max-age=0 and no
+// ETag, which makes a browser ask before every reuse. Without any
+// Cache-Control, a browser could reuse a file that has a modification time
+// after a deploy without asking.
 //
 // The server computes the ETag of a file at its first request and keeps it
 // until it exits, since assets must not change. See [WithAssetsFS] for files

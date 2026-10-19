@@ -49,11 +49,11 @@ var errChanged = errors.New("the file changed while it was compressed")
 // A Compressor compresses 1 file at a time. BenchmarkPrecompress in
 // modules/assetcompress measures example CSS and JavaScript files:
 //
-//	              editor.js, 222 KB   basecoat.css, 218 KB   allocated
-//	brotli 6      27.9% in 4 ms       8.8% in 1.5 ms         12 MiB
-//	brotli 11     25.6% in 215 ms     7.9% in 142 ms         61 MiB
-//	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms         39 MiB
-//	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms        1.3 MiB
+//	              editor.js, 222 KB   basecoat-1.0.2.css, 218 KB   allocated
+//	brotli 6      27.9% in 4 ms       8.8% in 1.5 ms               12 MiB
+//	brotli 11     25.6% in 215 ms     7.9% in 142 ms               61 MiB
+//	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms               39 MiB
+//	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms              1.3 MiB
 type Config struct {
 	// Store keeps copies. Nil uses memory; a store from
 	// [github.com/romshark/datapages/modules/assetcompress/disk.New] survives restarts.

@@ -59,7 +59,7 @@ func run(host, dir string) (err error) {
 		datapages.WithAssets(app.StaticFS, false),
 		datapages.WithBodySizeLimit(app.BodySizeLimit),
 		// The CDN is unreachable offline.
-		datapages.WithDatastarJS(assets.Path("datastar.js")),
+		datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 		datapagesgen.WithOffline(app.OfflineConfig()))
 	if err != nil {
 		return err

@@ -1069,9 +1069,9 @@ Set `TEMPL_DEV_MODE=true` before starting the process to enable templ hot reload
 
 Dev mode reads assets from the source tree and sends `Cache-Control: no-cache` without `Last-Modified`. It ignores `datapages.WithAssetsCache`, `datapages.WithResponseCompression` and `datapages.WithAssetsCompression`; see [Response Compression](#response-compression) and [Asset Compression](#asset-compression). The server logs a startup warning.
 
-Outside dev mode, Datapages adds no `Cache-Control` or `ETag` header unless `datapages.WithAssetsCache` is set. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
+Outside dev mode, assets carry `Cache-Control: public, max-age=0` and no `ETag` unless `datapages.WithAssetsCache` is set. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
 
-`datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. `Disabled` suppresses both headers; `DisableETag` suppresses the `ETag`.
+`datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. With `Disabled`, assets carry the headers of a server without the option. `DisableETag` suppresses the `ETag`.
 
 Generated asset URLs do not contain a content hash. A client may reuse an asset with a positive `MaxAge` until it expires. Change the URL when new contents must take effect before then.
 

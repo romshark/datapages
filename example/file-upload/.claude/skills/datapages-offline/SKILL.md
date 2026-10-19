@@ -33,7 +33,7 @@ func (PageOffline) GET(r *http.Request) (body datapages.Component, err error) {
 ```go
 opts := []datapages.ServerOption{
 	// Self-host Datastar: the CDN is unreachable offline.
-	datapages.WithDatastarJS(assets.Path("datastar.js")),
+	datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 	datapagesgen.WithOffline(app.OfflineConfig()),
 }
 ```
@@ -51,7 +51,7 @@ func OfflineConfig() offline.Config {
 		WorkerVersion: OfflineWorkerVersion,
 		// Precache the files required to render cached pages offline.
 		Assets: []string{
-			assets.Path("style.css"), assets.Path("datastar.js"),
+			assets.Path("style.css"), assets.Path("datastar-1.0.4.js"),
 		},
 	}
 }
@@ -199,4 +199,4 @@ An action that takes `datapages.PageCacheWriter` answers 406 to a request withou
 
 `newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. Navigation waits up to 500ms for the worker to apply `ClearAll` before loading the destination.
 
-<!-- written by datapages sha256:696ba85d90de24a9 -->
+<!-- written by datapages sha256:29d3663c80e98cf1 -->

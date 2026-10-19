@@ -43,7 +43,7 @@ opts = append(opts,
 	datapages.WithSessionManager[app.SessionData](mgr),
 	datapages.WithAssets(app.StaticFS, false),
 	datapages.WithHTTPServer(&http.Server{ReadHeaderTimeout: 10 * time.Second}),
-	datapages.WithDatastarJS("https://cdn.example.com/datastar.js"),
+	datapages.WithDatastarJS("https://cdn.example.com/datastar@1.0.4/datastar.js"),
 	datapages.WithShutdownTimeout(30*time.Second),
 	datapages.WithFileSendTimeout(time.Minute),
 	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
@@ -94,9 +94,9 @@ Declare at most 1 such variable in an app package. The URL prefix must start and
 
 `WithAssetsFS` accepts an `http.FileSystem` and overrides `WithAssets`. Datapages uses that filesystem as-is: it does not extract the declared source directory or replace it in development mode. The app's declared URL prefix still determines where files are served. Without an asset declaration, the option is accepted but no asset route is registered.
 
-Without `WithAssetsCache`, Datapages sends neither `Cache-Control` nor `ETag` for assets. A zero `AssetsCacheConfig` sends `Cache-Control: public, max-age=0` and an ETag. The browser revalidates every request. An unchanged file returns 304 with an empty body.
+Without `WithAssetsCache`, assets carry `Cache-Control: public, max-age=0` and no ETag, which makes the browser ask before every reuse. A zero `AssetsCacheConfig` adds an ETag, with which an unchanged file returns 304 with an empty body.
 
-Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` omits both headers.
+Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash or the version of a vendored library, as in `datastar-1.0.4.js`. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` leaves the headers of a server without `WithAssetsCache`.
 
 The server computes an ETag on a file's first request and keeps it until the process exits, since assets must not change while it runs. A file that changes anyway keeps its old ETag, and browsers may get its old compressed content, until a restart. Serve files that change through a GET action that returns `datapages.File`. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
 

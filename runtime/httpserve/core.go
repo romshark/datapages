@@ -289,6 +289,8 @@ func (c *Core) Build() {
 			h = DevNoCache(http.FileServer(noModTimeFS{fsys}))
 		case c.assetsCache != nil && !c.assetsCache.Disabled:
 			h = newAssetsCache(fsys, *c.assetsCache, h)
+		default:
+			h = revalidated(h)
 		}
 		c.mux.Handle("GET "+c.assetsURLPrefix,
 			http.StripPrefix(c.assetsURLPrefix, servingAssets(h)))

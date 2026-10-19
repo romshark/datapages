@@ -104,6 +104,8 @@ func TestAssetsCompression(t *testing.T) {
 			if tc.wantBody != "" {
 				require.True(t, varies(w.Header()))
 				require.Equal(t, tc.wantBody, decode(t, tc.wantCoding, w.Body.Bytes()))
+				require.Equal(t, "public, max-age=0", w.Header().Get("Cache-Control"),
+					"the header of a server without WithAssetsCache")
 			}
 		})
 	}

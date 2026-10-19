@@ -653,7 +653,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		wantCacheControl string
 		wantETag         bool
 	}{
-		"no option": {},
+		"no option": {wantCacheControl: "public, max-age=0"},
 		"default": {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
@@ -675,6 +675,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{Disabled: true}),
 			},
+			wantCacheControl: "public, max-age=0",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

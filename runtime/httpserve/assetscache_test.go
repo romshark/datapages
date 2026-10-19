@@ -22,10 +22,12 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		wantETag         bool
 	}{
 		"no option": {
-			conf: nil,
+			conf:             nil,
+			wantCacheControl: "public, max-age=0",
 		},
 		"disabled": {
-			conf: &datapages.AssetsCacheConfig{Disabled: true},
+			conf:             &datapages.AssetsCacheConfig{Disabled: true},
+			wantCacheControl: "public, max-age=0",
 		},
 		"zero value": {
 			conf:             &datapages.AssetsCacheConfig{},

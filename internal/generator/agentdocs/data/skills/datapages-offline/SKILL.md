@@ -33,7 +33,7 @@ func (PageOffline) GET(r *http.Request) (body datapages.Component, err error) {
 ```go
 opts := []datapages.ServerOption{
 	// Self-host Datastar: the CDN is unreachable offline.
-	datapages.WithDatastarJS(assets.Path("datastar.js")),
+	datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 	datapagesgen.WithOffline(app.OfflineConfig()),
 }
 ```
@@ -51,7 +51,7 @@ func OfflineConfig() offline.Config {
 		WorkerVersion: OfflineWorkerVersion,
 		// Precache the files required to render cached pages offline.
 		Assets: []string{
-			assets.Path("style.css"), assets.Path("datastar.js"),
+			assets.Path("style.css"), assets.Path("datastar-1.0.4.js"),
 		},
 	}
 }
