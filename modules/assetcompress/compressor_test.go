@@ -366,6 +366,45 @@ func TestHandlerMinSize(t *testing.T) {
 	}
 }
 
+// TestHandlerFontsAndIcons tests that TrueType and OpenType fonts, icons and
+// bitmaps get a copy and that WOFF2 doesn't. The files have no extension,
+// which makes their types the sniffed ones on every platform.
+func TestHandlerFontsAndIcons(t *testing.T) {
+	t.Parallel()
+
+	tables := strings.Repeat("glyf loca hmtx cmap ", 50)
+	files := fstest.MapFS{
+		"truetype":   {Data: []byte("\x00\x01\x00\x00" + tables)},
+		"opentype":   {Data: []byte("OTTO" + tables)},
+		"collection": {Data: []byte("ttcf" + tables)},
+		"icon":       {Data: []byte("\x00\x00\x01\x00" + tables)},
+		"bitmap":     {Data: []byte("BM" + tables)},
+		"woff2":      {Data: []byte("wOF2" + tables)},
+	}
+	h := newHandler(newCompressor(t, assetcompress.Config{}), http.FS(files), nil)
+	for name, tc := range map[string]struct {
+		wantType, wantCoding string
+	}{
+		"truetype":   {wantType: "font/ttf", wantCoding: "br"},
+		"opentype":   {wantType: "font/otf", wantCoding: "br"},
+		"collection": {wantType: "font/collection", wantCoding: "br"},
+		"icon":       {wantType: "image/x-icon", wantCoding: "br"},
+		"bitmap":     {wantType: "image/bmp", wantCoding: "br"},
+		"woff2":      {wantType: "font/woff2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			w := get(t, h, http.MethodGet, "/"+name, browserCodings, nil)
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, tc.wantType, w.Header().Get("Content-Type"))
+			require.Equal(t, tc.wantCoding, w.Header().Get("Content-Encoding"))
+			require.Equal(t, string(files[name].Data),
+				decode(t, tc.wantCoding, w.Body.Bytes()))
+		})
+	}
+}
+
 // TestHandlerNoTransform tests that a response marked no-transform before the
 // handler runs passes to next without a coding and without Vary.
 func TestHandlerNoTransform(t *testing.T) {

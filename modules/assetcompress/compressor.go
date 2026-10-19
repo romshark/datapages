@@ -84,9 +84,10 @@ type Config struct {
 // Compressor serves compressed static assets through
 // [datapages.WithAssetsCompression].
 //
-// Eligible types are text, JSON, JavaScript, XML, SVG and WASM. Each eligible
-// content is compressed once per coding, lazily or by [Compressor.Precompress],
-// and keyed by its SHA-256, coding and level. Dev mode disables compression.
+// Eligible types are text, JSON, JavaScript, XML, YAML, TOML, SVG, WASM,
+// TrueType and OpenType fonts, icons and BMP images. Each eligible content is
+// compressed once per coding, lazily or by [Compressor.Precompress], and keyed
+// by its SHA-256, coding and level. Dev mode disables compression.
 //
 // A Compressor is safe for concurrent use by several servers.
 type Compressor struct {

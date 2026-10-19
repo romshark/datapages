@@ -237,7 +237,13 @@ func Compressible(contentType string) bool {
 	}
 	switch mt {
 	case "application/json", "application/javascript", "application/xml",
-		"application/wasm":
+		"application/wasm",
+		// Text that the shared-mime-info database of Linux types as application.
+		"application/yaml", "application/x-yaml", "application/toml",
+		// TrueType and OpenType fonts, which WOFF and WOFF2 hold compressed.
+		"font/ttf", "font/otf", "font/collection", "font/sfnt",
+		// Icons and bitmaps, which mostly hold uncompressed pixels.
+		"image/bmp", "image/x-icon", "image/vnd.microsoft.icon":
 		return true
 	}
 	return false
