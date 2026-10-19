@@ -98,11 +98,13 @@ type ServerConfig struct {
 	// 0 selects httpserve.DefaultFileSendTimeout.
 	FileSendTimeout time.Duration
 
-	// SSECompression is what [WithSSECompression] carries.
+	// SSECompression is what [WithSSECompression] and [WithNoSSECompression] carry.
 	// Nil selects the defaults of [SSECompressionConfig].
 	SSECompression *SSECompressionConfig
 
-	// ResponseCompression is nil for the defaults.
+	// ResponseCompression is what [WithResponseCompression] and
+	// [WithNoResponseCompression] carry. Nil selects the defaults of
+	// [ResponseCompressionConfig].
 	ResponseCompression *ResponseCompressionConfig
 
 	// AssetsCompressor is what [WithAssetsCompression] and
@@ -829,7 +831,9 @@ type ResponseCompressionConfig struct {
 	// MinSize is the size in bytes below which a body is sent uncompressed,
 	// from 1 to 1 MiB. 0 selects [DefaultResponseMinSize], and 1
 	// compresses every body that is not empty. A response holds back up to
-	// MinSize bytes of its body until it can decide.
+	// MinSize bytes of its body until it can decide. A response without
+	// Content-Type, such as a page, holds back up to 512 bytes when MinSize is
+	// smaller, to sniff its type.
 	MinSize int
 
 	// ZstdLevel is from 1 to 22, and 0 selects [DefaultResponseZstdLevel]. Only
