@@ -71,7 +71,7 @@ func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 		h.Set("Connection", "keep-alive")
 	}
 	if c != nil {
-		h.Add("Vary", "Accept-Encoding")
+		contentcoding.AddVary(h, "Accept-Encoding")
 	}
 	if cd := c.negotiate(r.Header["Accept-Encoding"]); cd != nil {
 		h.Set("Content-Encoding", cd.Name())

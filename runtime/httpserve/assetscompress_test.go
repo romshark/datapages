@@ -109,6 +109,26 @@ func TestAssetsCompression(t *testing.T) {
 	}
 }
 
+// TestAssetsCompressionNoTransform tests that a WithAssetsCache value with
+// no-transform keeps assets uncompressed, as it keeps a page.
+func TestAssetsCompressionNoTransform(t *testing.T) {
+	t.Parallel()
+
+	const cacheControl = "public, max-age=60, no-transform"
+	c := assetsCore(t, http.FS(assetFiles()), datapages.ServerConfig{
+		AssetsCache: &datapages.AssetsCacheConfig{CacheControl: cacheControl},
+	})
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		w := getAsset(t, c, method, "/static/style.css", browserCodings, nil)
+		require.Equal(t, http.StatusOK, w.Code, method)
+		require.Empty(t, w.Header().Get("Content-Encoding"), method)
+		require.False(t, varies(w.Header()), method)
+		require.Equal(t, cacheControl, w.Header().Get("Cache-Control"), method)
+	}
+	w := getAsset(t, c, http.MethodGet, "/static/style.css", browserCodings, nil)
+	require.Equal(t, assetCSS, w.Body.String())
+}
+
 // TestAssetsCompressionETag tests that WithAssetsCache sets the tag the copies
 // extend, and that a conditional request matches the tag of its own copy.
 func TestAssetsCompressionETag(t *testing.T) {

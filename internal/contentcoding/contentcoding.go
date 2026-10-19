@@ -243,6 +243,18 @@ func Compressible(contentType string) bool {
 	return false
 }
 
+// NoTransform reports whether h has Cache-Control: no-transform.
+func NoTransform(h http.Header) bool {
+	for _, v := range h.Values("Cache-Control") {
+		for t := range strings.SplitSeq(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(t), "no-transform") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // AddVary adds name to the Vary header of h unless it lists name or *.
 func AddVary(h http.Header, name string) {
 	for _, v := range h.Values("Vary") {

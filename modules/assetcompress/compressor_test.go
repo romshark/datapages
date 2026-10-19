@@ -366,6 +366,38 @@ func TestHandlerMinSize(t *testing.T) {
 	}
 }
 
+// TestHandlerNoTransform tests that a response marked no-transform before the
+// handler runs passes to next without a coding and without Vary.
+func TestHandlerNoTransform(t *testing.T) {
+	t.Parallel()
+
+	inner := newHandler(newCompressor(t, assetcompress.Config{}),
+		http.FS(assetFiles()), nil)
+	for name, tc := range map[string]struct {
+		cacheControl string
+		wantCoding   string
+	}{
+		"other directives": {cacheControl: "public, max-age=60", wantCoding: "br"},
+		"no-transform":     {cacheControl: "public, no-transform"},
+		"mixed case":       {cacheControl: "No-Transform"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Cache-Control", tc.cacheControl)
+				inner.ServeHTTP(w, r)
+			})
+			w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, tc.wantCoding, w.Header().Get("Content-Encoding"))
+			require.Equal(t, tc.wantCoding != "", varies(w.Header()))
+			require.Equal(t, tc.cacheControl, w.Header().Get("Cache-Control"))
+			require.Equal(t, assetCSS, decode(t, tc.wantCoding, w.Body.Bytes()))
+		})
+	}
+}
+
 // TestHandlerZstdLevels verifies that equivalent levels share copies and ETags.
 func TestHandlerZstdLevels(t *testing.T) {
 	t.Parallel()

@@ -283,7 +283,11 @@ func TestResponseCompression(t *testing.T) {
 		},
 		"HEAD": {
 			method: http.MethodHead, accept: browserCodings,
-			handler: pageWith(nil, 0),
+			handler: pageWith(http.Header{
+				"Etag": {`"v1"`},
+			}, 0),
+			wantCoding: "zstd", wantVary: true,
+			wantHeader: http.Header{"Etag": {`W/"v1"`}},
 		},
 		"strong ETag": {
 			accept: browserCodings,
@@ -385,6 +389,58 @@ func TestResponseCompression(t *testing.T) {
 				require.Empty(t, w.Body.String())
 			} else {
 				require.Equal(t, want, decode(t, tc.wantCoding, w.Body.Bytes()))
+			}
+		})
+	}
+}
+
+// TestResponseCompressionHEAD tests over HTTP that a HEAD response gets the headers of
+// its GET response, the Content-Length of a short body included, and no body.
+func TestResponseCompressionHEAD(t *testing.T) {
+	t.Parallel()
+
+	page := listPage(8 << 10)
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	c.Mux().HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Etag", `"v1"`)
+		writeParts(w, page)
+	})
+	c.Build()
+	srv := httptest.NewServer(c)
+	t.Cleanup(srv.Close)
+
+	get := func(t *testing.T, method, accept string) (http.Header, []byte) {
+		t.Helper()
+		r, err := http.NewRequest(method, srv.URL+"/page/", nil)
+		require.NoError(t, err)
+		r.Header.Set("Accept-Encoding", accept)
+		resp, err := srv.Client().Do(r)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		return resp.Header, body
+	}
+	for name, tc := range map[string]struct {
+		accept     string
+		wantCoding string
+	}{
+		"compressed":   {accept: browserCodings, wantCoding: "zstd"},
+		"uncompressed": {accept: "identity"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			getHeader, body := get(t, http.MethodGet, tc.accept)
+			require.Equal(t, strings.Join(page, ""), decode(t, tc.wantCoding, body))
+			headHeader, headBody := get(t, http.MethodHead, tc.accept)
+			require.Empty(t, headBody)
+			require.Equal(t, tc.wantCoding, headHeader.Get("Content-Encoding"))
+			for _, k := range []string{
+				"Content-Encoding", "Content-Length", "Content-Type", "Etag", "Vary",
+			} {
+				require.Equal(t, getHeader.Values(k), headHeader.Values(k), k)
 			}
 		})
 	}

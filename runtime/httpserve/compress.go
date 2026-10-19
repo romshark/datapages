@@ -86,10 +86,7 @@ func newResponseCompression(
 
 func (bc *responseCompression) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(w, r)
-			return
-		}
+		// Compressing HEAD gives it the headers of GET. net/http drops the body.
 		cw := &compressingWriter{
 			ResponseWriter: w,
 			bc:             bc,
@@ -322,7 +319,7 @@ func (cw *compressingWriter) refuses() bool {
 		!strings.EqualFold(ar, "none") {
 		return true
 	}
-	return hasToken(h.Values("Cache-Control"), "no-transform")
+	return contentcoding.NoTransform(h)
 }
 
 // decide compresses an eligible body. final means the buffer holds the full body.
@@ -464,15 +461,4 @@ func (cw *compressingWriter) releaseBuf() {
 	*cw.bufp = cw.buf[:0]
 	cw.bc.bufs.Put(cw.bufp)
 	cw.bufp, cw.buf = nil, nil
-}
-
-func hasToken(values []string, token string) bool {
-	for _, v := range values {
-		for t := range strings.SplitSeq(v, ",") {
-			if strings.EqualFold(strings.TrimSpace(t), token) {
-				return true
-			}
-		}
-	}
-	return false
 }

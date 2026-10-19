@@ -420,6 +420,7 @@ type AssetsCacheConfig struct {
 
 	// CacheControl sets the header value directly.
 	// It cannot be combined with MaxAge or Immutable.
+	// A value with no-transform keeps the assets uncompressed.
 	CacheControl string
 
 	// DisableETag prevents [WithAssetsCache] from adding an ETag.
@@ -871,7 +872,8 @@ func ResponseCompressionLowBandwidth() ResponseCompressionConfig {
 //
 // By default, text bodies of at least 256 bytes use the first accepted coding
 // among zstd, brotli and gzip. Compression runs after middleware.
-// Encoded, no-transform, range, HEAD and dev-mode responses pass through.
+// Encoded, no-transform, range and dev-mode responses pass through.
+// A HEAD response gets the headers of its GET response.
 // [WithNoResponseCompression] turns compression off.
 func WithResponseCompression(conf ResponseCompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {

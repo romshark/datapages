@@ -862,6 +862,35 @@ func TestCompressionConfig(t *testing.T) {
 	}
 }
 
+// TestOpenVaryOnce tests that a stream adds Accept-Encoding to a Vary that
+// middleware set before, and keeps it once when it is already listed.
+func TestOpenVaryOnce(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		vary []string
+		want []string
+	}{
+		"other": {
+			vary: []string{"Cookie"},
+			want: []string{"Cookie", "Accept-Encoding"},
+		},
+		"listed": {
+			vary: []string{"Cookie, Accept-Encoding"},
+			want: []string{"Cookie, Accept-Encoding"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &recorder{h: http.Header{"Vary": tc.vary}}
+			s := sse.Open(w, codingRequest("gzip, deflate, br, zstd"), compression)
+			s.Close()
+			require.Equal(t, tc.want, w.h.Values("Vary"))
+		})
+	}
+}
+
 // TestOpenWithoutCompression tests a stream of a server that compresses nothing.
 // Its response doesn't vary with Accept-Encoding.
 func TestOpenWithoutCompression(t *testing.T) {

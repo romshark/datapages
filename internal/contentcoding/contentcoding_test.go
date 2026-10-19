@@ -210,6 +210,30 @@ func TestCompressible(t *testing.T) {
 	}
 }
 
+// TestNoTransform tests that the directive matches in any case, position and
+// header value, and that longer names and a value don't.
+func TestNoTransform(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cacheControl []string
+		want         bool
+	}{
+		"absent":          {nil, false},
+		"other":           {[]string{"public, max-age=60"}, false},
+		"alone":           {[]string{"no-transform"}, true},
+		"case":            {[]string{"private, No-Transform"}, true},
+		"spaces":          {[]string{"public ,  no-transform  , max-age=0"}, true},
+		"in 2nd value":    {[]string{"public", "no-transform"}, true},
+		"longer name":     {[]string{"no-transformation"}, false},
+		"with a value":    {[]string{"no-transform=1"}, false},
+		"in another name": {[]string{"x-no-transform"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := http.Header{"Cache-Control": tc.cacheControl}
+			require.Equal(t, tc.want, NoTransform(h))
+		})
+	}
+}
+
 // TestAddVary tests that a name is added once, whatever its case,
 // and never next to *.
 func TestAddVary(t *testing.T) {

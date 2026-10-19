@@ -174,7 +174,8 @@ func (conf Config) validate() error {
 }
 
 // Handler implements [datapages.AssetsCompressor]. It hashes each asset on its
-// first request, serves an accepted copy, and delegates other requests to next.
+// first request, serves an accepted copy, and delegates other requests to next,
+// including those whose response is marked Cache-Control: no-transform.
 // Assets must not change before server exit. The handler adds the coding and
 // level to an existing ETag and logs copy failures before delegating to next.
 func (c *Compressor) Handler(
@@ -264,6 +265,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	if strings.Contains(r.Header.Get("Range"), ",") {
 		// Content-Encoding applies to the multipart document, not its parts.
+		return false
+	}
+	if contentcoding.NoTransform(w.Header()) {
+		// The response compressor of the server passes such a response through.
 		return false
 	}
 	name := path.Clean("/" + r.URL.Path)
