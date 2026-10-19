@@ -1,11 +1,12 @@
-// Package contentcoding pools response encoders, negotiates Accept-Encoding
-// and decides which media types to compress.
+// Package contentcoding pools response encoders, negotiates Accept-Encoding,
+// types web fonts and decides which media types to compress.
 package contentcoding
 
 import (
 	"compress/gzip"
 	"io"
 	"math/bits"
+	"mime"
 	"net/http"
 	"strings"
 	"sync"
@@ -247,6 +248,30 @@ func Compressible(contentType string) bool {
 		return true
 	}
 	return false
+}
+
+// fontTypes overrides the host's mime table, which can type .otf and .otc as
+// OpenDocument templates. shared-mime-info 2.5.1 types both that way.
+var fontTypes = map[string]string{
+	".otf":   "font/otf",
+	".ttf":   "font/ttf",
+	".ttc":   "font/collection",
+	".otc":   "font/collection",
+	".woff":  "font/woff",
+	".woff2": "font/woff2",
+}
+
+// FontType returns the font type of ext in any case, or "" for other files.
+func FontType(ext string) string {
+	return fontTypes[strings.ToLower(ext)]
+}
+
+// TypeByExtension returns [FontType], else [mime.TypeByExtension].
+func TypeByExtension(ext string) string {
+	if t := FontType(ext); t != "" {
+		return t
+	}
+	return mime.TypeByExtension(ext)
 }
 
 // NoTransform reports whether h has Cache-Control: no-transform.

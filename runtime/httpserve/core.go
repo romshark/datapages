@@ -281,12 +281,12 @@ func (c *Core) Build() {
 			compressor, _ = assetcompress.New(assetcompress.Config{})
 		}
 		// Compressed ETags extend the cache middleware's base tag.
-		h := compressor.Handler(fsys, http.FileServer(fsys), c.sampledLogger)
+		h := compressor.Handler(fsys, typedFonts(http.FileServer(fsys)), c.sampledLogger)
 		switch {
 		case datapages.IsDevMode():
 			// Dev files may change while the server runs. The browser asks
 			// before every reuse, and without Last-Modified it gets the file.
-			h = DevNoCache(http.FileServer(noModTimeFS{fsys}))
+			h = DevNoCache(typedFonts(http.FileServer(noModTimeFS{fsys})))
 		case c.assetsCache != nil && !c.assetsCache.Disabled:
 			h = newAssetsCache(fsys, *c.assetsCache, h)
 		default:

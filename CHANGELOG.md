@@ -191,6 +191,7 @@ Run `datapages gen` to apply these.
 - Stop appending the 500 page to a page that fails halfway through rendering behind `WithOffline` or `offline.Middleware`. The visitor got the half page and a second document after it.
 - Refuse in `datapages.NewServer` a `ServerConfig` value that a custom `ServerOption` sets and the field's `With` option refuses. A session cookie name with a space, for example, passed and kept every visitor signed out.
 - Apply the defaults of `datapages.WithPrometheus` to a `datapages.PrometheusConfig` that a custom `ServerOption` writes into `ServerConfig.Prometheus`. Without a `Registerer`, `NewServer` panicked, without a `Gatherer`, every scrape of `/metrics` panicked, and no HTTP request was counted.
+- Serve font assets with their `font/*` type on every host. Some mime tables, such as shared-mime-info on Linux, typed `.otf` and `.otc` fonts as OpenDocument templates, which also kept them uncompressed.
 
 #### `datapages init`
 

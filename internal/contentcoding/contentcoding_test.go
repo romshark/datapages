@@ -224,6 +224,23 @@ func TestCompressible(t *testing.T) {
 	}
 }
 
+// TestTypeByExtension tests the font table in any case and the mime fallback.
+func TestTypeByExtension(t *testing.T) {
+	for ext, want := range map[string]string{
+		".otf":     "font/otf",
+		".OTF":     "font/otf",
+		".ttf":     "font/ttf",
+		".ttc":     "font/collection",
+		".otc":     "font/collection",
+		".woff":    "font/woff",
+		".woff2":   "font/woff2",
+		".css":     "text/css; charset=utf-8",
+		".unknown": "",
+	} {
+		require.Equal(t, want, TypeByExtension(ext), ext)
+	}
+}
+
 // TestNoTransform tests that the directive matches in any case, position and
 // header value, and that longer names and a value don't.
 func TestNoTransform(t *testing.T) {

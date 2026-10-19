@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -108,6 +109,32 @@ func TestAssetsCompression(t *testing.T) {
 					"the header of a server without WithAssetsCache")
 			}
 		})
+	}
+}
+
+// TestAssetsFontType tests that an OpenType font goes out as font/otf,
+// and compressed, when the mime table of the host types .otf as an OpenDocument
+// formula template, which shared-mime-info 2.5.1 does. It changes the table of
+// the process, which keeps it out of the parallel tests.
+func TestAssetsFontType(t *testing.T) {
+	const odf = "application/vnd.oasis.opendocument.formula-template"
+	host := mime.TypeByExtension(".otf")
+	require.NoError(t, mime.AddExtensionType(".otf", odf))
+	t.Cleanup(func() {
+		if host != "" {
+			require.NoError(t, mime.AddExtensionType(".otf", host))
+		}
+	})
+
+	font := "OTTO" + strings.Repeat("glyf loca hmtx cmap ", 50)
+	c := assetsCore(t, http.FS(fstest.MapFS{"inter.otf": {Data: []byte(font)}}),
+		datapages.ServerConfig{})
+	for _, coding := range []string{"", "br"} {
+		w := getAsset(t, c, http.MethodGet, "/static/inter.otf", coding, nil)
+		require.Equal(t, http.StatusOK, w.Code, coding)
+		require.Equal(t, "font/otf", w.Header().Get("Content-Type"), coding)
+		require.Equal(t, coding, w.Header().Get("Content-Encoding"), coding)
+		require.Equal(t, font, decode(t, coding, w.Body.Bytes()), coding)
 	}
 }
 

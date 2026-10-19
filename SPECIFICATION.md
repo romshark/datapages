@@ -1022,6 +1022,8 @@ By default, an asset of at least 256 bytes is eligible when its media type is:
 - `font/ttf`, `font/otf`, `font/collection` or `font/sfnt`.
 - `image/bmp`, `image/x-icon` or `image/vnd.microsoft.icon`.
 
+The media type of a font asset is `font/otf` for `.otf`, `font/ttf` for `.ttf`, `font/collection` for `.ttc` and `.otc`, `font/woff` for `.woff` and `font/woff2` for `.woff2`. Other assets get the type of Go's `mime` table, which reads the mime database of the host. An asset whose extension has no type there gets the type sniffed from its content.
+
 A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheControl` or a middleware can set, is not eligible. Eligible assets use the first explicitly accepted coding from brotli 6 and gzip 9. Brotli uses a 4 MiB window. Other assets stay uncompressed. Dev mode disables asset compression.
 
 The first request creates a missing copy. Concurrent requests share that work, and a compressor compresses 1 asset at a time. `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding. It returns the first failed read or store and stops when its context ends. Requests that arrive meanwhile create their own missing copies.

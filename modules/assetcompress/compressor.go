@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
-	"mime"
 	"net/http"
 	"path"
 	"runtime/debug"
@@ -282,7 +281,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	// Skip the open when the extension rules out compression, as [describe] would.
-	ct := mime.TypeByExtension(path.Ext(name))
+	ct := contentcoding.TypeByExtension(path.Ext(name))
 	if ct != "" && !contentcoding.Compressible(ct) {
 		return false
 	}
@@ -397,7 +396,7 @@ func (c *Compressor) describe(
 		return assetFile{}, err
 	}
 	// Match http.FileServer by preferring the extension over sniffing.
-	info.contentType = mime.TypeByExtension(path.Ext(name))
+	info.contentType = contentcoding.TypeByExtension(path.Ext(name))
 	if info.contentType == "" {
 		info.contentType = http.DetectContentType(head[:n])
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/contentcoding"
 )
 
 // IsDatastarRequest reports whether h carries the header the Datastar client sends.
@@ -49,14 +50,27 @@ func Redirect(
 	return true
 }
 
-// DevNoCache makes the browser ask the server before every reuse of what
-// next serves. no-store would also keep it out of the offline worker's cache,
+// DevNoCache makes the browser ask the server before every reuse of what next serves.
+// no-store would also keep it out of the offline worker's cache,
 // which then has no copy to answer with offline.
 func DevNoCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// typedFonts presets the [contentcoding.FontType] of a font file,
+// which [http.FileServer] keeps over the host's mime table.
+func typedFonts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ct := contentcoding.FontType(path.Ext(r.URL.Path)); ct != "" {
+			if _, ok := w.Header()["Content-Type"]; !ok {
+				w.Header().Set("Content-Type", ct)
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }
