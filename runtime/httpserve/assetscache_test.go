@@ -1,6 +1,8 @@
 package httpserve_test
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,15 +82,30 @@ func TestAssetsCacheHeaders(t *testing.T) {
 	}
 }
 
-// openCountingFS counts the files it opens.
-type openCountingFS struct {
+// countingFS counts the files it opens and the bytes read from them.
+type countingFS struct {
 	http.FileSystem
-	opens atomic.Int64
+	opens, read atomic.Int64
 }
 
-func (fsys *openCountingFS) Open(name string) (http.File, error) {
+func (fsys *countingFS) Open(name string) (http.File, error) {
 	fsys.opens.Add(1)
-	return fsys.FileSystem.Open(name)
+	f, err := fsys.FileSystem.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return countingFile{File: f, read: &fsys.read}, nil
+}
+
+type countingFile struct {
+	http.File
+	read *atomic.Int64
+}
+
+func (f countingFile) Read(p []byte) (int, error) {
+	n, err := f.File.Read(p)
+	f.read.Add(int64(n))
+	return n, err
 }
 
 // TestAssetsCacheWithoutETagOpensOnce tests that without
@@ -96,7 +113,7 @@ func (fsys *openCountingFS) Open(name string) (http.File, error) {
 func TestAssetsCacheWithoutETagOpensOnce(t *testing.T) {
 	t.Parallel()
 
-	fsys := &openCountingFS{FileSystem: http.FS(assetFiles())}
+	fsys := &countingFS{FileSystem: http.FS(assetFiles())}
 	c := assetsCore(t, fsys, datapages.ServerConfig{
 		AssetsCache: &datapages.AssetsCacheConfig{MaxAge: time.Hour, DisableETag: true},
 	})
@@ -109,6 +126,42 @@ func TestAssetsCacheWithoutETagOpensOnce(t *testing.T) {
 		require.Empty(t, w.Header().Get("ETag"))
 	}
 	require.Equal(t, opens, fsys.opens.Load(), "opens after the first request")
+}
+
+// TestAssetsCacheFirstRequestReads tests that the first request of an asset
+// reads it 2 times, to hash it and to send or compress it, and that the ETag
+// holds the SHA-256 of the file.
+func TestAssetsCacheFirstRequestReads(t *testing.T) {
+	t.Parallel()
+
+	sum := sha256.Sum256([]byte(assetCSS))
+	tag := `"` + base64.RawURLEncoding.EncodeToString(sum[:16])
+	for name, tc := range map[string]struct {
+		opt      datapages.ServerOption
+		accept   string
+		wantETag string
+	}{
+		"compressed":   {accept: "br", wantETag: tag + `.br6"`},
+		"uncompressed": {accept: "identity", wantETag: tag + `"`},
+		"WithNoAssetsCompression": {
+			opt: datapages.WithNoAssetsCompression(), accept: "br", wantETag: tag + `"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := datapages.ServerConfig{AssetsCache: &datapages.AssetsCacheConfig{}}
+			if tc.opt != nil {
+				require.NoError(t, tc.opt(&conf))
+			}
+			fsys := &countingFS{FileSystem: http.FS(assetFiles())}
+			c := assetsCore(t, fsys, conf)
+			w := getAsset(t, c, http.MethodGet, "/static/style.css", tc.accept, nil)
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, tc.wantETag, w.Header().Get("Etag"))
+			require.Equal(t, int64(2*len(assetCSS)), fsys.read.Load())
+		})
+	}
 }
 
 // TestAssetsCacheConditionalRequest tests that a matching If-None-Match value

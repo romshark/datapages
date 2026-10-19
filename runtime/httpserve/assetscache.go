@@ -87,53 +87,74 @@ func (c *assetsCache) lookup(p string) (tag []string, isFile bool) {
 		return v.([]string), true
 	}
 
-	f, ok := c.openFile("/" + rel)
+	f, opened, ok := c.openFile(rel)
 	if !ok {
 		return nil, false
 	}
 	defer func() { _ = f.Close() }()
 	if c.etag {
-		h := sha256.New()
-		if _, err := io.Copy(h, f); err != nil {
-			return nil, true
+		sum, ok := c.digest(opened)
+		if !ok {
+			h := sha256.New()
+			if _, err := io.Copy(h, f); err != nil {
+				return nil, true
+			}
+			sum = [sha256.Size]byte(h.Sum(nil))
 		}
 		// Truncate the digest to 128 bits to keep the header short.
 		// Raw URL encoding has no character that needs escaping inside a quoted ETag.
-		tag = []string{`"` + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:16]) + `"`}
+		tag = []string{`"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`}
 	}
 	c.files.Store(rel, tag)
 	return tag, true
 }
 
-// openFile opens the regular file [http.FileServer] serves for name.
-// For a directory, it opens index.html.
-func (c *assetsCache) openFile(name string) (http.File, bool) {
-	f, err := c.fsys.Open(name)
+// digester is a handler that hashes the files it serves, as the handler of
+// [assetcompress.Compressor.Handler] hashes the files it compresses.
+type digester interface {
+	// Digest returns the SHA-256 of the file at rel, an [exactpath.Clean] path,
+	// or false when the handler does not hash the file.
+	Digest(rel string) ([sha256.Size]byte, bool)
+}
+
+// digest returns the SHA-256 that next takes of the file at rel, if any.
+func (c *assetsCache) digest(rel string) (sum [sha256.Size]byte, ok bool) {
+	if d, isDigester := c.next.(digester); isDigester {
+		return d.Digest(rel)
+	}
+	return sum, false
+}
+
+// openFile opens the regular file [http.FileServer] serves for rel, an
+// [exactpath.Clean] path, and returns its path. For a directory, it opens index.html.
+func (c *assetsCache) openFile(rel string) (http.File, string, bool) {
+	f, err := c.fsys.Open("/" + rel)
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
 	stat, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		return nil, false
+		return nil, "", false
 	}
 	if !stat.IsDir() {
 		if !stat.Mode().IsRegular() {
 			_ = f.Close()
-			return nil, false
+			return nil, "", false
 		}
-		return f, true
+		return f, rel, true
 	}
 	_ = f.Close()
 
-	f, err = c.fsys.Open(path.Join(name, "index.html"))
+	rel = path.Join(rel, "index.html")
+	f, err = c.fsys.Open("/" + rel)
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
 	stat, err = f.Stat()
 	if err != nil || !stat.Mode().IsRegular() {
 		_ = f.Close()
-		return nil, false
+		return nil, "", false
 	}
-	return f, true
+	return f, rel, true
 }

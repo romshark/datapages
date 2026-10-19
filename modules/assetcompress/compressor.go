@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -329,7 +328,7 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) (err err
 		return err
 	}
 	for i := range c.codings {
-		if err := c.precompressCopy(fsys, name, info.hash, info.keys[i], i); err != nil {
+		if err := c.precompressCopy(fsys, name, info.sum, info.keys[i], i); err != nil {
 			return err
 		}
 	}
@@ -338,7 +337,7 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) (err err
 
 // precompressCopy creates and stores the copy under key in the coding at i when missing.
 func (c *Compressor) precompressCopy(
-	fsys http.FileSystem, name, sum, key string, i int,
+	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string, i int,
 ) error {
 	_, file, _, err := c.lookup(key, i)
 	if err == nil && file != nil {
@@ -364,7 +363,7 @@ type handler struct {
 	fsys   http.FileSystem
 	next   http.Handler
 	logger *slog.Logger
-	files  sync.Map // Cleaned path to assetFile, read without a lock per request.
+	files  sync.Map // Cleaned path to *assetFile, read without a lock per request.
 }
 
 type assetFile struct {
@@ -373,7 +372,7 @@ type assetFile struct {
 	modTime      time.Time
 	contentType  []string // Shared by every response.
 	compressible bool
-	hash         string // Hex SHA-256 of the file, empty when not compressible.
+	sum          [sha256.Size]byte // Zero when not compressible.
 	// keys and etags follow the order of [Compressor.codings].
 	keys  []string
 	etags []atomic.Pointer[taggedETag]
@@ -387,7 +386,7 @@ type taggedETag struct {
 
 // etag returns the ETag of the copy in the coding at i, made from suffix and file,
 // the ETag of the file.
-func (f assetFile) etag(i int, file, suffix string) []string {
+func (f *assetFile) etag(i int, file, suffix string) []string {
 	if t := f.etags[i].Load(); t != nil && t.file == file && t.suffix == suffix {
 		return t.value
 	}
@@ -421,13 +420,8 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		// http.FileServer redirects it to its directory.
 		return false
 	}
-	// Skip the open when the extension rules out compression, as [describe] would.
-	ct := contentcoding.TypeByExtension(path.Ext(rel))
-	if ct != "" && !contentcoding.Compressible(ct) {
-		return false
-	}
-	info, ok := h.file(rel)
-	if !ok || !info.compressible {
+	info := h.compressible(rel)
+	if info == nil {
 		return false
 	}
 	header := w.Header()
@@ -448,7 +442,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	}
 	i := slices.Index(h.c.codings, cd)
 	key := info.keys[i]
-	data, file, suffix, err := h.c.copyOf(h.fsys, info.name, info.hash, key, i, h.logger)
+	data, file, suffix, err := h.c.copyOf(h.fsys, info.name, info.sum, key, i, h.logger)
 	if errors.Is(err, errChanged) {
 		h.files.Delete(rel)
 	}
@@ -545,28 +539,52 @@ func (w codedWriter) ReadFrom(src io.Reader) (int64, error) {
 // Unwrap returns the underlying writer for [http.ResponseController].
 func (w codedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
+// Digest returns the SHA-256 of the file at rel, an [exactpath.Clean] path,
+// when the handler compresses the file. The ETag cache of the server,
+// which wraps the handler, takes it instead of reading the file again.
+func (h *handler) Digest(rel string) ([sha256.Size]byte, bool) {
+	if info := h.compressible(rel); info != nil {
+		return info.sum, true
+	}
+	return [sha256.Size]byte{}, false
+}
+
+// compressible returns the description of the file at rel,
+// an [exactpath.Clean] path, when the handler compresses the file, or nil.
+func (h *handler) compressible(rel string) *assetFile {
+	// Skip the open when the extension rules out compression, as [describe] would.
+	ct := contentcoding.TypeByExtension(path.Ext(rel))
+	if ct != "" && !contentcoding.Compressible(ct) {
+		return nil
+	}
+	if info := h.file(rel); info != nil && info.compressible {
+		return info
+	}
+	return nil
+}
+
 // file returns the cached description of the file at rel, an [exactpath.Clean]
-// path, or creates it once.
-func (h *handler) file(rel string) (assetFile, bool) {
+// path, or creates it once. It returns nil for a file it cannot describe.
+func (h *handler) file(rel string) *assetFile {
 	if v, ok := h.files.Load(rel); ok {
-		return v.(assetFile), true
+		return v.(*assetFile)
 	}
 	name := "/" + rel
 	f, err := h.fsys.Open(name)
 	if err != nil {
-		return assetFile{}, false
+		return nil
 	}
 	defer func() { _ = f.Close() }()
 	st, err := f.Stat()
 	if err != nil || st.IsDir() {
-		return assetFile{}, false
+		return nil
 	}
 	info, err := h.c.describe(name, st, f)
 	if err != nil {
-		return assetFile{}, false
+		return nil
 	}
-	h.files.Store(rel, info)
-	return info, true
+	h.files.Store(rel, &info)
+	return &info
 }
 
 // describe hashes f when its size and type permit compression.
@@ -587,15 +605,16 @@ func (c *Compressor) describe(
 	info.contentType = []string{ct}
 	info.compressible = info.size >= c.minSize && contentcoding.Compressible(ct)
 	if info.compressible {
-		sum := sha256.New()
-		_, _ = sum.Write(head[:n])
-		if _, err := io.Copy(sum, f); err != nil {
+		digest := sha256.New()
+		_, _ = digest.Write(head[:n])
+		if _, err := io.Copy(digest, f); err != nil {
 			return assetFile{}, err
 		}
-		info.hash = hex.EncodeToString(sum.Sum(nil))
+		info.sum = [sha256.Size]byte(digest.Sum(nil))
+		hexSum := hex.EncodeToString(info.sum[:])
 		info.keys = make([]string, len(c.codings))
 		for i, f := range c.formats {
-			info.keys[i] = info.hash + "." + f.suffix
+			info.keys[i] = hexSum + "." + f.suffix
 		}
 		info.etags = make([]atomic.Pointer[taggedETag], len(c.codings))
 	}
@@ -624,7 +643,8 @@ func (c *Compressor) lookup(
 // creating it from name when absent. name must hash to sum. The creating call finishes
 // the copy, which stays in memory until stored so no other call creates it again.
 func (c *Compressor) copyOf(
-	fsys http.FileSystem, name, sum, key string, i int, logger *slog.Logger,
+	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string, i int,
+	logger *slog.Logger,
 ) (data []byte, file io.ReadSeekCloser, suffix string, err error) {
 	data, file, suffix, err = c.lookup(key, i)
 	if !errors.Is(err, fs.ErrNotExist) {
@@ -643,8 +663,8 @@ func (c *Compressor) copyOf(
 
 // finish replaces m at the level of the coding at i if needed, then stores it.
 func (c *Compressor) finish(
-	fsys http.FileSystem, name, sum, key string, i int, m compressed,
-	logger *slog.Logger,
+	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string, i int,
+	m compressed, logger *slog.Logger,
 ) {
 	if suffix := c.formats[i].suffix; m.suffix != suffix {
 		cd := c.codings[i]
@@ -665,8 +685,8 @@ func (c *Compressor) finish(
 // while concurrent callers wait, possibly for another level.
 // It reports whether this call created it.
 func (c *Compressor) compress(
-	fsys http.FileSystem, name, sum, key string, cd *contentcoding.Coding,
-	suffix string,
+	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string,
+	cd *contentcoding.Coding, suffix string,
 ) (copied compressed, created bool, err error) {
 	c.lockPuts.Lock()
 	if p, ok := c.puts[key]; ok {
@@ -698,7 +718,7 @@ func (c *Compressor) compress(
 // encode compresses name and rejects a file that does not hash to sum.
 // It recovers panics so callers release their key or permit.
 func encode(
-	fsys http.FileSystem, name, sum string, cd *contentcoding.Coding,
+	fsys http.FileSystem, name string, sum [sha256.Size]byte, cd *contentcoding.Coding,
 ) (_ []byte, err error) {
 	defer recoverPanic(&err)
 	f, err := fsys.Open(name)
@@ -713,7 +733,7 @@ func encode(
 	if _, err := io.Copy(enc, io.TeeReader(f, digest)); err != nil {
 		return nil, err
 	}
-	if !hashIs(digest, sum) {
+	if [sha256.Size]byte(digest.Sum(nil)) != sum {
 		return nil, errChanged
 	}
 	if err := enc.Close(); err != nil {
@@ -756,8 +776,4 @@ func recoverPanic(err *error) {
 	if v := recover(); v != nil {
 		*err = datapages.PanicError{Value: v, Stack: debug.Stack()}
 	}
-}
-
-func hashIs(digest hash.Hash, sum string) bool {
-	return hex.EncodeToString(digest.Sum(nil)) == sum
 }

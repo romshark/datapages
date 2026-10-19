@@ -535,6 +535,33 @@ func TestHandlerETag(t *testing.T) {
 		"the tag of the uncompressed file matched the copy")
 }
 
+// TestHandlerDigest tests that the handler returns the SHA-256 of a file it
+// compresses, which the ETag cache of the server takes, and none of another file.
+func TestHandlerDigest(t *testing.T) {
+	t.Parallel()
+
+	files := assetFiles()
+	h := newHandler(newCompressor(t, assetcompress.Config{}), http.FS(files), nil)
+	d, ok := h.(interface {
+		Digest(rel string) ([sha256.Size]byte, bool)
+	})
+	require.True(t, ok, "the handler has no Digest method")
+	for rel, want := range map[string]bool{
+		"style.css":       true,
+		"docs/index.html": true,
+		"small.css":       false,
+		"image.png":       false,
+		"docs":            false,
+		"missing.css":     false,
+	} {
+		sum, ok := d.Digest(rel)
+		require.Equal(t, want, ok, rel)
+		if want {
+			require.Equal(t, sha256.Sum256(files[rel].Data), sum, rel)
+		}
+	}
+}
+
 // TestHandlerPreconditionFailed verifies that a 412 omits copy headers.
 func TestHandlerPreconditionFailed(t *testing.T) {
 	t.Parallel()
