@@ -1,6 +1,6 @@
 module datapagestest/fixture/signal_subject
 
-go 1.27.2
+go 1.27.3
 
 require github.com/romshark/datapages v0.10.1
 
