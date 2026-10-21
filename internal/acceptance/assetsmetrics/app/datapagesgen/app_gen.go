@@ -258,6 +258,7 @@ func (s *Server) httpErrIntern(
 	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	prom.InternalErrorNotRecovered()
 	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return

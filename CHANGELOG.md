@@ -173,6 +173,7 @@ Run `datapages gen` to apply these.
 - Give signed-out visitors of a stateful page with only user-addressed events a stream at `_$/anon/`. Their state actions answered 409. `StreamOpen` and `StreamClose` run on it with a guest session.
 - Answer a request whose session, path, query or signals read panics, as in an `UnmarshalText` or `UnmarshalJSON` method of the app or in a `sessions.Manager`, the way a panic in its handler is answered, with `PageError500`, `RecoverError` or status 500. The server closed the connection without a response, also on the SSE stream of a page whose `StreamOpen` takes signals.
 - Allocate a pointer path or query field, such as `*big.Int` or `*time.Time`, before its `UnmarshalText` runs. Every request that carried such a parameter panicked on the nil pointer, and the connection closed without a response. A pointer query field is nil when its parameter is absent.
+- Count the errors of page loads, file actions and apps without `RecoverError` in `datapages_internal_errors_not_recovered_total`, in an app generated with `datapages.EnablePrometheus`. A panic after the response started counts too, and so do sentinels, such as `datapages.ErrNotFound` from a page's `GET`. The counter rose only when `RecoverError` returned an error or panicked.
 
 #### Runtime and modules
 

@@ -461,6 +461,97 @@ func TestRecoveredDecodePanics(t *testing.T) {
 	}
 }
 
+// TestErrorCounters tests that every error of a handler counts once,
+// as recovered when RecoverError handles it and as not recovered otherwise.
+// A route that nothing serves is no error of a handler and counts as neither.
+//
+// It doesn't call t.Parallel, because the counters are global to the process.
+// The parallel tests of the case start only after it returns.
+func TestErrorCounters(t *testing.T) {
+	srv := newServer(t)
+	tests := map[string]struct {
+		method, path            string
+		datastar                bool
+		recovered, notRecovered float64
+	}{
+		"handled action": {
+			http.MethodPost, "/bad/", true, 1, 0,
+		},
+		"handled stream": {
+			http.MethodGet, "/stream-panic/_$/", true, 1, 0,
+		},
+		"RecoverError fails": {
+			http.MethodPost, "/unrecoverable/", true, 0, 1,
+		},
+		"RecoverError panics": {
+			http.MethodPost, "/recover-panic/", true, 0, 1,
+		},
+		"page load": {
+			http.MethodGet, "/boom/", false, 0, 1,
+		},
+		"page load after body": {
+			http.MethodGet, "/render-panic/", false, 0, 1,
+		},
+		"Datastar GET after body": {
+			http.MethodGet, "/render-panic/", true, 0, 1,
+		},
+		"failing 500 page": {
+			http.MethodGet, "/server-error/?se=xbad", false, 0, 1,
+		},
+		"failing 404 page": {
+			http.MethodGet, "/nowhere/?nf=gone", false, 0, 1,
+		},
+		"file action": {
+			http.MethodGet, "/app-file/?q=xbad", false, 0, 1,
+		},
+		"route miss": {
+			http.MethodGet, "/nowhere/", false, 0, 0,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			recovered := counter(t, "datapages_internal_errors_recovered_total")
+			notRecovered := counter(t, "datapages_internal_errors_not_recovered_total")
+
+			req, err := http.NewRequestWithContext(
+				context.Background(), tt.method, srv.URL+tt.path, nil,
+			)
+			require.NoError(t, err, "building %s %s", tt.method, tt.path)
+			if tt.datastar {
+				req.Header.Set("Datastar-Request", "true")
+			}
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "%s %s", tt.method, tt.path)
+			// The response ends after the handler returns.
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err, "reading %s", tt.path)
+			_ = resp.Body.Close()
+
+			require.Equal(t, tt.recovered,
+				counter(t, "datapages_internal_errors_recovered_total")-recovered,
+				"recovered")
+			require.Equal(t, tt.notRecovered,
+				counter(t, "datapages_internal_errors_not_recovered_total")-notRecovered,
+				"not recovered")
+		})
+	}
+}
+
+// counter reads the counter name from the registry.
+func counter(t *testing.T, name string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	for _, f := range families {
+		if f.GetName() == name {
+			return f.GetMetric()[0].GetCounter().GetValue()
+		}
+	}
+	t.Fatalf("%s is not registered", name)
+	return 0
+}
+
 // TestPointerParameters tests path and query fields that are pointers to a type
 // that parses itself. UnmarshalText writes to a value the server allocates,
 // and a query parameter that is absent leaves its field nil.

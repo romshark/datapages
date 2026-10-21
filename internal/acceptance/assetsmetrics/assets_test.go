@@ -629,6 +629,55 @@ func counterTotal(t *testing.T, name string) float64 {
 	return total
 }
 
+// TestErrorCounters tests that every error of a handler counts as not recovered,
+// since the app defines no RecoverError. A route that nothing serves is no
+// error of a handler and counts as neither.
+//
+// It doesn't call t.Parallel, because the counters are global to the process.
+// The parallel tests of the case start only after it returns.
+func TestErrorCounters(t *testing.T) {
+	srv := newServer(t)
+	tests := map[string]struct {
+		method, path string
+		notRecovered float64
+	}{
+		"action":                  {http.MethodPost, "/fail/", 1},
+		"action after its events": {http.MethodPost, "/half-written/", 1},
+		"refused stream":          {http.MethodGet, "/_$/?refuse=1", 1},
+		"route miss":              {http.MethodGet, "/nowhere/", 0},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			recovered := counterTotal(t,
+				"datapages_internal_errors_recovered_total")
+			notRecovered := counterTotal(t,
+				"datapages_internal_errors_not_recovered_total")
+
+			req, err := http.NewRequestWithContext(
+				context.Background(), tt.method, srv.URL+tt.path, nil,
+			)
+			require.NoError(t, err, "building %s %s", tt.method, tt.path)
+			req.Header.Set("Datastar-Request", "true")
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "%s %s", tt.method, tt.path)
+			// The response ends after the handler returns.
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err, "reading %s", tt.path)
+			_ = resp.Body.Close()
+
+			require.Zero(t,
+				counterTotal(t,
+					"datapages_internal_errors_recovered_total")-recovered,
+				"recovered")
+			require.Equal(t, tt.notRecovered,
+				counterTotal(t,
+					"datapages_internal_errors_not_recovered_total")-notRecovered,
+				"not recovered")
+		})
+	}
+}
+
 // TestMetricsWithoutOption tests a server generated with
 // datapages.EnablePrometheus and built without datapages.WithPrometheus.
 // The metrics it counts have nowhere to go.

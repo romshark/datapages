@@ -24,6 +24,8 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/recovererror/app"
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app/datapagesgen/href"
+
+	"github.com/romshark/datapages/runtime/prom"
 )
 
 const (
@@ -36,6 +38,17 @@ const (
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
+
+// brokerMetrics implements messaging.Metrics using the built-in Prometheus counters.
+type brokerMetrics struct{}
+
+func (m brokerMetrics) OnPublish(subject string) {
+	prom.BrokerPublish(brokerSubjectKind(subject))
+}
+
+func (m brokerMetrics) OnDeliveryDropped() {
+	prom.BrokerDeliveryDropped()
+}
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
@@ -154,7 +167,7 @@ func (s *Server) callStreamConfig(
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
-	messageBrokerMetrics messaging.NoopMetrics
+	messageBrokerMetrics brokerMetrics
 	streams              *stream.Handler
 	app                  *dpapp.App
 }
@@ -162,7 +175,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.EnablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -175,6 +188,7 @@ type Server struct {
 //   - datapages.WithDatastarJS
 //   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
+//   - datapages.WithPrometheus (required)
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
 	app *dpapp.App,
@@ -184,11 +198,10 @@ func (s *Server) Init(
 	if sessionManager != nil {
 		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
-	if cfg.Prometheus != nil {
-		// This server is generated with datapages.DisablePrometheus,
-		// hence there is no instrumentation for the metrics to count.
-		return errors.New("unexpected option WithPrometheus: " +
-			"the server is generated with datapages.DisablePrometheus")
+	if cfg.Prometheus == nil {
+		// This server is generated with datapages.EnablePrometheus,
+		// hence the metrics it counts must be served.
+		return errors.New("missing option WithPrometheus")
 	}
 
 	assetsFS, err := httpserve.AssetsFileSystem(cfg, "", "")
@@ -203,7 +216,7 @@ func (s *Server) Init(
 	}
 	s.app = app
 	s.messageBroker = messageBroker
-	s.messageBrokerMetrics = messaging.NoopMetrics{}
+	s.messageBrokerMetrics = brokerMetrics{}
 
 	if si, ok := s.messageBroker.(messaging.StreamInitializer); ok {
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
@@ -213,7 +226,7 @@ func (s *Server) Init(
 	s.streams = stream.NewHandler(
 		s.Core, messageBroker, s.messageBrokerMetrics,
 		nil,
-		nil,
+		prom.StreamMetrics{},
 		s.httpErrIntern,
 		true,
 	)
@@ -223,6 +236,7 @@ func (s *Server) Init(
 	s.Build()
 	href.SetLogger(s.SampledLogger())
 	action.SetLogger(s.SampledLogger())
+	action.SetMetrics(prom.ActionMetrics{})
 
 	return nil
 }
@@ -246,6 +260,17 @@ var evSubjPageStreamPanic = []string{
 
 var evSubjPageThing = []string{
 	EvSubjPinged,
+}
+
+// brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
+// A metric labelled with the raw subject would carry 1 value per user or per tab.
+func brokerSubjectKind(subject string) string {
+	switch {
+	case subject == EvSubjPinged:
+		return "pinged"
+	default:
+		return "unknown"
+	}
 }
 
 func setupHandlers(s *Server) {
@@ -325,6 +350,7 @@ func setupHandlers(s *Server) {
 // The PageError500 handler uses it so it can't render itself.
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
+	prom.InternalErrorNotRecovered()
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
@@ -343,6 +369,7 @@ func (s *Server) httpErr404(
 		return
 	}
 	s.LogErr(msg, err)
+	prom.InternalErrorNotRecovered()
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
@@ -355,6 +382,7 @@ func (s *Server) httpErrIntern(
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
+		prom.InternalErrorNotRecovered()
 		if httpserve.ResponseBodyWritten(w) {
 			// An error page after a half-written one sends 2 documents.
 			return
@@ -372,6 +400,7 @@ func (s *Server) httpErrIntern(
 	}
 	if sse == nil {
 		if httpserve.ResponseBodyWritten(w) {
+			prom.InternalErrorNotRecovered()
 			// Events after a half-written response would land in its body.
 			return
 		}
@@ -381,8 +410,10 @@ func (s *Server) httpErrIntern(
 	}
 	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
+		prom.InternalErrorRecovered()
 		return
 	}
+	prom.InternalErrorNotRecovered()
 	// An HTTP error here would append plain text to the open SSE stream.
 	s.Logger().Error("recovering error",
 		slog.Any("orig.msg", msg),
@@ -411,6 +442,7 @@ func (s *Server) httpErrFile(
 	w http.ResponseWriter, r *http.Request, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	prom.InternalErrorNotRecovered()
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}

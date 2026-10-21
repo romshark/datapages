@@ -1464,6 +1464,15 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	w.Line(0, "}")
 }
 
+// writeNotRecovered emits the count of an error RecoverError doesn't handle.
+// Every path of the error helpers counts its error once, as recovered only
+// where RecoverError returns nil.
+func (w *Writer) writeNotRecovered(indent int) {
+	if w.prometheus {
+		w.Line(indent, "prom.InternalErrorNotRecovered()")
+	}
+}
+
 func (w *Writer) writeHTTPErrFallback() { w.writeHTTPErrFallbackAt(1) }
 
 // writeHTTPErrFallbackAt emits [httpserve.WriteErrStatus] at indent.
@@ -1527,6 +1536,7 @@ func (w *Writer) writeAppErrHelpers(m *model.App) {
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
 `)
+		w.writeNotRecovered(1)
 		w.writeHTTPErrFallback()
 		w.Raw(`}
 `)
@@ -1548,6 +1558,7 @@ func (s *Server) httpErr404(
 	}
 	s.LogErr(msg, err)
 `)
+		w.writeNotRecovered(1)
 		w.writeHTTPErrFallback()
 		w.Raw(`}
 `)
@@ -1565,9 +1576,15 @@ func (s *Server) httpErrIntern(
 ) {
 	s.LogErr(msg, err)
 `, reqParam)
+	if !hasRecover {
+		w.writeNotRecovered(1)
+	}
 	if hasPage || hasRecover {
 		w.Raw(`	if !httpserve.IsDatastarRequest(r.Header) {
 `)
+		if hasRecover {
+			w.writeNotRecovered(2)
+		}
 		if hasPage {
 			w.Raw(`		if httpserve.ResponseBodyWritten(w) {
 			// An error page after a half-written one sends 2 documents.
@@ -1601,7 +1618,9 @@ func (s *Server) httpErrIntern(
 	if hasRecover {
 		w.Raw(`	if sse == nil {
 		if httpserve.ResponseBodyWritten(w) {
-			// Events after a half-written response would land in its body.
+`)
+		w.writeNotRecovered(3)
+		w.Raw(`			// Events after a half-written response would land in its body.
 			return
 		}
 		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
@@ -1618,10 +1637,7 @@ func (s *Server) httpErrIntern(
 		w.Raw(`		return
 	}
 `)
-		if w.prometheus {
-			w.Raw(`	prom.InternalErrorNotRecovered()
-`)
-		}
+		w.writeNotRecovered(1)
 		w.Raw(`	// An HTTP error here would append plain text to the open SSE stream.
 	s.Logger().Error("recovering error",
 		slog.Any("orig.msg", msg),
@@ -1706,10 +1722,12 @@ func (s *Server) httpErrFile(
 	w http.ResponseWriter, %s, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	if httpserve.ResponseBodyWritten(w) {
+`, reqParam)
+	w.writeNotRecovered(1)
+	w.Raw(`	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
-`, reqParam)
+`)
 	if has404 || has500 {
 		w.Raw(`	if httpserve.IsDocumentRequest(r) {
 		switch httpserve.ErrStatus(err) {

@@ -282,14 +282,18 @@ func (a *App) GETAppFile(
 //
 // Its query parameter parses through PanicText under a key of its own,
 // which leaves PageError500 free to render the answer.
+// With "gone" it returns ErrNotFound, which gets the plain 404 status.
 type PageError404 struct{ App *App }
 
 func (PageError404) GET(
 	_ *http.Request,
-	_ datapages.Query[struct {
+	query datapages.Query[struct {
 		Q PanicText `query:"nf"`
 	}],
 ) (body datapages.Component, err error) {
+	if query.Values.Q == "gone" {
+		return nil, datapages.ErrNotFound
+	}
 	return templ.Raw(`<pre id="echo">not found</pre>`), nil
 }
 

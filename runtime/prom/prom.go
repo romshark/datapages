@@ -42,15 +42,14 @@ var (
 		prometheus.CounterOpts{
 			Namespace: "datapages",
 			Name:      "internal_errors_recovered_total",
-			Help:      "Internal errors recovered without HTTP failure",
+			Help:      "Internal errors that RecoverError handled",
 		},
 	)
 	mInternalErrorsNotRecovered = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "datapages",
 			Name:      "internal_errors_not_recovered_total",
-			Help: "Internal errors that could not be recovered and " +
-				"resulted in an HTTP error response",
+			Help:      "Internal errors that RecoverError did not handle",
 		},
 	)
 	mInFlightRequests = prometheus.NewGauge(
@@ -260,10 +259,11 @@ func ActionOptionDropped(option string) {
 	mActionOptionsDropped.WithLabelValues(option).Inc()
 }
 
-// InternalErrorRecovered counts an error the application answered itself.
+// InternalErrorRecovered counts an error that RecoverError handled.
 func InternalErrorRecovered() { mInternalErrorsRecovered.Inc() }
 
-// InternalErrorNotRecovered counts an error the generated server answered.
+// InternalErrorNotRecovered counts an error that RecoverError did not handle,
+// including every error of an app that defines none.
 func InternalErrorNotRecovered() { mInternalErrorsNotRecovered.Inc() }
 
 // AuthMetrics counts what the session manager does.

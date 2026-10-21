@@ -645,6 +645,7 @@ func setupHandlers(s *Server) {
 // The PageError500 handler uses it so it can't render itself.
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
+	prom.InternalErrorNotRecovered()
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
@@ -663,6 +664,7 @@ func (s *Server) httpErr404(
 		return
 	}
 	s.LogErr(msg, err)
+	prom.InternalErrorNotRecovered()
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
@@ -675,6 +677,7 @@ func (s *Server) httpErrIntern(
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r.Header) {
+		prom.InternalErrorNotRecovered()
 		if httpserve.ResponseBodyWritten(w) {
 			// An error page after a half-written one sends 2 documents.
 			return
@@ -692,6 +695,7 @@ func (s *Server) httpErrIntern(
 	}
 	if sse == nil {
 		if httpserve.ResponseBodyWritten(w) {
+			prom.InternalErrorNotRecovered()
 			// Events after a half-written response would land in its body.
 			return
 		}
