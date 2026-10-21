@@ -235,53 +235,6 @@ func TestNew(t *testing.T) {
 			conf:    assetcompress.Config{Levels: assetcompress.Levels{GzipLevel: -1}},
 			wantErr: "assetcompress: gzip level (-1) must be from 1 to 9",
 		},
-		"initial levels": {conf: assetcompress.Config{
-			Levels: assetcompress.Levels{ZstdLevel: 19, BrotliQuality: 11},
-			InitialLevels: assetcompress.Levels{
-				ZstdLevel: 3, BrotliQuality: 6, GzipLevel: 9,
-			},
-		}},
-		"initial zstd level negative": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				ZstdLevel: -1,
-			}},
-			wantErr: "assetcompress: initial zstd level (-1) must be from 1 to 22",
-		},
-		"initial brotli quality too high": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				BrotliQuality: 12,
-			}},
-			wantErr: "assetcompress: initial brotli quality (12) must be from 1 to 11",
-		},
-		"initial gzip level too high": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				GzipLevel: 10,
-			}},
-			wantErr: "assetcompress: initial gzip level (10) must be from 1 to 9",
-		},
-		"initial zstd level above default": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				ZstdLevel: 19,
-			}},
-			wantErr: "assetcompress: " +
-				"initial zstd level (19) must not exceed zstd level (10)",
-		},
-		"initial brotli quality above": {
-			conf: assetcompress.Config{
-				Levels:        assetcompress.Levels{BrotliQuality: 5},
-				InitialLevels: assetcompress.Levels{BrotliQuality: 6},
-			},
-			wantErr: "assetcompress: " +
-				"initial brotli quality (6) must not exceed brotli quality (5)",
-		},
-		"initial gzip level above": {
-			conf: assetcompress.Config{
-				Levels:        assetcompress.Levels{GzipLevel: 1},
-				InitialLevels: assetcompress.Levels{GzipLevel: 2},
-			},
-			wantErr: "assetcompress: " +
-				"initial gzip level (2) must not exceed gzip level (1)",
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -755,43 +708,18 @@ func TestHandlerCompressesInParallel(t *testing.T) {
 	})
 }
 
-// TestHandlerInitialLevel tests the initial copy, its replacement and the store.
-func TestHandlerInitialLevel(t *testing.T) {
-	t.Parallel()
-
-	store := newCountingStore()
-	c := newCompressor(t, assetcompress.Config{
-		Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-	})
-	h := withETag(`"base"`, newHandler(c, http.FS(assetFiles()), nil))
-	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
-	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-	assetcompress.WaitBackground(c)
-	require.Equal(t, int64(1), store.puts.Load())
-
-	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
-	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-	w = get(t, h, http.MethodGet, "/style.css", "gzip", nil)
-	require.Equal(t, `W/"base.gzip9"`, w.Header().Get("Etag"), "no initial gzip level")
-}
-
-// TestHandlerWithoutStore tests that a compressor without a store replaces the
-// initial copy in memory, writes nothing and serves the copy without reading
-// the file again.
+// TestHandlerWithoutStore tests that a compressor without a store keeps the copy
+// in memory, starts no write and serves the copy without reading the file again.
 func TestHandlerWithoutStore(t *testing.T) {
 	t.Parallel()
 
 	fsys := &readCountingFS{FileSystem: http.FS(assetFiles())}
 	var log testlog.Buffer
-	c := newCompressor(t, assetcompress.Config{
-		InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-	})
+	c := newCompressor(t, assetcompress.Config{})
 	h := withETag(`"base"`,
 		c.Handler(fsys, styleSum, http.FileServer(fsys), log.Logger()))
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
 	assetcompress.WaitBackground(c)
 
 	read := fsys.read.Load()
@@ -800,171 +728,6 @@ func TestHandlerWithoutStore(t *testing.T) {
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	require.Equal(t, read, fsys.read.Load(), "bytes read by the 2nd request")
 	require.Empty(t, log.Lines())
-}
-
-// TestHandlerReplacesOneAtATime tests that replacements run 1 at a time.
-func TestHandlerReplacesOneAtATime(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		// The 3rd open of /style.css replaces its copy.
-		fsys := newStallingFS(3)
-		defer fsys.unstall()
-		store := newCountingStore()
-		c := newCompressor(t, assetcompress.Config{
-			Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-		})
-		h := withETag(`"base"`, newHandler(c, fsys, nil))
-		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-		require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
-		<-fsys.stalled
-		w = get(t, h, http.MethodGet, "/app.js", "br", nil)
-		require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
-		synctest.Wait()
-		require.Zero(t, store.puts.Load(), "app.js did not wait for style.css")
-
-		fsys.unstall()
-		assetcompress.WaitBackground(c)
-		require.Equal(t, int64(2), store.puts.Load())
-		for _, name := range []string{"/style.css", "/app.js"} {
-			w = get(t, h, http.MethodGet, name, "br", nil)
-			require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"), name)
-		}
-	})
-}
-
-// stallingFiles stalls the opens of stall for Precompress, which takes an [fs.FS].
-type stallingFiles struct {
-	fstest.MapFS
-	stall *stallingFS
-}
-
-func (f stallingFiles) Open(name string) (fs.File, error) {
-	file, err := f.MapFS.Open(name)
-	if err == nil && name == "style.css" && f.stall.opens.Add(1) == f.stall.n {
-		close(f.stall.stalled)
-		<-f.stall.release
-	}
-	return file, err
-}
-
-// TestHandlerInitialCopyDuringPrecompress tests that requests don't wait for
-// the copy that Precompress creates at Levels. They share 1 initial copy,
-// which the copy of Precompress replaces in either order.
-func TestHandlerInitialCopyDuringPrecompress(t *testing.T) {
-	t.Parallel()
-
-	for name, fullFirst := range map[string]bool{
-		"initial copy first": false,
-		"full copy first":    true,
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			synctest.Test(t, func(t *testing.T) {
-				// The 2nd open of style.css by Precompress compresses it.
-				pre := newStallingFS(2)
-				defer pre.unstall()
-				c := newCompressor(t, assetcompress.Config{
-					Codings:       []datapages.Coding{datapages.CodingBrotli},
-					InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-				})
-				precompressed := make(chan error, 1)
-				go func() {
-					precompressed <- c.Precompress(context.Background(),
-						stallingFiles{assetFiles(), pre})
-				}()
-				<-pre.stalled
-
-				// The 1st request opens style.css to describe it, then to compress it.
-				fsys := newStallingFS(2)
-				defer fsys.unstall()
-				counting := &readCountingFS{FileSystem: fsys.FileSystem}
-				fsys.FileSystem = counting
-				h := withETag(`"base"`, c.Handler(
-					fsys, styleSum, http.FileServer(fsys), slog.New(slog.DiscardHandler),
-				))
-				responses := make(chan *httptest.ResponseRecorder, 2)
-				request := func() {
-					responses <- get(t, h, http.MethodGet, "/style.css", "br", nil)
-				}
-				go request()
-				synctest.Wait()
-				select {
-				case <-fsys.stalled:
-				default:
-					t.Fatal("the request waits for Precompress")
-				}
-				go request()
-				synctest.Wait()
-
-				if fullFirst {
-					pre.unstall()
-					require.NoError(t, <-precompressed)
-				}
-				fsys.unstall()
-				for range 2 {
-					w := <-responses
-					require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
-					require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-				}
-				if !fullFirst {
-					w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-					require.Equal(t,
-						`W/"base.br1"`,
-						w.Header().Get("Etag"),
-						"copy in memory")
-					pre.unstall()
-					require.NoError(t, <-precompressed)
-				}
-				require.Equal(t,
-					int64(len(assetCSS)),
-					counting.read.Load(),
-					"bytes read")
-
-				w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-				require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
-			})
-		})
-	}
-}
-
-// failingFS fails the nth open of /style.css.
-type failingFS struct {
-	http.FileSystem
-	n     int64
-	opens atomic.Int64
-}
-
-func (fsys *failingFS) Open(name string) (http.File, error) {
-	if name == "/style.css" && fsys.opens.Add(1) == fsys.n {
-		return nil, errors.New("open failed")
-	}
-	return fsys.FileSystem.Open(name)
-}
-
-// TestHandlerKeepsInitialCopy tests the log and the copy after a failed replacement.
-func TestHandlerKeepsInitialCopy(t *testing.T) {
-	t.Parallel()
-
-	store := newCountingStore()
-	c := newCompressor(t, assetcompress.Config{
-		Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-	})
-	var log testlog.Buffer
-	// The 3rd open of /style.css replaces its copy.
-	fsys := &failingFS{FileSystem: http.FS(assetFiles()), n: 3}
-	h := withETag(`"base"`, newHandler(c, fsys, log.Logger()))
-	get(t, h, http.MethodGet, "/style.css", "br", nil)
-	assetcompress.WaitBackground(c)
-
-	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
-	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-	require.Zero(t, store.puts.Load())
-	require.Len(t, log.Lines(), 1)
-	log.RequireMatch(t, `level=WARN msg="compressing an asset" `+
-		`path=/style.css coding=br err="open failed"`)
 }
 
 // TestHandlerKeepsContentType tests that a Content-Type set before the handler

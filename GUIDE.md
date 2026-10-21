@@ -310,12 +310,11 @@ go func() {
 
 Pass the whole `embed.FS`. Copies are keyed by content, which lets them serve the subdirectory the server uses. Precompression stops at the first error, and requests compress the files it did not reach. Drop `go` to finish before serving, which delays startup.
 
-For copies 6% to 11% smaller, use brotli 11 with a brotli 6 initial level. A request that finds no copy then gets a brotli 6 copy in a few milliseconds instead of waiting up to 215 ms, and a background compression replaces it:
+For copies 6% to 11% smaller, use brotli 11 and drop `go` before `Precompress`. A request that finds no copy otherwise waits for its compression, up to 215 ms per 200 KB:
 
 ```go
 assets, err := assetcompress.New(assetcompress.Config{
-	Levels:        assetcompress.Levels{BrotliQuality: 11},
-	InitialLevels: assetcompress.Levels{BrotliQuality: 6},
+	Levels: assetcompress.Levels{BrotliQuality: 11},
 })
 ```
 

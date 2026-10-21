@@ -764,21 +764,21 @@ func (conf SSECompressionConfig) Validate() error {
 	if err := validateCodings(conf.Codings); err != nil {
 		return err
 	}
-	if err := levels.Zstd("", conf.ZstdLevel); err != nil {
+	if err := levels.Zstd(conf.ZstdLevel); err != nil {
 		return err
 	}
 	if conf.ZstdWindow != 0 && !powerOf2In(conf.ZstdWindow, 1<<10, 8<<20) {
 		return fmt.Errorf("zstd window (%d) must be a power of 2 from 1 KiB to 8 MiB",
 			conf.ZstdWindow)
 	}
-	if err := levels.Brotli("", conf.BrotliQuality); err != nil {
+	if err := levels.Brotli(conf.BrotliQuality); err != nil {
 		return err
 	}
 	if conf.BrotliWindow != 0 && !powerOf2In(conf.BrotliWindow, 1<<10, 16<<20) {
 		return fmt.Errorf("brotli window (%d) must be a power of 2 from 1 KiB to 16 MiB",
 			conf.BrotliWindow)
 	}
-	return levels.Gzip("", conf.GzipLevel)
+	return levels.Gzip(conf.GzipLevel)
 }
 
 func powerOf2In(n, lo, hi int) bool {
@@ -921,7 +921,7 @@ func (conf ResponseCompressionConfig) Validate() error {
 	if conf.MinSize < 0 || conf.MinSize > maxResponseCompressionMinSize {
 		return fmt.Errorf("min size (%d) must be from 0 to 1 MiB", conf.MinSize)
 	}
-	return levels.All("", conf.ZstdLevel, conf.BrotliQuality, conf.GzipLevel)
+	return levels.All(conf.ZstdLevel, conf.BrotliQuality, conf.GzipLevel)
 }
 
 // AssetsCompressor compresses the static assets of [WithAssets] and [WithAssetsFS].

@@ -1028,8 +1028,6 @@ A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheCon
 
 The first request creates a missing copy in memory and receives it. Concurrent requests for that copy wait for its compression instead of starting another, and requests for different copies compress them in parallel. Without a `Config.Store`, the copy stays in memory until the server exits. With one, the server writes the copy to the store in the background, in up to 5 attempts within 15 seconds, and serves it from memory until the store has it. Requests meanwhile start no other compression or write. A copy that no attempt stores stays in memory until the server exits.
 
-A nonzero level of `Config.InitialLevels` applies to the copy that the first request creates. A background compression at the configured level replaces that copy in memory before any write to the store. A request that arrives while `Compressor.Precompress` compresses the copy at the configured level receives an initial copy, which the copy of `Precompress` replaces. Background compressions run 1 at a time. A copy whose replacement fails is logged and stays in memory at its initial level until the server exits.
-
 `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding at the configured level. It returns the first failed read or store, which leaves that copy missing, and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
 
 Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` creates the copies the server looks up in its subdirectory. The server hashes each file at its first request. A file changed during compression is not stored under its old hash.
@@ -1048,7 +1046,7 @@ Asset responses follow these rules:
 
 These options and modules configure asset compression:
 
-- `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels, initial levels and store of its `Config`.
+- `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels and store of its `Config`.
 - `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server. The server passes the handler the SHA-256 that it takes of a file for its `ETag`.
 - `datapages.WithNoAssetsCompression` disables compression.
 - A nil `Store` keeps copies in memory, and `modules/assetcompress/disk` keeps them in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700.
