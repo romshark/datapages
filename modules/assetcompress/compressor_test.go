@@ -33,7 +33,6 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/assetcompress"
-	"github.com/romshark/datapages/modules/assetcompress/inmem"
 )
 
 const browserCodings = "gzip, deflate, br, zstd"
@@ -73,7 +72,30 @@ type countingStore struct {
 	putErr  error
 }
 
-func newCountingStore() *countingStore { return &countingStore{Store: inmem.New()} }
+func newCountingStore() *countingStore { return &countingStore{Store: new(memStore)} }
+
+// memStore keeps copies in a map and never fails.
+type memStore struct{ copies sync.Map }
+
+func (s *memStore) Open(key string) (io.ReadSeekCloser, error) {
+	if b, ok := s.copies.Load(key); ok {
+		return nopCloser{bytes.NewReader(b.([]byte))}, nil
+	}
+	return nil, &fs.PathError{Op: "open", Path: key, Err: fs.ErrNotExist}
+}
+
+func (s *memStore) Put(key string, r io.Reader) error {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	s.copies.LoadOrStore(key, b)
+	return nil
+}
+
+type nopCloser struct{ *bytes.Reader }
+
+func (nopCloser) Close() error { return nil }
 
 func (s *countingStore) Open(key string) (io.ReadSeekCloser, error) {
 	if s.openErr != nil {
@@ -172,7 +194,7 @@ func TestNew(t *testing.T) {
 		wantErr string
 	}{
 		"zero":  {},
-		"store": {conf: assetcompress.Config{Store: inmem.New()}},
+		"store": {conf: assetcompress.Config{Store: new(memStore)}},
 		"zstd, else gzip": {conf: assetcompress.Config{
 			Codings: []datapages.Coding{datapages.CodingZstd, datapages.CodingGzip},
 		}},
@@ -560,25 +582,27 @@ func (f readCountingFile) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// styleSum returns the SHA-256 of style.css, as the server does with an ETag.
+func styleSum(name string) ([sha256.Size]byte, bool) {
+	return sha256.Sum256([]byte(assetCSS)), name == "style.css"
+}
+
 // TestHandlerSum tests that the handler stores a copy under the SHA-256 that
 // sum returns and reads the file only to compress it.
 func TestHandlerSum(t *testing.T) {
 	t.Parallel()
 
 	fsys := &readCountingFS{FileSystem: http.FS(assetFiles())}
-	want := sha256.Sum256([]byte(assetCSS))
-	sum := func(name string) ([sha256.Size]byte, bool) {
-		return want, name == "style.css"
-	}
 	store := newCountingStore()
 	c := newCompressor(t, assetcompress.Config{Store: store})
-	h := c.Handler(fsys, sum, http.FileServer(fsys), slog.New(slog.DiscardHandler))
+	h := c.Handler(fsys, styleSum, http.FileServer(fsys), slog.New(slog.DiscardHandler))
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
 	require.Equal(t, "br", w.Header().Get("Content-Encoding"))
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	require.Equal(t, int64(len(assetCSS)), fsys.read.Load(), "bytes read")
 
 	assetcompress.WaitBackground(c)
+	want, _ := styleSum("style.css")
 	copied, err := store.Open(hex.EncodeToString(want[:]) + ".br6")
 	require.NoError(t, err, "the store has no copy under the SHA-256 of sum")
 	require.NoError(t, copied.Close())
@@ -624,7 +648,7 @@ func TestHandlerConcurrent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		fsys := newStallingFS(2)
 		defer fsys.unstall()
-		store := &lateFailingStore{Store: inmem.New()}
+		store := &lateFailingStore{Store: new(memStore)}
 		c := newCompressor(t, assetcompress.Config{Store: store})
 		h := newHandler(c, fsys, nil)
 		responses := make(chan *httptest.ResponseRecorder, 4)
@@ -730,6 +754,31 @@ func TestHandlerInitialLevel(t *testing.T) {
 	require.Equal(t, `"base.gzip9"`, w.Header().Get("Etag"), "no initial gzip level")
 }
 
+// TestHandlerWithoutStore tests that a compressor without a store replaces the
+// initial copy in memory, writes nothing and serves the copy without reading
+// the file again.
+func TestHandlerWithoutStore(t *testing.T) {
+	t.Parallel()
+
+	fsys := &readCountingFS{FileSystem: http.FS(assetFiles())}
+	var log testlog.Buffer
+	c := newCompressor(t, assetcompress.Config{
+		InitialLevels: assetcompress.Levels{BrotliQuality: 1},
+	})
+	h := withETag(`"base"`,
+		c.Handler(fsys, styleSum, http.FileServer(fsys), log.Logger()))
+	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+	assetcompress.WaitBackground(c)
+
+	read := fsys.read.Load()
+	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
+	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	require.Equal(t, read, fsys.read.Load(), "bytes read by the 2nd request")
+	require.Empty(t, log.Lines())
+}
+
 // TestHandlerReplacesOneAtATime tests that replacements run 1 at a time.
 func TestHandlerReplacesOneAtATime(t *testing.T) {
 	t.Parallel()
@@ -825,25 +874,6 @@ func TestHandlerKeepsContentType(t *testing.T) {
 				require.Equal(t, wantCoding, w.Header().Get("Content-Encoding"), accept)
 			}
 		})
-	}
-}
-
-// bytesOnlyStore serves its copies through Bytes only.
-type bytesOnlyStore struct{ *inmem.Store }
-
-func (bytesOnlyStore) Open(string) (io.ReadSeekCloser, error) { panic("Open called") }
-
-// TestHandlerBytesStore tests that copies of a BytesStore go out without Open.
-func TestHandlerBytesStore(t *testing.T) {
-	t.Parallel()
-
-	c := newCompressor(t, assetcompress.Config{Store: bytesOnlyStore{inmem.New()}})
-	h := newHandler(c, http.FS(assetFiles()), nil)
-	for range 2 {
-		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-		require.Equal(t, "br", w.Header().Get("Content-Encoding"))
-		require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-		assetcompress.WaitBackground(c)
 	}
 }
 
@@ -972,12 +1002,12 @@ func TestStoreFailure(t *testing.T) {
 		wantLog    string
 	}{
 		"open": {
-			store: &countingStore{Store: inmem.New(), openErr: errStore},
+			store: &countingStore{Store: new(memStore), openErr: errStore},
 			wantLog: `level=WARN msg="compressing an asset" ` +
 				`path=/app.js coding=br err="store failed"`,
 		},
 		"put": {
-			store:      &countingStore{Store: inmem.New(), putErr: errStore},
+			store:      &countingStore{Store: new(memStore), putErr: errStore},
 			wantCoding: "br",
 			wantLog: `level=WARN msg="storing a compressed asset" ` +
 				`key=[0-9a-f]{64}\.br6 attempts=5 err="store failed"`,
@@ -1027,7 +1057,7 @@ func (s *lateFailingStore) Put(key string, r io.Reader) error {
 func TestHandlerServesCopyFromMemory(t *testing.T) {
 	t.Parallel()
 
-	store := &lateFailingStore{Store: inmem.New()}
+	store := &lateFailingStore{Store: new(memStore)}
 	c := newCompressor(t, assetcompress.Config{Store: store})
 	assetcompress.SetWriteRetry(c, time.Millisecond)
 	var log testlog.Buffer
@@ -1048,7 +1078,7 @@ func TestHandlerServesCopyFromMemory(t *testing.T) {
 func TestHandlerRetriesWrite(t *testing.T) {
 	t.Parallel()
 
-	store := &lateFailingStore{Store: inmem.New(), failures: 2}
+	store := &lateFailingStore{Store: new(memStore), failures: 2}
 	c := newCompressor(t, assetcompress.Config{Store: store})
 	assetcompress.SetWriteRetry(c, time.Millisecond)
 	var log testlog.Buffer
@@ -1107,7 +1137,7 @@ func TestHandlerPanic(t *testing.T) {
 		wantLog    string
 	}{
 		"store": {
-			store:      &panickingStore{Store: inmem.New()},
+			store:      &panickingStore{Store: new(memStore)},
 			fsys:       http.FS(assetFiles()),
 			wantCoding: "br",
 			wantLog: `level=ERROR msg="recovered panic while storing a compressed asset" ` +
@@ -1179,6 +1209,23 @@ func TestPrecompress(t *testing.T) {
 	require.Equal(t, int64(eligibleCopies), store.puts.Load())
 }
 
+// TestPrecompressWithoutStore tests that requests get the copies that
+// Precompress keeps in memory without a store, without reading the file.
+func TestPrecompressWithoutStore(t *testing.T) {
+	t.Parallel()
+
+	c := newCompressor(t, assetcompress.Config{})
+	require.NoError(t, c.Precompress(context.Background(), assetFiles()))
+	fsys := &readCountingFS{FileSystem: http.FS(assetFiles())}
+	h := c.Handler(fsys, styleSum, http.FileServer(fsys), slog.New(slog.DiscardHandler))
+	for _, coding := range []string{"br", "gzip"} {
+		w := get(t, h, http.MethodGet, "/style.css", coding, nil)
+		require.Equal(t, coding, w.Header().Get("Content-Encoding"))
+		require.Equal(t, assetCSS, decode(t, coding, w.Body.Bytes()), coding)
+	}
+	require.Zero(t, fsys.read.Load(), "bytes read")
+}
+
 // readPanickingFS panics on every read of a file.
 type readPanickingFS struct{ fstest.MapFS }
 
@@ -1218,7 +1265,7 @@ func TestPrecompressPanic(t *testing.T) {
 		"file system": {fsys: readPanickingFS{assetFiles()}, want: "read failed"},
 		"store open": {
 			fsys:  assetFiles(),
-			store: openPanickingStore{inmem.New()},
+			store: openPanickingStore{new(memStore)},
 			want:  "open failed",
 		},
 	} {
@@ -1314,9 +1361,7 @@ func BenchmarkPrecompress(b *testing.B) {
 				var ops int
 				for b.Loop() {
 					b.StopTimer()
-					conf := tc.conf
-					conf.Store = inmem.New()
-					c := newCompressor(b, conf)
+					c := newCompressor(b, tc.conf)
 					var before, after runtime.MemStats
 					runtime.ReadMemStats(&before)
 					b.StartTimer()

@@ -1,4 +1,11 @@
-// Package disk stores compressed static assets in a shared directory.
+// Package disk stores compressed static assets in a shared directory and keeps
+// them across restarts. A server sends a stored copy from its file instead of
+// keeping it in memory. Use it when the copies take too much memory, or when
+// compressing them again after every restart takes too long, such as megabytes
+// of assets at brotli 11, which compresses 1 to 1.5 MB per second.
+//
+// A file that changes between restarts gets a new copy, since keys contain its SHA-256.
+// [New] deletes the old copy once no server opened it for [Config.MaxUnused].
 package disk
 
 import (

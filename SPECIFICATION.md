@@ -1026,9 +1026,9 @@ The media type of a font asset is `font/otf` for `.otf`, `font/ttf` for `.ttf`, 
 
 A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheControl` or a middleware can set, is not eligible. Eligible assets use the first explicitly accepted coding from brotli 6 and gzip 9. Brotli uses a 4 MiB window. Other assets stay uncompressed. Dev mode disables asset compression.
 
-The first request creates a missing copy in memory and receives it. Concurrent requests for that copy wait for its compression instead of starting another, and requests for different copies compress them in parallel. The server then writes the copy to the store in the background, in up to 5 attempts within 15 seconds, and serves it from memory until the store has it. Requests meanwhile start no other compression or write. A copy that no attempt stores stays in memory until the server exits.
+The first request creates a missing copy in memory and receives it. Concurrent requests for that copy wait for its compression instead of starting another, and requests for different copies compress them in parallel. Without a `Config.Store`, the copy stays in memory until the server exits. With one, the server writes the copy to the store in the background, in up to 5 attempts within 15 seconds, and serves it from memory until the store has it. Requests meanwhile start no other compression or write. A copy that no attempt stores stays in memory until the server exits.
 
-A nonzero level of `Config.InitialLevels` applies to the copy that the first request creates. A background compression at the configured level replaces that copy in memory before the write. Background compressions run 1 at a time. A copy whose replacement fails is logged and stays in memory at its initial level until the server exits.
+A nonzero level of `Config.InitialLevels` applies to the copy that the first request creates. A background compression at the configured level replaces that copy in memory before any write to the store. Background compressions run 1 at a time. A copy whose replacement fails is logged and stays in memory at its initial level until the server exits.
 
 `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding at the configured level. It returns the first failed read or store, which leaves that copy missing, and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
 
@@ -1066,7 +1066,7 @@ The server computes the `ETag` that `datapages.WithAssetsCache` adds at the firs
 - Every response for the file carries that `ETag`, with the coding and level appended for a copy. A conditional request with it receives 304.
 - An uncompressed response carries the new content.
 - A compressed response carries the existing copy in its coding. A request in a coding without a copy detects the change and receives the new content uncompressed. After a detection, compressed responses in every coding carry copies of the new content.
-- The store keeps the copies of the previous content. The in-memory store keeps them until the server exits. Each detection adds at most 1 copy per coding.
+- The store keeps the copies of the previous content. Without a store, memory keeps them until the server exits. Each detection adds at most 1 copy per coding.
 
 After a file is deleted, a compressed response in a coding with a copy carries that copy. Every other request for the file receives 404.
 

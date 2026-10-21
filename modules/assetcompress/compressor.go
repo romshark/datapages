@@ -26,7 +26,6 @@ import (
 	"github.com/romshark/datapages/internal/contentcoding"
 	"github.com/romshark/datapages/internal/contentcoding/levels"
 	"github.com/romshark/datapages/internal/exactpath"
-	"github.com/romshark/datapages/modules/assetcompress/inmem"
 )
 
 // The defaults of [Config].
@@ -64,11 +63,12 @@ const (
 //	              editor.js, 222 KB   basecoat-1.0.2.css, 218 KB   allocated
 //	brotli 6      27.9% in 4 ms       8.8% in 1.5 ms               12 MiB
 //	brotli 11     25.6% in 215 ms     7.9% in 142 ms               61 MiB
-//	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms               40 MiB
-//	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms              1.4 MiB
+//	zstd 10       28.6% in 6 ms       9.2% in 2.3 ms               39 MiB
+//	gzip 9        29.5% in 5 ms       10.0% in 2.6 ms              1.3 MiB
 type Config struct {
-	// Store keeps copies. Nil uses memory; a store from
-	// [github.com/romshark/datapages/modules/assetcompress/disk.New] survives restarts.
+	// Store keeps copies. Nil keeps them in memory until exit; a store from
+	// [github.com/romshark/datapages/modules/assetcompress/disk.New] keeps them
+	// in files, which also survive restarts.
 	Store Store
 
 	// Codings lists codings in preference order. The default is brotli then gzip.
@@ -149,16 +149,14 @@ type Compressor struct {
 	codings []*contentcoding.Coding
 	// formats holds the copy format of each coding, at the same index.
 	formats []copyFormat
-	store   Store
-	// byteStore is store when it keeps copies in memory.
-	byteStore BytesStore
-	minSize   int64
+	store   Store // Nil without [Config.Store].
+	minSize int64
 
 	lockPuts sync.Mutex
 	puts     map[string]*assetPut // By store key.
 
-	// memory holds copies until stored, an initial copy under the key of its
-	// replacement.
+	// memory holds copies until stored, every copy without a store, and an
+	// initial copy under the key of its replacement.
 	memory sync.Map
 	// recompressing permits 1 replacement.
 	recompressing chan struct{}
@@ -175,10 +173,7 @@ type copyFormat struct {
 	initialSuffix string
 }
 
-var (
-	_ datapages.AssetsCompressor = (*Compressor)(nil)
-	_ BytesStore                 = (*inmem.Store)(nil)
-)
+var _ datapages.AssetsCompressor = (*Compressor)(nil)
 
 type assetPut struct {
 	done   chan struct{}
@@ -208,10 +203,6 @@ func New(conf Config) (*Compressor, error) {
 		recompressing: make(chan struct{}, 1),
 		writeRetry:    writeRetry,
 	}
-	if c.store == nil {
-		c.store = inmem.New()
-	}
-	c.byteStore, _ = c.store.(BytesStore)
 	levels := conf.Levels.or(defaultLevels)
 	initialLevels := conf.InitialLevels.or(levels)
 	for _, name := range codings {
@@ -272,7 +263,7 @@ func (conf Config) validate() error {
 // marked Cache-Control: no-transform or typed with a Content-Type that is not
 // eligible. Assets must not change before server exit. The handler adds the
 // coding and level to an existing ETag and logs copy failures before delegating
-// to next. New copies go out from memory and reach the store in the background,
+// to next. New copies go out from memory and reach a [Config.Store] in the background,
 // in up to 5 attempts within 15 s, after any replacement at [Config.Levels].
 // Refused copies stay in memory. Requests share each compression and write.
 func (c *Compressor) Handler(
@@ -348,7 +339,7 @@ func (c *Compressor) precompressCopy(
 		return err
 	}
 	m, created, err := c.compress(fsys, name, sum, key, c.codings[i], c.formats[i].suffix)
-	if err != nil || !created {
+	if err != nil || !created || c.store == nil {
 		return err
 	}
 	// Drop the copy even after a failed put, since no request would store it.
@@ -633,9 +624,9 @@ func (c *Compressor) describe(
 	return info, nil
 }
 
-// lookup returns the copy under key in the coding at i and its suffix, from
-// memory or the store. The copy comes as bytes, or as an open file from a store that
-// is not a [BytesStore]. The error wraps [fs.ErrNotExist] when neither has the copy.
+// lookup returns the copy under key in the coding at i and its suffix,
+// as bytes from memory or as an open file from the store.
+// The error wraps [fs.ErrNotExist] when neither has the copy.
 func (c *Compressor) lookup(
 	key string, i int,
 ) (data []byte, file io.ReadSeekCloser, suffix string, err error) {
@@ -643,8 +634,8 @@ func (c *Compressor) lookup(
 		m := v.(compressed)
 		return m.data, nil, m.suffix, nil
 	}
-	if c.byteStore != nil {
-		data, err = c.byteStore.Bytes(key)
+	if c.store == nil {
+		err = fs.ErrNotExist
 	} else {
 		file, err = c.store.Open(key)
 	}
@@ -654,6 +645,7 @@ func (c *Compressor) lookup(
 // copyOf returns the copy under key and its suffix like [Compressor.lookup],
 // creating it from name when absent. name must hash to sum. The creating call finishes
 // the copy, which stays in memory until stored so no other call creates it again.
+// Without a store, only an initial copy needs finishing.
 func (c *Compressor) copyOf(
 	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string, i int,
 	logger *slog.Logger,
@@ -667,13 +659,14 @@ func (c *Compressor) copyOf(
 	if err != nil {
 		return nil, nil, "", err
 	}
-	if created {
+	if created && (c.store != nil || m.suffix != f.suffix) {
 		c.background.Go(func() { c.finish(fsys, name, sum, key, i, m, logger) })
 	}
 	return m.data, nil, m.suffix, nil
 }
 
-// finish replaces m at the level of the coding at i if needed, then stores it.
+// finish replaces m at the level of the coding at i if needed,
+// then stores it if the compressor has a store.
 func (c *Compressor) finish(
 	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string, i int,
 	m compressed, logger *slog.Logger,
@@ -690,7 +683,9 @@ func (c *Compressor) finish(
 		m = compressed{data: data, suffix: suffix}
 		c.memory.Store(key, m)
 	}
-	c.write(key, m.data, logger)
+	if c.store != nil {
+		c.write(key, m.data, logger)
+	}
 }
 
 // compress creates 1 copy per key in memory, in cd and with suffix,

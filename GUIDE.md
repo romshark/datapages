@@ -231,7 +231,7 @@ Datapages compresses page and action bodies of at least 256 bytes. The default p
 datapages.WithResponseCompression(datapages.ResponseCompressionLowCPU()),
 ```
 
-`datapages.File` responses remain uncompressed. Static assets use separate compression; see [Serve static assets](#serve-static-assets). To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Give each representation its own `ETag` and send `Vary: Accept-Encoding`. See [Choose where compression runs](#choose-where-compression-runs) for loopback clients and proxies. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input, and on their `_$/` streams, or give such a page a `StreamConfig` that returns `Compression: &datapages.SSECompressionConfig{Disabled: true}`. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
+`datapages.File` responses remain uncompressed. Static assets use separate compression; see [Tune asset compression](#tune-asset-compression). To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Give each representation its own `ETag` and send `Vary: Accept-Encoding`. See [Choose where compression runs](#choose-where-compression-runs) for loopback clients and proxies. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input, and on their `_$/` streams, or give such a page a `StreamConfig` that returns `Compression: &datapages.SSECompressionConfig{Disabled: true}`. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
 
 ## Choose where compression runs
 
@@ -264,9 +264,39 @@ The default build ID is a hash of the executable. If you set `datapages.WithBuil
 
 ## Serve static assets
 
-Enable the scaffold's `embed.FS` example, pass it to `datapages.WithAssets`, and write URLs with the generated `assets` or `href` helper. Asset paths match file names exactly on every system and in dev mode, so `/static/App.js` gets 404 for `app.js`. Configure production caching with `datapages.WithAssetsCache`. Its zero value makes the browser ask the server before it reuses a file, and an unchanged file costs a 304 without a body. A positive `MaxAge` lets the browser reuse a file without asking until it expires. Use it only for files whose name changes with their content, such as `datastar-1.0.4.js`, or the browser keeps old files after a deploy. Assets must not change while the server runs, and files that do belong in a GET action that returns `datapages.File`. See [Changing Assets](SPECIFICATION.md#changing-assets), [Dev Mode](SPECIFICATION.md#dev-mode) and [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets).
+Declare an `embed.FS` in the app package and put the URL path in its doc comment, as the example in `app/app.go` shows:
 
-Datapages compresses eligible assets on first request and keeps the copies in memory. Brotli 6 takes a few milliseconds per 200 KB file; brotli 11 takes 140 to 215 ms. To avoid this request delay, create the compressor and precompress the embedded files:
+```go
+// StaticFS is /static/
+//
+//go:embed static/*
+var StaticFS embed.FS
+```
+
+Pass it to the server in `cmd/server/main.go`, and let browsers revalidate the files:
+
+```go
+opts = append(opts,
+	datapages.WithAssets(app.StaticFS, false),
+	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
+)
+```
+
+`false` answers 404 instead of listing a directory. With the zero `AssetsCacheConfig`, the browser asks before it reuses a file and gets a 304 without a body while the file is unchanged. Set a `MaxAge` only for files whose name changes with their content, such as `datastar-1.0.4.js`. Otherwise browsers keep old files after a deploy.
+
+Run `datapages gen`, then write asset URLs with the generated `href` or `assets` helper:
+
+```templ
+<link rel="stylesheet" href={ href.Asset("style.css") }/>
+```
+
+Spell each path exactly like its file. `/static/App.js` gets 404 for `app.js` on every system.
+
+Keep assets unchanged while the server runs, and serve files that change through a GET action that returns `datapages.File`. See [Changing Assets](SPECIFICATION.md#changing-assets), [Dev Mode](SPECIFICATION.md#dev-mode) and [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets).
+
+## Tune asset compression
+
+Datapages compresses eligible assets on their first request and keeps the copies in memory. To compress them before the first request, create the compressor and precompress the embedded files:
 
 ```go
 assets, err := assetcompress.New(assetcompress.Config{})
@@ -281,9 +311,9 @@ go func() {
 }()
 ```
 
-A copy is stored under the content of its file, not its path. Precompressing the whole `embed.FS` therefore creates the copies the server looks up in its subdirectory. Requests still compress missing copies. Precompression stops at the first error; later files remain for their first requests. Omit `go` to finish before serving. This delays startup and fills the in-memory store with every eligible copy.
+Pass the whole `embed.FS`. Copies are keyed by content, which lets them serve the subdirectory the server uses. Precompression stops at the first error, and requests compress the files it did not reach. Drop `go` to finish before serving, which delays startup.
 
-With brotli 11, also set a brotli 6 initial level. A request that finds no copy then waits a few milliseconds for a brotli 6 copy instead of up to 215 ms, and a background compression replaces it at quality 11:
+For copies 6% to 11% smaller, use brotli 11 with a brotli 6 initial level. A request that finds no copy then gets a brotli 6 copy in a few milliseconds instead of waiting up to 215 ms, and a background compression replaces it:
 
 ```go
 assets, err := assetcompress.New(assetcompress.Config{
@@ -292,7 +322,7 @@ assets, err := assetcompress.New(assetcompress.Config{
 })
 ```
 
-Persist copies to compress each build once:
+Without a store, the copies stay in memory until the server exits, at about 1/4 of the size of the compressible files per coding. Persist them in a directory when they take too much memory, or when brotli 11 has megabytes to compress again after every restart, at 1 to 1.5 MB per second:
 
 ```go
 store, err := disk.New("/var/cache/myapp/assets", disk.Config{})
@@ -302,7 +332,9 @@ if err != nil {
 assets, err := assetcompress.New(assetcompress.Config{Store: store})
 ```
 
-On Unix, `disk.New` refuses a directory that every user can write to, such as the mount point of a Kubernetes `emptyDir` volume. Pass a subdirectory of it, which `disk.New` creates. Whenever a server starts, `disk.New` deletes the copies that no server opened for `disk.Config.MaxUnused`, 7 days by default.
+The store serves each copy from its file instead of from memory. Skip it for a few assets at the default levels, which recompress in a few milliseconds after a restart. Give the store a directory that only the server can write to. For a Kubernetes `emptyDir` volume, pass a subdirectory of its mount point, which `disk.New` creates. The store deletes copies that no server used for 7 days. Set `disk.Config.MaxUnused` to keep them longer.
+
+To keep the copies elsewhere, such as in object storage that all servers share, implement [`assetcompress.Store`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Store) and pass it as `Store`. Every request for a stored copy calls `Open`, so cache remote copies locally. Keys contain the SHA-256 of the file, which lets the servers of every build share the store. The compressor never deletes copies. Expire old ones in the storage, for example with a lifecycle rule.
 
 See [Asset Compression](SPECIFICATION.md#asset-compression) for the rules and [`assetcompress.Config`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Config) for measurements.
 

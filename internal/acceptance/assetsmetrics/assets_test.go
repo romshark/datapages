@@ -28,7 +28,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/assets"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/href"
 	"github.com/romshark/datapages/modules/assetcompress"
-	assetinmem "github.com/romshark/datapages/modules/assetcompress/inmem"
+	"github.com/romshark/datapages/modules/assetcompress/disk"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -182,7 +182,10 @@ func (s *countingStore) Put(key string, r io.Reader) error {
 // subdirectory.
 func TestAssetIsCompressed(t *testing.T) {
 	t.Parallel()
-	store := &countingStore{Store: assetinmem.New()}
+	copies, err := disk.New(t.TempDir(), disk.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = copies.Close() })
+	store := &countingStore{Store: copies}
 	compressor, err := assetcompress.New(assetcompress.Config{Store: store})
 	require.NoError(t, err)
 	srv := newServer(t, datapages.WithAssetsCompression(compressor))
