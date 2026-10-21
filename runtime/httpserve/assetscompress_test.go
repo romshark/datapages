@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -61,9 +62,7 @@ func getAsset(
 	t.Helper()
 	r := httptest.NewRequest(method, path, nil)
 	r.Header.Set("Accept-Encoding", cmp.Or(accept, "identity"))
-	for k, v := range header {
-		r.Header[k] = v
-	}
+	maps.Copy(r.Header, header)
 	w := httptest.NewRecorder()
 	c.ServeHTTP(w, r)
 	return w

@@ -1258,7 +1258,7 @@ func BenchmarkReRender(b *testing.B) {
 		} {
 			b.Run(size.name+"/"+tc.name, func(b *testing.B) {
 				comp := sse.NewCompression(tc.conf)
-				w := &countingWriter{discard: discard{h: make(http.Header)}}
+				w := &countingWriter{h: make(http.Header)}
 				versions := make([]int, len(items))
 				// 2 collections empty the pools of the previous runs.
 				var before, after runtime.MemStats
@@ -1314,10 +1314,12 @@ func listItems(n int) []string {
 	var items []string
 	for size := 0; size < n; {
 		var b strings.Builder
-		b.WriteString(`<li id="item-` + strconv.Itoa(len(items)) +
-			`"><input type="checkbox">`)
+		b.WriteString(`<li id="item-`)
+		b.WriteString(strconv.Itoa(len(items)))
+		b.WriteString(`"><input type="checkbox">`)
 		for range 3 + r.IntN(4) {
-			b.WriteString(" " + words[r.IntN(len(words))])
+			b.WriteByte(' ')
+			b.WriteString(words[r.IntN(len(words))])
 		}
 		b.WriteString("</li>")
 		items = append(items, b.String())

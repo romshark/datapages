@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -853,9 +854,7 @@ func streamResponse(
 	req, err := http.NewRequestWithContext(t.Context(),
 		http.MethodGet, srv.URL+path, nil)
 	require.NoError(t, err)
-	for k, v := range header {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, header)
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	resp, err := srv.Client().Do(req)
@@ -872,9 +871,7 @@ func actionResponse(
 	req, err := http.NewRequestWithContext(t.Context(),
 		http.MethodPost, srv.URL+path, nil)
 	require.NoError(t, err)
-	for k, v := range header {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, header)
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	resp, err := srv.Client().Do(req)

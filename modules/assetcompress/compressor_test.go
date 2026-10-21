@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,9 +144,7 @@ func get(
 	t.Helper()
 	r := httptest.NewRequest(method, path, nil)
 	r.Header.Set("Accept-Encoding", cmp.Or(accept, "identity"))
-	for k, v := range header {
-		r.Header[k] = v
-	}
+	maps.Copy(r.Header, header)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w
