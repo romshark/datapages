@@ -272,9 +272,19 @@ func TextJSONKind(t types.Type) JSONKind {
 // AcceptsJSONKind reports whether encoding/json can decode a value of kind k
 // into t.
 //
+// A pointer accepts what its element accepts.
 // Types that implement json.Unmarshaler and interface types accept every kind.
-// Other types must match the value's kind.
+// Other types that implement encoding.TextUnmarshaler accept only strings,
+// whatever their underlying type.
+// The rest must match the value's kind.
 func AcceptsJSONKind(t types.Type, k JSONKind) bool {
+	for {
+		p, ok := types.Unalias(t).(*types.Pointer)
+		if !ok {
+			break
+		}
+		t = p.Elem()
+	}
 	if t == nil {
 		return true
 	}
@@ -283,6 +293,9 @@ func AcceptsJSONKind(t types.Type, k JSONKind) bool {
 	}
 	if _, ok := t.Underlying().(*types.Interface); ok {
 		return true
+	}
+	if ImplementsTextUnmarshaler(t) {
+		return k == JSONString
 	}
 	switch k {
 	case JSONNumber:

@@ -477,7 +477,7 @@ A reflected field must be a basic type or implement `encoding.TextMarshaler`. `d
 
 `datapages gen` rejects 2 query fields with the same `reflectsignal` value.
 
-The query field's seed must have a JSON kind that the signal field can decode. `datapages gen` rejects incompatible pairs. For example, it rejects a string query field reflected into a `bool` signal. Fields that implement `json.Unmarshaler` and interface fields accept every JSON kind.
+The query field's seed must have a JSON kind that the signal field can decode. `datapages gen` rejects incompatible pairs. For example, it rejects a string query field reflected into a `bool` signal. Fields that implement `json.Unmarshaler` and interface fields accept every JSON kind. Other fields that implement `encoding.TextUnmarshaler` accept only strings. Pointer fields accept the JSON kinds of the type they point to.
 
 Signal `json` tags must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is rejected.
 

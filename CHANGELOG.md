@@ -135,6 +135,9 @@ Run `datapages gen` to apply these.
 - Keep the generated code of 2 applications whose events claim the same subject. It was replaced before the error was reported.
 - Replace generated files only once all are written. A full disk or a killed `datapages gen` could leave a package that did not compile.
 - Rerun `datapages gen` in `datapages watch` when the package calling `datapages.NewServer` changes. A new `Metrics` type argument took effect only after the next change to the app package.
+- Accept a `reflectsignal` query field whose signal is a pointer, such as an `int` query field reflected into a `*int` signal. It was refused with "incompatible JSON kinds", although `encoding/json` decodes the value into it.
+- Accept a string query field reflected into a signal that implements `encoding.TextUnmarshaler`, such as an `int64` type with an `UnmarshalText` method. It was refused with "incompatible JSON kinds", although `encoding/json` passes the string to `UnmarshalText`.
+- Reject a number or bool query field reflected into a signal that implements `encoding.TextUnmarshaler` and not `json.Unmarshaler`. `encoding/json` decodes only strings into such a type, and an action that took the signal answered 400. Reflect a string field or a field that implements `encoding.TextMarshaler`.
 
 #### Generated code
 
