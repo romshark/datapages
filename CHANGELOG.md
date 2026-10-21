@@ -138,6 +138,7 @@ Run `datapages gen` to apply these.
 - Accept a `reflectsignal` query field whose signal is a pointer, such as an `int` query field reflected into a `*int` signal. It was refused with "incompatible JSON kinds", although `encoding/json` decodes the value into it.
 - Accept a string query field reflected into a signal that implements `encoding.TextUnmarshaler`, such as an `int64` type with an `UnmarshalText` method. It was refused with "incompatible JSON kinds", although `encoding/json` passes the string to `UnmarshalText`.
 - Reject a number or bool query field reflected into a signal that implements `encoding.TextUnmarshaler` and not `json.Unmarshaler`. `encoding/json` decodes only strings into such a type, and an action that took the signal answered 400. Reflect a string field or a field that implements `encoding.TextMarshaler`.
+- Show the update notice in `datapages watch` when the running version is a prerelease of the latest release, such as `0.11.0-rc.1` of `v0.11.0`. The check ignored the prerelease suffix and found both versions equal.
 
 #### Generated code
 
