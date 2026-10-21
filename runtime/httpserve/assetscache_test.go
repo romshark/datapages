@@ -161,14 +161,23 @@ func TestAssetsCacheFirstRequestReads(t *testing.T) {
 		accept   string
 		wantETag string
 	}{
-		"compressed":   {accept: "br", wantETag: tag + `.br6"`},
-		"uncompressed": {accept: "identity", wantETag: tag + `"`},
+		"compressed": {
+			accept:   "br",
+			wantETag: "W/" + tag + `.br6"`,
+		},
+		"uncompressed": {
+			accept:   "identity",
+			wantETag: tag + `"`,
+		},
 		"WithNoAssetsCompression": {
-			opt: datapages.WithNoAssetsCompression(), accept: "br", wantETag: tag + `"`,
+			opt:      datapages.WithNoAssetsCompression(),
+			accept:   "br",
+			wantETag: tag + `"`,
 		},
 		"wrapped compressor": {
-			opt:    datapages.WithAssetsCompression(wrappingCompressor{compressor}),
-			accept: "br", wantETag: tag + `.br6"`,
+			opt:      datapages.WithAssetsCompression(wrappingCompressor{compressor}),
+			accept:   "br",
+			wantETag: "W/" + tag + `.br6"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

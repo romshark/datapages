@@ -414,6 +414,29 @@ func TestHandlerRange(t *testing.T) {
 	require.Equal(t, full[:10], w.Body.Bytes())
 }
 
+// TestHandlerIfRange tests that the weak ETag of a copy does not validate a range,
+// which sends the whole copy, while the strong ETag of the file still
+// validates a range of the uncompressed file.
+func TestHandlerIfRange(t *testing.T) {
+	t.Parallel()
+
+	h := withETag(`"base"`,
+		newHandler(newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil))
+	for coding, tc := range map[string]struct {
+		tag        string
+		wantStatus int
+	}{
+		"br":       {tag: `W/"base.br6"`, wantStatus: http.StatusOK},
+		"identity": {tag: `"base"`, wantStatus: http.StatusPartialContent},
+	} {
+		w := get(t, h, http.MethodGet, "/style.css", coding, http.Header{
+			"Range": {"bytes=0-9"}, "If-Range": {tc.tag},
+		})
+		require.Equal(t, tc.wantStatus, w.Code, coding)
+		require.Equal(t, tc.tag, w.Header().Get("Etag"), coding)
+	}
+}
+
 // TestHandlerMultipartRange tests that multiple ranges
 // use the source file and carry Vary.
 func TestHandlerMultipartRange(t *testing.T) {
@@ -527,7 +550,7 @@ func TestHandlerZstdLevels(t *testing.T) {
 		})
 		h := withETag(`"base"`, newHandler(c, http.FS(assetFiles()), nil))
 		w := get(t, h, http.MethodGet, "/style.css", "zstd", nil)
-		require.Equal(t, `"base.zstd10"`, w.Header().Get("Etag"), "level %d", level)
+		require.Equal(t, `W/"base.zstd10"`, w.Header().Get("Etag"), "level %d", level)
 		assetcompress.WaitBackground(c)
 	}
 	require.Equal(t, int64(1), store.puts.Load(), "copies of levels 19 and 22")
@@ -541,8 +564,8 @@ func TestHandlerETag(t *testing.T) {
 		newHandler(newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil))
 	for coding, want := range map[string]string{
 		"":     `"base"`,
-		"br":   `"base.br6"`,
-		"gzip": `"base.gzip9"`,
+		"br":   `W/"base.br6"`,
+		"gzip": `W/"base.gzip9"`,
 	} {
 		w := get(t, h, http.MethodGet, "/style.css", coding, nil)
 		require.Equal(t, want, w.Header().Get("Etag"), coding)
@@ -742,16 +765,16 @@ func TestHandlerInitialLevel(t *testing.T) {
 	})
 	h := withETag(`"base"`, newHandler(c, http.FS(assetFiles()), nil))
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	assetcompress.WaitBackground(c)
 	require.Equal(t, int64(1), store.puts.Load())
 
 	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	w = get(t, h, http.MethodGet, "/style.css", "gzip", nil)
-	require.Equal(t, `"base.gzip9"`, w.Header().Get("Etag"), "no initial gzip level")
+	require.Equal(t, `W/"base.gzip9"`, w.Header().Get("Etag"), "no initial gzip level")
 }
 
 // TestHandlerWithoutStore tests that a compressor without a store replaces the
@@ -768,12 +791,12 @@ func TestHandlerWithoutStore(t *testing.T) {
 	h := withETag(`"base"`,
 		c.Handler(fsys, styleSum, http.FileServer(fsys), log.Logger()))
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
 	assetcompress.WaitBackground(c)
 
 	read := fsys.read.Load()
 	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	require.Equal(t, read, fsys.read.Load(), "bytes read by the 2nd request")
 	require.Empty(t, log.Lines())
@@ -793,10 +816,10 @@ func TestHandlerReplacesOneAtATime(t *testing.T) {
 		})
 		h := withETag(`"base"`, newHandler(c, fsys, nil))
 		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-		require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+		require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
 		<-fsys.stalled
 		w = get(t, h, http.MethodGet, "/app.js", "br", nil)
-		require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+		require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
 		synctest.Wait()
 		require.Zero(t, store.puts.Load(), "app.js did not wait for style.css")
 
@@ -805,7 +828,7 @@ func TestHandlerReplacesOneAtATime(t *testing.T) {
 		require.Equal(t, int64(2), store.puts.Load())
 		for _, name := range []string{"/style.css", "/app.js"} {
 			w = get(t, h, http.MethodGet, name, "br", nil)
-			require.Equal(t, `"base.br6"`, w.Header().Get("Etag"), name)
+			require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"), name)
 		}
 	})
 }
@@ -882,19 +905,25 @@ func TestHandlerInitialCopyDuringPrecompress(t *testing.T) {
 				fsys.unstall()
 				for range 2 {
 					w := <-responses
-					require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+					require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
 					require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 				}
 				if !fullFirst {
 					w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-					require.Equal(t, `"base.br1"`, w.Header().Get("Etag"), "copy in memory")
+					require.Equal(t,
+						`W/"base.br1"`,
+						w.Header().Get("Etag"),
+						"copy in memory")
 					pre.unstall()
 					require.NoError(t, <-precompressed)
 				}
-				require.Equal(t, int64(len(assetCSS)), counting.read.Load(), "bytes read")
+				require.Equal(t,
+					int64(len(assetCSS)),
+					counting.read.Load(),
+					"bytes read")
 
 				w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-				require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
+				require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
 			})
 		})
 	}
@@ -930,7 +959,7 @@ func TestHandlerKeepsInitialCopy(t *testing.T) {
 	assetcompress.WaitBackground(c)
 
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br1"`, w.Header().Get("Etag"))
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	require.Zero(t, store.puts.Load())
 	require.Len(t, log.Lines(), 1)
@@ -953,12 +982,17 @@ func TestHandlerKeepsContentType(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newHandler(newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil)
+			h := newHandler(
+				newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil,
+			)
 			typed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", tc.contentType)
 				h.ServeHTTP(w, r)
 			})
-			for accept, wantCoding := range map[string]string{"": "", "br": tc.wantCoding} {
+			for accept, wantCoding := range map[string]string{
+				"":   "",
+				"br": tc.wantCoding,
+			} {
 				w := get(t, typed, http.MethodGet, "/page.html", accept, nil)
 				require.Equal(t, tc.contentType, w.Header().Get("Content-Type"), accept)
 				require.Equal(t, wantCoding, w.Header().Get("Content-Encoding"), accept)

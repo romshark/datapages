@@ -1040,7 +1040,7 @@ Asset responses follow these rules:
 - A multi-range request receives the uncompressed file.
 - An eligible response carries `Vary: Accept-Encoding`, also when uncompressed.
 - A `Content-Type` that a middleware sets before the asset handler goes out unchanged. A type that is not eligible leaves the asset uncompressed.
-- A copy's `ETag` is the strong `ETag` of its file with the coding and level appended, such as `"tag.br6"`. A copy of a file without an `ETag` has none.
+- A copy's `ETag` is the weak form of its file's `ETag` with the coding and level appended, such as `W/"tag.br6"`. A copy of a file without an `ETag` has none. An `If-Range` request for a copy receives the whole copy.
 - An error of the store while it opens a copy is logged, and the request receives the uncompressed file.
 - A copy that no attempt stores is logged once, after the last attempt.
 - A panic of the file system while a copy is compressed is logged with its stack, and the request receives the uncompressed file.

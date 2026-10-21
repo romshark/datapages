@@ -260,12 +260,12 @@ func (conf Config) validate() error {
 }
 
 // Handler implements [datapages.AssetsCompressor]. It hashes each asset on its
-// first request unless sum, which may be nil, has its SHA-256, serves an accepted
-// copy, and delegates other requests to next, including those whose response is
-// marked Cache-Control: no-transform or typed with a Content-Type that is not
-// eligible. Assets must not change before server exit. The handler adds the
-// coding and level to an existing ETag and logs copy failures before delegating
-// to next. New copies go out from memory and reach a [Config.Store] in the background,
+// first request unless sum, which may be nil, has its SHA-256, serves an accepted copy,
+// and delegates other requests to next, including those whose response is marked
+// Cache-Control: no-transform or typed with a Content-Type that isn't eligible.
+// Assets must not change before server exit. The handler weakens an existing ETag,
+// adds the coding and level to it, and logs copy failures before delegating to next.
+// New copies go out from memory and reach a [Config.Store] in the background,
 // in up to 5 attempts within 15 s, after any replacement at [Config.Levels].
 // Refused copies stay in memory. Requests share each compression and write.
 func (c *Compressor) Handler(
@@ -379,16 +379,18 @@ type taggedETag struct {
 	value        []string // Shared by every response.
 }
 
-// etag returns the ETag of the copy in the coding at i, made from suffix and file,
-// the ETag of the file.
+// etag returns the weak ETag of the copy in the coding at i, made from suffix and file,
+// the ETag of the file. Encoder versions differ in the bytes of a copy,
+// which neither file nor suffix tells apart.
 func (f *assetFile) etag(i int, file, suffix string) []string {
 	if t := f.etags[i].Load(); t != nil && t.file == file && t.suffix == suffix {
 		return t.value
 	}
+	opaque := strings.TrimPrefix(file, "W/")
 	t := &taggedETag{
 		file:   file,
 		suffix: suffix,
-		value:  []string{file[:len(file)-1] + "." + suffix + `"`},
+		value:  []string{"W/" + opaque[:len(opaque)-1] + "." + suffix + `"`},
 	}
 	f.etags[i].Store(t)
 	return t.value
@@ -465,7 +467,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 		header["Content-Type"] = info.contentType
 	}
 	if tag := header.Get("Etag"); strings.HasSuffix(tag, `"`) {
-		// Strong tags differ by representation.
+		// Tags differ by representation.
 		header["Etag"] = info.etag(i, tag, suffix)
 	}
 	s := servings.Get().(*serving)

@@ -273,8 +273,8 @@ func TestAssetsCompressionETag(t *testing.T) {
 	base := strings.TrimSuffix(tag, `"`)
 
 	for coding, want := range map[string]string{
-		"br":   base + `.br6"`,
-		"gzip": base + `.gzip9"`,
+		"br":   "W/" + base + `.br6"`,
+		"gzip": "W/" + base + `.gzip9"`,
 	} {
 		w := getAsset(t, c, http.MethodGet, "/static/style.css", coding, nil)
 		require.Equal(t, want, w.Header().Get("Etag"), coding)
