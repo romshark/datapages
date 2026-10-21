@@ -38,12 +38,12 @@ github.com/prometheus/common v0.72.1 h1:ZAiQed/nk8IIcsdzb2TlJu23NEUDyDLQ9TXTN2WR
 github.com/prometheus/common v0.72.1/go.mod h1:1IoBY4IRaJnhs2ESjNzjilP1cJ/P8pimGoomq7zRXrA=
 github.com/prometheus/procfs v0.22.0 h1:6q9+/JL9IKAPbCmBrv9n5O5Ty3NKnciV5X7YGw0oics=
 github.com/prometheus/procfs v0.22.0/go.mod h1:CvmFr/GVhIjIvWJZW3tgkODBQMRIf0EyWMQLHCHab58=
-github.com/shopspring/decimal v1.5.0 h1:HxSWk31RmJv0EyY4oLiGQB9u7WPludUwPBdvQZnYFPc=
-github.com/shopspring/decimal v1.5.0/go.mod h1:gawqmDU56v4yIKSwfBSFip1HdCCXN8/+DMd9qYNcwME=
+github.com/shopspring/decimal v1.6.0 h1:DcTwjCj4tJPLuGZYsR9W0hyX9pQwMIkdo26Ig1T9xX4=
+github.com/shopspring/decimal v1.6.0/go.mod h1:gawqmDU56v4yIKSwfBSFip1HdCCXN8/+DMd9qYNcwME=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/wailsapp/wails/v3 v3.0.0-beta.29 h1:oJbXasfieQmMkYtqPlFSPnDe0RwpzA5BKiov8WPD5lo=
-github.com/wailsapp/wails/v3 v3.0.0-beta.29/go.mod h1:5DR/EG5FHU8+BNV7tQYQ/rJMjoFsVlYpM+0gp1+gcTI=
+github.com/wailsapp/wails/v3 v3.0.0-beta.34 h1:3p/s+rk6olaquzaDWWowVTJ1ZMIBDHEsTUqxsffR4Zw=
+github.com/wailsapp/wails/v3 v3.0.0-beta.34/go.mod h1:Tk3i8pyehpIdV4aS9GfpgGjk7eOjuSpCrpyJXpS6y64=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=
 github.com/xyproto/randomstring v1.0.5/go.mod h1:rgmS5DeNXLivK7YprL0pY+lTuhNQW3iGxZ18UQApw/E=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
