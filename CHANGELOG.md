@@ -211,6 +211,7 @@ Run `datapages gen` to apply these.
 - Shut down gracefully on SIGTERM in the `cmd/server/main.go` it writes. Docker, Kubernetes and systemd stop a process with SIGTERM, which previously ended the server without waiting for requests, SSE streams and `StreamClose` hooks. It does not rewrite an existing `main.go`: add `syscall.SIGTERM` to its `signal.NotifyContext` call.
 - Check out the repository before installing Go in `.github/workflows/ci.yml`, which lets `actions/setup-go` restore its cache. In a project scaffolded earlier, move the `Checkout repository` step above `Install Go`.
 - Use the enclosing Go module when run in a subdirectory, as `datapages gen` does, instead of creating a nested module there.
+- Run in place in a project that has a `go.mod` and a `datapages.yaml` but no git repository. `datapages gen` recommends `datapages init -n` to update the agent instructions, which failed there with "--name is required", and an interactive run created a new project inside the existing one.
 
 ### Security
 

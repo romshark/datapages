@@ -1296,6 +1296,47 @@ func TestInit(t *testing.T) {
 				require.NoFileExists(t, filepath.Join(startDir, "Makefile"))
 			},
 		},
+		// gen recommends init -n to refresh the agent instructions of a project,
+		// which need not be a git repository.
+		"non-interactive already initialized without git": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				c := exec.Command("go", "mod", "init", "example.com/existing")
+				c.Dir = dir
+				out, err := c.CombinedOutput()
+				require.NoError(t, err, "go mod init: %s", out)
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yaml"),
+					[]byte("cmd: cmd/server\n"),
+					0o644,
+				))
+				appDir := filepath.Join(dir, "app")
+				require.NoError(t, os.MkdirAll(appDir, 0o755))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(appDir, "app.go"),
+					[]byte("package app\n// existing\n"),
+					0o644,
+				))
+				sub := filepath.Join(dir, "internal")
+				require.NoError(t, os.Mkdir(sub, 0o755))
+				return sub
+			},
+			projectDir: "..",
+			args:       []string{"datapages", "init", "-n"},
+			wantCode:   0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				root := filepath.Dir(startDir)
+				require.Contains(t, stdout, "Using the Go module in ")
+				require.Contains(t, stdout, "Project already initialized.")
+				require.FileExists(t, filepath.Join(root, "AGENTS.md"))
+				require.NoDirExists(t, filepath.Join(root, ".git"))
+				entries, err := os.ReadDir(startDir)
+				require.NoError(t, err)
+				require.Empty(t, entries, "init wrote into the subdirectory")
+				requireFileContains(t,
+					filepath.Join(root, "app", "app.go"), "// existing")
+			},
+		},
 		"non-interactive in git subdirectory": {
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
