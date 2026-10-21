@@ -82,8 +82,9 @@ type Config struct {
 	// Levels applies to stored copies. 0 selects the defaults.
 	Levels Levels
 
-	// InitialLevels, at most Levels, applies to the copy that a request creates
-	// until a background compression at Levels replaces it. 0 selects Levels.
+	// InitialLevels, at most Levels, applies to the copy that a request creates,
+	// also while [Compressor.Precompress] compresses the file, until a compression
+	// at Levels replaces it. 0 selects Levels.
 	InitialLevels Levels
 }
 
@@ -177,6 +178,7 @@ var _ datapages.AssetsCompressor = (*Compressor)(nil)
 
 type assetPut struct {
 	done   chan struct{}
+	suffix string // Of the copy it creates.
 	copied compressed
 	err    error
 }
@@ -338,7 +340,7 @@ func (c *Compressor) precompressCopy(
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	m, created, err := c.compress(fsys, name, sum, key, c.codings[i], c.formats[i].suffix)
+	m, created, err := c.compress(fsys, name, sum, key, i, false)
 	if err != nil || !created || c.store == nil {
 		return err
 	}
@@ -655,7 +657,7 @@ func (c *Compressor) copyOf(
 		return data, file, suffix, err
 	}
 	f := c.formats[i]
-	m, created, err := c.compress(fsys, name, sum, key, f.initial, f.initialSuffix)
+	m, created, err := c.compress(fsys, name, sum, key, i, true)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -688,15 +690,30 @@ func (c *Compressor) finish(
 	}
 }
 
-// compress creates 1 copy per key in memory, in cd and with suffix,
-// while concurrent callers wait, possibly for another level.
-// It reports whether this call created it.
+// compress creates 1 copy per key in memory, in the coding at i at its level or,
+// for initial, at its initial level, while concurrent callers wait, possibly for
+// another level. It reports whether this call created the copy under key.
+//
+// Callers for an initial copy do not wait for the copy at the level of the
+// coding, which [Compressor.Precompress] creates and which takes longer.
+// They share an initial copy, which stays in memory until the other replaces it.
 func (c *Compressor) compress(
-	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string,
-	cd *contentcoding.Coding, suffix string,
+	fsys http.FileSystem, name string, sum [sha256.Size]byte, key string, i int,
+	initial bool,
 ) (copied compressed, created bool, err error) {
+	f := c.formats[i]
+	cd, suffix := c.codings[i], f.suffix
+	if initial {
+		cd, suffix = f.initial, f.initialSuffix
+	}
 	c.lockPuts.Lock()
-	if p, ok := c.puts[key]; ok {
+	putKey := key
+	full, running := c.puts[key]
+	if running && initial && full.suffix != suffix {
+		// Store keys contain no slash.
+		putKey = key + "/" + suffix
+	}
+	if p, ok := c.puts[putKey]; ok {
 		c.lockPuts.Unlock()
 		<-p.done
 		return p.copied, false, p.err
@@ -706,20 +723,21 @@ func (c *Compressor) compress(
 		c.lockPuts.Unlock()
 		return v.(compressed), false, nil
 	}
-	p := &assetPut{done: make(chan struct{})}
-	c.puts[key] = p
+	p := &assetPut{done: make(chan struct{}), suffix: suffix}
+	c.puts[putKey] = p
 	c.lockPuts.Unlock()
 
 	data, err := encode(fsys, name, sum, cd)
 	p.copied, p.err = compressed{data: data, suffix: suffix}, err
-	if p.err == nil {
+	c.lockPuts.Lock()
+	// A copy beside full enters memory only while full runs, which replaces it.
+	if p.err == nil && (putKey == key || c.puts[key] == full) {
 		c.memory.Store(key, p.copied)
 	}
-	c.lockPuts.Lock()
-	delete(c.puts, key)
+	delete(c.puts, putKey)
 	c.lockPuts.Unlock()
 	close(p.done)
-	return p.copied, true, p.err
+	return p.copied, putKey == key, p.err
 }
 
 // encode compresses name and rejects a file that does not hash to sum.

@@ -810,6 +810,96 @@ func TestHandlerReplacesOneAtATime(t *testing.T) {
 	})
 }
 
+// stallingFiles stalls the opens of stall for Precompress, which takes an [fs.FS].
+type stallingFiles struct {
+	fstest.MapFS
+	stall *stallingFS
+}
+
+func (f stallingFiles) Open(name string) (fs.File, error) {
+	file, err := f.MapFS.Open(name)
+	if err == nil && name == "style.css" && f.stall.opens.Add(1) == f.stall.n {
+		close(f.stall.stalled)
+		<-f.stall.release
+	}
+	return file, err
+}
+
+// TestHandlerInitialCopyDuringPrecompress tests that requests don't wait for
+// the copy that Precompress creates at Levels. They share 1 initial copy,
+// which the copy of Precompress replaces in either order.
+func TestHandlerInitialCopyDuringPrecompress(t *testing.T) {
+	t.Parallel()
+
+	for name, fullFirst := range map[string]bool{
+		"initial copy first": false,
+		"full copy first":    true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				// The 2nd open of style.css by Precompress compresses it.
+				pre := newStallingFS(2)
+				defer pre.unstall()
+				c := newCompressor(t, assetcompress.Config{
+					Codings:       []datapages.Coding{datapages.CodingBrotli},
+					InitialLevels: assetcompress.Levels{BrotliQuality: 1},
+				})
+				precompressed := make(chan error, 1)
+				go func() {
+					precompressed <- c.Precompress(context.Background(),
+						stallingFiles{assetFiles(), pre})
+				}()
+				<-pre.stalled
+
+				// The 1st request opens style.css to describe it, then to compress it.
+				fsys := newStallingFS(2)
+				defer fsys.unstall()
+				counting := &readCountingFS{FileSystem: fsys.FileSystem}
+				fsys.FileSystem = counting
+				h := withETag(`"base"`, c.Handler(
+					fsys, styleSum, http.FileServer(fsys), slog.New(slog.DiscardHandler),
+				))
+				responses := make(chan *httptest.ResponseRecorder, 2)
+				request := func() {
+					responses <- get(t, h, http.MethodGet, "/style.css", "br", nil)
+				}
+				go request()
+				synctest.Wait()
+				select {
+				case <-fsys.stalled:
+				default:
+					t.Fatal("the request waits for Precompress")
+				}
+				go request()
+				synctest.Wait()
+
+				if fullFirst {
+					pre.unstall()
+					require.NoError(t, <-precompressed)
+				}
+				fsys.unstall()
+				for range 2 {
+					w := <-responses
+					require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+					require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+				}
+				if !fullFirst {
+					w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+					require.Equal(t, `"base.br1"`, w.Header().Get("Etag"), "copy in memory")
+					pre.unstall()
+					require.NoError(t, <-precompressed)
+				}
+				require.Equal(t, int64(len(assetCSS)), counting.read.Load(), "bytes read")
+
+				w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+				require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
+			})
+		})
+	}
+}
+
 // failingFS fails the nth open of /style.css.
 type failingFS struct {
 	http.FileSystem
