@@ -281,8 +281,10 @@ func (c *Core) Build() {
 			// New accepts the zero Config.
 			compressor, _ = assetcompress.New(assetcompress.Config{})
 		}
+		tags := new(assetTags)
 		// Compressed ETags extend the cache middleware's base tag.
-		h := compressor.Handler(fsys, typedFonts(http.FileServer(fsys)), c.sampledLogger)
+		h := compressor.Handler(
+			fsys, tags.sum, typedFonts(http.FileServer(fsys)), c.sampledLogger)
 		// c.assetsFS lists the directories that fsys hides.
 		exact := exactpath.New(c.assetsFS).Exact
 		switch {
@@ -292,7 +294,7 @@ func (c *Core) Build() {
 			h = DevNoCache(typedFonts(http.FileServer(noModTimeFS{fsys})))
 			exact = func(p string) bool { return exactpath.New(c.assetsFS).Exact(p) }
 		case c.assetsCache != nil && !c.assetsCache.Disabled:
-			h = newAssetsCache(fsys, *c.assetsCache, h)
+			h = newAssetsCache(fsys, tags, *c.assetsCache, h)
 		default:
 			h = revalidated(h)
 		}

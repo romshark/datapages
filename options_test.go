@@ -1,6 +1,7 @@
 package datapages_test
 
 import (
+	"crypto/sha256"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -361,7 +362,8 @@ func TestWithResponseCompressionCopiesCodings(t *testing.T) {
 type passingCompressor struct{}
 
 func (passingCompressor) Handler(
-	_ http.FileSystem, next http.Handler, _ *slog.Logger,
+	_ http.FileSystem, _ func(string) ([sha256.Size]byte, bool), next http.Handler,
+	_ *slog.Logger,
 ) http.Handler {
 	return next
 }
@@ -396,7 +398,7 @@ func TestWithNoCompression(t *testing.T) {
 		&datapages.ResponseCompressionConfig{Disabled: true}, cfg.ResponseCompression)
 	require.Equal(t, &datapages.SSECompressionConfig{Disabled: true}, cfg.SSECompression)
 	next := http.NewServeMux()
-	require.Same(t, next, cfg.AssetsCompressor.Handler(nil, next, nil))
+	require.Same(t, next, cfg.AssetsCompressor.Handler(nil, nil, next, nil))
 }
 
 // TestWithBuildID tests that IDs fit unchanged in an HTTP header.

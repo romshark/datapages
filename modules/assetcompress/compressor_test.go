@@ -104,7 +104,7 @@ func newHandler(
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return c.Handler(fsys, http.FileServer(fsys), logger)
+	return c.Handler(fsys, nil, http.FileServer(fsys), logger)
 }
 
 // withETag sets tag before next runs, as the asset cache of the server does.
@@ -535,31 +535,53 @@ func TestHandlerETag(t *testing.T) {
 		"the tag of the uncompressed file matched the copy")
 }
 
-// TestHandlerDigest tests that the handler returns the SHA-256 of a file it
-// compresses, which the ETag cache of the server takes, and none of another file.
-func TestHandlerDigest(t *testing.T) {
+// readCountingFS counts the bytes read from the files it opens.
+type readCountingFS struct {
+	http.FileSystem
+	read atomic.Int64
+}
+
+func (fsys *readCountingFS) Open(name string) (http.File, error) {
+	f, err := fsys.FileSystem.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return readCountingFile{File: f, read: &fsys.read}, nil
+}
+
+type readCountingFile struct {
+	http.File
+	read *atomic.Int64
+}
+
+func (f readCountingFile) Read(p []byte) (int, error) {
+	n, err := f.File.Read(p)
+	f.read.Add(int64(n))
+	return n, err
+}
+
+// TestHandlerSum tests that the handler stores a copy under the SHA-256 that
+// sum returns and reads the file only to compress it.
+func TestHandlerSum(t *testing.T) {
 	t.Parallel()
 
-	files := assetFiles()
-	h := newHandler(newCompressor(t, assetcompress.Config{}), http.FS(files), nil)
-	d, ok := h.(interface {
-		Digest(rel string) ([sha256.Size]byte, bool)
-	})
-	require.True(t, ok, "the handler has no Digest method")
-	for rel, want := range map[string]bool{
-		"style.css":       true,
-		"docs/index.html": true,
-		"small.css":       false,
-		"image.png":       false,
-		"docs":            false,
-		"missing.css":     false,
-	} {
-		sum, ok := d.Digest(rel)
-		require.Equal(t, want, ok, rel)
-		if want {
-			require.Equal(t, sha256.Sum256(files[rel].Data), sum, rel)
-		}
+	fsys := &readCountingFS{FileSystem: http.FS(assetFiles())}
+	want := sha256.Sum256([]byte(assetCSS))
+	sum := func(name string) ([sha256.Size]byte, bool) {
+		return want, name == "style.css"
 	}
+	store := newCountingStore()
+	c := newCompressor(t, assetcompress.Config{Store: store})
+	h := c.Handler(fsys, sum, http.FileServer(fsys), slog.New(slog.DiscardHandler))
+	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
+	require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
+	require.Equal(t, int64(len(assetCSS)), fsys.read.Load(), "bytes read")
+
+	assetcompress.WaitBackground(c)
+	copied, err := store.Open(hex.EncodeToString(want[:]) + ".br6")
+	require.NoError(t, err, "the store has no copy under the SHA-256 of sum")
+	require.NoError(t, copied.Close())
 }
 
 // TestHandlerPreconditionFailed verifies that a 412 omits copy headers.
@@ -878,14 +900,19 @@ func (f *changingFS) Open(name string) (http.File, error) {
 	return http.FS(files).Open(name)
 }
 
-// TestHandlerFileChangesDuringCompression rejects a changed source and retries.
+// TestHandlerFileChangesDuringCompression tests that a changed source is
+// rejected and that the next request gets a copy of the new content.
 func TestHandlerFileChangesDuringCompression(t *testing.T) {
 	t.Parallel()
 
 	var log testlog.Buffer
-	h := newHandler(
-		newCompressor(t, assetcompress.Config{}), &changingFS{}, log.Logger(),
-	)
+	fsys := &changingFS{}
+	// sum keeps the SHA-256 of the old content, as the server does.
+	sum := func(string) ([sha256.Size]byte, bool) {
+		return sha256.Sum256([]byte(assetCSS)), true
+	}
+	c := newCompressor(t, assetcompress.Config{})
+	h := c.Handler(fsys, sum, http.FileServer(fsys), log.Logger())
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
 	require.Empty(t, w.Header().Get("Content-Encoding"))
 	log.RequireMatch(t,

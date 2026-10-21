@@ -1,6 +1,7 @@
 package datapages
 
 import (
+	"crypto/sha256"
 	"embed"
 	"errors"
 	"fmt"
@@ -927,10 +928,16 @@ func (conf ResponseCompressionConfig) Validate() error {
 type AssetsCompressor interface {
 	// Handler returns a handler that sends a compressed copy of a file of fsys
 	// and passes other requests to next, which sends the files of fsys.
-	// The server calls it once and passes it the logger that [WithLogSampling]
-	// throttles. Requests reach the handler only for paths spelled as the
-	// directories of fsys list them, unless a directory cannot be listed.
-	Handler(fsys http.FileSystem, next http.Handler, logger *slog.Logger) http.Handler
+	// sum returns the SHA-256 that the server takes of the file at name for the
+	// ETag of [WithAssetsCache], or false. name is a path that [io/fs.ValidPath]
+	// accepts, such as "docs/index.html". The server calls Handler once and passes
+	// it the logger that [WithLogSampling] throttles. Requests reach the handler
+	// only for paths spelled as the directories of fsys list them,
+	// unless a directory cannot be listed.
+	Handler(
+		fsys http.FileSystem, sum func(name string) ([sha256.Size]byte, bool),
+		next http.Handler, logger *slog.Logger,
+	) http.Handler
 }
 
 // WithAssetsCompression sets the compressor of static assets.
@@ -953,8 +960,8 @@ func WithAssetsCompression(c AssetsCompressor) ServerOption {
 	}
 }
 
-// WithNoAssetsCompression sends static assets uncompressed. Use it for
-// loopback-only entry points and before proxy body filters.
+// WithNoAssetsCompression sends static assets uncompressed.
+// Use it for loopback-only entry points and before proxy body filters.
 func WithNoAssetsCompression() ServerOption {
 	return func(cfg *ServerConfig) error {
 		cfg.AssetsCompressor = uncompressedAssets{}
@@ -966,7 +973,8 @@ func WithNoAssetsCompression() ServerOption {
 type uncompressedAssets struct{}
 
 func (uncompressedAssets) Handler(
-	_ http.FileSystem, next http.Handler, _ *slog.Logger,
+	_ http.FileSystem, _ func(string) ([sha256.Size]byte, bool), next http.Handler,
+	_ *slog.Logger,
 ) http.Handler {
 	return next
 }

@@ -2,6 +2,7 @@ package httpserve_test
 
 import (
 	"cmp"
+	"crypto/sha256"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -323,13 +324,15 @@ func TestAssetsCompressionOff(t *testing.T) {
 // server passed it.
 type recordingCompressor struct {
 	fsys   http.FileSystem
+	sum    func(string) ([sha256.Size]byte, bool)
 	logger *slog.Logger
 }
 
 func (rc *recordingCompressor) Handler(
-	fsys http.FileSystem, next http.Handler, logger *slog.Logger,
+	fsys http.FileSystem, sum func(string) ([sha256.Size]byte, bool),
+	next http.Handler, logger *slog.Logger,
 ) http.Handler {
-	rc.fsys, rc.logger = fsys, logger
+	rc.fsys, rc.sum, rc.logger = fsys, sum, logger
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Compressor", "1")
 		next.ServeHTTP(w, r)
@@ -357,6 +360,44 @@ func TestAssetsCompressor(t *testing.T) {
 	require.NoError(t, f.Close())
 	require.NoError(t, err)
 	require.Equal(t, assetCSS, string(b))
+}
+
+// TestAssetsCompressorSum tests that the compressor gets the SHA-256 that the
+// ETag cache takes of a file, and none without an ETag.
+func TestAssetsCompressorSum(t *testing.T) {
+	t.Parallel()
+
+	files := assetFiles()
+	for name, tc := range map[string]struct {
+		cache *datapages.AssetsCacheConfig
+		want  bool
+	}{
+		"WithAssetsCache":    {cache: &datapages.AssetsCacheConfig{}, want: true},
+		"no WithAssetsCache": {},
+		"DisableETag":        {cache: &datapages.AssetsCacheConfig{DisableETag: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			rc := new(recordingCompressor)
+			cfg := datapages.ServerConfig{AssetsCache: tc.cache}
+			require.NoError(t, datapages.WithAssetsCompression(rc)(&cfg))
+			c := assetsCore(t, http.FS(files), cfg)
+			for p, file := range map[string]string{
+				"/static/style.css": "style.css",
+				"/static/docs/":     "docs/index.html",
+			} {
+				_, ok := rc.sum(file)
+				require.False(t, ok, "%s before its request", file)
+				getAsset(t, c, http.MethodGet, p, "", nil)
+				sum, ok := rc.sum(file)
+				require.Equal(t, tc.want, ok, file)
+				if tc.want {
+					require.Equal(t, sha256.Sum256(files[file].Data), sum, file)
+				}
+			}
+		})
+	}
 }
 
 // TestAssetsPassMiddlewareThrough tests that a middleware that edits HTML,

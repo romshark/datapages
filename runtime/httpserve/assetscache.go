@@ -14,10 +14,10 @@ import (
 )
 
 // defaultCacheControl is the Cache-Control of assets without an
-// [datapages.AssetsCacheConfig], the one of its zero value. Without any, a
-// browser reuses a file that has Last-Modified without asking, by heuristic
-// freshness. no-cache would make the offline worker fetch every asset from
-// the network before it answers from its copy.
+// [datapages.AssetsCacheConfig], the one of its zero value.
+// Without any, a browser reuses a file that has Last-Modified without asking,
+// by heuristic freshness. no-cache would make the offline worker fetch every
+// asset from the network before it answers from its copy.
 const defaultCacheControl = "public, max-age=0"
 
 // revalidated sends the responses of next with [defaultCacheControl].
@@ -28,29 +28,23 @@ func revalidated(next http.Handler) http.Handler {
 	})
 }
 
-// assetsCache adds the headers configured by [datapages.AssetsCacheConfig]
-// before next serves the file. [http.ServeContent] handles If-None-Match when
-// an ETag is present.
+// assetsCache adds the headers configured by [datapages.AssetsCacheConfig] before next
+// serves the file. [http.ServeContent] handles If-None-Match when an ETag is present.
 //
 // Missing files and directory listings receive no added cache headers.
 type assetsCache struct {
 	next         http.Handler
 	fsys         http.FileSystem
+	tags         *assetTags
 	cacheControl []string // Shared by every response.
 	etag         bool
-
-	// files holds the ETag value of each file by [exactpath.Clean] path, nil
-	// without ETags, which every request reads without a lock.
-	//
-	// Missing paths leave no entry, and [exactSpellings] passes only paths
-	// spelled as listed, which bounds the map by the files in fsys instead of
-	// the paths clients request.
-	files sync.Map
 }
 
-// newAssetsCache adds the headers in conf to files next serves from fsys.
+// newAssetsCache adds the headers in conf to the files of fsys that next serves.
+// It keeps their ETags in tags.
 func newAssetsCache(
-	fsys http.FileSystem, conf datapages.AssetsCacheConfig, next http.Handler,
+	fsys http.FileSystem, tags *assetTags, conf datapages.AssetsCacheConfig,
+	next http.Handler,
 ) *assetsCache {
 	cacheControl := conf.CacheControl
 	if cacheControl == "" {
@@ -63,6 +57,7 @@ func newAssetsCache(
 	return &assetsCache{
 		next:         next,
 		fsys:         fsys,
+		tags:         tags,
 		cacheControl: []string{cacheControl},
 		etag:         !conf.DisableETag,
 	}
@@ -83,8 +78,8 @@ func (c *assetsCache) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // The value is nil when ETags are disabled or the file cannot be read.
 func (c *assetsCache) lookup(p string) (tag []string, isFile bool) {
 	rel := exactpath.Clean(p)
-	if v, ok := c.files.Load(rel); ok {
-		return v.([]string), true
+	if v, ok := c.tags.Load(rel); ok {
+		return v.(*assetTag).value, true
 	}
 
 	f, opened, ok := c.openFile(rel)
@@ -92,37 +87,21 @@ func (c *assetsCache) lookup(p string) (tag []string, isFile bool) {
 		return nil, false
 	}
 	defer func() { _ = f.Close() }()
+	t := untagged
 	if c.etag {
-		sum, ok := c.digest(opened)
-		if !ok {
-			h := sha256.New()
-			if _, err := io.Copy(h, f); err != nil {
-				return nil, true
-			}
-			sum = [sha256.Size]byte(h.Sum(nil))
+		// A directory and its index.html resolve to 1 file.
+		if v, ok := c.tags.Load(opened); ok {
+			t = v.(*assetTag)
+		} else if t = newAssetTag(f); t == nil {
+			return nil, true
 		}
-		// Truncate the digest to 128 bits to keep the header short.
-		// Raw URL encoding has no character that needs escaping inside a quoted ETag.
-		tag = []string{`"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`}
 	}
-	c.files.Store(rel, tag)
-	return tag, true
-}
-
-// digester is a handler that hashes the files it serves, as the handler of
-// [assetcompress.Compressor.Handler] hashes the files it compresses.
-type digester interface {
-	// Digest returns the SHA-256 of the file at rel, an [exactpath.Clean] path,
-	// or false when the handler does not hash the file.
-	Digest(rel string) ([sha256.Size]byte, bool)
-}
-
-// digest returns the SHA-256 that next takes of the file at rel, if any.
-func (c *assetsCache) digest(rel string) (sum [sha256.Size]byte, ok bool) {
-	if d, isDigester := c.next.(digester); isDigester {
-		return d.Digest(rel)
+	c.tags.Store(rel, t)
+	if opened != rel {
+		// The compressor asks by the name of the file.
+		c.tags.Store(opened, t)
 	}
-	return sum, false
+	return t.value, true
 }
 
 // openFile opens the regular file [http.FileServer] serves for rel, an
@@ -157,4 +136,44 @@ func (c *assetsCache) openFile(rel string) (http.File, string, bool) {
 		return nil, "", false
 	}
 	return f, rel, true
+}
+
+// assetTags holds the *assetTag of each file by [exactpath.Clean] path,
+// which every request reads without a lock.
+//
+// Missing paths leave no entry, and [exactSpellings] passes only paths spelled as listed,
+// which bounds the map by the files in fsys instead of the paths clients request.
+type assetTags struct{ sync.Map }
+
+// sum returns the SHA-256 of the file at name that its ETag comes from.
+// The compressor takes it instead of reading the file again.
+func (t *assetTags) sum(name string) ([sha256.Size]byte, bool) {
+	if v, ok := t.Load(name); ok {
+		if tag := v.(*assetTag); tag.value != nil {
+			return tag.sum, true
+		}
+	}
+	return [sha256.Size]byte{}, false
+}
+
+// assetTag is the ETag value of a file and the SHA-256 it comes from.
+type assetTag struct {
+	value []string // Shared by every response. Nil without ETags.
+	sum   [sha256.Size]byte
+}
+
+// untagged is the entry of every file without an ETag.
+var untagged = new(assetTag)
+
+// newAssetTag hashes f for its ETag, or returns nil when f cannot be read.
+func newAssetTag(f io.Reader) *assetTag {
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil
+	}
+	t := &assetTag{sum: [sha256.Size]byte(h.Sum(nil))}
+	// Truncate the digest to 128 bits to keep the header short.
+	// Raw URL encoding has no character that needs escaping inside a quoted ETag.
+	t.value = []string{`"` + base64.RawURLEncoding.EncodeToString(t.sum[:16]) + `"`}
+	return t
 }

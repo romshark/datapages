@@ -1049,7 +1049,7 @@ Asset responses follow these rules:
 These options and modules configure asset compression:
 
 - `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels, initial levels and store of its `Config`.
-- `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server.
+- `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server. The server passes the handler the SHA-256 that it takes of a file for the `ETag` of `datapages.WithAssetsCache`.
 - `datapages.WithNoAssetsCompression` disables compression.
 - A nil `Store` keeps copies in memory, and `modules/assetcompress/disk` keeps them in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700.
 

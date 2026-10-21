@@ -3,6 +3,7 @@ package httpserve_test
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/modules/assetcompress"
 )
 
 // TestAssetsCacheHeaders tests Cache-Control and ETag selection for each configuration.
@@ -128,14 +130,30 @@ func TestAssetsCacheWithoutETagOpensOnce(t *testing.T) {
 	require.Equal(t, opens, fsys.opens.Load(), "opens after the first request")
 }
 
+// wrappingCompressor adds a header to the handler of another compressor.
+type wrappingCompressor struct{ datapages.AssetsCompressor }
+
+func (wc wrappingCompressor) Handler(
+	fsys http.FileSystem, sum func(string) ([sha256.Size]byte, bool),
+	next http.Handler, logger *slog.Logger,
+) http.Handler {
+	h := wc.AssetsCompressor.Handler(fsys, sum, next, logger)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Compressor", "1")
+		h.ServeHTTP(w, r)
+	})
+}
+
 // TestAssetsCacheFirstRequestReads tests that the first request of an asset
-// reads it 2 times, to hash it and to send or compress it, and that the ETag
-// holds the SHA-256 of the file.
+// reads it 2 times, to hash it and to send or compress it, also behind a
+// compressor that wraps another, and that the ETag holds the SHA-256 of the file.
 func TestAssetsCacheFirstRequestReads(t *testing.T) {
 	t.Parallel()
 
 	sum := sha256.Sum256([]byte(assetCSS))
 	tag := `"` + base64.RawURLEncoding.EncodeToString(sum[:16])
+	compressor, err := assetcompress.New(assetcompress.Config{})
+	require.NoError(t, err)
 	for name, tc := range map[string]struct {
 		opt      datapages.ServerOption
 		accept   string
@@ -145,6 +163,10 @@ func TestAssetsCacheFirstRequestReads(t *testing.T) {
 		"uncompressed": {accept: "identity", wantETag: tag + `"`},
 		"WithNoAssetsCompression": {
 			opt: datapages.WithNoAssetsCompression(), accept: "br", wantETag: tag + `"`,
+		},
+		"wrapped compressor": {
+			opt:    datapages.WithAssetsCompression(wrappingCompressor{compressor}),
+			accept: "br", wantETag: tag + `.br6"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -267,21 +267,22 @@ func (conf Config) validate() error {
 }
 
 // Handler implements [datapages.AssetsCompressor]. It hashes each asset on its
-// first request, serves an accepted copy, and delegates other requests to next,
-// including those whose response is marked Cache-Control: no-transform or
-// typed with a Content-Type that is not eligible.
-// Assets must not change before server exit. The handler adds the coding and
-// level to an existing ETag and logs copy failures before delegating to next.
-// New copies go out from memory and reach the store in the background,
+// first request unless sum, which may be nil, has its SHA-256, serves an accepted
+// copy, and delegates other requests to next, including those whose response is
+// marked Cache-Control: no-transform or typed with a Content-Type that is not
+// eligible. Assets must not change before server exit. The handler adds the
+// coding and level to an existing ETag and logs copy failures before delegating
+// to next. New copies go out from memory and reach the store in the background,
 // in up to 5 attempts within 15 s, after any replacement at [Config.Levels].
 // Refused copies stay in memory. Requests share each compression and write.
 func (c *Compressor) Handler(
-	fsys http.FileSystem, next http.Handler, logger *slog.Logger,
+	fsys http.FileSystem, sum func(name string) ([sha256.Size]byte, bool),
+	next http.Handler, logger *slog.Logger,
 ) http.Handler {
 	if datapages.IsDevMode() {
 		return next
 	}
-	return &handler{c: c, fsys: fsys, next: next, logger: logger}
+	return &handler{c: c, fsys: fsys, sum: sum, next: next, logger: logger}
 }
 
 // Precompress creates every missing copy of fsys except in dev mode. It stops
@@ -323,7 +324,7 @@ func (c *Compressor) precompressFile(fsys http.FileSystem, name string) (err err
 	if err != nil || st.IsDir() {
 		return err
 	}
-	info, err := c.describe(name, st, f)
+	info, err := c.describe(name, st, f, nil)
 	if err != nil || !info.compressible {
 		return err
 	}
@@ -361,6 +362,7 @@ func (c *Compressor) precompressCopy(
 type handler struct {
 	c      *Compressor
 	fsys   http.FileSystem
+	sum    func(name string) ([sha256.Size]byte, bool) // Nil for none.
 	next   http.Handler
 	logger *slog.Logger
 	files  sync.Map // Cleaned path to *assetFile, read without a lock per request.
@@ -444,7 +446,9 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) bool {
 	key := info.keys[i]
 	data, file, suffix, err := h.c.copyOf(h.fsys, info.name, info.sum, key, i, h.logger)
 	if errors.Is(err, errChanged) {
+		// sum keeps the SHA-256 of the content before the change.
 		h.files.Delete(rel)
+		h.describeFile(rel, nil)
 	}
 	if err != nil {
 		logCompressFailure(h.logger, info.name, cd, err)
@@ -539,16 +543,6 @@ func (w codedWriter) ReadFrom(src io.Reader) (int64, error) {
 // Unwrap returns the underlying writer for [http.ResponseController].
 func (w codedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// Digest returns the SHA-256 of the file at rel, an [exactpath.Clean] path,
-// when the handler compresses the file. The ETag cache of the server,
-// which wraps the handler, takes it instead of reading the file again.
-func (h *handler) Digest(rel string) ([sha256.Size]byte, bool) {
-	if info := h.compressible(rel); info != nil {
-		return info.sum, true
-	}
-	return [sha256.Size]byte{}, false
-}
-
 // compressible returns the description of the file at rel,
 // an [exactpath.Clean] path, when the handler compresses the file, or nil.
 func (h *handler) compressible(rel string) *assetFile {
@@ -569,6 +563,14 @@ func (h *handler) file(rel string) *assetFile {
 	if v, ok := h.files.Load(rel); ok {
 		return v.(*assetFile)
 	}
+	return h.describeFile(rel, h.sum)
+}
+
+// describeFile describes the file at rel and caches the description.
+// It returns nil for a file it cannot describe.
+func (h *handler) describeFile(
+	rel string, sum func(string) ([sha256.Size]byte, bool),
+) *assetFile {
 	name := "/" + rel
 	f, err := h.fsys.Open(name)
 	if err != nil {
@@ -579,7 +581,7 @@ func (h *handler) file(rel string) *assetFile {
 	if err != nil || st.IsDir() {
 		return nil
 	}
-	info, err := h.c.describe(name, st, f)
+	info, err := h.c.describe(name, st, f, sum)
 	if err != nil {
 		return nil
 	}
@@ -587,30 +589,40 @@ func (h *handler) file(rel string) *assetFile {
 	return &info
 }
 
-// describe hashes f when its size and type permit compression.
+// describe hashes f when its size and type permit compression, unless sum,
+// which may be nil, has its SHA-256.
 func (c *Compressor) describe(
 	name string, st fs.FileInfo, f io.Reader,
+	sum func(string) ([sha256.Size]byte, bool),
 ) (assetFile, error) {
 	info := assetFile{name: name, size: st.Size(), modTime: st.ModTime()}
-	var head [sniffLen]byte
-	n, err := io.ReadFull(f, head[:])
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return assetFile{}, err
-	}
 	// Match http.FileServer by preferring the extension over sniffing.
 	ct := contentcoding.TypeByExtension(path.Ext(name))
+	var head []byte
 	if ct == "" {
-		ct = http.DetectContentType(head[:n])
+		var buf [sniffLen]byte
+		n, err := io.ReadFull(f, buf[:])
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+			return assetFile{}, err
+		}
+		head = buf[:n]
+		ct = http.DetectContentType(head)
 	}
 	info.contentType = []string{ct}
 	info.compressible = info.size >= c.minSize && contentcoding.Compressible(ct)
 	if info.compressible {
-		digest := sha256.New()
-		_, _ = digest.Write(head[:n])
-		if _, err := io.Copy(digest, f); err != nil {
-			return assetFile{}, err
+		var ok bool
+		if sum != nil {
+			info.sum, ok = sum(strings.TrimPrefix(name, "/"))
 		}
-		info.sum = [sha256.Size]byte(digest.Sum(nil))
+		if !ok {
+			digest := sha256.New()
+			_, _ = digest.Write(head)
+			if _, err := io.Copy(digest, f); err != nil {
+				return assetFile{}, err
+			}
+			info.sum = [sha256.Size]byte(digest.Sum(nil))
+		}
 		hexSum := hex.EncodeToString(info.sum[:])
 		info.keys = make([]string, len(c.codings))
 		for i, f := range c.formats {
