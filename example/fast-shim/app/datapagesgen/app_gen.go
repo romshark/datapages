@@ -428,6 +428,7 @@ func (s *Server) httpErrIntern(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -437,7 +438,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		pageCache,
@@ -459,10 +459,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageNoShimHandlers struct{ *Server }
 
 func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoShim.GET")
 	p := dpapp.PageNoShim{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageNoShim.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageNoShim.GET", err)
@@ -481,10 +481,10 @@ func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageNoShim2Handlers struct{ *Server }
 
 func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoShim2.GET")
 	p := dpapp.PageNoShim2{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageNoShim2.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageNoShim2.GET", err)
@@ -503,11 +503,11 @@ func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageSubpageHandlers struct{ *Server }
 
 func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageSubpage.GET")
 	pageCache := newPageCache(w, s.Server, r)
 	p := dpapp.PageSubpage{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageSubpage.GET")
 	body, err := p.GET(
 		r,
 		pageCache,

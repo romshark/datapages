@@ -223,6 +223,7 @@ func (s *Server) httpErrIntern(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -231,7 +232,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -257,6 +257,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -295,6 +296,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTAdd(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Add")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -314,7 +316,6 @@ func (s pageIndexHandlers) POSTAdd(
 	}
 
 	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Add")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -332,6 +333,7 @@ func (s pageIndexHandlers) POSTAdd(
 func (s pageIndexHandlers) POSTSet(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Set")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -358,7 +360,6 @@ func (s pageIndexHandlers) POSTSet(
 	}
 
 	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Set")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}

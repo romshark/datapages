@@ -257,6 +257,7 @@ func (s *Server) httpErrIntern(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -265,7 +266,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -283,6 +283,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageItemHandlers struct{ *Server }
 
 func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 
 	var path datapages.Path[struct {
 		Name string `path:"name"`
@@ -292,7 +293,6 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -324,6 +324,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageItem stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -362,6 +363,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageItemHandlers) POSTRename(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageItem.Rename")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -397,6 +399,7 @@ func (s pageItemHandlers) POSTRename(
 type pageQuotedHandlers struct{ *Server }
 
 func (s pageQuotedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageQuoted.GET")
 
 	var query datapages.Query[struct {
 		Term string `query:"q" reflectsignal:"q"`
@@ -406,7 +409,6 @@ func (s pageQuotedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageQuoted{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageQuoted.GET")
 	body, err := p.GET(
 		r,
 		query,
@@ -444,6 +446,7 @@ func (s pageQuotedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageQuotedHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageQuoted stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -482,6 +485,7 @@ func (s pageQuotedHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageQuotedHandlers) POSTPing(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageQuoted.Ping")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -505,6 +509,7 @@ func (s pageQuotedHandlers) POSTPing(
 func (s pageQuotedHandlers) POSTFind(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageQuoted.Find")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -534,6 +539,7 @@ func (s pageQuotedHandlers) POSTFind(
 type pageQuotedItemHandlers struct{ *Server }
 
 func (s pageQuotedItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageQuotedItem.GET")
 
 	var query datapages.Query[struct {
 		Term string `query:"q" reflectsignal:"q"`
@@ -548,7 +554,6 @@ func (s pageQuotedItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageQuotedItem{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageQuotedItem.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -595,6 +600,7 @@ func (s pageQuotedItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageQuotedItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageQuotedItem stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -633,6 +639,7 @@ func (s pageQuotedItemHandlers) GETStream(w http.ResponseWriter, r *http.Request
 func (s pageQuotedItemHandlers) POSTRename(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageQuotedItem.Rename")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -662,6 +669,7 @@ func (s pageQuotedItemHandlers) POSTRename(
 func (s pageQuotedItemHandlers) POSTMove(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageQuotedItem.Move")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -697,6 +705,7 @@ func (s pageQuotedItemHandlers) POSTMove(
 type pageSearchHandlers struct{ *Server }
 
 func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageSearch.GET")
 
 	var query datapages.Query[struct {
 		Term string `query:"term"`
@@ -717,7 +726,6 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageSearch{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageSearch.GET")
 	body, err := p.GET(
 		r,
 		query,

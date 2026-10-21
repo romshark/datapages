@@ -465,6 +465,7 @@ func (s *Server) httpErrIntern(
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTBump(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Bump")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -491,7 +492,6 @@ func (s appHandlers) POSTBump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dispatchChanged := dispatcherEventChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "App.Bump")
 	err := s.app.POSTBump(
 		r,
 		datapages.State[dpapp.TabContext]{Values: slot.state},
@@ -507,6 +507,7 @@ func (s appHandlers) POSTBump(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -527,7 +528,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -552,6 +552,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -632,6 +633,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTNote(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Note")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -665,7 +667,6 @@ func (s pageIndexHandlers) POSTNote(
 	}
 
 	dispatchChanged := dispatcherEventChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Note")
 	p := dpapp.PageIndex{
 		App: s.app,
 		Base: dpapp.Base{
@@ -688,6 +689,7 @@ func (s pageIndexHandlers) POSTNote(
 type pageOtherHandlers struct{ *Server }
 
 func (s pageOtherHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOther.GET")
 
 	instanceID, err := newStateInstanceID()
 	if err != nil {
@@ -704,7 +706,6 @@ func (s pageOtherHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageOther.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageOther.GET", err)
@@ -729,6 +730,7 @@ func (s pageOtherHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOther stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -809,10 +811,10 @@ func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 type pagePlainHandlers struct{ *Server }
 
 func (s pagePlainHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePlain.GET")
 	p := dpapp.PagePlain{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PagePlain.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePlain.GET", err)

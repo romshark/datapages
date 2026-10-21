@@ -235,11 +235,11 @@ func (s *Server) httpErrIntern(
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Ping")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.Ping")
 	err := s.app.POSTPing(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Ping", err)
@@ -248,11 +248,11 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) QUERYLookup(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Lookup")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.Lookup")
 	err := s.app.QUERYLookup(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Lookup", err)
@@ -261,11 +261,11 @@ func (s appHandlers) QUERYLookup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) DELETEAll(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.All")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.All")
 	err := s.app.DELETEAll(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.All", err)
@@ -276,10 +276,10 @@ func (s appHandlers) DELETEAll(w http.ResponseWriter, r *http.Request) {
 type pageFormHandlers struct{ *Server }
 
 func (s pageFormHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageForm.GET")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageForm.GET", err)
@@ -298,6 +298,7 @@ func (s pageFormHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageFormHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Submit")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -310,7 +311,6 @@ func (s pageFormHandlers) POSTSubmit(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Submit")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -327,10 +327,10 @@ func (s pageFormHandlers) POSTSubmit(
 func (s pageFormHandlers) PUTReplace(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Replace")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Replace")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -344,10 +344,10 @@ func (s pageFormHandlers) PUTReplace(
 func (s pageFormHandlers) PATCHTouch(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Touch")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Touch")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -361,10 +361,10 @@ func (s pageFormHandlers) PATCHTouch(
 func (s pageFormHandlers) DELETERemove(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Remove")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Remove")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -378,6 +378,7 @@ func (s pageFormHandlers) DELETERemove(
 func (s pageFormHandlers) QUERYSearch(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Search")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -389,7 +390,6 @@ func (s pageFormHandlers) QUERYSearch(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Search")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -406,6 +406,7 @@ func (s pageFormHandlers) QUERYSearch(
 func (s pageFormHandlers) POSTBump(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Bump")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -436,7 +437,6 @@ func (s pageFormHandlers) POSTBump(
 		}
 		path.Values.ID = int(i)
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Bump")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -454,10 +454,10 @@ func (s pageFormHandlers) POSTBump(
 func (s pageFormHandlers) POSTRender(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Render")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Render")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -478,10 +478,10 @@ func (s pageFormHandlers) POSTRender(
 func (s pageFormHandlers) POSTGo(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Go")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageForm.Go")
 	p := dpapp.PageForm{
 		App: s.app,
 	}
@@ -498,6 +498,7 @@ func (s pageFormHandlers) POSTGo(
 func (s pageFormHandlers) POSTGoStream(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.GoStream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -527,6 +528,7 @@ func (s pageFormHandlers) POSTGoStream(
 func (s pageFormHandlers) POSTPatch(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Patch")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -559,6 +561,7 @@ func (s pageFormHandlers) POSTPatch(
 func (s pageFormHandlers) POSTPatchAt(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.PatchAt")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -592,6 +595,7 @@ func (s pageFormHandlers) POSTPatchAt(
 func (s pageFormHandlers) POSTSignalsRaw(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.SignalsRaw")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -615,6 +619,7 @@ func (s pageFormHandlers) POSTSignalsRaw(
 func (s pageFormHandlers) POSTSignalsMissing(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.SignalsMissing")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -638,6 +643,7 @@ func (s pageFormHandlers) POSTSignalsMissing(
 func (s pageFormHandlers) POSTSignalsBad(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.SignalsBad")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -661,6 +667,7 @@ func (s pageFormHandlers) POSTSignalsBad(
 func (s pageFormHandlers) POSTRemove(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Remove")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -684,6 +691,7 @@ func (s pageFormHandlers) POSTRemove(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -692,7 +700,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -711,10 +718,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageLogHandlers struct{ *Server }
 
 func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLog.GET")
 	p := dpapp.PageLog{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageLog.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLog.GET", err)

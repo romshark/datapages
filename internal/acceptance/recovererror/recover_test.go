@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -56,6 +58,27 @@ func getStream(t *testing.T, srv *httptest.Server, path string) (int, string) {
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := srv.Client().Do(req)
 	require.NoError(t, err, "GET %s", path)
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading %s", path)
+	return resp.StatusCode, string(b)
+}
+
+// send sends method to path the way the Datastar client sends a request,
+// with body as the signals.
+func send(t *testing.T, srv *httptest.Server, method, path, body string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(
+		context.Background(), method, srv.URL+path, strings.NewReader(body),
+	)
+	require.NoError(t, err, "building %s %s", method, path)
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "%s %s", method, path)
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err, "reading %s", path)
@@ -328,4 +351,136 @@ func TestFailedPageLoadRendersTheErrorPage(t *testing.T) {
 	require.Contains(t, string(b), "server error", "the 500 page was not rendered")
 	require.NotContains(t, string(b), "the page could not be built",
 		"the error message reached the visitor")
+}
+
+// TestRecoveredDecodePanics tests a panic in the application code that parses
+// a request input: UnmarshalText of a path or query field and UnmarshalJSON of
+// a signal. It takes the error path of the handler that reads the input.
+// net/http otherwise closes the connection without a response.
+func TestRecoveredDecodePanics(t *testing.T) {
+	t.Parallel()
+	datastar := "?datastar=" + url.QueryEscape(`{"s":"xbad"}`)
+
+	// A page load gets the 500 page.
+	for name, tt := range map[string]struct{ path, handler string }{
+		"page path":    {"/thing/xbad/", "PageThing.GET"},
+		"page query":   {"/thing/ok/?q=xbad", "PageThing.GET"},
+		"page signals": {"/thing/ok/" + datastar, "PageThing.GET"},
+		"404 page":     {"/nowhere/?nf=xbad", "PageError404.GET"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(log.Logger())))
+			t.Cleanup(srv.Close)
+
+			resp, err := srv.Client().Get(srv.URL + tt.path)
+			require.NoError(t, err, "GET %s", tt.path)
+			defer func() { _ = resp.Body.Close() }()
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading body")
+
+			require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+			require.Contains(t, string(b), "server error", "the 500 page was not rendered")
+			require.NotContains(t, string(b), "parser panicked",
+				"the panic value reached the visitor")
+			log.RequireMatch(t, `^level=ERROR msg="recovered panic" handler=`+
+				regexp.QuoteMeta(tt.handler)+` panic="the (text|JSON) parser panicked" stack=`)
+		})
+	}
+
+	// PageError500 answers its own panic with the status alone. Rendering
+	// itself again would panic again.
+	t.Run("500 page", func(t *testing.T) {
+		t.Parallel()
+		srv := newServer(t)
+		resp, err := srv.Client().Get(srv.URL + "/server-error/?se=xbad")
+		require.NoError(t, err, "GET /server-error/")
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err, "reading body")
+
+		require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		require.Equal(t, "Internal Server Error\n", string(b))
+	})
+
+	// A file goes to an img element or a fetch as often as to a document,
+	// which shows nothing of an error page.
+	for name, path := range map[string]string{
+		"file action":     "/thing/ok/file/?q=xbad",
+		"app file action": "/app-file/?q=xbad",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := newServer(t)
+			resp, err := srv.Client().Get(srv.URL + path)
+			require.NoError(t, err, "GET %s", path)
+			defer func() { _ = resp.Body.Close() }()
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading body")
+
+			require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+			require.Equal(t, "Internal Server Error\n", string(b))
+		})
+	}
+
+	// A Datastar request gets what RecoverError renders. An action reads its
+	// signals first, which have to be valid for the path and the query to be read.
+	// handler is as logged, which quotes a name with a space.
+	for name, tt := range map[string]struct{ method, path, body, handler string }{
+		"action path":    {http.MethodPost, "/thing/xbad/act/", "{}", "PageThing.Act"},
+		"action query":   {http.MethodPost, "/thing/ok/act/?q=xbad", "{}", "PageThing.Act"},
+		"action signals": {http.MethodPost, "/thing/ok/act/", `{"s":"xbad"}`, "PageThing.Act"},
+		"action without stream": {
+			http.MethodPost, "/thing/ok/plain/?q=xbad", "", "PageThing.Plain",
+		},
+		"app action": {http.MethodPost, "/app-act/?q=xbad", "", "App.AppAct"},
+		"stream": {
+			http.MethodGet, "/thing/ok/_$/" + datastar, "", `"PageThing stream"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				datapages.WithLogger(log.Logger())))
+			t.Cleanup(srv.Close)
+
+			status, body := send(t, srv, tt.method, tt.path, tt.body)
+			require.Equal(t, http.StatusOK, status, "%s", body)
+			require.Contains(t, body, `<div id="toast">panic</div>`)
+			require.NotContains(t, body, ">ran<", "the action ran")
+			require.NotContains(t, body, "parser panicked",
+				"the panic value reached the client")
+			log.RequireMatch(t, `^level=ERROR msg="recovered panic" handler=`+
+				regexp.QuoteMeta(tt.handler)+` panic="the (text|JSON) parser panicked" stack=`)
+		})
+	}
+}
+
+// TestPointerParameters tests path and query fields that are pointers to a type
+// that parses itself. UnmarshalText writes to a value the server allocates,
+// and a query parameter that is absent leaves its field nil.
+func TestPointerParameters(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct{ path, want string }{
+		"query absent":  {"/pointer/abc/", "abc absent"},
+		"query present": {"/pointer/abc/?q=def", "abc def"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := newServer(t)
+			resp, err := srv.Client().Get(srv.URL + tt.path)
+			require.NoError(t, err, "GET %s", tt.path)
+			defer func() { _ = resp.Body.Close() }()
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading body")
+
+			require.Equal(t, http.StatusOK, resp.StatusCode, "%s", b)
+			require.Contains(t, string(b), `<pre id="echo">`+tt.want+`</pre>`)
+		})
+	}
 }

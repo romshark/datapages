@@ -1870,6 +1870,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
+	w.writeDeferRecover(false, p.TypeName+".GET")
 
 	h404 := p.GET.Handler
 	// No session token: the parser refuses closeSession on the 404 page,
@@ -1955,6 +1956,11 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	w.Line(0, "")
 	w.Rawf("func (s %s) %s%s(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType("App"), strings.ToUpper(h.HTTPMethod), h.Name)
+	if h.OutputFile != nil {
+		w.writeDeferRecoverFile("App." + h.Name)
+	} else {
+		w.writeDeferRecover(false, "App."+h.Name)
+	}
 
 	// [Writer.writePageActionHandler] states why each branch is enough.
 	switch {
@@ -2040,13 +2046,6 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// still needs a stream when that is how its page cache writes are delivered.
 	// The stream opens after the call, see flushToNewStream.
 	viaStream := isAppLevel && pageCacheViaStream(h)
-
-	switch {
-	case isAppLevel && h.OutputFile != nil:
-		w.writeDeferRecoverFile("App." + h.Name)
-	case isAppLevel:
-		w.writeDeferRecover(false, "App."+h.Name)
-	}
 
 	if h.InputPageCache != nil && isAppLevel {
 		w.Line(1, "pageCache := newPageCache(w, s.Server, r)")
@@ -2381,8 +2380,6 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
-
-	w.writeDeferRecover(false, p.TypeName+".GET")
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)

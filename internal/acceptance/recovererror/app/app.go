@@ -1,16 +1,18 @@
 // Package app exercises RecoverError: the hook that turns a failed Datastar
 // request into something the visitor can see.
 //
-// A script makes a Datastar request. An HTTP error status therefore reaches
-// nothing the visitor is looking at. RecoverError answers on the SSE connection
-// instead. That is how an application shows a toast rather than failing in silence.
+// A script makes a Datastar request. An HTTP error status therefore reaches nothing
+// the visitor is looking at. RecoverError answers on the SSE connection instead.
+// That is how an application shows a toast rather than failing in silence.
 package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
 
@@ -59,9 +61,17 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 }
 
 // PageError500 is /server-error
+//
+// Its query parameter parses through PanicText, which makes the page panic
+// while it renders the answer to another failure.
 type PageError500 struct{ App *App }
 
-func (PageError500) GET(_ *http.Request) (body datapages.Component, err error) {
+func (PageError500) GET(
+	_ *http.Request,
+	_ datapages.Query[struct {
+		Q PanicText `query:"se"`
+	}],
+) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">server error</pre>`), nil
 }
 
@@ -153,3 +163,159 @@ func (PageStreamPanic) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
 }
 
 func (PageStreamPanic) OnPinged(_ EventPinged, _ datapages.SSE) error { return nil }
+
+// PanicText parses a path or query value and panics on a value that starts with "x",
+// the way a parser of the application fails on input it doesn't expect.
+type PanicText string
+
+func (t *PanicText) UnmarshalText(b []byte) error {
+	if strings.HasPrefix(string(b), "x") {
+		panic("the text parser panicked")
+	}
+	*t = PanicText(b)
+	return nil
+}
+
+// PanicJSON is PanicText for a signal.
+type PanicJSON string
+
+func (j *PanicJSON) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	if strings.HasPrefix(s, "x") {
+		panic("the JSON parser panicked")
+	}
+	*j = PanicJSON(s)
+	return nil
+}
+
+// ThingPath, ThingQuery and ThingSignals parse through PanicText and PanicJSON.
+type (
+	ThingPath struct {
+		ID PanicText `path:"id"`
+	}
+	ThingQuery struct {
+		Q PanicText `query:"q"`
+	}
+	ThingSignals struct {
+		S PanicJSON `json:"s"`
+	}
+)
+
+// PageThing is /thing/{id}
+//
+// Every handler of the page reads its inputs through PanicText and PanicJSON.
+type PageThing struct{ App *App }
+
+func (PageThing) GET(
+	_ *http.Request,
+	path datapages.Path[ThingPath],
+	_ datapages.Query[ThingQuery],
+	_ datapages.Signals[ThingSignals],
+) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">` +
+		templ.EscapeString(string(path.Values.ID)) + `</pre>`), nil
+}
+
+// POSTAct is /thing/{id}/act
+//
+// It takes an SSE stream, which opens once the inputs are read.
+func (PageThing) POSTAct(
+	_ *http.Request,
+	_ datapages.Path[ThingPath],
+	_ datapages.Query[ThingQuery],
+	_ datapages.Signals[ThingSignals],
+	sse datapages.SSE,
+) error {
+	return sse.PatchElement(templ.Raw(`<div id="toast">ran</div>`))
+}
+
+// POSTPlain is /thing/{id}/plain
+func (PageThing) POSTPlain(
+	_ *http.Request,
+	_ datapages.Path[ThingPath],
+	_ datapages.Query[ThingQuery],
+) error {
+	return nil
+}
+
+// GETFile is /thing/{id}/file
+func (PageThing) GETFile(
+	_ *http.Request,
+	_ datapages.Path[ThingPath],
+	_ datapages.Query[ThingQuery],
+) (datapages.File, error) {
+	return datapages.File{
+		Type: "text/plain; charset=utf-8",
+		Body: memBody{strings.NewReader("file")},
+	}, nil
+}
+
+func (PageThing) StreamOpen(
+	_ *http.Request,
+	_ datapages.StreamID,
+	_ datapages.Signals[ThingSignals],
+) error {
+	return nil
+}
+
+func (PageThing) OnPinged(_ EventPinged, _ datapages.SSE) error { return nil }
+
+// POSTAppAct is /app-act
+func (a *App) POSTAppAct(_ *http.Request, _ datapages.Query[ThingQuery]) error {
+	return nil
+}
+
+// GETAppFile is /app-file
+func (a *App) GETAppFile(
+	_ *http.Request, _ datapages.Query[ThingQuery],
+) (datapages.File, error) {
+	return datapages.File{
+		Type: "text/plain; charset=utf-8",
+		Body: memBody{strings.NewReader("file")},
+	}, nil
+}
+
+// PageError404 is /not-found
+//
+// Its query parameter parses through PanicText under a key of its own,
+// which leaves PageError500 free to render the answer.
+type PageError404 struct{ App *App }
+
+func (PageError404) GET(
+	_ *http.Request,
+	_ datapages.Query[struct {
+		Q PanicText `query:"nf"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">not found</pre>`), nil
+}
+
+// PagePointer is /pointer/{id}
+//
+// Its path and query fields are pointers to a type that parses itself.
+type PagePointer struct{ App *App }
+
+func (PagePointer) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		ID *PanicText `path:"id"`
+	}],
+	query datapages.Query[struct {
+		Q *PanicText `query:"q"`
+	}],
+) (body datapages.Component, err error) {
+	q := "absent"
+	if query.Values.Q != nil {
+		q = string(*query.Values.Q)
+	}
+	return templ.Raw(`<pre id="echo">` +
+		templ.EscapeString(string(*path.Values.ID)+" "+q) + `</pre>`), nil
+}
+
+// memBody serves content held in memory, which has nothing to close.
+type memBody struct{ *strings.Reader }
+
+func (memBody) Close() error { return nil }

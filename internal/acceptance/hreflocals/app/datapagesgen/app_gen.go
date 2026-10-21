@@ -227,6 +227,7 @@ func (s *Server) httpErrIntern(
 type pageExprHandlers struct{ *Server }
 
 func (s pageExprHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageExpr.GET")
 
 	var path datapages.Path[struct {
 		Actionexpr string `path:"actionexpr"`
@@ -236,7 +237,6 @@ func (s pageExprHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageExpr{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageExpr.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -257,6 +257,7 @@ func (s pageExprHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageExprHandlers) POSTRun(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageExpr.Run")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -265,7 +266,6 @@ func (s pageExprHandlers) POSTRun(
 		Actionexpr string `path:"actionexpr"`
 	}]
 	path.Values.Actionexpr = r.PathValue("actionexpr")
-	defer s.recoverPanic(w, r, nil, "PageExpr.Run")
 	p := dpapp.PageExpr{
 		App: s.app,
 	}
@@ -282,6 +282,7 @@ func (s pageExprHandlers) POSTRun(
 type pageImportsHandlers struct{ *Server }
 
 func (s pageImportsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageImports.GET")
 
 	var path datapages.Path[struct {
 		URL     string     `path:"url"`
@@ -311,7 +312,6 @@ func (s pageImportsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageImports{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageImports.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -332,6 +332,7 @@ func (s pageImportsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageImportsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageImports.Save")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -365,7 +366,6 @@ func (s pageImportsHandlers) POSTSave(
 			return
 		}
 	}
-	defer s.recoverPanic(w, r, nil, "PageImports.Save")
 	p := dpapp.PageImports{
 		App: s.app,
 	}
@@ -383,6 +383,7 @@ func (s pageImportsHandlers) POSTSave(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -391,7 +392,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -409,6 +409,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageItemHandlers struct{ *Server }
 
 func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 
 	var path datapages.Path[struct {
 		B bool `path:"b"`
@@ -426,7 +427,6 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -447,6 +447,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageLenHandlers struct{ *Server }
 
 func (s pageLenHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLen.GET")
 
 	var path datapages.Path[struct {
 		Len string `path:"len"`
@@ -456,7 +457,6 @@ func (s pageLenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageLen{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageLen.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -477,6 +477,7 @@ func (s pageLenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageLocalsHandlers struct{ *Server }
 
 func (s pageLocalsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLocals.GET")
 
 	var path datapages.Path[struct {
 		B  string `path:"b"`
@@ -494,7 +495,6 @@ func (s pageLocalsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageLocals{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageLocals.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -515,6 +515,7 @@ func (s pageLocalsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageLocalsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageLocals.Save")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -531,7 +532,6 @@ func (s pageLocalsHandlers) POSTSave(
 	path.Values.N = r.PathValue("n")
 	path.Values.BL = r.PathValue("bl")
 	path.Values.AL = r.PathValue("al")
-	defer s.recoverPanic(w, r, nil, "PageLocals.Save")
 	p := dpapp.PageLocals{
 		App: s.app,
 	}
@@ -548,6 +548,7 @@ func (s pageLocalsHandlers) POSTSave(
 type pageMixHandlers struct{ *Server }
 
 func (s pageMixHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMix.GET")
 
 	var query datapages.Query[struct {
 		AnyQuery string `query:"anyQuery"`
@@ -593,7 +594,6 @@ func (s pageMixHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageMix{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageMix.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -615,6 +615,7 @@ func (s pageMixHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageMixHandlers) POSTStore(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageMix.Store")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -648,7 +649,6 @@ func (s pageMixHandlers) POSTStore(
 		path.Values.N = int(i)
 	}
 	path.Values.PageStr = r.PathValue("pageStr")
-	defer s.recoverPanic(w, r, nil, "PageMix.Store")
 	p := dpapp.PageMix{
 		App: s.app,
 	}
@@ -666,6 +666,7 @@ func (s pageMixHandlers) POSTStore(
 type pageParamsHandlers struct{ *Server }
 
 func (s pageParamsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageParams.GET")
 
 	var query datapages.Query[struct {
 		Term string `query:"t"`
@@ -682,7 +683,6 @@ func (s pageParamsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageParams{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageParams.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -704,6 +704,7 @@ func (s pageParamsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageParamsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageParams.Save")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -714,7 +715,6 @@ func (s pageParamsHandlers) POSTSave(
 	}]
 	path.Values.Query = r.PathValue("query")
 	path.Values.Options = r.PathValue("options")
-	defer s.recoverPanic(w, r, nil, "PageParams.Save")
 	p := dpapp.PageParams{
 		App: s.app,
 	}
@@ -731,6 +731,7 @@ func (s pageParamsHandlers) POSTSave(
 type pageTagsHandlers struct{ *Server }
 
 func (s pageTagsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageTags.GET")
 
 	var query datapages.Query[struct {
 		PageSize int    `query:"page-size"`
@@ -751,7 +752,6 @@ func (s pageTagsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageTags{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageTags.GET")
 	body, err := p.GET(
 		r,
 		query,
@@ -772,6 +772,7 @@ func (s pageTagsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageTagsHandlers) POSTSelect(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageTags.Select")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -789,7 +790,6 @@ func (s pageTagsHandlers) POSTSelect(
 			query.Values.PageSize = int(i)
 		}
 	}
-	defer s.recoverPanic(w, r, nil, "PageTags.Select")
 	p := dpapp.PageTags{
 		App: s.app,
 	}

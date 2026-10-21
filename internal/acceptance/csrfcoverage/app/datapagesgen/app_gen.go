@@ -324,6 +324,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -333,7 +334,6 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -353,6 +353,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Ping")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -361,7 +362,6 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "App.Ping")
 	err := s.app.POSTPing(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Ping", err)
@@ -370,11 +370,11 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) QUERYStatus(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Status")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.Status")
 	err := s.app.QUERYStatus(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Status", err)
@@ -385,10 +385,10 @@ func (s appHandlers) QUERYStatus(w http.ResponseWriter, r *http.Request) {
 type pageAboutHandlers struct{ *Server }
 
 func (s pageAboutHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageAbout.GET")
 	p := dpapp.PageAbout{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageAbout.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageAbout.GET", err)
@@ -406,6 +406,7 @@ func (s pageAboutHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageAboutHandlers) POSTPreview(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageAbout.Preview")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -413,7 +414,6 @@ func (s pageAboutHandlers) POSTPreview(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageAbout.Preview")
 	p := dpapp.PageAbout{
 		App: s.app,
 	}
@@ -433,10 +433,10 @@ func (s pageAboutHandlers) POSTPreview(
 type pageBoomHandlers struct{ *Server }
 
 func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	p := dpapp.PageBoom{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBoom.GET", err)
@@ -454,6 +454,7 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -462,7 +463,6 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageError404{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -488,6 +488,7 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 
 // render serves the page with status, 500 when httpErrIntern renders it.
 func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, status int) {
+	defer s.recoverPanicFinal(w, "PageError500.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -496,7 +497,6 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanicFinal(w, "PageError500.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -517,6 +517,7 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 type pageInboxHandlers struct{ *Server }
 
 func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageInbox.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -525,7 +526,6 @@ func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageInbox{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageInbox.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageInbox.GET", err)
@@ -554,6 +554,7 @@ func (s pageInboxHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageInboxHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageInbox stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -601,6 +602,7 @@ func (s pageInboxHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageInboxHandlers) POSTMarkRead(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageInbox.MarkRead")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -608,7 +610,6 @@ func (s pageInboxHandlers) POSTMarkRead(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageInbox.MarkRead")
 	p := dpapp.PageInbox{
 		App: s.app,
 	}
@@ -622,6 +623,7 @@ func (s pageInboxHandlers) POSTMarkRead(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -635,7 +637,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -656,6 +657,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTSignIn(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.SignIn")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -671,7 +673,6 @@ func (s pageIndexHandlers) POSTSignIn(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.SignIn")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -694,6 +695,7 @@ func (s pageIndexHandlers) POSTSignIn(
 func (s pageIndexHandlers) POSTDelete(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Delete")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -709,7 +711,6 @@ func (s pageIndexHandlers) POSTDelete(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Delete")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -726,6 +727,7 @@ func (s pageIndexHandlers) POSTDelete(
 func (s pageIndexHandlers) QUERYCount(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Count")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -733,7 +735,6 @@ func (s pageIndexHandlers) QUERYCount(
 	if !ok {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Count")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}

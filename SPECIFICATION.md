@@ -23,7 +23,7 @@ Parameters are identified by type; names and order are unrestricted.
 
 `RecoverError` receives errors from Datastar requests, including Datapages sentinels, and may write an SSE response. It does not receive page-load errors. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` returns an error or panics, the server logs it and retains the response already written. Errors returned by `OnXXX` and `StreamClose` are logged and do not reach `RecoverError`.
 
-A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
+A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. So does a panic while the server reads the session, path, query or signals of the handler, as in `UnmarshalText`, `UnmarshalJSON` or a `sessions.Manager`. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
 A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
@@ -437,7 +437,7 @@ Supported field types are:
 - `float32`
 - `float64`
 
-Types implementing `encoding.TextUnmarshaler` are also supported. Parse failures return 400. Float fields reject `Inf`, `+Inf`, `-Inf`, and `NaN`.
+Types implementing `encoding.TextUnmarshaler` are also supported, pointer types such as `*big.Int` included. The server allocates a pointer field before it calls `UnmarshalText`. A pointer query field is nil when its parameter is absent. Parse failures return 400. Float fields reject `Inf`, `+Inf`, `-Inf`, and `NaN`.
 
 Generated `href` and `action` builders encode `encoding.TextMarshaler` values with that interface. Other values, including named strings, use their basic kind.
 

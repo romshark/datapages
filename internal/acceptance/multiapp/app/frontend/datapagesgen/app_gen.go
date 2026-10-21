@@ -237,6 +237,7 @@ func (s *Server) httpErrIntern(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -250,7 +251,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -278,6 +278,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -329,6 +330,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTAnnounce(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Announce")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -346,7 +348,6 @@ func (s pageIndexHandlers) POSTAnnounce(
 	}
 
 	dispatchAnnouncement := dispatcherEventAnnouncement{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Announce")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -364,6 +365,7 @@ func (s pageIndexHandlers) POSTAnnounce(
 func (s pageIndexHandlers) POSTSignIn(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.SignIn")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -380,7 +382,6 @@ func (s pageIndexHandlers) POSTSignIn(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.SignIn")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -406,6 +407,7 @@ func (s pageIndexHandlers) POSTSignIn(
 func (s pageIndexHandlers) POSTNotice(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Notice")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -423,7 +425,6 @@ func (s pageIndexHandlers) POSTNotice(
 	}
 
 	dispatchNotice := dispatcherEventNotice{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Notice")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}

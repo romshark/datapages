@@ -60,6 +60,9 @@ func PageBackgroundPost(slug string) string {
 	return b.String()
 }
 
+// PageDecode references /decode/{$}
+func PageDecode() string { return "/decode/" }
+
 // PageInbox references /inbox/{$}
 func PageInbox() string { return "/inbox/" }
 

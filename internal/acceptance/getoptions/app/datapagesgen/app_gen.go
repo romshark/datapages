@@ -242,10 +242,10 @@ func (s *Server) httpErrIntern(
 type pageBackgroundHandlers struct{ *Server }
 
 func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBackground.GET")
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBackground.GET")
 	body, enableBackgroundStreaming, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBackground.GET", err)
@@ -277,6 +277,7 @@ func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBackground stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -315,10 +316,10 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 type pageGoneHandlers struct{ *Server }
 
 func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageGone.GET")
 	p := dpapp.PageGone{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageGone.GET")
 	body, redirect, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageGone.GET", err)
@@ -339,6 +340,7 @@ func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -347,7 +349,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -365,10 +366,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageLiveHandlers struct{ *Server }
 
 func (s pageLiveHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLive.GET")
 	p := dpapp.PageLive{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageLive.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLive.GET", err)
@@ -393,6 +394,7 @@ func (s pageLiveHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLive stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -431,6 +433,7 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 type pageMaybeHandlers struct{ *Server }
 
 func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMaybe.GET")
 
 	var query datapages.Query[struct {
 		Go bool `query:"go"`
@@ -449,7 +452,6 @@ func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageMaybe{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageMaybe.GET")
 	body, redirect, err := p.GET(
 		r,
 		query,
@@ -473,10 +475,10 @@ func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageNoRefreshHandlers struct{ *Server }
 
 func (s pageNoRefreshHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoRefresh.GET")
 	p := dpapp.PageNoRefresh{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageNoRefresh.GET")
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageNoRefresh.GET", err)
@@ -503,6 +505,7 @@ func (s pageNoRefreshHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoRefresh stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}

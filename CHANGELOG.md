@@ -171,6 +171,8 @@ Run `datapages gen` to apply these.
 - Use the app package's own name in the error `datapages.NewServer` returns for an unexpected `WithSessionManager`, and in the example of `Init`. Both said `dpapp`, an alias internal to the generated code.
 - Stop reloading a page with only user-addressed events for signed-out visitors on every tab switch. Each reload discarded client-side state.
 - Give signed-out visitors of a stateful page with only user-addressed events a stream at `_$/anon/`. Their state actions answered 409. `StreamOpen` and `StreamClose` run on it with a guest session.
+- Answer a request whose session, path, query or signals read panics, as in an `UnmarshalText` or `UnmarshalJSON` method of the app or in a `sessions.Manager`, the way a panic in its handler is answered, with `PageError500`, `RecoverError` or status 500. The server closed the connection without a response, also on the SSE stream of a page whose `StreamOpen` takes signals.
+- Allocate a pointer path or query field, such as `*big.Int` or `*time.Time`, before its `UnmarshalText` runs. Every request that carried such a parameter panicked on the nil pointer, and the connection closed without a response. A pointer query field is nil when its parameter is absent.
 
 #### Runtime and modules
 

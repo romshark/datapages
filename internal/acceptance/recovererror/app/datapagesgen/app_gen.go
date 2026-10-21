@@ -15,6 +15,8 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/htmlattr"
+	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
@@ -104,6 +106,26 @@ func (s *Server) recoverPanicInto(err *error, handler string) {
 		slog.Any("panic", v),
 		slog.String("stack", string(stack)))
 	*err = datapages.PanicError{Value: v, Stack: stack}
+}
+
+// recoverPanicFile is recoverPanic for a handler that answers with a file.
+func (s *Server) recoverPanicFile(w http.ResponseWriter, r *http.Request, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	if p, ok := v.(datapages.PanicError); ok {
+		// httpserve.ServeFile carries a panic of the file's Body over from
+		// the goroutine of http.ServeContent, with the stack it had there.
+		v, stack = p.Value, p.Stack
+	}
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFile(w, r, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
 }
 
 // recoverPanicFinal turns a panic into an error response without rendering PageError500.
@@ -222,11 +244,18 @@ var evSubjPageStreamPanic = []string{
 	EvSubjPinged,
 }
 
+var evSubjPageThing = []string{
+	EvSubjPinged,
+}
+
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /boom/{$}",
 		pageBoomHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /not-found/{$}",
+		pageError404Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /server-error/{$}",
 		pageError500Handlers{s}.GET)
@@ -237,6 +266,9 @@ func setupHandlers(s *Server) {
 		"GET /panic-page/{$}",
 		pagePanicHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /pointer/{id}/{$}",
+		pagePointerHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /render-panic/{$}",
 		pageRenderPanicHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -245,6 +277,18 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /stream-panic/_$/{$}",
 		pageStreamPanicHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /thing/{id}/{$}",
+		pageThingHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /thing/{id}/_$/{$}",
+		pageThingHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"POST /app-act/{$}",
+		appHandlers{s}.POSTAppAct)
+	s.Mux().HandleFunc(
+		"GET /app-file/{$}",
+		appHandlers{s}.GETAppFile)
 	s.Mux().HandleFunc(
 		"POST /bad/{$}",
 		pageIndexHandlers{s}.POSTBad)
@@ -266,11 +310,38 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /config-panic/{$}",
 		pageIndexHandlers{s}.POSTConfigPanic)
+	s.Mux().HandleFunc(
+		"POST /thing/{id}/act/{$}",
+		pageThingHandlers{s}.POSTAct)
+	s.Mux().HandleFunc(
+		"POST /thing/{id}/plain/{$}",
+		pageThingHandlers{s}.POSTPlain)
+	s.Mux().HandleFunc(
+		"GET /thing/{id}/file/{$}",
+		pageThingHandlers{s}.GETFile)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
 // The PageError500 handler uses it so it can't render itself.
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+// httpErr404 reports an error of PageError404.GET.
+// It answers ErrNotFound on a page load with the plain status
+// so PageError404 can't render itself.
+func (s *Server) httpErr404(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	if httpserve.IsDatastarRequest(r.Header) ||
+		httpserve.ErrStatus(err) != http.StatusNotFound {
+		s.httpErrIntern(w, r, nil, msg, err)
+		return
+	}
 	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
 		return
@@ -289,6 +360,8 @@ func (s *Server) httpErrIntern(
 			return
 		}
 		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
 		case http.StatusInternalServerError:
 			// The page serves 200 on its own route. Reached from here it carries 500.
 			pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
@@ -334,13 +407,120 @@ func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover erro
 	return s.app.RecoverError(err, sse)
 }
 
+func (s *Server) httpErrFile(
+	w http.ResponseWriter, r *http.Request, msg string, err error,
+) {
+	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		return
+	}
+	if httpserve.IsDocumentRequest(r) {
+		switch httpserve.ErrStatus(err) {
+		case http.StatusNotFound:
+			s.render404(w, r)
+			return
+		case http.StatusInternalServerError:
+			pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
+			return
+		}
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+
+	var query datapages.Query[struct {
+		Q dpapp.PanicText `query:"nf"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "nf"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: nf", err)
+				return
+			}
+		}
+	}
+
+	p := dpapp.PageError404{
+		App: s.app,
+	}
+
+	body, err := p.GET(
+		r,
+		query,
+	)
+	if err != nil {
+		s.httpErr404(w, r, "handling PageError404.GET", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, http.StatusNotFound, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTAppAct(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.AppAct")
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	var query datapages.Query[dpapp.ThingQuery]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "q"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: q", err)
+				return
+			}
+		}
+	}
+	err := s.app.POSTAppAct(
+		r,
+		query,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.AppAct", err)
+		return
+	}
+}
+
+func (s appHandlers) GETAppFile(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanicFile(w, r, "App.AppFile")
+
+	var query datapages.Query[dpapp.ThingQuery]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "q"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: q", err)
+				return
+			}
+		}
+	}
+	file, err := s.app.GETAppFile(
+		r,
+		query,
+	)
+	if err != nil {
+		s.httpErrFile(w, r, "handling action App.AppFile", err)
+		return
+	}
+	if err := httpserve.ServeFile(w, r, file); err != nil {
+		s.httpErrFile(w, r, "serving the file of action App.AppFile", err)
+	}
+}
+
 type pageBoomHandlers struct{ *Server }
 
 func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	p := dpapp.PageBoom{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBoom.GET", err)
@@ -355,6 +535,43 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+
+	var query datapages.Query[struct {
+		Q dpapp.PanicText `query:"nf"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "nf"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: nf", err)
+				return
+			}
+		}
+	}
+
+	p := dpapp.PageError404{
+		App: s.app,
+	}
+	body, err := p.GET(
+		r,
+		query,
+	)
+	if err != nil {
+		s.httpErr404(w, r, "handling PageError404.GET", err)
+		return
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
 type pageError500Handlers struct{ *Server }
 
 func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -363,11 +580,27 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 
 // render serves the page with status, 500 when httpErrIntern renders it.
 func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, status int) {
+	defer s.recoverPanicFinal(w, "PageError500.GET")
+
+	var query datapages.Query[struct {
+		Q dpapp.PanicText `query:"se"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "se"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: se", err)
+				return
+			}
+		}
+	}
+
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanicFinal(w, "PageError500.GET")
-	body, err := p.GET(r)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
 		return
@@ -384,15 +617,15 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+		s.render404(w, r)
 		return
 	}
 
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -410,10 +643,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTBad(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Bad")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Bad")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -427,10 +660,10 @@ func (s pageIndexHandlers) POSTBad(
 func (s pageIndexHandlers) POSTMissing(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Missing")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Missing")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -444,10 +677,10 @@ func (s pageIndexHandlers) POSTMissing(
 func (s pageIndexHandlers) POSTPlain(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Plain")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Plain")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -461,10 +694,10 @@ func (s pageIndexHandlers) POSTPlain(
 func (s pageIndexHandlers) POSTUnrecoverable(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Unrecoverable")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Unrecoverable")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -478,10 +711,10 @@ func (s pageIndexHandlers) POSTUnrecoverable(
 func (s pageIndexHandlers) POSTPanic(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Panic")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Panic")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -495,10 +728,10 @@ func (s pageIndexHandlers) POSTPanic(
 func (s pageIndexHandlers) POSTRecoverPanic(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.RecoverPanic")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.RecoverPanic")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -512,6 +745,7 @@ func (s pageIndexHandlers) POSTRecoverPanic(
 func (s pageIndexHandlers) POSTConfigPanic(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.ConfigPanic")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -545,10 +779,10 @@ func (s pageIndexHandlers) POSTConfigPanic(
 type pagePanicHandlers struct{ *Server }
 
 func (s pagePanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePanic.GET")
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PagePanic.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePanic.GET", err)
@@ -563,13 +797,64 @@ func (s pagePanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type pagePointerHandlers struct{ *Server }
+
+func (s pagePointerHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePointer.GET")
+
+	var query datapages.Query[struct {
+		Q *dpapp.PanicText `query:"q"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "q"); q != "" {
+			query.Values.Q = new(dpapp.PanicText)
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: q", err)
+				return
+			}
+		}
+	}
+
+	var path datapages.Path[struct {
+		ID *dpapp.PanicText `path:"id"`
+	}]
+	{
+		v := r.PathValue("id")
+		path.Values.ID = new(dpapp.PanicText)
+		if err := path.Values.ID.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: id", err)
+			return
+		}
+	}
+
+	p := dpapp.PagePointer{
+		App: s.app,
+	}
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePointer.GET", err)
+		return
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PagePointer", err)
+		return
+	}
+}
+
 type pageRenderPanicHandlers struct{ *Server }
 
 func (s pageRenderPanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageRenderPanic.GET")
 	p := dpapp.PageRenderPanic{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageRenderPanic.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageRenderPanic.GET", err)
@@ -587,10 +872,10 @@ func (s pageRenderPanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageStreamPanicHandlers struct{ *Server }
 
 func (s pageStreamPanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageStreamPanic.GET")
 	p := dpapp.PageStreamPanic{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageStreamPanic.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageStreamPanic.GET", err)
@@ -615,6 +900,7 @@ func (s pageStreamPanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageStreamPanic stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -667,4 +953,256 @@ func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Reques
 				}
 			}
 		})
+}
+
+type pageThingHandlers struct{ *Server }
+
+func (s pageThingHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageThing.GET")
+
+	var query datapages.Query[dpapp.ThingQuery]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "q"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: q", err)
+				return
+			}
+		}
+	}
+
+	var path datapages.Path[dpapp.ThingPath]
+	{
+		v := r.PathValue("id")
+		if err := path.Values.ID.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: id", err)
+			return
+		}
+	}
+
+	var signals datapages.Signals[dpapp.ThingSignals]
+	if httpread.QueryHas(r.URL.RawQuery, "datastar") {
+		if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
+			s.HTTPErrBad(w, "reading signals", err)
+			return
+		}
+	}
+
+	p := dpapp.PageThing{
+		App: s.app,
+	}
+	body, err := p.GET(
+		r,
+		path,
+		query,
+		signals,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageThing.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('`)
+		_, _ = io.WriteString(w, `/thing/`)
+		htmlattr.WritePathValue(w, string(path.Values.ID))
+		_, _ = io.WriteString(w, `/`)
+		_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageThing", err)
+		return
+	}
+}
+
+func (s pageThingHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageThing stream")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	var signals datapages.Signals[dpapp.ThingSignals]
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	p := dpapp.PageThing{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageThing,
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream,
+		) (err error) {
+			defer s.recoverPanicInto(&err, "PageThing.StreamOpen")
+			return p.StreamOpen(
+				r,
+				streamID,
+				signals,
+			)
+		},
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageThing stream")
+			var eventPinged dpapp.EventPinged
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjPinged:
+					eventPinged = dpapp.EventPinged{}
+					if err := json.Unmarshal(msg.Data, &eventPinged); err != nil {
+						s.LogErr("unmarshaling EventPinged JSON", err)
+						continue
+					}
+					if err := p.OnPinged(
+						eventPinged,
+						sse,
+					); err != nil {
+						s.LogErr("handling PageThing.OnPinged", err)
+					}
+				}
+			}
+		})
+}
+
+func (s pageThingHandlers) POSTAct(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageThing.Act")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[dpapp.ThingSignals]
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	var query datapages.Query[dpapp.ThingQuery]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "q"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: q", err)
+				return
+			}
+		}
+	}
+
+	var path datapages.Path[dpapp.ThingPath]
+	{
+		v := r.PathValue("id")
+		if err := path.Values.ID.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: id", err)
+			return
+		}
+	}
+
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageThing.Act")
+	p := dpapp.PageThing{
+		App: s.app,
+	}
+	err := p.POSTAct(
+		r,
+		path,
+		query,
+		signals,
+		sse,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageThing.Act", err)
+		return
+	}
+}
+
+func (s pageThingHandlers) POSTPlain(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageThing.Plain")
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	var query datapages.Query[dpapp.ThingQuery]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "q"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: q", err)
+				return
+			}
+		}
+	}
+
+	var path datapages.Path[dpapp.ThingPath]
+	{
+		v := r.PathValue("id")
+		if err := path.Values.ID.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: id", err)
+			return
+		}
+	}
+	p := dpapp.PageThing{
+		App: s.app,
+	}
+	err := p.POSTPlain(
+		r,
+		path,
+		query,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageThing.Plain", err)
+		return
+	}
+}
+
+func (s pageThingHandlers) GETFile(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanicFile(w, r, "PageThing.File")
+
+	var query datapages.Query[dpapp.ThingQuery]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "q"); q != "" {
+			if err := query.Values.Q.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: q", err)
+				return
+			}
+		}
+	}
+
+	var path datapages.Path[dpapp.ThingPath]
+	{
+		v := r.PathValue("id")
+		if err := path.Values.ID.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: id", err)
+			return
+		}
+	}
+	p := dpapp.PageThing{
+		App: s.app,
+	}
+	file, err := p.GETFile(
+		r,
+		path,
+		query,
+	)
+	if err != nil {
+		s.httpErrFile(w, r, "handling action PageThing.File", err)
+		return
+	}
+	if err := httpserve.ServeFile(w, r, file); err != nil {
+		s.httpErrFile(w, r, "serving the file of action PageThing.File", err)
+	}
 }

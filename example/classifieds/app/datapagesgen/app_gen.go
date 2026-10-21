@@ -730,6 +730,7 @@ func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover erro
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -742,7 +743,6 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -763,6 +763,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.SignOut")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -771,7 +772,6 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "App.SignOut")
 	closeSession, redirect, err := s.app.POSTSignOut(
 		r,
 		sess,
@@ -792,6 +792,7 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) POSTCause500(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Cause500")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -800,7 +801,6 @@ func (s appHandlers) POSTCause500(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "App.Cause500")
 	err := s.app.POSTCause500(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Cause500", err)
@@ -811,6 +811,7 @@ func (s appHandlers) POSTCause500(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -822,7 +823,6 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -855,6 +855,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404 stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -925,10 +926,10 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 
 // render serves the page with status, 500 when httpErrIntern renders it.
 func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, status int) {
+	defer s.recoverPanicFinal(w, "PageError500.GET")
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanicFinal(w, "PageError500.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
@@ -947,6 +948,7 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -963,7 +965,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -996,6 +997,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1061,6 +1063,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 type pageLoginHandlers struct{ *Server }
 
 func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1069,7 +1072,6 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
 	body, redirect, err := p.GET(
 		r,
 		sess,
@@ -1094,6 +1096,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageLoginHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1110,7 +1113,6 @@ func (s pageLoginHandlers) POSTSubmit(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
@@ -1146,6 +1148,7 @@ func (s pageLoginHandlers) POSTSubmit(
 type pageMessagesHandlers struct{ *Server }
 
 func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMessages.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1171,7 +1174,6 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageMessages.GET")
 	body, redirect, enableBackgroundStreaming, err := p.GET(
 		r,
 		sess,
@@ -1226,6 +1228,7 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMessages stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1391,6 +1394,7 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s pageMessagesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMessages anonymous stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1465,6 +1469,7 @@ func (s pageMessagesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Reque
 func (s pageMessagesHandlers) POSTRead(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageMessages.Read")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1487,7 +1492,6 @@ func (s pageMessagesHandlers) POSTRead(
 	query.Values.MessageID = httpread.QueryValue(r.URL.RawQuery, "msgid")
 
 	dispatchMessagingRead := dispatcherEventMessagingRead{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageMessages.Read")
 	p := dpapp.PageMessages{
 		App: s.app,
 		Base: dpapp.Base{
@@ -1510,6 +1514,7 @@ func (s pageMessagesHandlers) POSTRead(
 func (s pageMessagesHandlers) POSTWriting(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageMessages.Writing")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1527,7 +1532,6 @@ func (s pageMessagesHandlers) POSTWriting(
 	}
 
 	dispatchMessagingWriting := dispatcherEventMessagingWriting{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageMessages.Writing")
 	p := dpapp.PageMessages{
 		App: s.app,
 		Base: dpapp.Base{
@@ -1549,6 +1553,7 @@ func (s pageMessagesHandlers) POSTWriting(
 func (s pageMessagesHandlers) POSTWritingStopped(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageMessages.WritingStopped")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1566,7 +1571,6 @@ func (s pageMessagesHandlers) POSTWritingStopped(
 	}
 
 	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageMessages.WritingStopped")
 	p := dpapp.PageMessages{
 		App: s.app,
 		Base: dpapp.Base{
@@ -1588,6 +1592,7 @@ func (s pageMessagesHandlers) POSTWritingStopped(
 func (s pageMessagesHandlers) POSTSendMessage(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageMessages.SendMessage")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1635,6 +1640,7 @@ func (s pageMessagesHandlers) POSTSendMessage(
 type pageMyPostsHandlers struct{ *Server }
 
 func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMyPosts.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1646,7 +1652,6 @@ func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageMyPosts.GET")
 	body, head, redirect, err := p.GET(
 		r,
 		sess,
@@ -1682,6 +1687,7 @@ func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMyPosts stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1747,6 +1753,7 @@ func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 type pagePostHandlers struct{ *Server }
 
 func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePost.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1763,7 +1770,6 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PagePost.GET")
 	body, head, redirect, err := p.GET(
 		r,
 		sess,
@@ -1804,6 +1810,7 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePost stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1869,6 +1876,7 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pagePostHandlers) POSTSendMessage(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PagePost.SendMessage")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1918,6 +1926,7 @@ func (s pagePostHandlers) POSTSendMessage(
 type pageSearchHandlers struct{ *Server }
 
 func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageSearch.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1954,7 +1963,6 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageSearch.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -2018,6 +2026,7 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageSearch stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -2083,6 +2092,7 @@ func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageSearchHandlers) QUERYParamChange(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageSearch.ParamChange")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -2121,6 +2131,7 @@ func (s pageSearchHandlers) QUERYParamChange(
 type pageSettingsHandlers struct{ *Server }
 
 func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageSettings.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -2132,7 +2143,6 @@ func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageSettings.GET")
 	body, redirect, err := p.GET(
 		r,
 		sess,
@@ -2168,6 +2178,7 @@ func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageSettings stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -2247,6 +2258,7 @@ func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 func (s pageSettingsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageSettings.Save")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -2264,7 +2276,6 @@ func (s pageSettingsHandlers) POSTSave(
 	}
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageSettings.Save")
 	p := dpapp.PageSettings{
 		App: s.app,
 		Base: dpapp.Base{
@@ -2295,6 +2306,7 @@ func (s pageSettingsHandlers) POSTSave(
 func (s pageSettingsHandlers) POSTCloseSession(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageSettings.CloseSession")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -2309,7 +2321,6 @@ func (s pageSettingsHandlers) POSTCloseSession(
 	path.Values.Token = r.PathValue("token")
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageSettings.CloseSession")
 	p := dpapp.PageSettings{
 		App: s.app,
 		Base: dpapp.Base{
@@ -2340,6 +2351,7 @@ func (s pageSettingsHandlers) POSTCloseSession(
 func (s pageSettingsHandlers) POSTCloseAllSessions(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageSettings.CloseAllSessions")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -2349,7 +2361,6 @@ func (s pageSettingsHandlers) POSTCloseAllSessions(
 	}
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageSettings.CloseAllSessions")
 	p := dpapp.PageSettings{
 		App: s.app,
 		Base: dpapp.Base{
@@ -2373,6 +2384,7 @@ func (s pageSettingsHandlers) POSTCloseAllSessions(
 type pageUserHandlers struct{ *Server }
 
 func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageUser.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -2389,7 +2401,6 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	defer s.recoverPanic(w, r, nil, "PageUser.GET")
 	body, head, redirect, err := p.GET(
 		r,
 		sess,
@@ -2430,6 +2441,7 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageUser stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
