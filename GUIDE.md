@@ -273,16 +273,13 @@ Declare an `embed.FS` in the app package and put the URL path in its doc comment
 var StaticFS embed.FS
 ```
 
-Pass it to the server in `cmd/server/main.go`, and let browsers revalidate the files:
+Pass it to the server in `cmd/server/main.go`:
 
 ```go
-opts = append(opts,
-	datapages.WithAssets(app.StaticFS, false),
-	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
-)
+opts = append(opts, datapages.WithAssets(app.StaticFS, false))
 ```
 
-`false` answers 404 instead of listing a directory. With the zero `AssetsCacheConfig`, the browser asks before it reuses a file and gets a 304 without a body while the file is unchanged. Set a `MaxAge` only for files whose name changes with their content, such as `datastar-1.0.4.js`. Otherwise browsers keep old files after a deploy.
+`false` answers 404 instead of listing a directory. The browser asks before it reuses a file and gets a 304 without a body while the file is unchanged. Set a `MaxAge` with `datapages.WithAssetsCache` only for files whose name changes with their content, such as `datastar-1.0.4.js`. Otherwise browsers keep old files after a deploy.
 
 Run `datapages gen`, then write asset URLs with the generated `href` or `assets` helper:
 

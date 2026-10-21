@@ -656,7 +656,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		wantCacheControl string
 		wantETag         bool
 	}{
-		"no option": {wantCacheControl: "public, max-age=0"},
+		"no option": {wantCacheControl: "public, max-age=0", wantETag: true},
 		"default": {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
@@ -679,6 +679,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{Disabled: true}),
 			},
 			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -713,44 +714,53 @@ func TestAssetsCacheHeaders(t *testing.T) {
 }
 
 // TestAssetsCacheRevalidates tests that a matching If-None-Match value returns
-// 304 with an empty body.
+// 304 with an empty body for an embedded file, also without WithAssetsCache.
 func TestAssetsCacheRevalidates(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(mustNewServer(
-		t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
-		datapages.WithPrometheus(datapages.PrometheusConfig{
-			Host:       "127.0.0.1:0",
-			Registerer: registry,
-			Gatherer:   registry,
-		}),
-	))
-	t.Cleanup(srv.Close)
+	for name, opts := range map[string][]datapages.ServerOption{
+		"no option":  nil,
+		"zero value": {datapages.WithAssetsCache(datapages.AssetsCacheConfig{})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	first := get(t, srv, href.Asset("style.css"))
-	defer func() { _ = first.Body.Close() }()
-	body, err := io.ReadAll(first.Body)
-	require.NoError(t, err, "reading the stylesheet")
-	require.Equal(t, http.StatusOK, first.StatusCode)
-	require.NotEmpty(t, body)
-	etag := first.Header.Get("ETag")
-	require.NotEmpty(t, etag)
+			opts := append([]datapages.ServerOption{
+				datapages.WithAssets(app.StaticFS, false),
+				datapages.WithPrometheus(datapages.PrometheusConfig{
+					Host:       "127.0.0.1:0",
+					Registerer: registry,
+					Gatherer:   registry,
+				}),
+			}, opts...)
+			srv := httptest.NewServer(mustNewServer(
+				t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), opts...,
+			))
+			t.Cleanup(srv.Close)
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
-	)
-	require.NoError(t, err)
-	req.Header.Set("If-None-Match", etag)
-	second, err := srv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = second.Body.Close() }()
-	body, err = io.ReadAll(second.Body)
-	require.NoError(t, err)
+			first := get(t, srv, href.Asset("style.css"))
+			defer func() { _ = first.Body.Close() }()
+			body, err := io.ReadAll(first.Body)
+			require.NoError(t, err, "reading the stylesheet")
+			require.Equal(t, http.StatusOK, first.StatusCode)
+			require.NotEmpty(t, body)
+			etag := first.Header.Get("ETag")
+			require.NotEmpty(t, etag)
 
-	require.Equal(t, http.StatusNotModified, second.StatusCode)
-	require.Empty(t, body)
-	require.Equal(t, etag, second.Header.Get("ETag"))
+			req, err := http.NewRequestWithContext(
+				context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
+			)
+			require.NoError(t, err)
+			req.Header.Set("If-None-Match", etag)
+			second, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			defer func() { _ = second.Body.Close() }()
+			body, err = io.ReadAll(second.Body)
+			require.NoError(t, err)
+
+			require.Equal(t, http.StatusNotModified, second.StatusCode)
+			require.Empty(t, body)
+			require.Equal(t, etag, second.Header.Get("ETag"))
+		})
+	}
 }

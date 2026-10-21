@@ -284,19 +284,23 @@ func (c *Core) Build() {
 		tags := new(assetTags)
 		// Compressed ETags extend the cache middleware's base tag.
 		h := compressor.Handler(
-			fsys, tags.sum, typedFonts(http.FileServer(fsys)), c.sampledLogger)
+			fsys, tags.sum, typedFonts(http.FileServer(fsys)), c.sampledLogger,
+		)
 		// c.assetsFS lists the directories that fsys hides.
 		exact := exactpath.New(c.assetsFS).Exact
-		switch {
-		case datapages.IsDevMode():
+		if datapages.IsDevMode() {
 			// Dev files may change while the server runs. The browser asks
 			// before every reuse, and without Last-Modified it gets the file.
 			h = DevNoCache(typedFonts(http.FileServer(noModTimeFS{fsys})))
 			exact = func(p string) bool { return exactpath.New(c.assetsFS).Exact(p) }
-		case c.assetsCache != nil && !c.assetsCache.Disabled:
-			h = newAssetsCache(fsys, tags, *c.assetsCache, h)
-		default:
-			h = revalidated(h)
+		} else {
+			// An embed.FS has no modification time, which leaves the ETag as the
+			// only validator of its files.
+			var conf datapages.AssetsCacheConfig
+			if c.assetsCache != nil && !c.assetsCache.Disabled {
+				conf = *c.assetsCache
+			}
+			h = newAssetsCache(fsys, tags, conf, h)
 		}
 		h = exactSpellings(exact, h)
 		c.mux.Handle("GET "+c.assetsURLPrefix,

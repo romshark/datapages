@@ -1040,7 +1040,7 @@ Asset responses follow these rules:
 - A multi-range request receives the uncompressed file.
 - An eligible response carries `Vary: Accept-Encoding`, also when uncompressed.
 - A `Content-Type` that a middleware sets before the asset handler goes out unchanged. A type that is not eligible leaves the asset uncompressed.
-- With `datapages.WithAssetsCache`, a copy's `ETag` is the strong `ETag` of the file with the coding and level appended, such as `"tag.br6"`.
+- A copy's `ETag` is the strong `ETag` of its file with the coding and level appended, such as `"tag.br6"`. A copy of a file without an `ETag` has none.
 - An error of the store while it opens a copy is logged, and the request receives the uncompressed file.
 - A copy that no attempt stores is logged once, after the last attempt.
 - A panic of the file system while a copy is compressed is logged with its stack, and the request receives the uncompressed file.
@@ -1049,7 +1049,7 @@ Asset responses follow these rules:
 These options and modules configure asset compression:
 
 - `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels, initial levels and store of its `Config`.
-- `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server. The server passes the handler the SHA-256 that it takes of a file for the `ETag` of `datapages.WithAssetsCache`.
+- `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server. The server passes the handler the SHA-256 that it takes of a file for its `ETag`.
 - `datapages.WithNoAssetsCompression` disables compression.
 - A nil `Store` keeps copies in memory, and `modules/assetcompress/disk` keeps them in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700.
 
@@ -1059,9 +1059,9 @@ A request reaches an asset only when each element of its path is spelled byte fo
 
 ## Changing Assets
 
-Outside dev mode, the files of `datapages.WithAssetsFS` must not change while the server runs, unless `datapages.WithNoAssetsCompression` disables asset compression and `datapages.WithAssetsCache` adds no `ETag`. A GET action that returns [`datapages.File`](#return-value-datapagesfile) serves files that change.
+Outside dev mode, the files of `datapages.WithAssetsFS` must not change while the server runs, unless `datapages.WithNoAssetsCompression` disables asset compression and `datapages.WithAssetsCache` sets `AssetsCacheConfig.DisableETag`. A GET action that returns [`datapages.File`](#return-value-datapagesfile) serves files that change.
 
-The server computes the `ETag` that `datapages.WithAssetsCache` adds at the first request for a file and keeps it until it exits. After a file changes, until the server restarts:
+The server computes the `ETag` of a file at its first request and keeps it until it exits. After a file changes, until the server restarts:
 
 - Every response for the file carries that `ETag`, with the coding and level appended for a copy. A conditional request with it receives 304.
 - An uncompressed response carries the new content.
@@ -1082,9 +1082,9 @@ Set `TEMPL_DEV_MODE=true` before starting the process to enable templ hot reload
 
 Dev mode reads assets from the source tree and sends `Cache-Control: no-cache` without `Last-Modified`. It ignores `datapages.WithAssetsCache`, `datapages.WithResponseCompression` and `datapages.WithAssetsCompression`; see [Response Compression](#response-compression) and [Asset Compression](#asset-compression). The server logs a startup warning.
 
-Outside dev mode, assets carry `Cache-Control: public, max-age=0` and no `ETag` unless `datapages.WithAssetsCache` is set. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
+Outside dev mode, assets carry `Cache-Control: public, max-age=0` and an `ETag` computed from the file contents, the headers of the zero `AssetsCacheConfig`, unless `datapages.WithAssetsCache` sets others. A matching `If-None-Match` request receives 304 with no body. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
 
-`datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. With `Disabled`, assets carry the headers of a server without the option. `DisableETag` suppresses the `ETag`.
+`datapages.WithAssetsCache` sets `Cache-Control` and whether assets carry an `ETag`. With `Disabled`, assets carry the headers of a server without the option. `DisableETag` suppresses the `ETag`.
 
 Generated asset URLs do not contain a content hash. A client may reuse an asset with a positive `MaxAge` until it expires. Change the URL when new contents must take effect before then.
 

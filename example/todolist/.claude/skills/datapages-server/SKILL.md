@@ -94,7 +94,7 @@ Declare at most 1 such variable in an app package. The URL prefix must start and
 
 `WithAssetsFS` accepts an `http.FileSystem` and overrides `WithAssets`. Datapages uses that filesystem as-is: it does not extract the declared source directory or replace it in development mode. The app's declared URL prefix still determines where files are served. Without an asset declaration, the option is accepted but no asset route is registered.
 
-Without `WithAssetsCache`, assets carry `Cache-Control: public, max-age=0` and no ETag, which makes the browser ask before every reuse. A zero `AssetsCacheConfig` adds an ETag, with which an unchanged file returns 304 with an empty body.
+Without `WithAssetsCache`, assets carry `Cache-Control: public, max-age=0` and an ETag, the headers of a zero `AssetsCacheConfig`. The browser asks before every reuse, and an unchanged file returns 304 with an empty body.
 
 Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash or the version of a vendored library, as in `datastar-1.0.4.js`. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` leaves the headers of a server without `WithAssetsCache`.
 
@@ -121,4 +121,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:89a6037ec8118de8 -->
+<!-- written by datapages sha256:9aafd389d0ca716a -->
