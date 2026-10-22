@@ -535,19 +535,13 @@ func GenDocs() error {
 	return goRun(toolMinify, "-o", "docs/style.css", css)
 }
 
-// WatchDocs serves the GitHub Pages site on http://127.0.0.1:7340 and reloads
-// it when its templates, its stylesheet, its Markdown files or docs/ change.
-// See DEV.md.
+// WatchDocs serves the GitHub Pages site and reloads it on changes.
 //
-// templ watch mode keeps the template strings in files under
-// TEMPL_DEV_MODE_ROOT, the system temporary directory by default.
-// templ generate deletes them there, which fails every page of a watch until
-// the next template change. A directory of its own keeps a templ generate
-// that runs meanwhile, as in [GenDocs], from deleting them.
-//
-// TEMPL_DEV_MODE_WATCH_ROOT limits those files to the templates of the docs
-// module. Without it the server looks for them for the Morpheus components in
-// the module cache too, which no watch writes, and fails the docs pages.
+// templ watch mode keeps template strings in files under TEMPL_DEV_MODE_ROOT.
+// A directory of its own keeps a templ generate, as in [GenDocs], from deleting them.
+// TEMPL_DEV_MODE_WATCH_ROOT limits those files to the docs module.
+// Without it the server also looks for them for the Morpheus components,
+// which no watch writes, and fails.
 func WatchDocs() error {
 	root, err := os.MkdirTemp("", "datapages-watchdocs-*")
 	if err != nil {
@@ -564,7 +558,27 @@ func WatchDocs() error {
 	if err := os.Setenv("TEMPL_DEV_MODE_WATCH_ROOT", watched); err != nil {
 		return err
 	}
+	host, err := templierHost(filepath.Join(docsModule, "templier.yml"))
+	if err != nil {
+		return err
+	}
+	fmt.Println("==> serving the docs on http://" + host + "/")
 	return runIn(docsModule, "go", "run", toolTemplier)
+}
+
+// templierHost returns the templier-host address in config.
+// Templier logs it only at its verbose level, which also logs every rebuild.
+func templierHost(config string) (string, error) {
+	data, err := os.ReadFile(config)
+	if err != nil {
+		return "", err
+	}
+	for line := range strings.Lines(string(data)) {
+		if host, ok := strings.CutPrefix(line, "templier-host:"); ok {
+			return strings.TrimSpace(host), nil
+		}
+	}
+	return "", fmt.Errorf("%s has no templier-host", config)
 }
 
 // GenOfflineWorker minifies the service worker the offline module embeds.
