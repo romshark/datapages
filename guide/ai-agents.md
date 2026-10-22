@@ -81,7 +81,7 @@ Kept the previous .claude/skills/datapages/SKILL.md as .claude/skills/datapages/
 Project already initialized.
 ```
 
-Run it inside the git repository of the project. Outside a git repository, `init -n` fails with `--name is required in non-interactive mode when not inside a git repository`, and with `--name` it creates a new project.
+Run it in the project, inside its git repository or next to its `go.mod` and `datapages.yaml`. Elsewhere `init -n` fails with `--name is required in non-interactive mode when not inside a git repository`, and with `--name` it creates a new project.
 
 `init` writes a file only when its content differs from the CLI's version. Every skill and `AGENTS.md` end with a stamp such as `<!-- written by datapages v0.10.1 sha256:9e363ad63c6a31ab -->`. The stamp records the release and a hash of the preceding content. `init` replaces a file whose content still matches the hash.
 

@@ -73,7 +73,7 @@ type ServerConfig struct {
 	AssetsBrowsable bool
 
 	// AssetsCache configures production asset cache headers.
-	// A nil value sends Cache-Control: public, max-age=0 and no ETag.
+	// A nil value sends the headers of the zero [AssetsCacheConfig].
 	AssetsCache *AssetsCacheConfig
 
 	// Sessions configures the session cookie and the token generator.
@@ -388,7 +388,7 @@ func WithAssets(fsys embed.FS, browsable bool) ServerOption {
 // other directory. Dev mode still sends every file with Cache-Control: no-cache.
 //
 // The files of fsys must not change while the server runs. The server keeps
-// the [WithAssetsCache] ETag of a file from its first request until it exits.
+// the ETag of a file from its first request until it exits.
 // After a change, every response carries the old ETag, and a compressed one
 // can carry the old content, also after a deletion. A restart serves the files
 // as they are then. Serve files that change through a GET action that returns a [File].
@@ -429,17 +429,18 @@ type AssetsCacheConfig struct {
 	CacheControl string
 
 	// DisableETag prevents [WithAssetsCache] from adding an ETag.
-	// Use it when a CDN or compressing middleware writes its own ETag.
+	// Use it when a CDN or compressing middleware writes its own ETag, or with
+	// [WithNoAssetsCompression] for files of [WithAssetsFS] that change.
 	DisableETag bool
 }
 
-// WithAssetsCache adds Cache-Control and an optional ETag to static files
+// WithAssetsCache sets the Cache-Control and the optional ETag of static files
 // served by [WithAssets] and [WithAssetsFS].
 //
-// Optional. Without it, assets carry Cache-Control: public, max-age=0 and no
-// ETag, which makes a browser ask before every reuse. Without any
-// Cache-Control, a browser could reuse a file that has a modification time
-// after a deploy without asking.
+// Optional. Without it, assets carry the headers of the zero [AssetsCacheConfig],
+// Cache-Control: public, max-age=0 and an ETag. A browser then asks before every reuse,
+// and an unchanged file costs a 304 without a body. A file of [WithAssets] has
+// no modification time, which leaves the ETag as its only validator.
 //
 // The server computes the ETag of a file at its first request and keeps it
 // until it exits, since assets must not change. See [WithAssetsFS] for files
@@ -763,21 +764,21 @@ func (conf SSECompressionConfig) Validate() error {
 	if err := validateCodings(conf.Codings); err != nil {
 		return err
 	}
-	if err := levels.Zstd("", conf.ZstdLevel); err != nil {
+	if err := levels.Zstd(conf.ZstdLevel); err != nil {
 		return err
 	}
 	if conf.ZstdWindow != 0 && !powerOf2In(conf.ZstdWindow, 1<<10, 8<<20) {
 		return fmt.Errorf("zstd window (%d) must be a power of 2 from 1 KiB to 8 MiB",
 			conf.ZstdWindow)
 	}
-	if err := levels.Brotli("", conf.BrotliQuality); err != nil {
+	if err := levels.Brotli(conf.BrotliQuality); err != nil {
 		return err
 	}
 	if conf.BrotliWindow != 0 && !powerOf2In(conf.BrotliWindow, 1<<10, 16<<20) {
 		return fmt.Errorf("brotli window (%d) must be a power of 2 from 1 KiB to 16 MiB",
 			conf.BrotliWindow)
 	}
-	return levels.Gzip("", conf.GzipLevel)
+	return levels.Gzip(conf.GzipLevel)
 }
 
 func powerOf2In(n, lo, hi int) bool {
@@ -920,7 +921,7 @@ func (conf ResponseCompressionConfig) Validate() error {
 	if conf.MinSize < 0 || conf.MinSize > maxResponseCompressionMinSize {
 		return fmt.Errorf("min size (%d) must be from 0 to 1 MiB", conf.MinSize)
 	}
-	return levels.All("", conf.ZstdLevel, conf.BrotliQuality, conf.GzipLevel)
+	return levels.All(conf.ZstdLevel, conf.BrotliQuality, conf.GzipLevel)
 }
 
 // AssetsCompressor compresses the static assets of [WithAssets] and [WithAssetsFS].
@@ -928,8 +929,8 @@ func (conf ResponseCompressionConfig) Validate() error {
 type AssetsCompressor interface {
 	// Handler returns a handler that sends a compressed copy of a file of fsys
 	// and passes other requests to next, which sends the files of fsys.
-	// sum returns the SHA-256 that the server takes of the file at name for the
-	// ETag of [WithAssetsCache], or false. name is a path that [io/fs.ValidPath]
+	// sum returns the SHA-256 that the server takes of the file at name for its ETag,
+	// or false without one. name is a path that [io/fs.ValidPath]
 	// accepts, such as "docs/index.html". The server calls Handler once and passes
 	// it the logger that [WithLogSampling] throttles. Requests reach the handler
 	// only for paths spelled as the directories of fsys list them,

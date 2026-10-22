@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,9 +144,7 @@ func get(
 	t.Helper()
 	r := httptest.NewRequest(method, path, nil)
 	r.Header.Set("Accept-Encoding", cmp.Or(accept, "identity"))
-	for k, v := range header {
-		r.Header[k] = v
-	}
+	maps.Copy(r.Header, header)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w
@@ -234,53 +233,6 @@ func TestNew(t *testing.T) {
 		"gzip level negative": {
 			conf:    assetcompress.Config{Levels: assetcompress.Levels{GzipLevel: -1}},
 			wantErr: "assetcompress: gzip level (-1) must be from 1 to 9",
-		},
-		"initial levels": {conf: assetcompress.Config{
-			Levels: assetcompress.Levels{ZstdLevel: 19, BrotliQuality: 11},
-			InitialLevels: assetcompress.Levels{
-				ZstdLevel: 3, BrotliQuality: 6, GzipLevel: 9,
-			},
-		}},
-		"initial zstd level negative": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				ZstdLevel: -1,
-			}},
-			wantErr: "assetcompress: initial zstd level (-1) must be from 1 to 22",
-		},
-		"initial brotli quality too high": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				BrotliQuality: 12,
-			}},
-			wantErr: "assetcompress: initial brotli quality (12) must be from 1 to 11",
-		},
-		"initial gzip level too high": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				GzipLevel: 10,
-			}},
-			wantErr: "assetcompress: initial gzip level (10) must be from 1 to 9",
-		},
-		"initial zstd level above default": {
-			conf: assetcompress.Config{InitialLevels: assetcompress.Levels{
-				ZstdLevel: 19,
-			}},
-			wantErr: "assetcompress: " +
-				"initial zstd level (19) must not exceed zstd level (10)",
-		},
-		"initial brotli quality above": {
-			conf: assetcompress.Config{
-				Levels:        assetcompress.Levels{BrotliQuality: 5},
-				InitialLevels: assetcompress.Levels{BrotliQuality: 6},
-			},
-			wantErr: "assetcompress: " +
-				"initial brotli quality (6) must not exceed brotli quality (5)",
-		},
-		"initial gzip level above": {
-			conf: assetcompress.Config{
-				Levels:        assetcompress.Levels{GzipLevel: 1},
-				InitialLevels: assetcompress.Levels{GzipLevel: 2},
-			},
-			wantErr: "assetcompress: " +
-				"initial gzip level (2) must not exceed gzip level (1)",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -414,6 +366,29 @@ func TestHandlerRange(t *testing.T) {
 	require.Equal(t, full[:10], w.Body.Bytes())
 }
 
+// TestHandlerIfRange tests that the weak ETag of a copy does not validate a range,
+// which sends the whole copy, while the strong ETag of the file still
+// validates a range of the uncompressed file.
+func TestHandlerIfRange(t *testing.T) {
+	t.Parallel()
+
+	h := withETag(`"base"`,
+		newHandler(newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil))
+	for coding, tc := range map[string]struct {
+		tag        string
+		wantStatus int
+	}{
+		"br":       {tag: `W/"base.br6"`, wantStatus: http.StatusOK},
+		"identity": {tag: `"base"`, wantStatus: http.StatusPartialContent},
+	} {
+		w := get(t, h, http.MethodGet, "/style.css", coding, http.Header{
+			"Range": {"bytes=0-9"}, "If-Range": {tc.tag},
+		})
+		require.Equal(t, tc.wantStatus, w.Code, coding)
+		require.Equal(t, tc.tag, w.Header().Get("Etag"), coding)
+	}
+}
+
 // TestHandlerMultipartRange tests that multiple ranges
 // use the source file and carry Vary.
 func TestHandlerMultipartRange(t *testing.T) {
@@ -527,7 +502,7 @@ func TestHandlerZstdLevels(t *testing.T) {
 		})
 		h := withETag(`"base"`, newHandler(c, http.FS(assetFiles()), nil))
 		w := get(t, h, http.MethodGet, "/style.css", "zstd", nil)
-		require.Equal(t, `"base.zstd10"`, w.Header().Get("Etag"), "level %d", level)
+		require.Equal(t, `W/"base.zstd10"`, w.Header().Get("Etag"), "level %d", level)
 		assetcompress.WaitBackground(c)
 	}
 	require.Equal(t, int64(1), store.puts.Load(), "copies of levels 19 and 22")
@@ -541,8 +516,8 @@ func TestHandlerETag(t *testing.T) {
 		newHandler(newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil))
 	for coding, want := range map[string]string{
 		"":     `"base"`,
-		"br":   `"base.br6"`,
-		"gzip": `"base.gzip9"`,
+		"br":   `W/"base.br6"`,
+		"gzip": `W/"base.gzip9"`,
 	} {
 		w := get(t, h, http.MethodGet, "/style.css", coding, nil)
 		require.Equal(t, want, w.Header().Get("Etag"), coding)
@@ -732,120 +707,26 @@ func TestHandlerCompressesInParallel(t *testing.T) {
 	})
 }
 
-// TestHandlerInitialLevel tests the initial copy, its replacement and the store.
-func TestHandlerInitialLevel(t *testing.T) {
-	t.Parallel()
-
-	store := newCountingStore()
-	c := newCompressor(t, assetcompress.Config{
-		Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-	})
-	h := withETag(`"base"`, newHandler(c, http.FS(assetFiles()), nil))
-	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
-	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-	assetcompress.WaitBackground(c)
-	require.Equal(t, int64(1), store.puts.Load())
-
-	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
-	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-	w = get(t, h, http.MethodGet, "/style.css", "gzip", nil)
-	require.Equal(t, `"base.gzip9"`, w.Header().Get("Etag"), "no initial gzip level")
-}
-
-// TestHandlerWithoutStore tests that a compressor without a store replaces the
-// initial copy in memory, writes nothing and serves the copy without reading
-// the file again.
+// TestHandlerWithoutStore tests that a compressor without a store keeps the copy
+// in memory, starts no write and serves the copy without reading the file again.
 func TestHandlerWithoutStore(t *testing.T) {
 	t.Parallel()
 
 	fsys := &readCountingFS{FileSystem: http.FS(assetFiles())}
 	var log testlog.Buffer
-	c := newCompressor(t, assetcompress.Config{
-		InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-	})
+	c := newCompressor(t, assetcompress.Config{})
 	h := withETag(`"base"`,
 		c.Handler(fsys, styleSum, http.FileServer(fsys), log.Logger()))
 	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
 	assetcompress.WaitBackground(c)
 
 	read := fsys.read.Load()
 	w = get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br6"`, w.Header().Get("Etag"))
+	require.Equal(t, `W/"base.br6"`, w.Header().Get("Etag"))
 	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
 	require.Equal(t, read, fsys.read.Load(), "bytes read by the 2nd request")
 	require.Empty(t, log.Lines())
-}
-
-// TestHandlerReplacesOneAtATime tests that replacements run 1 at a time.
-func TestHandlerReplacesOneAtATime(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		// The 3rd open of /style.css replaces its copy.
-		fsys := newStallingFS(3)
-		defer fsys.unstall()
-		store := newCountingStore()
-		c := newCompressor(t, assetcompress.Config{
-			Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-		})
-		h := withETag(`"base"`, newHandler(c, fsys, nil))
-		w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-		require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
-		<-fsys.stalled
-		w = get(t, h, http.MethodGet, "/app.js", "br", nil)
-		require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
-		synctest.Wait()
-		require.Zero(t, store.puts.Load(), "app.js did not wait for style.css")
-
-		fsys.unstall()
-		assetcompress.WaitBackground(c)
-		require.Equal(t, int64(2), store.puts.Load())
-		for _, name := range []string{"/style.css", "/app.js"} {
-			w = get(t, h, http.MethodGet, name, "br", nil)
-			require.Equal(t, `"base.br6"`, w.Header().Get("Etag"), name)
-		}
-	})
-}
-
-// failingFS fails the nth open of /style.css.
-type failingFS struct {
-	http.FileSystem
-	n     int64
-	opens atomic.Int64
-}
-
-func (fsys *failingFS) Open(name string) (http.File, error) {
-	if name == "/style.css" && fsys.opens.Add(1) == fsys.n {
-		return nil, errors.New("open failed")
-	}
-	return fsys.FileSystem.Open(name)
-}
-
-// TestHandlerKeepsInitialCopy tests the log and the copy after a failed replacement.
-func TestHandlerKeepsInitialCopy(t *testing.T) {
-	t.Parallel()
-
-	store := newCountingStore()
-	c := newCompressor(t, assetcompress.Config{
-		Store: store, InitialLevels: assetcompress.Levels{BrotliQuality: 1},
-	})
-	var log testlog.Buffer
-	// The 3rd open of /style.css replaces its copy.
-	fsys := &failingFS{FileSystem: http.FS(assetFiles()), n: 3}
-	h := withETag(`"base"`, newHandler(c, fsys, log.Logger()))
-	get(t, h, http.MethodGet, "/style.css", "br", nil)
-	assetcompress.WaitBackground(c)
-
-	w := get(t, h, http.MethodGet, "/style.css", "br", nil)
-	require.Equal(t, `"base.br1"`, w.Header().Get("Etag"))
-	require.Equal(t, assetCSS, decode(t, "br", w.Body.Bytes()))
-	require.Zero(t, store.puts.Load())
-	require.Len(t, log.Lines(), 1)
-	log.RequireMatch(t, `level=WARN msg="compressing an asset" `+
-		`path=/style.css coding=br err="open failed"`)
 }
 
 // TestHandlerKeepsContentType tests that a Content-Type set before the handler
@@ -863,12 +744,17 @@ func TestHandlerKeepsContentType(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newHandler(newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil)
+			h := newHandler(
+				newCompressor(t, assetcompress.Config{}), http.FS(assetFiles()), nil,
+			)
 			typed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", tc.contentType)
 				h.ServeHTTP(w, r)
 			})
-			for accept, wantCoding := range map[string]string{"": "", "br": tc.wantCoding} {
+			for accept, wantCoding := range map[string]string{
+				"":   "",
+				"br": tc.wantCoding,
+			} {
 				w := get(t, typed, http.MethodGet, "/page.html", accept, nil)
 				require.Equal(t, tc.contentType, w.Header().Get("Content-Type"), accept)
 				require.Equal(t, wantCoding, w.Header().Get("Content-Encoding"), accept)

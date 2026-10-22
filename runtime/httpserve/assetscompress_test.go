@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -61,9 +62,7 @@ func getAsset(
 	t.Helper()
 	r := httptest.NewRequest(method, path, nil)
 	r.Header.Set("Accept-Encoding", cmp.Or(accept, "identity"))
-	for k, v := range header {
-		r.Header[k] = v
-	}
+	maps.Copy(r.Header, header)
 	w := httptest.NewRecorder()
 	c.ServeHTTP(w, r)
 	return w
@@ -157,7 +156,10 @@ func TestAssetsSpellings(t *testing.T) {
 			wantETag:         true,
 			wantCacheControl: "public, max-age=3600",
 		},
-		"no cache": {wantCacheControl: "public, max-age=0"},
+		"no option": {
+			wantETag:         true,
+			wantCacheControl: "public, max-age=0",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -270,8 +272,8 @@ func TestAssetsCompressionETag(t *testing.T) {
 	base := strings.TrimSuffix(tag, `"`)
 
 	for coding, want := range map[string]string{
-		"br":   base + `.br6"`,
-		"gzip": base + `.gzip9"`,
+		"br":   "W/" + base + `.br6"`,
+		"gzip": "W/" + base + `.gzip9"`,
 	} {
 		w := getAsset(t, c, http.MethodGet, "/static/style.css", coding, nil)
 		require.Equal(t, want, w.Header().Get("Etag"), coding)
@@ -373,7 +375,7 @@ func TestAssetsCompressorSum(t *testing.T) {
 		want  bool
 	}{
 		"WithAssetsCache":    {cache: &datapages.AssetsCacheConfig{}, want: true},
-		"no WithAssetsCache": {},
+		"no WithAssetsCache": {want: true},
 		"DisableETag":        {cache: &datapages.AssetsCacheConfig{DisableETag: true}},
 	} {
 		t.Run(name, func(t *testing.T) {

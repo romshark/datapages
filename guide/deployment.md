@@ -74,7 +74,7 @@ Options for static assets:
 | ------ | ------- | ---- |
 | [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets) | none | The `embed.FS` of the app's static files |
 | [`WithAssetsFS`](https://pkg.go.dev/github.com/romshark/datapages#WithAssetsFS) | none | An `http.FileSystem` that replaces it |
-| [`WithAssetsCache`](https://pkg.go.dev/github.com/romshark/datapages#WithAssetsCache) | `Cache-Control: public, max-age=0`, no ETag | The cache headers of assets |
+| [`WithAssetsCache`](https://pkg.go.dev/github.com/romshark/datapages#WithAssetsCache) | `Cache-Control: public, max-age=0` and an ETag | The cache headers of assets |
 | [`WithAssetsCompression`](https://pkg.go.dev/github.com/romshark/datapages#WithAssetsCompression) | brotli 6 or gzip 9, kept in memory | The asset compressor |
 | [`WithNoAssetsCompression`](https://pkg.go.dev/github.com/romshark/datapages#WithNoAssetsCompression) | | Turns asset compression off |
 
@@ -304,7 +304,7 @@ datapages.WithPrometheus(datapages.PrometheusConfig{
 | `datapages_event_broker_publishes_by_kind_total` | counter | `kind` | Dispatched events |
 | `datapages_event_broker_deliveries_dropped_total` | counter | | Events dropped for a full stream buffer |
 | `datapages_internal_errors_recovered_total` | counter | | Errors that `RecoverError` answered |
-| `datapages_internal_errors_not_recovered_total` | counter | | Errors answered with an error response |
+| `datapages_internal_errors_not_recovered_total` | counter | | Errors that `RecoverError` did not handle |
 | `datapages_action_options_dropped_total` | counter | `option` | Action options dropped for an invalid value |
 | `datapages_session_creations_total` | counter | `result` | Sessions created, by `success` or `error` |
 | `datapages_session_closures_total` | counter | `result` | Sessions closed, by `success` or `error` |

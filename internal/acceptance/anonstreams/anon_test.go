@@ -306,3 +306,28 @@ func TestAnonStreamRecoversHandlerPanic(t *testing.T) {
 		require.Equal(t, "the faulted handler panicked", pe.Value)
 	})
 }
+
+// TestAnonStreamRecoversDecodePanic tests a StreamOpen signal whose
+// UnmarshalJSON panics, on the stream of a visitor with no session.
+// RecoverError receives a datapages.PanicError. net/http otherwise
+// closes the connection without a response.
+func TestAnonStreamRecoversDecodePanic(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		a := &app.App{}
+		store := sessinmem.New[struct{}](
+			sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+		)
+		c := client.New(t, mustNewServer(t, a, broker, store))
+
+		s := c.OpenStream(t, "/decode/_$/anon/", map[string]string{"v": "xbad"})
+		require.True(t, s.Saw(`<div id="out">recovered: panic: the JSON parser panicked</div>`),
+			"RecoverError did not answer on the stream")
+
+		recovered := a.Recovered()
+		require.Len(t, recovered, 1)
+		var pe datapages.PanicError
+		require.ErrorAs(t, recovered[0], &pe)
+		require.Equal(t, "the JSON parser panicked", pe.Value)
+	})
+}

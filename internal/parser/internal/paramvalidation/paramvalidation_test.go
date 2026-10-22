@@ -787,10 +787,18 @@ func f(d string) {}`,
 // the JSON kind seeded by its query field.
 func TestValidateReflectSignal(t *testing.T) {
 	sigType := namedType(t, "package test\n"+
+		"type Cents int64\n"+
+		"func (c *Cents) UnmarshalText([]byte) error { return nil }\n"+
+		"type Stamp struct{}\n"+
+		"func (s *Stamp) UnmarshalJSON([]byte) error { return nil }\n"+
+		"func (s *Stamp) UnmarshalText([]byte) error { return nil }\n"+
 		"type P struct {\n"+
 		"\tCount int `json:\"count\"`\n"+
 		"\tName  string `json:\"name\"`\n"+
 		"\tOn    bool `json:\"on\"`\n"+
+		"\tPtr   *int `json:\"ptr\"`\n"+
+		"\tCents Cents `json:\"cents\"`\n"+
+		"\tStamp Stamp `json:\"stamp\"`\n"+
 		"}")
 	queryType := func(tag string) types.Type {
 		return namedType(t, "package test\n"+
@@ -831,6 +839,19 @@ func TestValidateReflectSignal(t *testing.T) {
 			InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"count"`)),
 			InputSignals: input(sigType),
 		}},
+		"number to pointer": {handler: &model.Handler{
+			InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"ptr"`)),
+			InputSignals: input(sigType),
+		}},
+		"string to text unmarshaler": {handler: &model.Handler{
+			InputQuery:   input(queryType(`query:"search" reflectsignal:"cents"`)),
+			InputSignals: input(sigType),
+		}},
+		// UnmarshalJSON takes precedence over UnmarshalText.
+		"number to json unmarshaler": {handler: &model.Handler{
+			InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"stamp"`)),
+			InputSignals: input(sigType),
+		}},
 		"reflectsignal not in signals": {
 			handler: &model.Handler{
 				InputQuery:   input(queryType(`query:"search" reflectsignal:"missing"`)),
@@ -855,6 +876,13 @@ func TestValidateReflectSignal(t *testing.T) {
 		"number to string": {
 			handler: &model.Handler{
 				InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"name"`)),
+				InputSignals: input(sigType),
+			},
+			wantErr: ErrQueryReflectSignalTypeMismatch,
+		},
+		"number to text unmarshaler": {
+			handler: &model.Handler{
+				InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"cents"`)),
 				InputSignals: input(sigType),
 			},
 			wantErr: ErrQueryReflectSignalTypeMismatch,

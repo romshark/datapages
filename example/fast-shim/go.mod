@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/fast-shim
 
-go 1.27.2
+go 1.27.3
 
 replace github.com/romshark/datapages => ../../
 

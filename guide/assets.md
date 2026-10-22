@@ -22,13 +22,10 @@ The doc comment sets the URL prefix the way the doc comment of a page sets its r
 
 ## Serve the files
 
-Pass the variable to the server in `cmd/server/main.go`. `datapages init` and `datapages gen` write that file only when it is missing, and neither adds the option to an existing one. Add it with a cache configuration:
+Pass the variable to the server in `cmd/server/main.go`. `datapages init` and `datapages gen` write that file only when it is missing, and neither adds the option to an existing one:
 
 ```go title="cmd/server/main.go"
-opts = append(opts,
-	datapages.WithAssets(app.StaticFS, false),
-	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
-)
+opts = append(opts, datapages.WithAssets(app.StaticFS, false))
 ```
 
 `false` answers 404 for a directory without an `index.html` instead of listing its files. The generated server serves the `static` directory of the `embed.FS` below the prefix, as `app/static/style.css` at `/static/style.css`. Without the option, every path below the prefix receives the 404 page. `datapages.NewServer` returns an error for `WithAssets` when the app package declares no assets.
@@ -37,7 +34,7 @@ opts = append(opts,
 
 ## Set cache headers
 
-Without `datapages.WithAssetsCache`, assets carry `Cache-Control: public, max-age=0` and neither `ETag` nor `Last-Modified`. The browser asks before every reuse and downloads the whole file again. With the zero `AssetsCacheConfig`, each response also carries an `ETag` computed from the file contents. The browser sends it back in `If-None-Match` and receives `304 Not Modified` without a body while the file is unchanged.
+Assets carry `Cache-Control: public, max-age=0` and an `ETag` computed from the file contents. The browser asks before every reuse, sends the `ETag` back in `If-None-Match` and receives `304 Not Modified` without a body while the file is unchanged. `datapages.WithAssetsCache` changes these headers.
 
 `MaxAge` lets browsers reuse files without asking. It applies to every file below the prefix. Set it only when every file name changes with its content, as `datastar-1.0.4.js` or `app.3f9a1c.css` does. Otherwise browsers keep old files after a deploy until `MaxAge` ends. For such names, let browsers keep files for a year:
 

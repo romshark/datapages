@@ -1,6 +1,6 @@
 module datapagestest/fixture/err_recover_error_return
 
-go 1.27.2
+go 1.27.3
 
 require github.com/romshark/datapages v0.10.1
 

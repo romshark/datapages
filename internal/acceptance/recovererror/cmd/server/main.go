@@ -32,6 +32,7 @@ func main() {
 
 	var opts []datapages.ServerOption
 	withAccessLogger(&opts)
+	initMetrics(&opts)
 
 	messageBroker := connectNATS()
 
@@ -41,7 +42,7 @@ func main() {
 	s, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,
-		datapages.DisablePrometheus,
+		datapages.EnablePrometheus,
 		datapagesgen.Server,
 	](a, messageBroker, opts...)
 	if err != nil {
@@ -122,6 +123,14 @@ func connectNATS() *natscore.MessageBroker {
 	messageBroker := natscore.New(conn, natscore.Config{})
 
 	return messageBroker
+}
+
+func initMetrics(opts *[]datapages.ServerOption) {
+	host := envOr("HOST_METRICS", "localhost")
+	port := envOr("PORT_METRICS", "9090")
+	*opts = append(*opts, datapages.WithPrometheus(datapages.PrometheusConfig{
+		Host: net.JoinHostPort(host, port),
+	}))
 }
 
 func listenAndServe(ctx context.Context, s datapages.Server, host string) {

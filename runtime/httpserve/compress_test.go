@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"compress/gzip"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
@@ -129,9 +130,7 @@ func TestResponseCompression(t *testing.T) {
 	require.Less(t, len(small), datapages.DefaultResponseMinSize)
 	pageWith := func(header http.Header, status int) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) {
-			for k, v := range header {
-				w.Header()[k] = v
-			}
+			maps.Copy(w.Header(), header)
 			if status != 0 {
 				w.WriteHeader(status)
 			}

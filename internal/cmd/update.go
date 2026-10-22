@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fatih/color"
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -22,7 +22,9 @@ const (
 // GitHub release and prints a notice to w if a newer version is available.
 // It returns a channel that is closed when the check completes.
 // The check is skipped for dev builds (empty version).
-func startUpdateCheck(ctx context.Context, currentVersion string, w io.Writer, client *http.Client) <-chan struct{} {
+func startUpdateCheck(
+	ctx context.Context, currentVersion string, w io.Writer, client *http.Client,
+) <-chan struct{} {
 	done := make(chan struct{})
 	if currentVersion == "" {
 		close(done)
@@ -67,35 +69,14 @@ func fetchLatestRelease(ctx context.Context, client *http.Client) (tag, htmlURL 
 	return release.TagName, release.HTMLURL
 }
 
-// isNewerVersion reports whether latest is strictly greater than current
-// using semantic versioning. Both may optionally be "v"-prefixed.
-// Returns false when current is empty (development builds).
+// isNewerVersion reports whether latest is a later semantic version than current.
+// A prerelease precedes its release. Either may omit the "v" prefix.
+// An invalid current version, such as the empty one of a development build,
+// is never older.
 func isNewerVersion(latest, current string) bool {
-	if current == "" {
-		return false
-	}
-	l := parseSemver(latest)
-	c := parseSemver(current)
-	return l[0] > c[0] ||
-		(l[0] == c[0] && l[1] > c[1]) ||
-		(l[0] == c[0] && l[1] == c[1] && l[2] > c[2])
-}
-
-func parseSemver(v string) [3]int {
-	v = strings.TrimPrefix(v, "v")
-	parts := strings.SplitN(v, ".", 3)
-	var out [3]int
-	for i, p := range parts {
-		if i >= 3 {
-			break
-		}
-		// Strip pre-release and build-metadata suffixes.
-		if j := strings.IndexAny(p, "-+"); j >= 0 {
-			p = p[:j]
-		}
-		out[i], _ = strconv.Atoi(p)
-	}
-	return out
+	c := "v" + strings.TrimPrefix(current, "v")
+	return semver.IsValid(c) &&
+		semver.Compare("v"+strings.TrimPrefix(latest, "v"), c) > 0
 }
 
 func printUpdateNotice(w io.Writer, newVersion, changelogURL string) {

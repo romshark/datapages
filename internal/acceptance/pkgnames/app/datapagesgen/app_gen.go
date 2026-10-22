@@ -262,6 +262,7 @@ func (s *Server) httpErrIntern(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -275,7 +276,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -303,6 +303,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -355,6 +356,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTTick(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Tick")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -372,7 +374,6 @@ func (s pageIndexHandlers) POSTTick(
 	}
 
 	dispatchTicked := dispatcherEventTicked{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Tick")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -390,6 +391,7 @@ func (s pageIndexHandlers) POSTTick(
 type pageItemHandlers struct{ *Server }
 
 func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 
 	var query datapages.Query[struct {
 		Code  dpStrings.Code  `query:"code"`
@@ -424,7 +426,6 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -446,6 +447,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageItemHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageItem.Save")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}

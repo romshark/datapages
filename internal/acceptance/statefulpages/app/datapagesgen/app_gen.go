@@ -508,6 +508,7 @@ func (s *Server) httpErrFile(
 type pageCloseStateHandlers struct{ *Server }
 
 func (s pageCloseStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageCloseState.GET")
 
 	instanceID, err := newStateInstanceID()
 	if err != nil {
@@ -521,7 +522,6 @@ func (s pageCloseStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageCloseState{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageCloseState.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageCloseState.GET", err)
@@ -547,6 +547,7 @@ func (s pageCloseStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageCloseStateHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageCloseState stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -601,6 +602,7 @@ func (s pageCloseStateHandlers) GETStream(w http.ResponseWriter, r *http.Request
 func (s pageCloseStateHandlers) POSTMark(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageCloseState.Mark")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -631,7 +633,6 @@ func (s pageCloseStateHandlers) POSTMark(
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageCloseState.Mark")
 	p := dpapp.PageCloseState{
 		App: s.app,
 	}
@@ -649,6 +650,7 @@ func (s pageCloseStateHandlers) POSTMark(
 type pageFailOpenHandlers struct{ *Server }
 
 func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageFailOpen.GET")
 
 	instanceID, err := newStateInstanceID()
 	if err != nil {
@@ -662,7 +664,6 @@ func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageFailOpen{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageFailOpen.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageFailOpen.GET", err)
@@ -688,6 +689,7 @@ func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageFailOpen stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -740,6 +742,7 @@ func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -757,7 +760,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -783,6 +785,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -861,6 +864,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTUpdate(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Update")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -895,7 +899,6 @@ func (s pageIndexHandlers) POSTUpdate(
 	}
 
 	dispatchFiltersUpdated := dispatcherEventFiltersUpdated{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Update")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -915,6 +918,7 @@ func (s pageIndexHandlers) POSTUpdate(
 func (s pageIndexHandlers) POSTExport(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanicFile(w, r, "PageIndex.Export")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -938,7 +942,6 @@ func (s pageIndexHandlers) POSTExport(
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	defer s.recoverPanicFile(w, r, "PageIndex.Export")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -960,6 +963,7 @@ func (s pageIndexHandlers) POSTExport(
 type pagePanicOnCloseHandlers struct{ *Server }
 
 func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePanicOnClose.GET")
 
 	instanceID, err := newStateInstanceID()
 	if err != nil {
@@ -973,7 +977,6 @@ func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PagePanicOnClose{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PagePanicOnClose.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePanicOnClose.GET", err)
@@ -999,6 +1002,7 @@ func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePanicOnClose stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}

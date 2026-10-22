@@ -103,6 +103,7 @@ These changes are on the main branch and listed under Unreleased in the changelo
 
 ### Generated code and runtime
 
+- Install Go 1.27.3 or later first where `GOTOOLCHAIN=local` is set. `go get` raises the `go` line of `go.mod` to 1.27.3.
 - Run `datapages gen` before you build, as step 4 does. The generated code no longer uses `github.com/starfederation/datastar-go`, and older generated code does not compile with the new runtime. `go mod tidy` then drops `datastar-go`, `github.com/CAFxX/httpcompression` and `github.com/valyala/bytebufferpool` unless the application imports them.
 - Submit forms that post to an `App` action that takes `datapages.PageCacheWriter` through a Datastar action. A plain form submission to such an action now gets `406 Not Acceptable`. Before, a redirect from the action dropped its cache writes, such as `ClearAll`. See [Templates and forms](templates.md).
 - Pass `datapages.WithDatastarJS` a URL that is valid according to RFC 3986. Otherwise `datapages.NewServer` fails with `WithDatastarJS: URL contains ' ', which RFC 3986 does not allow`.

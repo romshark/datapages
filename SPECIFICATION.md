@@ -23,7 +23,7 @@ Parameters are identified by type; names and order are unrestricted.
 
 `RecoverError` receives errors from Datastar requests, including Datapages sentinels, and may write an SSE response. It does not receive page-load errors. For a failed page load whose response has not started, the server renders `PageError404` for status 404 and `PageError500` for status 500 when defined, and writes a plain HTTP error otherwise. If `RecoverError` returns an error or panics, the server logs it and retains the response already written. Errors returned by `OnXXX` and `StreamClose` are logged and do not reach `RecoverError`.
 
-A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
+A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. So does a panic while the server reads the session, path, query or signals of the handler, as in `UnmarshalText`, `UnmarshalJSON` or a `sessions.Manager`. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
 A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
@@ -437,7 +437,7 @@ Supported field types are:
 - `float32`
 - `float64`
 
-Types implementing `encoding.TextUnmarshaler` are also supported. Parse failures return 400. Float fields reject `Inf`, `+Inf`, `-Inf`, and `NaN`.
+Types implementing `encoding.TextUnmarshaler` are also supported, pointer types such as `*big.Int` included. The server allocates a pointer field before it calls `UnmarshalText`. A pointer query field is nil when its parameter is absent. Parse failures return 400. Float fields reject `Inf`, `+Inf`, `-Inf`, and `NaN`.
 
 Generated `href` and `action` builders encode `encoding.TextMarshaler` values with that interface. Other values, including named strings, use their basic kind.
 
@@ -477,7 +477,7 @@ A reflected field must be a basic type or implement `encoding.TextMarshaler`. `d
 
 `datapages gen` rejects 2 query fields with the same `reflectsignal` value.
 
-The query field's seed must have a JSON kind that the signal field can decode. `datapages gen` rejects incompatible pairs. For example, it rejects a string query field reflected into a `bool` signal. Fields that implement `json.Unmarshaler` and interface fields accept every JSON kind.
+The query field's seed must have a JSON kind that the signal field can decode. `datapages gen` rejects incompatible pairs. For example, it rejects a string query field reflected into a `bool` signal. Fields that implement `json.Unmarshaler` and interface fields accept every JSON kind. Other fields that implement `encoding.TextUnmarshaler` accept only strings. Pointer fields accept the JSON kinds of the type they point to.
 
 Signal `json` tags must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is rejected.
 
@@ -1028,8 +1028,6 @@ A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheCon
 
 The first request creates a missing copy in memory and receives it. Concurrent requests for that copy wait for its compression instead of starting another, and requests for different copies compress them in parallel. Without a `Config.Store`, the copy stays in memory until the server exits. With one, the server writes the copy to the store in the background, in up to 5 attempts within 15 seconds, and serves it from memory until the store has it. Requests meanwhile start no other compression or write. A copy that no attempt stores stays in memory until the server exits.
 
-A nonzero level of `Config.InitialLevels` applies to the copy that the first request creates. A background compression at the configured level replaces that copy in memory before any write to the store. Background compressions run 1 at a time. A copy whose replacement fails is logged and stays in memory at its initial level until the server exits.
-
 `Compressor.Precompress` creates the missing copies of every eligible file of a file system in every configured coding at the configured level. It returns the first failed read or store, which leaves that copy missing, and stops when its context ends. Requests that arrive meanwhile create their own missing copies.
 
 Store keys contain the file's SHA-256, coding and level, never its path. Precompressing the `embed.FS` passed to `datapages.WithAssets` creates the copies the server looks up in its subdirectory. The server hashes each file at its first request. A file changed during compression is not stored under its old hash.
@@ -1040,7 +1038,7 @@ Asset responses follow these rules:
 - A multi-range request receives the uncompressed file.
 - An eligible response carries `Vary: Accept-Encoding`, also when uncompressed.
 - A `Content-Type` that a middleware sets before the asset handler goes out unchanged. A type that is not eligible leaves the asset uncompressed.
-- With `datapages.WithAssetsCache`, a copy's `ETag` is the strong `ETag` of the file with the coding and level appended, such as `"tag.br6"`.
+- A copy's `ETag` is the weak form of its file's `ETag` with the coding and level appended, such as `W/"tag.br6"`. A copy of a file without an `ETag` has none. An `If-Range` request for a copy receives the whole copy.
 - An error of the store while it opens a copy is logged, and the request receives the uncompressed file.
 - A copy that no attempt stores is logged once, after the last attempt.
 - A panic of the file system while a copy is compressed is logged with its stack, and the request receives the uncompressed file.
@@ -1048,8 +1046,8 @@ Asset responses follow these rules:
 
 These options and modules configure asset compression:
 
-- `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels, initial levels and store of its `Config`.
-- `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server. The server passes the handler the SHA-256 that it takes of a file for the `ETag` of `datapages.WithAssetsCache`.
+- `modules/assetcompress.New` returns a compressor with the codings, order, minimum size, levels and store of its `Config`.
+- `datapages.WithAssetsCompression` passes a compressor to the server, which otherwise uses the defaults. It accepts any `datapages.AssetsCompressor`, whose handler the server puts in front of its file server. The server passes the handler the SHA-256 that it takes of a file for its `ETag`.
 - `datapages.WithNoAssetsCompression` disables compression.
 - A nil `Store` keeps copies in memory, and `modules/assetcompress/disk` keeps them in a directory. On Unix, `disk.New` refuses a directory that every user can write to or that a user other than the server's and root owns, and creates a missing one with mode 0700.
 
@@ -1059,9 +1057,9 @@ A request reaches an asset only when each element of its path is spelled byte fo
 
 ## Changing Assets
 
-Outside dev mode, the files of `datapages.WithAssetsFS` must not change while the server runs, unless `datapages.WithNoAssetsCompression` disables asset compression and `datapages.WithAssetsCache` adds no `ETag`. A GET action that returns [`datapages.File`](#return-value-datapagesfile) serves files that change.
+Outside dev mode, the files of `datapages.WithAssetsFS` must not change while the server runs, unless `datapages.WithNoAssetsCompression` disables asset compression and `datapages.WithAssetsCache` sets `AssetsCacheConfig.DisableETag`. A GET action that returns [`datapages.File`](#return-value-datapagesfile) serves files that change.
 
-The server computes the `ETag` that `datapages.WithAssetsCache` adds at the first request for a file and keeps it until it exits. After a file changes, until the server restarts:
+The server computes the `ETag` of a file at its first request and keeps it until it exits. After a file changes, until the server restarts:
 
 - Every response for the file carries that `ETag`, with the coding and level appended for a copy. A conditional request with it receives 304.
 - An uncompressed response carries the new content.
@@ -1082,9 +1080,9 @@ Set `TEMPL_DEV_MODE=true` before starting the process to enable templ hot reload
 
 Dev mode reads assets from the source tree and sends `Cache-Control: no-cache` without `Last-Modified`. It ignores `datapages.WithAssetsCache`, `datapages.WithResponseCompression` and `datapages.WithAssetsCompression`; see [Response Compression](#response-compression) and [Asset Compression](#asset-compression). The server logs a startup warning.
 
-Outside dev mode, assets carry `Cache-Control: public, max-age=0` and no `ETag` unless `datapages.WithAssetsCache` is set. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
+Outside dev mode, assets carry `Cache-Control: public, max-age=0` and an `ETag` computed from the file contents, the headers of the zero `AssetsCacheConfig`, unless `datapages.WithAssetsCache` sets others. A matching `If-None-Match` request receives 304 with no body. Files passed to `datapages.WithAssets` are served without a `Last-Modified` header.
 
-`datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. With `Disabled`, assets carry the headers of a server without the option. `DisableETag` suppresses the `ETag`.
+`datapages.WithAssetsCache` sets `Cache-Control` and whether assets carry an `ETag`. With `Disabled`, assets carry the headers of a server without the option. `DisableETag` suppresses the `ETag`.
 
 Generated asset URLs do not contain a content hash. A client may reuse an asset with a positive `MaxAge` until it expires. Change the URL when new contents must take effect before then.
 

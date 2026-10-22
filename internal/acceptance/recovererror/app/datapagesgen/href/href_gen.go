@@ -6,6 +6,8 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync/atomic"
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
@@ -40,8 +42,128 @@ func External(url string) string {
 	return url
 }
 
+// App holds the URL builders of the GET actions of App.
+var App app
+
+type app struct{}
+
+// AppFile references /app-file
+func (app) AppFile(query app_AppFileQuery) string {
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	l := len("/app-file")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(qStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/app-file")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(qStr)
+	}
+
+	return b.String()
+}
+
+type app_AppFileQuery struct {
+	Q string `query:"q"`
+}
+
+func (app) AppFileQuery(vQ string) app_AppFileQuery {
+	return app_AppFileQuery{
+		Q: vQ,
+	}
+}
+
 // PageBoom references /boom/{$}
 func PageBoom() string { return "/boom/" }
+
+// PageError404 references /not-found/{$}
+func PageError404(query QueryPageError404) string {
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	l := len("/not-found/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("nf=") + len(qStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/not-found/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("nf=")
+		b.WriteString(qStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageError404 is the query parameters for PageError404
+type QueryPageError404 struct {
+	Q string `query:"nf"`
+}
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
@@ -49,8 +171,208 @@ func PageIndex() string { return "/" }
 // PagePanic references /panic-page/{$}
 func PagePanic() string { return "/panic-page/" }
 
+// PagePointer references /pointer/{id}/{$}
+func PagePointer(
+	id string,
+	query QueryPagePointer,
+) string {
+	s_id := url.PathEscape(id)
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	l := len("/pointer/") +
+		len(s_id) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(qStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/pointer/")
+	b.WriteString(s_id)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(qStr)
+	}
+
+	return b.String()
+}
+
+// QueryPagePointer is the query parameters for PagePointer
+type QueryPagePointer struct {
+	Q string `query:"q"`
+}
+
 // PageRenderPanic references /render-panic/{$}
 func PageRenderPanic() string { return "/render-panic/" }
 
 // PageStreamPanic references /stream-panic/{$}
 func PageStreamPanic() string { return "/stream-panic/" }
+
+// PageThing references /thing/{id}/{$}
+var PageThing pageThing = func(
+	id string,
+	query QueryPageThing,
+) string {
+	s_id := url.PathEscape(id)
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	l := len("/thing/") +
+		len(s_id) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(qStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/thing/")
+	b.WriteString(s_id)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(qStr)
+	}
+
+	return b.String()
+}
+
+// pageThing builds the URL of PageThing. Its methods build the URLs of its GET actions.
+type pageThing func(
+	id string,
+	query QueryPageThing,
+) string
+
+// QueryPageThing is the query parameters for PageThing
+type QueryPageThing struct {
+	Q string `query:"q"`
+}
+
+// File references /thing/{id}/file
+func (pageThing) File(
+	id string,
+	query pageThing_FileQuery,
+) string {
+	s_id := url.PathEscape(id)
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	l := len("/thing/") +
+		len(s_id) +
+		len("/file")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(qStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/thing/")
+	b.WriteString(s_id)
+	b.WriteString("/file")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(qStr)
+	}
+
+	return b.String()
+}
+
+type pageThing_FileQuery struct {
+	Q string `query:"q"`
+}
+
+func (pageThing) FileQuery(vQ string) pageThing_FileQuery {
+	return pageThing_FileQuery{
+		Q: vQ,
+	}
+}

@@ -629,6 +629,55 @@ func counterTotal(t *testing.T, name string) float64 {
 	return total
 }
 
+// TestErrorCounters tests that every error of a handler counts as not recovered,
+// since the app defines no RecoverError. A route that nothing serves is no
+// error of a handler and counts as neither.
+//
+// It doesn't call t.Parallel, because the counters are global to the process.
+// The parallel tests of the case start only after it returns.
+func TestErrorCounters(t *testing.T) {
+	srv := newServer(t)
+	tests := map[string]struct {
+		method, path string
+		notRecovered float64
+	}{
+		"action":                  {http.MethodPost, "/fail/", 1},
+		"action after its events": {http.MethodPost, "/half-written/", 1},
+		"refused stream":          {http.MethodGet, "/_$/?refuse=1", 1},
+		"route miss":              {http.MethodGet, "/nowhere/", 0},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			recovered := counterTotal(t,
+				"datapages_internal_errors_recovered_total")
+			notRecovered := counterTotal(t,
+				"datapages_internal_errors_not_recovered_total")
+
+			req, err := http.NewRequestWithContext(
+				context.Background(), tt.method, srv.URL+tt.path, nil,
+			)
+			require.NoError(t, err, "building %s %s", tt.method, tt.path)
+			req.Header.Set("Datastar-Request", "true")
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "%s %s", tt.method, tt.path)
+			// The response ends after the handler returns.
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err, "reading %s", tt.path)
+			_ = resp.Body.Close()
+
+			require.Zero(t,
+				counterTotal(t,
+					"datapages_internal_errors_recovered_total")-recovered,
+				"recovered")
+			require.Equal(t, tt.notRecovered,
+				counterTotal(t,
+					"datapages_internal_errors_not_recovered_total")-notRecovered,
+				"not recovered")
+		})
+	}
+}
+
 // TestMetricsWithoutOption tests a server generated with
 // datapages.EnablePrometheus and built without datapages.WithPrometheus.
 // The metrics it counts have nowhere to go.
@@ -656,7 +705,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		wantCacheControl string
 		wantETag         bool
 	}{
-		"no option": {wantCacheControl: "public, max-age=0"},
+		"no option": {wantCacheControl: "public, max-age=0", wantETag: true},
 		"default": {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
@@ -679,6 +728,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{Disabled: true}),
 			},
 			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -713,44 +763,53 @@ func TestAssetsCacheHeaders(t *testing.T) {
 }
 
 // TestAssetsCacheRevalidates tests that a matching If-None-Match value returns
-// 304 with an empty body.
+// 304 with an empty body for an embedded file, also without WithAssetsCache.
 func TestAssetsCacheRevalidates(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(mustNewServer(
-		t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
-		datapages.WithPrometheus(datapages.PrometheusConfig{
-			Host:       "127.0.0.1:0",
-			Registerer: registry,
-			Gatherer:   registry,
-		}),
-	))
-	t.Cleanup(srv.Close)
+	for name, opts := range map[string][]datapages.ServerOption{
+		"no option":  nil,
+		"zero value": {datapages.WithAssetsCache(datapages.AssetsCacheConfig{})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	first := get(t, srv, href.Asset("style.css"))
-	defer func() { _ = first.Body.Close() }()
-	body, err := io.ReadAll(first.Body)
-	require.NoError(t, err, "reading the stylesheet")
-	require.Equal(t, http.StatusOK, first.StatusCode)
-	require.NotEmpty(t, body)
-	etag := first.Header.Get("ETag")
-	require.NotEmpty(t, etag)
+			opts := append([]datapages.ServerOption{
+				datapages.WithAssets(app.StaticFS, false),
+				datapages.WithPrometheus(datapages.PrometheusConfig{
+					Host:       "127.0.0.1:0",
+					Registerer: registry,
+					Gatherer:   registry,
+				}),
+			}, opts...)
+			srv := httptest.NewServer(mustNewServer(
+				t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), opts...,
+			))
+			t.Cleanup(srv.Close)
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
-	)
-	require.NoError(t, err)
-	req.Header.Set("If-None-Match", etag)
-	second, err := srv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = second.Body.Close() }()
-	body, err = io.ReadAll(second.Body)
-	require.NoError(t, err)
+			first := get(t, srv, href.Asset("style.css"))
+			defer func() { _ = first.Body.Close() }()
+			body, err := io.ReadAll(first.Body)
+			require.NoError(t, err, "reading the stylesheet")
+			require.Equal(t, http.StatusOK, first.StatusCode)
+			require.NotEmpty(t, body)
+			etag := first.Header.Get("ETag")
+			require.NotEmpty(t, etag)
 
-	require.Equal(t, http.StatusNotModified, second.StatusCode)
-	require.Empty(t, body)
-	require.Equal(t, etag, second.Header.Get("ETag"))
+			req, err := http.NewRequestWithContext(
+				context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
+			)
+			require.NoError(t, err)
+			req.Header.Set("If-None-Match", etag)
+			second, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			defer func() { _ = second.Body.Close() }()
+			body, err = io.ReadAll(second.Body)
+			require.NoError(t, err)
+
+			require.Equal(t, http.StatusNotModified, second.StatusCode)
+			require.Empty(t, body)
+			require.Equal(t, etag, second.Header.Get("ETag"))
+		})
+	}
 }

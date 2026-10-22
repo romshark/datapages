@@ -29,10 +29,12 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		"no option": {
 			conf:             nil,
 			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 		"disabled": {
 			conf:             &datapages.AssetsCacheConfig{Disabled: true},
 			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 		"zero value": {
 			conf:             &datapages.AssetsCacheConfig{},
@@ -159,14 +161,23 @@ func TestAssetsCacheFirstRequestReads(t *testing.T) {
 		accept   string
 		wantETag string
 	}{
-		"compressed":   {accept: "br", wantETag: tag + `.br6"`},
-		"uncompressed": {accept: "identity", wantETag: tag + `"`},
+		"compressed": {
+			accept:   "br",
+			wantETag: "W/" + tag + `.br6"`,
+		},
+		"uncompressed": {
+			accept:   "identity",
+			wantETag: tag + `"`,
+		},
 		"WithNoAssetsCompression": {
-			opt: datapages.WithNoAssetsCompression(), accept: "br", wantETag: tag + `"`,
+			opt:      datapages.WithNoAssetsCompression(),
+			accept:   "br",
+			wantETag: tag + `"`,
 		},
 		"wrapped compressor": {
-			opt:    datapages.WithAssetsCompression(wrappingCompressor{compressor}),
-			accept: "br", wantETag: tag + `.br6"`,
+			opt:      datapages.WithAssetsCompression(wrappingCompressor{compressor}),
+			accept:   "br",
+			wantETag: "W/" + tag + `.br6"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -211,6 +222,39 @@ func TestAssetsCacheConditionalRequest(t *testing.T) {
 	require.Empty(t, second.Body.String())
 	require.Equal(t, etag, second.Header().Get("ETag"))
 	require.Equal(t, "public, max-age=3600", second.Header().Get("Cache-Control"))
+}
+
+// TestAssetsCacheDefaultRevalidates tests that without WithAssetsCache,
+// or with it disabled, a file without a modification time, as in an embed.FS,
+// gets an ETag that answers its conditional request with 304, compressed or not.
+func TestAssetsCacheDefaultRevalidates(t *testing.T) {
+	t.Parallel()
+
+	for name, conf := range map[string]*datapages.AssetsCacheConfig{
+		"no option": nil,
+		"disabled":  {Disabled: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := assetsCore(t, http.FS(assetFiles()), datapages.ServerConfig{
+				AssetsCache: conf,
+			})
+			for _, accept := range []string{"identity", "br"} {
+				first := getAsset(t, c, http.MethodGet, "/static/style.css", accept, nil)
+				require.Equal(t, http.StatusOK, first.Code, accept)
+				require.Empty(t, first.Header().Get("Last-Modified"), accept)
+				etag := first.Header().Get("Etag")
+				require.NotEmpty(t, etag, accept)
+
+				second := getAsset(t, c, http.MethodGet, "/static/style.css", accept,
+					http.Header{"If-None-Match": {etag}})
+				require.Equal(t, http.StatusNotModified, second.Code, accept)
+				require.Empty(t, second.Body.String(), accept)
+				require.Equal(t, etag, second.Header().Get("Etag"), accept)
+			}
+		})
+	}
 }
 
 // TestAssetsCacheETagPerFile tests that different files have different ETags

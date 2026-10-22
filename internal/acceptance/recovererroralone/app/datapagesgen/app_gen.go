@@ -212,10 +212,10 @@ func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover erro
 type pageBoomHandlers struct{ *Server }
 
 func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	p := dpapp.PageBoom{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBoom.GET", err)
@@ -233,6 +233,7 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -241,7 +242,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -259,10 +259,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Fail")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Fail")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}

@@ -208,6 +208,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 
 	var query datapages.Query[struct {
 		Term string `query:"q"`
@@ -218,7 +219,6 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, redirect, err := p.GET(
 		r,
 		query,
@@ -241,6 +241,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 
 	var query datapages.Query[struct {
 		Term string `query:"q"`
@@ -250,7 +251,6 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageError404{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, redirect, err := p.GET(
 		r,
 		query,
@@ -274,6 +274,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -282,7 +283,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -300,6 +300,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTStreamFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.StreamFail")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}

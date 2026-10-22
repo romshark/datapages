@@ -219,10 +219,10 @@ func (s *Server) httpErrIntern(
 type pageBoomHandlers struct{ *Server }
 
 func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	p := dpapp.PageBoom{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBoom.GET", err)
@@ -245,10 +245,10 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 
 // render serves the page with status, 500 when httpErrIntern renders it.
 func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, status int) {
+	defer s.recoverPanicFinal(w, "PageError500.GET")
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanicFinal(w, "PageError500.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
@@ -266,6 +266,7 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -274,7 +275,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -292,10 +292,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pagePanicHandlers struct{ *Server }
 
 func (s pagePanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePanic.GET")
 	p := dpapp.PagePanic{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PagePanic.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePanic.GET", err)

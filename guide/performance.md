@@ -94,16 +94,13 @@ Pass the whole `embed.FS`. Copies are keyed by content, which lets them serve th
 
 ### Choose compression levels
 
-For copies 6% to 11% smaller, use brotli 11 with a brotli 6 initial level. Brotli 11 takes 45 to 95 times as long as brotli 6. A request that finds no copy then gets a brotli 6 copy in a few milliseconds instead of waiting up to 215 ms, and a background compression replaces it:
+For copies 6% to 11% smaller, use brotli 11 and drop `go` before `Precompress`. Brotli 11 takes 45 to 95 times as long as brotli 6, and a request that finds no copy otherwise waits for its compression, up to 215 ms per 200 KB:
 
 ```go title="cmd/server/main.go"
 compressor, err := assetcompress.New(assetcompress.Config{
-	Levels:        assetcompress.Levels{BrotliQuality: 11},
-	InitialLevels: assetcompress.Levels{BrotliQuality: 6},
+	Levels: assetcompress.Levels{BrotliQuality: 11},
 })
 ```
-
-Background compressions run 1 at a time.
 
 ### Keep the copies on disk
 
@@ -143,7 +140,7 @@ Compression runs after every middleware of `datapages.WithMiddleware`, which rea
 - Per-tab state: each open stream of a page with `datapages.State[T]` holds 1 instance of `T`. By default a server holds at most `datapages.DefaultMaxConcurrentInstances`, 10,000, and answers further streams with 503. Size the limit by the memory of `T` with `datapages.WithStateConfig`. See [Per-tab state](state.md).
 - Slow pages: a cached shim shows the layout at once while the live page renders. See [Show a cached shim while a page loads](offline.md#show-a-cached-shim-while-a-page-loads).
 - Prefetching: `sse.Prefetch(urls...)` asks the browser to prefetch pages through the Speculation Rules API. Browsers without it ignore the request.
-- Asset caching: `datapages.WithAssetsCache` answers unchanged assets with 304, and `MaxAge` saves the request for file names that change with their content. See [Set cache headers](assets.md#set-cache-headers).
+- Asset caching: the server answers unchanged assets with 304, and the `MaxAge` of `datapages.WithAssetsCache` saves the request for file names that change with their content. See [Set cache headers](assets.md#set-cache-headers).
 - Templates: templ compiles templates to Go code. [FAQ](../FAQ.md#why-templ-instead-of-htmltemplate) compares its speed with `html/template`.
 
 ## Where the numbers come from

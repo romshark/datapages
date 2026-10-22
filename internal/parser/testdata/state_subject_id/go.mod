@@ -1,6 +1,6 @@
 module datapagestest/fixture/state_subject_id
 
-go 1.27.2
+go 1.27.3
 
 require github.com/romshark/datapages v0.10.1
 

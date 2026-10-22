@@ -594,11 +594,11 @@ func (s *Server) httpErrFile(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	p := dpapp.PageError404{
 		App: s.app,
 	}
 
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, head, err := p.GET(r)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
@@ -616,12 +616,12 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) GETImage(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanicFile(w, r, "App.Image")
 
 	var path datapages.Path[struct {
 		Name string `path:"name"`
 	}]
 	path.Values.Name = r.PathValue("name")
-	defer s.recoverPanicFile(w, r, "App.Image")
 	file, err := s.app.GETImage(
 		r,
 		path,
@@ -638,6 +638,7 @@ func (s appHandlers) GETImage(w http.ResponseWriter, r *http.Request) {
 type pageDocHandlers struct{ *Server }
 
 func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageDoc.GET")
 
 	var path datapages.Path[struct {
 		ID string `path:"id"`
@@ -656,7 +657,6 @@ func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageDoc.GET")
 	body, head, enableBackgroundStreaming, err := p.GET(
 		r,
 		path,
@@ -696,6 +696,7 @@ func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageDocHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageDoc stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -816,6 +817,7 @@ func (s pageDocHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageDocHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageDoc.Submit")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -863,6 +865,7 @@ func (s pageDocHandlers) POSTSubmit(
 func (s pageDocHandlers) POSTRestore(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageDoc.Restore")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -913,6 +916,7 @@ func (s pageDocHandlers) POSTRestore(
 func (s pageDocHandlers) POSTCursor(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageDoc.Cursor")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -935,7 +939,6 @@ func (s pageDocHandlers) POSTCursor(
 	path.Values.ID = r.PathValue("id")
 
 	dispatchDocChanged := dispatcherEventDocChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageDoc.Cursor")
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
@@ -954,6 +957,7 @@ func (s pageDocHandlers) POSTCursor(
 func (s pageDocHandlers) POSTRename(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageDoc.Rename")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -974,7 +978,6 @@ func (s pageDocHandlers) POSTRename(
 	dispatchDocChanged := dispatcherEventDocChanged{s: s.Server, ctx: r.Context()}
 
 	dispatchListChanged := dispatcherEventListChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageDoc.Rename")
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
@@ -994,6 +997,7 @@ func (s pageDocHandlers) POSTRename(
 func (s pageDocHandlers) POSTImage(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageDoc.Image")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1033,10 +1037,10 @@ func (s pageDocHandlers) POSTImage(
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	p := dpapp.PageError404{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, head, err := p.GET(r)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
@@ -1055,6 +1059,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -1063,7 +1068,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, head, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -1089,6 +1093,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1127,6 +1132,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTCreate(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Create")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -1137,7 +1143,6 @@ func (s pageIndexHandlers) POSTCreate(
 	path.Values.Template = r.PathValue("template")
 
 	dispatchListChanged := dispatcherEventListChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Create")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -1158,6 +1163,7 @@ func (s pageIndexHandlers) POSTCreate(
 func (s pageIndexHandlers) DELETEDoc(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Doc")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -1170,7 +1176,6 @@ func (s pageIndexHandlers) DELETEDoc(
 	dispatchListChanged := dispatcherEventListChanged{s: s.Server, ctx: r.Context()}
 
 	dispatchDocChanged := dispatcherEventDocChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Doc")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -1189,10 +1194,10 @@ func (s pageIndexHandlers) DELETEDoc(
 type pageOfflineHandlers struct{ *Server }
 
 func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOffline.GET")
 	p := dpapp.PageOffline{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageOffline.GET")
 	body, head, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageOffline.GET", err)

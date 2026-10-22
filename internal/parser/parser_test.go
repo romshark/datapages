@@ -1591,7 +1591,7 @@ func TestParse_ErrTypeCheck(t *testing.T) {
 func TestParse_ErrAppDirMissing(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
-		[]byte("module example.com/m\n\ngo 1.27.2\n"), 0o644))
+		[]byte("module example.com/m\n\ngo 1.27.3\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "lib.go"),
 		[]byte("package lib\n"), 0o644))
 

@@ -193,10 +193,10 @@ func (s *Server) httpErrIntern(
 type pageEnterHandlers struct{ *Server }
 
 func (s pageEnterHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageEnter.GET")
 	p := dpapp.PageEnter{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageEnter.GET")
 	body, newSession, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageEnter.GET", err)
@@ -223,6 +223,7 @@ func (s pageEnterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -247,7 +248,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -269,6 +269,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTLeave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Leave")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -276,7 +277,6 @@ func (s pageIndexHandlers) POSTLeave(
 	if !ok {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Leave")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -299,6 +299,7 @@ func (s pageIndexHandlers) POSTLeave(
 type pageNestedHandlers struct{ *Server }
 
 func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNested.GET")
 
 	var query datapages.Query[struct {
 		Fuzz string `query:"fuzz" reflectsignal:"foo.fuzz"`
@@ -323,7 +324,6 @@ func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageNested{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageNested.GET")
 	body, err := p.GET(
 		r,
 		signals,

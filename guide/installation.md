@@ -6,7 +6,7 @@ Install the Datapages CLI and templ, then use `datapages init` to create a proje
 
 | Tool | Version | Used by |
 | ---- | ------- | ------- |
-| [Go](https://go.dev/dl/) | 1.27.2 or later, the `go` directive of the Datapages module | Everything |
+| [Go](https://go.dev/dl/) | 1.27.3 or later, the `go` directive of the Datapages module | Everything |
 | [templ](https://templ.guide) | v0.3.1070 | `templ generate`, and `datapages watch`, which runs `templ` from the `PATH` |
 | Git | any | `datapages init`, which creates a repository when the directory is not in one |
 | [Docker](https://www.docker.com/) with Compose | any | The NATS server of a new project, which `make dev` starts |

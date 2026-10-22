@@ -388,7 +388,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 			edit: func(t *testing.T, dir string) {
 				write(t,
 					filepath.Join(filepath.Dir(dir), "go.work"),
-					"go 1.27.2\n\nuse ./"+filepath.Base(dir)+"\n")
+					"go 1.27.3\n\nuse ./"+filepath.Base(dir)+"\n")
 			},
 		},
 		"environment": {

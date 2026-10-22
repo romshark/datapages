@@ -1517,7 +1517,7 @@
           "refId": "A"
         }
       ],
-      "title": "Internal Errors (HTTP 500)",
+      "title": "Internal Errors Not Recovered",
       "type": "timeseries"
     },
     {

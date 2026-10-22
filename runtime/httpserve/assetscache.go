@@ -13,21 +13,6 @@ import (
 	"github.com/romshark/datapages/internal/exactpath"
 )
 
-// defaultCacheControl is the Cache-Control of assets without an
-// [datapages.AssetsCacheConfig], the one of its zero value.
-// Without any, a browser reuses a file that has Last-Modified without asking,
-// by heuristic freshness. no-cache would make the offline worker fetch every
-// asset from the network before it answers from its copy.
-const defaultCacheControl = "public, max-age=0"
-
-// revalidated sends the responses of next with [defaultCacheControl].
-func revalidated(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", defaultCacheControl)
-		next.ServeHTTP(w, r)
-	})
-}
-
 // assetsCache adds the headers configured by [datapages.AssetsCacheConfig] before next
 // serves the file. [http.ServeContent] handles If-None-Match when an ETag is present.
 //
@@ -48,6 +33,8 @@ func newAssetsCache(
 ) *assetsCache {
 	cacheControl := conf.CacheControl
 	if cacheControl == "" {
+		// no-cache instead of max-age=0 would make the offline worker fetch
+		// every asset from the network before it answers from its copy.
 		cacheControl = "public, max-age=" +
 			strconv.FormatInt(int64(conf.MaxAge.Seconds()), 10)
 		if conf.Immutable {
