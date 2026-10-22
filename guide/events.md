@@ -178,17 +178,13 @@ templ pageRoom(room string, msgs []string) {
 
 A dispatch with `Room: "red"` reaches the tabs of room `red` and no other. A stream that connects without the signal, or with an empty value, receives 400. The tag names a signal path, such as `signal:"chat.room"` for a nested signal. [Signal-scoped subject fields](../SPECIFICATION.md#signal-scoped-subject-fields) lists the restrictions.
 
-A `datapages.Subject` field without a tag still puts its value in the subject, and the pages that handle the event subscribe to every value of it.
-
 ## Delivery
 
 Delivery is at most once and has no replay. Only the streams subscribed when the event is published receive it. A tab misses events in these cases:
 
 - Datastar closes the stream of a hidden tab. Datapages reloads the page when the tab becomes visible again, which renders the data it missed. A `GET` that returns `datapages.EnableBackgroundStreaming(true)` keeps the stream open instead.
-- Each subscription buffers 16 messages, `messaging.DefaultBrokerChanBuffer`. When a page handles events slower than they arrive, the broker drops what does not fit. It does not block the publisher and does not tell the page. With Prometheus, `datapages_event_broker_deliveries_dropped_total` counts the drops.
+- Each subscription of the in-memory broker buffers 16 messages, `messaging.DefaultBrokerChanBuffer`, and each of the NATS broker up to 32. When a page handles events slower than they arrive, the broker drops what does not fit. It does not block the publisher and does not tell the page. With Prometheus, `datapages_event_broker_deliveries_dropped_total` counts the drops.
 - A stream that reconnects after a network failure or a deployment misses what was published in between.
-
-A handler that renders complete state from the store, as step 5 above does, corrects the page with the next event the tab receives.
 
 ## Stream hooks
 
@@ -277,7 +273,7 @@ func (PageNews) OnAnnouncement(
 }
 ```
 
-The handler name follows the type name, `OnAnnouncement` for `events.EventAnnouncement`. Applications that share a user-addressed event must use the same user IDs. [Multiple applications](multiple-applications.md) shows the module layout.
+Applications that share a user-addressed event must use the same user IDs. [Multiple applications](multiple-applications.md) shows the module layout.
 
 ## See also
 

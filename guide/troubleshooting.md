@@ -77,7 +77,7 @@ Do not run `templ generate` while `datapages watch` runs on the module. A script
 
 ## The page does not reload after a change
 
-The browser shows the address of the app, such as `http://localhost:8080`, which the app logs as `"msg":"listening HTTP","addr":"localhost:8080"`. Pages loaded there bypass the dev server. They do not reload after a rebuild and show no build errors.
+The browser shows the address of the app, such as `http://localhost:8080`, which the app logs as `"msg":"listening HTTP","addr":"127.0.0.1:8080"`. Pages loaded there bypass the dev server. They do not reload after a rebuild and show no build errors.
 
 Open the address of the dev server, `http://localhost:7331` unless `--host` sets another. `datapages watch` prints it only with `watch.log.level` set to `verbose` or `debug`. See [`datapages watch`](cli.md#datapages-watch) and [`level`](configuration.md#level).
 
@@ -93,7 +93,7 @@ The dev server shows a `go` error such as:
 stat /home/me/shop/app/cmd/server: directory not found
 ```
 
-`datapages watch` runs `go build` in the current directory with the path of the main package relative to the module root, as `./cmd/server/`. Started from a subdirectory, that path names no directory. Start `datapages watch` in the module root.
+Start `datapages watch` in the module root, as [`datapages watch`](cli.md#datapages-watch) describes.
 
 ## Go changes do not regenerate and dev-mode assets answer 404
 
@@ -181,7 +181,7 @@ See [Per-tab state](state.md) and [Reconnects](request-lifecycle.md#reconnects).
 
 ## The page reloads by itself
 
-Datapages reloads a page in 4 cases. The network panel of the developer tools shows which one:
+Datapages reloads a page in 5 cases. The network panel of the developer tools shows which one:
 
 | What the network panel shows | Cause |
 | --- | --- |
@@ -189,6 +189,7 @@ Datapages reloads a page in 4 cases. The network panel of the developer tools sh
 | `205 Reset Content` with a `Datapages-Build` header | A server of another build answered. Open pages reload after every deployment. During a rolling deployment, route each client to 1 build. |
 | a stream event that appends a script with `location.reload()` | The session of the stream closed or expired, as after a sign-out in another tab. |
 | `409 Conflict` with `Datapages-Retry: reconnect` | A stateful action found no state. See the previous section. |
+| nothing, after Back or Forward | A page with per-tab state reloads when the browser restores it from its back/forward cache. |
 
 A page that reloads in a loop on a rolling deployment alternates between builds. See [Deployment](deployment.md) and [Request lifecycle](request-lifecycle.md#a-new-deployment).
 

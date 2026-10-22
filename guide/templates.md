@@ -157,7 +157,7 @@ templ subscribed(email string) {
 }
 ```
 
-The action checks the input again on the server. It patches an error message into the form, or replaces the whole box when the address is valid:
+The action checks the input again on the server:
 
 ```go title="app/app.go"
 // POSTSubscribe is /subscribe
@@ -193,16 +193,9 @@ Send authenticated forms through Datastar actions. See [Plain Forms and CSRF](..
 
 ## Web Components
 
-Signals and Datastar attributes cover most interaction. Use a [Web Component](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) for a client library such as a map or rich-text editor, for state that does not fit signals, or for logic that needs more than 1 statement per expression. `datapages init --web-components` sets up a new project for Web Components:
+Signals and Datastar attributes cover most interaction. Use a [Web Component](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) for a client library such as a map or rich-text editor, for state that does not fit signals, or for logic that needs more than 1 statement per expression. [`datapages init --web-components`](cli.md#datapages-init) sets up a new project for Web Components.
 
-| Value | Setup |
-| ----- | ----- |
-| `rocket` | Datastar Rocket components in `app/static/components`, loaded with the Rocket bundle of the Datastar release that Datapages uses |
-| `typescript` | TypeScript in `web/src`, bundled by esbuild into `app/static/components.js`. Requires Node.js. `datapages watch` rebuilds the bundle. |
-| `javascript` | JavaScript modules in `app/static/components`, served as they are |
-| `none` | no Web Components, the default with `-n` |
-
-Data goes into the element as attributes, and results come out as events. This element shows 5 stars and reports a click as a `rating-change` event:
+Data goes into the element as attributes, and results come out as events:
 
 ```js title="app/static/star-rating.js"
 // <star-rating value="3"> shows 5 stars and reports a click as a rating-change event.
@@ -282,7 +275,7 @@ func (p PageProduct) PUTRating(
 }
 ```
 
-The element builds its buttons in a shadow root, which a morph does not enter. The text that the template renders inside the element shows until the script runs, and the shadow root hides it afterwards. A morph that renders another `value` changes the attribute, which calls `attributeChangedCallback`. Give the element a stable `id`, which lets a morph match it. The element must not call routes or change the page outside itself. [example/webcomponents](../example/webcomponents/) bundles 2 components with esbuild, which a custom watcher of `datapages watch` runs.
+The element builds its buttons in a shadow root, which a morph does not enter. The text that the template renders inside the element shows until the script runs, and the shadow root hides it afterwards. Give the element a stable `id`, which lets a morph match it. The element must not call routes or change the page outside itself. [example/webcomponents](../example/webcomponents/) bundles 2 components with esbuild, which a custom watcher of `datapages watch` runs.
 
 ## Lint templates
 
@@ -315,7 +308,7 @@ Put `//datapages:nolint` on the line above an element to suppress the reports ab
 
 ## Pitfalls
 
-- Templ reads a line of text that starts with `if`, `for`, `switch`, `else` or `case` as Go code, also inside an element. Wrap the text in an element, write the word as `{ "if" }`, or reword it.
+- Templ reads text that starts with `if `, `for ` or `switch ` as Go code, also at the start of the content of an element. Write the word as `{ "if" }` or reword the text.
 - Write event attributes with a colon, as `data-on:click`. The plugin attributes `data-on-intersect`, `data-on-interval` and `data-on-signal-patch` take a hyphen.
 - Write `data-on:click={ action.X.Y.POST() }`. A hand-written `data-on:click="@post('/x/')"` fails lint and breaks when the route changes.
 - Templ writes an apostrophe in an attribute as `&#39;`, and the browser decodes it before Datastar parses the expression. An apostrophe inside a single-quoted string then ends the string. Reword the text, use `&quot;` for the inner string, or escape the apostrophe with a backslash.

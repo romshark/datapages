@@ -99,7 +99,7 @@ func newServer(t *testing.T) *httptest.Server {
 }
 ```
 
-Name the same 4 type arguments as `cmd/server/main.go`. `datapages gen` reads every `NewServer` call of the module, test files included, and fails when 2 calls for 1 app name different session types or metrics modes. The scaffold names `datapages.EnablePrometheus`, which requires `WithPrometheus`. A server behind `httptest` opens no metrics port, because only `ListenAndServe` and `ListenAndServeTLS` start that listener. The in-memory modules need neither NATS nor Docker. Each test builds its own `App` and server and shares nothing with the others.
+Name the same 4 type arguments as `cmd/server/main.go`. `datapages gen` reads every `NewServer` call of the module, test files included, and fails when 2 calls for 1 app name different session types or metrics modes. The scaffold names `datapages.EnablePrometheus`, which requires `WithPrometheus`. The in-memory modules need neither NATS nor Docker. Each test builds its own `App` and server and shares nothing with the others.
 
 ## Load a page
 
@@ -311,7 +311,7 @@ Both tabs receive both events, and each renders the list with its own filter. A 
 
 ## Test a signed-in client
 
-A signed-in client keeps the session cookie in a cookie jar and sends the CSRF token in the header `X-CSRF-Token` with every `POST`, `PUT`, `PATCH` and `DELETE` action. Datapages writes the token into a script of each page rendered for the session, and `signIn` reads it from there, as the browser does:
+A signed-in client keeps the session cookie in a cookie jar and sends the CSRF token in the header `X-CSRF-Token` with every `POST`, `PUT`, `PATCH` and `DELETE` action:
 
 ```go title="app/app_test.go"
 // csrfToken finds the token in the script that Datapages writes

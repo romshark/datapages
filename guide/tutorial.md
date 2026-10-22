@@ -242,7 +242,7 @@ templ pageIndex(v view) {
 >
 > `datapages gen` type-checks the whole app package, `app/app_templ.go` included, and generates nothing while the package has a compile error. A template that calls `action.PageIndex.Add` before `datapages gen` has generated it is such an error, and it keeps `datapages gen` from generating the helper after you save `app/app.go`. Saving both files within a second of each other, as "Save All" does, has the same effect.
 >
-> This order works in every step because `app/app.go` compiles with the template of the step before. New values go into fields of `view`, and the signatures of the components stay the same.
+> This order works in every step because `app/app.go` compiles with the template of the step before.
 >
 > If the error page names `action.PageIndex` and stays after you save `app/app.go`, delete the call from `app/app.templ`, and its `action` import when no other call uses it. Save, wait for the reload, then restore both and save again.
 
@@ -367,7 +367,7 @@ func (p PageIndex) DELETEItem(
 }
 ```
 
-`datapages.Path[ItemPath]` parses `{id}` into the field with the tag `path:"id"`, and a value that is not an `int64` gets 400 Bad Request. `DELETEItem` answers the `DELETE` method, as its name says. Both actions return `datapages.ErrNotFound` when another tab removed the item first, and neither takes `sse`, because the event updates every tab, the sending one included.
+`datapages.Path[ItemPath]` parses `{id}` into the field with the tag `path:"id"`, and a value that is not an `int64` gets 400 Bad Request. Both actions return `datapages.ErrNotFound` when another tab removed the item first, and neither takes `sse`, because the event updates every tab, the sending one included.
 
 The generated helpers take the route variable as a typed argument. `action.PageIndex.Toggle.POST(item.ID)` takes an `int64` and returns `@post('/items/3/toggle/')` for item 3. Replace the `<li>` element in `itemList` of `app/app.templ`:
 
@@ -507,7 +507,7 @@ Save `app/app.go`, wait for the reload, then save `app/app.templ`. Click Rename 
 
 ## 7. Sign in
 
-A session identifies the visitor by a cookie. The session data type holds what the app keeps about a signed-in user. Change `app/app.go`:
+A session identifies the visitor by a cookie. Change `app/app.go`:
 
 ```go title="app/app.go"
 import (

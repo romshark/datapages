@@ -110,7 +110,7 @@ Without `WithHTTPServer`, the server uses these values:
 
 `ReadTimeout` limits reading a request and its body. It does not end a stream that stays open longer. A request body that takes longer to arrive fails, which [`example/file-upload`](../example/file-upload/) avoids by moving the read deadline while the bytes of an upload arrive.
 
-`WithHTTPServer` replaces this server, values included. Datapages sets `Addr`, `Handler` and `BaseContext`, sets `ErrorLog` when it is nil and uses every other field as given. `net/http` reads a zero timeout as no limit. Copy the values to keep from the generated package:
+`WithHTTPServer` replaces this server, values included. Datapages sets `Addr`, `Handler` and `BaseContext`, sets `ErrorLog` when it is nil and uses every other field as given. `net/http` reads a zero `ReadTimeout` or `WriteTimeout` as no limit, and a zero `ReadHeaderTimeout` or `IdleTimeout` as the `ReadTimeout`. Copy the values to keep from the generated package:
 
 ```go title="cmd/server/main.go"
 opts = append(opts, datapages.WithHTTPServer(&http.Server{
@@ -159,7 +159,7 @@ Behind a load balancer:
 
 - Connect every process to the same NATS server with `natscore` and `natskv`. An event dispatched in 1 process then reaches the streams of every process, and every process reads the same sessions.
 - Give every process the same `SESSION_ENCRYPTION_KEY`. `natskv` encrypts the cookie with it, and a process with another key clears the cookie as stale, which signs the visitor out. CSRF tokens derive from the session token and need no shared secret.
-- Run the same binary in every process, or pass the same [`WithBuildID`](#deploy-a-new-version). A process answers the requests of a page from another build with `205 Reset Content`, which reloads the page.
+- Run the same binary in every process, or pass the same [`WithBuildID`](#deploy-a-new-version).
 - Send the stream and the actions of 1 tab to 1 process when a page uses per-tab state. The state lives in the process that serves the tab's stream. Route by a hash of the `Datapages-Instance` request header, by session or by an affinity cookie. Page loads carry no `Datapages-Instance` and may reach any process. An action that reaches another process receives `409 Conflict` with `Datapages-Retry: reconnect`, and the page reloads.
 
 Each process enforces its own `WithStateConfig` limit and serves its own metrics.
@@ -233,9 +233,7 @@ Middleware added with `WithMiddleware` that recovers panics must re-panic `http.
 
 ## Serve TLS
 
-Terminate TLS in the server process or in front of it.
-
-In the process, set `PATH_TLS_CERT` and `PATH_TLS_KEY`. The scaffold then calls `ListenAndServeTLS(ctx, addr, certFile, keyFile)`, which loads the files once at startup. To renew certificates without a restart, set `TLSConfig.GetCertificate` through [`WithHTTPServer`](#http-server) and pass empty file names. `ListenAndServeTLS` then takes the certificates from the `TLSConfig`. Set the minimum TLS version and the other TLS settings in the same `TLSConfig`.
+In the process, set `PATH_TLS_CERT` and `PATH_TLS_KEY`. The scaffold then calls `ListenAndServeTLS(ctx, addr, certFile, keyFile)`, which loads the files once at startup. To renew certificates without a restart, set `TLSConfig.GetCertificate` through [`WithHTTPServer`](#http-server) and change `cmd/server/main.go` to call `ListenAndServeTLS(ctx, addr, "", "")`. With empty file names, `ListenAndServeTLS` takes the certificates from the `TLSConfig`. The scaffold calls `ListenAndServe` when both variables are empty, which serves plain HTTP. Set the minimum TLS version and the other TLS settings in the same `TLSConfig`.
 
 In front of the process, a reverse proxy or a load balancer terminates TLS and forwards plain HTTP. The session cookie keeps its `Secure` attribute, which is correct because the browser talks HTTPS. Set `SessionsConfig.DisableSecureCookie` only when the whole deployment uses plain HTTP.
 

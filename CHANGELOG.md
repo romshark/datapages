@@ -185,6 +185,7 @@ Run `datapages gen` to apply these.
 - Answer a request whose session, path, query or signals read panics, as in an `UnmarshalText` or `UnmarshalJSON` method of the app or in a `sessions.Manager`, the way a panic in its handler is answered, with `PageError500`, `RecoverError` or status 500. The server closed the connection without a response, also on the SSE stream of a page whose `StreamOpen` takes signals.
 - Allocate a pointer path or query field, such as `*big.Int` or `*time.Time`, before its `UnmarshalText` runs. Every request that carried such a parameter panicked on the nil pointer, and the connection closed without a response. A pointer query field is nil when its parameter is absent.
 - Count the errors of page loads, file actions and apps without `RecoverError` in `datapages_internal_errors_not_recovered_total`, in an app generated with `datapages.EnablePrometheus`. A panic after the response started counts too, and so do sentinels, such as `datapages.ErrNotFound` from a page's `GET`. The counter rose only when `RecoverError` returned an error or panicked.
+- Close the `data-init` attribute of a page whose stream carries only user-addressed events and whose route has a path variable, such as `/post/{slug}`. A signed-out visitor got the start of the attribute without its end, which broke the `<body>` element of the page.
 
 #### Runtime and modules
 
@@ -216,6 +217,7 @@ Run `datapages gen` to apply these.
 - Refuse in `datapages.NewServer` a `ServerConfig` value that a custom `ServerOption` sets and the field's `With` option refuses. A session cookie name with a space, for example, passed and kept every visitor signed out.
 - Apply the defaults of `datapages.WithPrometheus` to a `datapages.PrometheusConfig` that a custom `ServerOption` writes into `ServerConfig.Prometheus`. Without a `Registerer`, `NewServer` panicked, without a `Gatherer`, every scrape of `/metrics` panicked, and no HTTP request was counted.
 - Serve font assets with their `font/*` type on every host. Some mime tables, such as shared-mime-info on Linux, typed `.otf` and `.otc` fonts as OpenDocument templates, which also kept them uncompressed.
+- Send the wait of `action.WithRetryMaxWaitMs` as `retryMaxWait`, the option Datastar reads. Datastar ignored the `retryMaxWaitMs` that the option sent, which left the longest wait between retries at its default of 30s.
 
 #### `datapages init`
 
@@ -232,6 +234,7 @@ Run `datapages gen` to apply these.
 Run `datapages gen` to apply these.
 
 - Prevent carriage returns in `SSE.PatchElement`, `SSE.PatchElementAt` and `SSE.ExecuteScript` content from injecting SSE fields and JavaScript. An attacker who controls text rendered in a patched component could run JavaScript in each recipient's session. Applications using these methods are affected in v0.10.0 and v0.10.1. Applications calling the equivalent methods of datastar-go are affected in v0.1.0 through v0.9.4. An application that calls datastar-go directly stays affected on every Datapages version, because the fix is in the Datapages SSE writer. Until the upgrade, and wherever the application calls datastar-go, remove `\r` from untrusted text before rendering it.
+- Render `PageOffline` with a zero session, as the specification states. A `GET` of `PageOffline` or an `App.Head` that takes the session rendered the page for the visitor whose browser installed the service worker, and the worker shows that copy to everyone who uses the browser while offline. Anyone who uses the same browser after a signed-in user, such as on a shared computer, could read what the page and the head rendered for that user. Applications that pass `WithOffline` and declare `PageOffline` are affected in v0.10.0 and v0.10.1 when its `GET` or `App.Head` takes the session. After the upgrade, increase `offline.Config.WorkerVersion`, which makes browsers fetch the page again. Until then, take no session in the `GET` of `PageOffline`, and have `App.Head` render nothing that depends on the session for the route of `PageOffline`.
 
 #### Runtime and modules
 

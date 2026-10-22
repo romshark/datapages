@@ -1,6 +1,6 @@
 # Examples
 
-The [`example/`](../example/) directory contains 11 applications. Each section lists an example's Datapages features and the command that runs it.
+The [`example/`](../example/) directory contains 12 applications in 11 modules.
 
 ## Run an example
 
@@ -29,7 +29,7 @@ Each example also has the agent instructions that `datapages init` writes. See [
 
 ## Counter
 
-A counter that every open tab updates, built 2 times in 1 module. `app/simple` is the smallest Datapages application, and the [Introduction](README.md) walks through it. `app/fancy` is the same model with animated digits. It is the example of a module with more than 1 application.
+A counter that every open tab updates, built 2 times in 1 module. `app/simple` is the smallest Datapages application, and the [Introduction](README.md) walks through it. `app/fancy` is the same model with animated digits.
 
 Features:
 
@@ -99,7 +99,7 @@ A classifieds marketplace with sign-in, posts, search, user pages, chat with typ
 Features:
 
 - Sessions in the NATS key-value store, `NewSession` at sign-in, `CloseSession` at sign-out, and closing the other sessions of a user. See [Sessions and auth](sessions.md).
-- Events addressed to 1 user with `datapages.SubjectUser`, and a stream embed, `Base`, whose `On` handlers every page shares. See [Events](events.md).
+- Events addressed to 1 user with `datapages.SubjectUser`, and a stream embed, `Base`, whose `On` handlers every page except `PageLogin` and `PageError500` shares. See [Events](events.md).
 - Per-tab state for the chat a tab has open, seeded from a signal in `StreamOpen`. See [Per-tab state](state.md).
 - Search through a `QUERY` action, with `reflectsignal` query fields that keep the search in the URL. See [Pages and routes](pages.md).
 - `PageError404`, `PageError500` and `RecoverError`. See [Actions](actions.md).
@@ -126,7 +126,7 @@ Features:
 - Static files served with `datapages.WithAssets`. See [Static assets](assets.md).
 - Custom watchers in `datapages.yaml`. See [datapages.yaml](configuration.md).
 
-Run, with Node.js and npm or the standalone `tailwindcss` binary:
+Run, with Node.js and npm:
 
 ```sh
 make dev              # npm install, the CSS build and datapages watch, http://localhost:7331/

@@ -19,13 +19,14 @@ The application or deployment is responsible for the controls below. [SECURITY.m
 
 - who may see and change what, see [Authorize every request](#authorize-every-request)
 - values in Datastar attributes and `templ.Raw`, see [Prevent cross-site scripting](#prevent-cross-site-scripting)
-- the `Content-Security-Policy`, see [Set a Content Security Policy](#set-a-content-security-policy)
 - the storage and rotation of the session key, see [Manage session keys](#manage-session-keys)
 - what per-tab state and offline snapshots keep after a sign-out, see [Bind per-tab state to a session](#bind-per-tab-state-to-a-session) and [Clear offline snapshots](#clear-offline-snapshots)
 - secrets next to attacker-controlled input in compressed responses, see [Prevent compression side channels](#prevent-compression-side-channels)
 - request bodies that a handler reads itself, see [Limit request bodies](#limit-request-bodies)
 - volumetric abuse and slow clients, see [Limit abuse](#limit-abuse)
 - TLS, see [Use TLS](#use-tls)
+
+The application also sets the `Content-Security-Policy`, see [Set a Content Security Policy](#set-a-content-security-policy).
 
 ## Use CSRF protection
 
@@ -49,7 +50,7 @@ A form that sends its fields as signals:
 </form>
 ```
 
-`datapages.WithCSRFProtection` replaces the tokens with `CSRFConfig.Tokens` or turns the protection off with `Disabled`. Turn it off only when something in front of the server rejects cross-origin requests. See [Sessions and auth](sessions.md) and [Plain Forms and CSRF](../SPECIFICATION.md#plain-forms-and-csrf).
+See [CSRF protection](sessions.md#csrf-protection) and [Plain Forms and CSRF](../SPECIFICATION.md#plain-forms-and-csrf).
 
 ## Authorize every request
 
@@ -103,8 +104,6 @@ A path value arrives decoded, `%2F` as `/` and `%2E%2E` as `..`. Look it up as a
 
 ## Prevent cross-site scripting
 
-templ escapes the values a template writes into text and attributes. Datastar attributes and `templ.Raw` need more.
-
 The value of a Datastar attribute is a JavaScript expression. The browser decodes templ's HTML escaping before Datastar parses the expression, and an apostrophe in an interpolated value ends a string literal. What follows it runs as script. Encode such values with `templ.JSONString`, which writes a JavaScript string literal with `encoding/json`:
 
 ```templ title="app/app.templ"
@@ -117,7 +116,7 @@ templ greeting(name string) {
 
 With `data-signals:name={ "'" + name + "'" }` instead, the name `x'+alert(document.domain)+'` runs `alert`.
 
-The generated `action` and `href` helpers escape the values they put into URLs. `action.WithBefore`, `action.WithAfter`, `action.WithPayload`, `action.WithOption` and `action.WithRequestCancellationController` take JavaScript and use it as written. Never build their arguments from request data. `action.WithHeaders` and `action.WithSelector` escape their values.
+`action.WithBefore`, `action.WithAfter`, `action.WithPayload`, `action.WithOption` and `action.WithRequestCancellationController` take JavaScript and use it as written. Never build their arguments from request data. `action.WithHeaders` and `action.WithSelector` escape their values.
 
 `templ.Raw` writes markup as it is. Pass it only markup that the server built, or markup from visitors after an HTML sanitizer.
 
@@ -269,7 +268,7 @@ func noTransform(next http.Handler) http.Handler {
 opts = append(opts, datapages.WithMiddleware(noTransform))
 ```
 
-Datapages appends a slash to page paths before middleware runs. The prefix `/account/` therefore covers the page `/account`, its stream `/account/_$/` and the actions below it. To keep every response uncompressed, add `datapages.WithNoResponseCompression()` and `datapages.WithNoSSECompression()`. A `StreamConfig` of the page that returns `Compression: &datapages.SSECompressionConfig{Disabled: true}` keeps only its streams uncompressed. See [Performance](performance.md).
+Datapages appends a slash to page paths before middleware runs. The prefix `/account/` therefore covers the page `/account`, its stream `/account/_$/` and the actions below it. To keep every response uncompressed, add `datapages.WithNoResponseCompression()`, `datapages.WithNoSSECompression()` and `datapages.WithNoAssetsCompression()`. A `StreamConfig` of the page that returns `Compression: &datapages.SSECompressionConfig{Disabled: true}` keeps only its streams uncompressed. See [Performance](performance.md).
 
 ## Limit request bodies
 

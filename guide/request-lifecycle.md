@@ -4,7 +4,7 @@ A loaded page can open an SSE stream, send actions and receive events from other
 
 ## Overview
 
-The examples on this page use this page type. `POSTAdd` changes the counter and dispatches an event, and `OnCounterUpdated` renders the new value in every tab that has the page open:
+The examples on this page use this page type:
 
 ```go title="app/app.go"
 // EventCounterUpdated is "counter.updated"
@@ -86,10 +86,10 @@ The browser requests the page URL, `GET /`, without Datapages headers. The gener
 
 1. Reads the session when the page needs it. It looks up the session cookie, `sessiontoken` by default, in the session store. A cookie the store does not know is deleted, an expired session is closed and its cookie deleted, and a store that fails answers `503 Service Unavailable`.
 2. Parses the path and query parameters. A value that does not parse answers `400 Bad Request`.
-3. For a page with [per-tab state](state.md), mints a `Datapages-Instance` ID of 16 random bytes and sets it as a response header with `Cache-Control: no-store`. It allocates no state yet.
-4. Calls `GET`. An error with status 404 or 500 renders `PageError404` or `PageError500` when the app package declares it. Any other error answers with its status and the status text. A returned `datapages.Redirect` answers `302 Found`, or its `Status`, with `Location`.
+3. For a page with [per-tab state](state.md), mints a `Datapages-Instance` ID of 16 random bytes and sets it as a response header with `Cache-Control: no-store`, which keeps a `no-transform` that a middleware set. It allocates no state yet.
+4. Calls `GET`. An error with status 404 or 500 renders `PageError404` or `PageError500` when the app package declares it. Any other error answers with its status and the status text.
 5. Writes the session cookie for a returned `newSession` or deletes it for `closeSession`.
-6. Renders the document with status 200.
+6. Answers a returned `datapages.Redirect` with `302 Found`, or its `Status`, and `Location`. Otherwise renders the document with status 200.
 
 The document for the page above, with line breaks added and script bodies shortened:
 
@@ -152,7 +152,7 @@ A button with `data-on:click={ action.PageIndex.Add.POST() }` sends `POST /add/`
 | `Sec-Fetch-Site` is `same-site` or `cross-site`, or `Origin` differs from `Host` | `403 Forbidden` | the other actions, which a plain HTML form can reach |
 | `Datapages-Instance` is missing or has no state on this server | `409 Conflict` with `Datapages-Retry: reconnect` | actions that take `datapages.State[T]` |
 | `X-CSRF-Token` is missing or wrong | `403 Forbidden` | `POST`, `PUT`, `PATCH` and `DELETE` requests that carry a session cookie |
-| The signals body exceeds 1 MiB | `400 Bad Request` | actions that take `datapages.Signals`, see `datapages.WithBodySizeLimit` |
+| The signals body exceeds 1 MiB | `400 Bad Request` | actions other than `DELETE` that take `datapages.Signals`, see `datapages.WithBodySizeLimit` |
 | A signal, path or query value does not parse | `400 Bad Request` | all actions |
 
 An action that takes a session reads it from the store and treats a closed or expired session as a guest. An action without a session parameter checks the CSRF token against the cookie alone, without reading the store. See [Sessions and auth](sessions.md).
@@ -234,7 +234,7 @@ A server with another build ID answers such a request with `205 Reset Content`, 
 - A stream reconnect reloads after a random delay of up to 2s, which spreads the page loads of tabs that reconnect together.
 - Repeated reloads without a successful Datastar request wait 1s, 2s, 4s and up to 30s.
 
-A request without `Datapages-Build`, such as one from `curl` or from a page rendered before the build script existed, passes. During a rolling deployment, route each client to 1 build until the old servers stop. See [Deployments](../SPECIFICATION.md#deployments) and [Deployment](deployment.md).
+A request without `Datapages-Build`, such as one from `curl` or from a page rendered before the build script existed, passes. See [Deployments](../SPECIFICATION.md#deployments) and [Deployment](deployment.md).
 
 ## A closed or expired session
 

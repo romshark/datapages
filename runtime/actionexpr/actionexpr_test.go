@@ -118,7 +118,7 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRetryMaxWaitMs(r, 0)
 			},
-			want: ", {retryMaxWaitMs: 0}",
+			want: ", {retryMaxWait: 0}",
 		},
 		"retry max count negative": {
 			option: func(r *actionexpr.Reporter) actionexpr.Option {

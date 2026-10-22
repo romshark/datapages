@@ -324,7 +324,7 @@ When a change triggers several watchers, each runs its command. `watch` then tak
 
 Type string. Required.
 
-The name of the watcher in the log and above its output on the error page. A watcher without a name stops `watch` at startup with `engine: CustomWatchers[0] has no name`.
+The name of the watcher in the log and above its output on the error page. A watcher without a name stops `watch` at startup with `engine: CustomWatchers[1] has no name` for the first watcher of the list, because the watcher that runs `datapages gen` comes first.
 
 #### `include`
 

@@ -120,7 +120,7 @@ Never edit a generated file. Change the source or the generator, then regenerate
 - `*_templ.go`: written by templ from the `*.templ` next to it. `mage genTempl`, not `templ generate` directly.
 - `*/datapagesgen/**` in examples and acceptance cases: written by the CLI from the app package. `mage genDatapages` builds `cmd/datapages` from source and runs `datapages gen` in every example and acceptance module.
 - In every `example/*` module: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and everything under `.agents/skills/` and `.claude/skills/`. Written by `datapages init` from `internal/generator/agentdocs/data`. `mage genAISkills` runs it in every example to catch drift.
-- `docs/index.html`, `docs/docs/`, `docs/specification.html`, `docs/specification.md`, `docs/search.json`, `docs/llms.txt` and `docs/llms-full.txt`: written by `mage genDocs` through `internal/tools/render-pages`. The inputs are its templates, `guide/`, `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md`. Git ignores the output. The Pages workflow generates it for each deployment.
+- `docs/index.html`, `docs/docs/`, `docs/specification.html`, `docs/specification.md`, `docs/search.json`, `docs/llms.txt` and `docs/llms-full.txt`: written by `mage genDocs` through `internal/tools/render-pages`. The inputs are its templates, `guide/`, `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md`. Git ignores the output. The Pages and release workflows generate it for each deployment.
 - `modules/offline/sw.min.js`: minified from `sw.js` next to it. `mage genOfflineWorker`. The module embeds the minified file, which is why it is committed: `go build` cannot run the target.
 - `mage gen` runs all of them.
 

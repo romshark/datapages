@@ -64,7 +64,7 @@ Request options:
 | `retry` | `auto` for network errors, `error` for 4xx and 5xx, `always` or `never` |
 | `retryInterval` | defaults to 1000 ms |
 | `retryScaler` | defaults to 2 |
-| `retryMaxWaitMs` | defaults to 30000 ms |
+| `retryMaxWait` | defaults to 30000 ms |
 | `retryMaxCount` | defaults to 10 |
 | `requestCancellation` | `auto`, `cleanup`, `disabled` or an `AbortController` |
 
@@ -92,4 +92,4 @@ Each request fires `datastar-fetch` events. `evt.detail.type` is `started`, `fin
 
 A misused attribute logs `Uncaught datastar runtime error: <name>` with a link to a page explaining it.
 
-<!-- written by datapages sha256:d98d6a9e4cd3b79a -->
+<!-- written by datapages sha256:9a515f6445d75558 -->

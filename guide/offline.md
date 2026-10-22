@@ -4,7 +4,7 @@ The offline module stores page snapshots and loading shims in a service-worker c
 
 The service worker comes from the module `github.com/romshark/datapages/modules/offline`. Handlers write its cache through the `pageCache datapages.PageCacheWriter` parameter:
 
-- `Set` stores a snapshot, which the worker serves only while the browser is offline.
+- `Set` stores a snapshot, which the worker serves only when the request for the page fails, as while the browser is offline.
 - `SetShim` stores a shim, which the worker serves at once, online too, and replaces with the live page.
 
 Browsers run service workers only on HTTPS or localhost. On any other origin, cache writes reach no worker.
@@ -44,7 +44,7 @@ func OfflineConfig() offline.Config {
 }
 ```
 
-The sample serves the bundle from the app's assets, as [Self-host the Datastar bundle](assets.md#self-host-the-datastar-bundle) shows. Put the library version in the file name, such as `datastar-1.0.4.js`. Browsers and the worker cache files by URL. If an upgrade keeps the name, they can keep using the old file from their cache. A new name is a new URL, which they download.
+The sample serves the bundle from the app's assets, as [Self-host the Datastar bundle](assets.md#self-host-the-datastar-bundle) shows.
 
 The other fields of `offline.Config`:
 
@@ -69,7 +69,7 @@ datapagesgen.WithOffline(app.OfflineConfig()),
 
 The option serves the worker script and adds a connectivity script to every HTML response. It adds the registration script to the responses for a browser whose worker is missing or older than `WorkerVersion`. No template registers the worker.
 
-Response compression runs after `WithOffline`, which therefore edits uncompressed HTML. Put a custom compressing middleware before `WithOffline` in the options, or its responses get no registration. With `WithCSPNonce`, the function must return the same nonce for every call with 1 request. A page served from the cache of the worker carries no nonce. See [Service Worker](../SPECIFICATION.md#service-worker).
+Response compression runs after `WithOffline`, which therefore edits uncompressed HTML. Put a custom compressing middleware before `WithOffline` in the options, or its responses get no registration. With `WithCSPNonce`, the function must return the same nonce for every call with 1 request. A page served from the cache of the worker keeps the nonce it was rendered with and comes without a policy header. Its connectivity script and shim trigger carry no nonce. See [Service Worker](../SPECIFICATION.md#service-worker).
 
 ## Write snapshots
 
@@ -105,7 +105,6 @@ While the browser is offline, the connectivity script sets the class `is-offline
 ## Keep snapshots safe and current
 
 - Pass a page body, not a complete document. Datapages wraps it in the same document as a live page, with the Datastar bundle and the tags of `App.Head` rendered for a zero session, and without the CSRF script.
-- A cached page is only as complete as its assets. List the files it needs in `Assets`.
 - Include every value that changes the snapshot in its version. A constant version caches once and never refreshes. Use `!=`, not `<`, for hashes and other unordered versions.
 - Use versions above 0. `Version()` returns 0 for a URL without an entry, and `pageCache.Version() != 0` is false for it.
 - Update or clear a URL when an action changes its data. A page cached by its own `GET` updates on its next online visit.

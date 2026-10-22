@@ -1,6 +1,6 @@
 # CLI
 
-The `datapages` command creates projects, generates server code, checks application models and runs the development server. Each command documents its flags and exit status below.
+The `datapages` command creates projects, generates server code, checks application models and runs the development server.
 
 Install the command with Go:
 
@@ -32,11 +32,11 @@ datapages init [flags]
 
 Without `-n`, `init` asks for every setting it needs. With `-n` it asks nothing and takes the settings from the flags.
 
-In a project that is set up, `init` rewrites the agent instructions, adds `.env` to `.gitignore` when it is missing there, and prints `Project already initialized.` Run `datapages init -n` to update the agent instructions of a project to the installed CLI.
+In a project that is set up, `init` rewrites the agent instructions, adds `.env` to `.gitignore` when it is missing there, and prints `Project already initialized.`
 
 ### Where init creates the project
 
-- Outside a git repository, `init` creates the directory that `--name` names, or that you enter at the prompt, in the current directory and runs `git init` in it.
+- Outside a git repository, `init` creates the directory that `--name` names, or that you enter at the prompt, in the current directory and runs `git init` in it. In a Go module that has a `datapages.yaml`, it runs in place without a git repository.
 - Inside a git repository, `init` uses the current directory. When that directory is inside a Go module, `init` uses the module root instead and prints `Using the Go module in <dir>`.
 - Without a `go.mod`, `init` runs `go mod init` with the path that `--module` gives. The prompt suggests a path made from the URL of the `origin` remote, or the directory name.
 
@@ -59,7 +59,7 @@ In a project that is set up, `init` rewrites the agent instructions, adds `.env`
 
 On such a run `init` also takes these steps, in order:
 
-1. Adds the `github.com/romshark/datapages` requirement to `go.mod` when it is missing. A release of the CLI requires its own version, after `go list` confirms that Go can download it. A CLI built from source adds a `replace` directive to the checkout it was built from and warns that the path exists only on this machine. Without a checkout, it warns and lets `go mod tidy` pick a version.
+1. Adds the `github.com/romshark/datapages` requirement to `go.mod` when it is missing. A release of the CLI, or a build with a pseudo-version, requires its own version after `go list` confirms that Go can download it. Any other build, such as `(devel)`, a `+dirty` build or a commit that Go cannot download, adds a `replace` directive to the checkout it was built from and warns that the path exists only on this machine. Without a checkout, it warns and lets `go mod tidy` pick a version.
 2. Runs `npm install` and `node build.mjs` in `web/` for TypeScript Web Components.
 3. Runs `templ generate ./app/` with templ v0.3.1070 through `go run`, then `go mod tidy`.
 4. Fails when the selected Datapages version has no importable root package, as releases through v0.9.4.
@@ -83,8 +83,8 @@ When `init` writes the app package, `--web-components` or a prompt selects the W
 
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
-| `-n`, `--non-interactive` | `false` | Ask nothing. Requires `--name` outside a git repository and `--module` outside a Go module. Selects `none` for Web Components and skips `Run the app now?` |
-| `--name` | `""` | Directory to create outside a git repository. Ignored inside one |
+| `-n`, `--non-interactive` | `false` | Ask nothing. Requires `--name` outside a git repository, except in a Go module that has a `datapages.yaml`, and `--module` outside a Go module. Selects `none` for Web Components and skips `Run the app now?` |
+| `--name` | `""` | Directory to create outside a git repository. Ignored inside one and in a Go module that has a `datapages.yaml` |
 | `--module` | `""` | Module path for `go mod init`. Ignored when `go.mod` exists |
 | `--web-components` | `""` | `rocket`, `typescript`, `javascript` or `none`. Used only when `init` writes the app package. Otherwise `init` prints `Ignored --web-components: init writes no app package here.` |
 | `--prometheus` | `true` | Names `datapages.EnablePrometheus` in the `cmd/server/main.go` that `init` writes, which serves metrics on `HOST_METRICS:PORT_METRICS`, `localhost:9090` by default. `--prometheus=false` names `datapages.DisablePrometheus` |
@@ -339,7 +339,7 @@ datapages version --full
 
 ### App packages
 
-The commands find the app packages through the [`datapages.NewServer`](https://pkg.go.dev/github.com/romshark/datapages#NewServer) calls of the module. They read the calls from the syntax tree, without type-checking, which lets them read a `main.go` that names a generated package that does not exist yet. The first type argument names the app package, and the fourth names the generated package below it:
+The commands find the app packages through the [`datapages.NewServer`](https://pkg.go.dev/github.com/romshark/datapages#NewServer) calls of the module. They read the calls from the syntax tree, without type-checking, which lets them read a `main.go` that names a generated package that does not exist yet:
 
 ```go title="cmd/server/main.go"
 s, err := datapages.NewServer[
@@ -372,13 +372,13 @@ A module without a call has 1 app package, `app/`, generated into `app/datapages
 
 ### Configuration file
 
-`gen`, `watch` and `init` read `datapages.yaml` or `datapages.yml` in the module root. Both files at once are an error. `lint` and `version` read neither. Without a file, the defaults apply. `watch` and `init` then write the scaffold file, and `gen` does not. See [datapages.yaml](configuration.md).
+See [datapages.yaml](configuration.md).
 
 ## Version checks
 
 A release of the CLI compares its version with the `github.com/romshark/datapages` requirement in `go.mod`:
 
-- When `go.mod` requires a newer release, `gen` and `lint` fail. `watch` prints the error at startup and on every regeneration:
+- When `go.mod` requires a newer release, `gen` and `lint` fail with this error. `watch` prints it without `error:` at startup and shows it on its error page after every regeneration:
 
   ```text
   error: go.mod requires github.com/romshark/datapages v0.11.0 but you are running v0.10.1
@@ -432,7 +432,7 @@ The CLI reads these variables:
 | `DATAPAGES_LOADCACHE_DEBUG` | `gen`, `lint`, `watch`, `init` | Any non-empty value prints `loadcache:` lines with hits, misses and timings to stderr |
 | `GOPACKAGESDRIVER` | `gen`, `lint`, `watch`, `init` | A value other than `off` turns the load cache off. So does a `gopackagesdriver` on the PATH while the variable is unset |
 
-Without these variables, colors are on when stderr is a terminal. Colors apply to the `error:` label and to the errors in application models.
+Without these variables, colors are on when stderr is a terminal. Colors apply to the `error:` label and to the errors in application models. The update notice of `watch` is colored when stdout is a terminal, unless `NO_COLOR` is set or `TERM` is `dumb`.
 
 The load cache keeps the package graph and the compiled type information of the standard library and the downloaded modules from the last load of each app package. A later load whose inputs did not change reuses them and runs no `go list`.
 

@@ -113,7 +113,7 @@ If you need a static site generator, you should use Templ directly. This [docume
 - [Application model](application-model.md) explains what Datapages reads and generates. [Request lifecycle](request-lifecycle.md) follows requests through the generated server.
 - The task guides cover [pages](pages.md), [actions](actions.md), [templates](templates.md), [events](events.md), [per-tab state](state.md), [sessions](sessions.md), [assets](assets.md), [offline support](offline.md), [testing](testing.md), [deployment](deployment.md), [performance](performance.md), [security](security.md), [multiple applications](multiple-applications.md), [AI agents](ai-agents.md) and [troubleshooting](troubleshooting.md).
 - The [specification](../SPECIFICATION.md) defines every declaration, parameter and return value. The [CLI reference](cli.md) lists commands and flags, and the [configuration reference](configuration.md) lists the `datapages.yaml` keys. The [Go API](https://pkg.go.dev/github.com/romshark/datapages) documents packages. The [changelog](../CHANGELOG.md) lists changes by release.
-- [Examples](examples.md) describes the 11 applications in the repository. The [FAQ](../FAQ.md) explains design decisions.
+- [Examples](examples.md) describes the example applications in the repository. The [FAQ](../FAQ.md) explains design decisions.
 
 ## Get help
 

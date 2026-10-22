@@ -51,7 +51,7 @@ We may close issues and pull requests that appear to contain unreviewed and unpo
 
 - [Go](https://go.dev/dl/) (see version in `go.mod`)
 - [Mage](https://magefile.org/) (or use `go run github.com/magefile/mage@latest`)
-- A running Docker daemon. Some `mage test` acceptance tests use testcontainers to start NATS. They fail without Docker.
+- A running Docker daemon. Some `mage test` tests use testcontainers to start NATS. They fail without Docker.
 
 ### Commands
 

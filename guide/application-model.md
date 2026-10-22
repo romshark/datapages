@@ -4,7 +4,7 @@ Datapages generates an application's HTTP server from 1 Go package. The CLI find
 
 ## The app package
 
-The app package holds the `App` type, pages, handlers, events and templ components. Together they form the application model. `datapages gen` type-checks the package and writes `datapagesgen` directly below it. There is no route table. A page type declares its route on the first line of its doc comment.
+The app package holds the `App` type, pages, handlers, events and templ components. Together they form the application model. There is no route table. A page type declares its route on the first line of its doc comment.
 
 The scaffold that `datapages init` writes keeps the app package in `app/` and the entry point in `cmd/server/`:
 
@@ -35,20 +35,11 @@ s, err := datapages.NewServer[
 ](a, broker, opts...)
 ```
 
-The CLI reads every Go file of the module for these calls. It skips nested modules, files that no build compiles, such as those under `//go:build ignore`, and the directories `vendor`, `node_modules`, `testdata` and those whose name starts with `.` or `_`. The first type argument names the app package. The second decides whether the generated server reads sessions, and the third whether it counts Prometheus metrics. The fourth must be the `Server` type of the `datapagesgen` package directly below the app package. The CLI reads the type arguments from the syntax tree without type-checking them, which lets `main.go` import a `datapagesgen` package that no run has written yet.
-
-The scan rejects a module that breaks these rules:
-
-- The app type lives in a package of its own in the module. It must not live in the module root, in another module or in a `datapagesgen` package.
-- Every call that names the same app package names the same session data type and the same metrics mode. A test may build the server too, with the same type arguments.
-- A file imports `github.com/romshark/datapages` under a name, never with a dot import.
-- A file that Datapages did not generate must not import a package below `github.com/romshark/datapages/runtime`.
-
 A module without any `NewServer` call, such as a project whose entry point is not written yet, is generated for the package in `./app`. That run also writes `cmd/server/main.go` with a `NewServer` call when the directory holds no Go files. The `cmd` setting of [`datapages.yaml`](configuration.md) names another directory. From then on the CLI reads the call in `main.go`. [Project discovery](cli.md#project-discovery) lists the exact rules of the scan. A module can hold several app packages, each with its own entry point. See [Multiple applications](multiple-applications.md).
 
 ## What Datapages reads
 
-Datapages reads the names and types of the package-level declarations and the first line of their doc comments. This app package declares assets, 1 event, 2 pages and 2 actions:
+Datapages reads the names and types of the package-level declarations and the first line of their doc comments:
 
 ```go title="app/app.go"
 package app
@@ -226,14 +217,13 @@ example/todolist/app/datapagesgen/
 ```
 
 - `app_gen.go`, package `datapagesgen`: the `Server` type and its `Init` method, which `datapages.NewServer` calls. It registers the routes and holds the handler of every page, page stream and action, the dispatcher of every event, the subject constants and `MessageBrokerStreamSubjects`, and the store of per-tab state. An app with `PageOffline` also gets `WithOffline` here.
-- `href/href_gen.go`, package `href`: 1 function per page that returns its URL, such as `href.PagePost(slug)`, and 1 per GET action. A query struct of a page becomes a type such as `href.QueryPageIndex`. `href.External` marks an external URL. An app package with assets also gets `href.Asset`.
-- `action/action_gen.go`, package `action`: 1 builder per action that returns the Datastar expression calling it, such as `action.App.Publish.POST(slug)`, which returns `@post('/publish/hello/')`. The options of the expression, such as `action.WithContentType`, are here too.
+- `href/href_gen.go`, package `href`: 1 function per page that returns its URL, such as `href.PagePost(slug)`, and 1 per GET action. `PageError500` has none. A query struct of a page becomes a type such as `href.QueryPageIndex`. `href.External` marks an external URL. An app package with assets also gets `href.Asset`.
+- `action/action_gen.go`, package `action`: 1 builder per action that returns the Datastar expression calling it, such as `action.App.Publish.POST(slug)`, which returns `@post('/publish/hello/')`. A GET action has none. The options of the expression, such as `action.WithContentType`, are here too.
 - `assets/assets_gen.go`, package `assets`, only for an app package that declares assets: the URL prefix, the embedded directory, the directory dev mode reads from, and `assets.Path`.
 
 A run also does the following:
 
 - It parses and checks every app package of the module before it writes any of them. An app package with errors keeps the code an earlier run generated for it, and the others are generated. An app package that was never generated gets stub packages, which let editors resolve its imports while you fix the errors.
-- It writes `cmd/server/main.go` for a module without a `NewServer` call, as [described above](#how-the-cli-finds-it).
 - It refuses to run when `go.mod` requires a newer Datapages than the CLI, and it raises the requirement to the CLI's version when the CLI is newer.
 - It runs `go mod tidy`.
 - It prints a notice when the [agent instructions](ai-agents.md) of the project came from another CLI version.

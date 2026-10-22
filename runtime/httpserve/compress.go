@@ -378,6 +378,17 @@ func (cw *compressingWriter) refuses() bool {
 	return contentcoding.NoTransform(h)
 }
 
+// SetNoStore sets Cache-Control to no-store and keeps a no-transform that h
+// already holds. A middleware sets no-transform on a page that shows a secret
+// beside input an attacker controls, which keeps the response uncompressed.
+func SetNoStore(h http.Header) {
+	if contentcoding.NoTransform(h) {
+		h.Set("Cache-Control", "no-store, no-transform")
+		return
+	}
+	h.Set("Cache-Control", "no-store")
+}
+
 // decide compresses an eligible body. final means the buffer holds the full body.
 func (cw *compressingWriter) decide(final bool) {
 	cw.restoreFirst()

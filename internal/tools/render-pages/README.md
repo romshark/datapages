@@ -33,7 +33,7 @@ Git ignores these files. `docs/style.css` is committed, and `mage checkGen` fail
 
 ## Search
 
-The build splits each page into sections at its headings and writes 1 entry per section into `search.json`, with the page title, the heading, the URL and the text. `docs.js` downloads the file on first use and searches it in the browser. A result contains every word of the query, and matches in headings rank above matches in the text.
+The build splits each page into sections at the headings that its contents list and writes 1 entry per section into `search.json`, with the page title, the heading, the URL and the text. `docs.js` downloads the file on first use and searches it in the browser. A result contains every word of the query, and matches in headings rank above matches in the text.
 
 ## Browser
 

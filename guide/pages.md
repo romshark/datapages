@@ -266,7 +266,7 @@ func (p PageProduct) GET(
 }
 ```
 
-A `Redirect` with an empty `URL` renders the page. `Status` defaults to 302 Found, and a status that is not a redirect status becomes 302.
+`Status` defaults to 302 Found, and a status that is not a redirect status becomes 302.
 
 ## The document head
 
@@ -325,7 +325,7 @@ templ notFoundPage() {
 - `PageError500` renders with status 500 for a page load whose handler panics or returns an error that wraps no sentinel.
 - `PageOffline` is the page that the service worker shows offline for a URL it has no copy of. It renders with a zero session and must not depend on who is signed in. See [Offline and shims](offline.md#add-a-fallback-page).
 
-Without these pages, the server answers with the status and its standard text, such as `Not Found`. The `GET` of `PageError404` and `PageError500` also answers its own route with status 200. It may take `session` to render the document for the visitor, but cannot return `newSession` or `closeSession`. Requests that Datastar sends, such as actions, do not render these pages. Their errors reach [`App.RecoverError`](actions.md#show-errors-in-the-page).
+Without these pages, the server answers with the status and its standard text, such as `Not Found`, and a URL that no route matches gets `404 page not found`. The `GET` of `PageError404` and `PageError500` also answers its own route with status 200. It may take `session` to render the document for the visitor, but cannot return `newSession` or `closeSession`. Requests that Datastar sends, such as actions, do not render these pages. Their errors reach [`App.RecoverError`](actions.md#show-errors-in-the-page).
 
 ## Streams
 

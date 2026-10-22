@@ -82,7 +82,7 @@ Datapages is in beta and ready for production use. Its APIs can still change in 
 
 Packages under `runtime/` serve generated code and may change in any release. `datapages gen` updates their callers. The CLI rejects imports of these packages from application code.
 
-Only the latest release receives security fixes, as [SECURITY.md](../SECURITY.md) states. Fixes are not backported to older releases. Each Security entry of the changelog names the affected releases and the steps to take, which are usually to upgrade, run `datapages gen` and deploy.
+Only the latest release receives security fixes, as [SECURITY.md](../SECURITY.md) states. Each Security entry of the changelog names the affected releases and the steps to take, which are usually to upgrade, run `datapages gen` and deploy.
 
 ## Upgrade to the next release
 
@@ -92,7 +92,7 @@ These changes are on the main branch and listed under Unreleased in the changelo
 
 `datapages gen` and `datapages lint` reject these declarations. Fix them before you regenerate.
 
-- Remove `{$}` from the route of a page that has actions, `OnXXX` handlers, `StreamOpen`, `StreamClose` or `State[T]`, as `// PageUser is /user/{name}`. The page keeps its URL. With `{$}` the CLI reports `page route ending in {$} cannot have actions`. See [Pages and routes](pages.md).
+- Remove `{$}` from the route of a page that has actions, `OnXXX` handlers, `StreamOpen`, `StreamClose` or `State[T]`, as `// PageUser is /user/{name}`. The page keeps its URL. With `{$}` the CLI reports `page route ending in {$} cannot have actions` for an action and `page route ending in {$} cannot have a stream` for the others. See [Pages and routes](pages.md).
 - Rename a method of `App` whose name is `GET` or `QUERY` followed by an uppercase letter, such as `GETStats`, when it is a helper and not an action. The CLI reads it as an action and reports `missing the *http.Request parameter in App.GETStats`. See [Actions](actions.md).
 - Move page and action routes out of the URL prefix of the static files, such as `/static/`. Otherwise the CLI reports `conflicting route: ... the assets URL prefix serves "GET /static/"`. Before, asset requests below such a route reached the handler instead of the files. See [Static assets](assets.md).
 - Remove imports of packages under `github.com/romshark/datapages/runtime` from the application, test files included. Use the `datapages` package or the generated packages. Otherwise the CLI reports `application code must not import github.com/romshark/datapages/runtime/...`.
@@ -106,7 +106,7 @@ These changes are on the main branch and listed under Unreleased in the changelo
 - Install Go 1.27.3 or later first where `GOTOOLCHAIN=local` is set. `go get` raises the `go` line of `go.mod` to 1.27.3.
 - Run `datapages gen` before you build, as step 4 does. The generated code no longer uses `github.com/starfederation/datastar-go`, and older generated code does not compile with the new runtime. `go mod tidy` then drops `datastar-go`, `github.com/CAFxX/httpcompression` and `github.com/valyala/bytebufferpool` unless the application imports them.
 - Submit forms that post to an `App` action that takes `datapages.PageCacheWriter` through a Datastar action. A plain form submission to such an action now gets `406 Not Acceptable`. Before, a redirect from the action dropped its cache writes, such as `ClearAll`. See [Templates and forms](templates.md).
-- Pass `datapages.WithDatastarJS` a URL that is valid according to RFC 3986. Otherwise `datapages.NewServer` fails with `WithDatastarJS: URL contains ' ', which RFC 3986 does not allow`.
+- Pass `datapages.WithDatastarJS` a URL that is valid according to RFC 3986. Otherwise `datapages.NewServer` fails with `applying server option: WithDatastarJS: URL contains ' ', which RFC 3986 does not allow`.
 - Spell asset URLs exactly like their file names. `/static/App.js` for `app.js` now answers 404 on every system and in dev mode. Before, Windows and macOS served it. See [Static assets](assets.md).
 - In a custom `messaging.Broker`, deliver messages in the order they were published, whatever their subjects, and close the channel of a subscription when it can no longer receive messages, as after its connection closed. Otherwise pages handle events out of order, or keep a stream that receives nothing. [`messaging.go`](../modules/messaging/messaging.go) states the contract.
 - Responses of pages and actions are now compressed by default. Behind a proxy that edits response bodies, such as nginx with `sub_filter`, add `datapages.WithNoResponseCompression()` or have the proxy send `Accept-Encoding: ""`. Send pages that combine a secret with attacker-controlled input with `Cache-Control: private, no-transform`. Otherwise the size of the compressed response can reveal the secret. See [Response Compression](../SPECIFICATION.md#response-compression) and [Security](security.md).

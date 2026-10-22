@@ -25,7 +25,7 @@ Parameters are identified by type; names and order are unrestricted.
 
 A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. So does a panic while the server reads the session, path, query or signals of the handler, as in `UnmarshalText`, `UnmarshalJSON` or a `sessions.Manager`. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
+A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. Panics in `StreamClose` are recovered and logged.
 
 Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. It starts when the context passed to `ListenAndServe` is canceled. Applications must cancel that context on SIGTERM and SIGINT. The `cmd/server/main.go` that `datapages init` writes calls `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
@@ -339,7 +339,7 @@ func (PageIndex) StreamOpen(r *http.Request, state datapages.State[StateIndex]) 
 - State used by a stream embed binds every page that embeds it.
 - Global `*App` actions may take `datapages.State[T]`. The caller must be bound to a page using the same `T`; otherwise the action receives `409 Conflict` with `Datapages-Retry: reconnect`. A global action callable from every page must be stateless.
 - `GET` cannot take state.
-- A page using state gets an SSE stream even without stream hooks or `OnXXX`. Connect allocates the state slot; disconnect releases it.
+- A page using state gets an SSE stream even without stream hooks or `OnXXX`.
 
 **Parameter: `stateID string`.** A stateful handler may take `stateID string` alongside `datapages.State[T]` to dispatch events targeted at the tab via `datapages.SubjectStateID`.
 
@@ -368,7 +368,7 @@ By default, hiding a tab closes its stream and releases its state. Visibility re
 
 The server accepts any well-formed ID, including one issued elsewhere. The stream creates state on the server it reaches.
 
-A process restart drops all instances. Reconnect creates zeroed state under the same ID. An action arriving before reconnect receives `409` and reloads once.
+A process restart drops all instances. An action arriving before reconnect receives `409` and reloads once.
 
 `MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most 1 instance per open stream. 0 selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
 
@@ -466,8 +466,6 @@ query datapages.Query[struct {
 	SelectedItem string `query:"s" reflectsignal:"selecteditem"`
 }]
 ```
-
-Here, `s` and `selecteditem` are synchronized.
 
 The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`. The URL fragment remains.
 
@@ -634,7 +632,7 @@ func (p PageItem) GET(
 }
 ```
 
-An action handler can `Set` URLs other than the one being requested. `Version()` reports only the version of the current request URL. A `Set` for another URL is unconditional. Its version is reported when that URL is later requested.
+An action handler can `Set` URLs other than the one being requested. `Version()` reports only the version of the current request URL. A `Set` for another URL is unconditional.
 
 ```go
 // POSTPrecache is /precache
@@ -705,10 +703,7 @@ Subject, payload, and subject fields are read from the declaring package.
 
 Applications using the same event type share its subject. Separate event types with the same subject are rejected.
 
-Restrictions:
-
-- The type must be reachable through application-package imports.
-- An application cannot use 2 event types with the same name, regardless of declaring package.
+An application cannot use 2 event types with the same name, regardless of declaring package.
 
 A type alias such as `type EventX = other.EventX` refers to the original event's subject, payload, and declaring package. It may occur anywhere along the import path.
 
@@ -770,14 +765,14 @@ type EventRoomUpdate struct {
 **Restrictions:**
 
 - A user-addressed subject field must not have a `signal:"..."` tag.
-- An event must not have more than 1 `datapages.SubjectUser` field. To address several users, dispatch once per user.
+- An event must not have more than 1 `datapages.SubjectUser` field.
 - No 2 subject fields may share the same `signal:"..."` tag value.
 - `signal` tag values must be period-separated signal names. Each step follows the `Signals` `json` tag rule.
 - A page must not subscribe by a signal and by a signal under it, such as `chat` and `chat.room`.
 - 2 event types cannot claim the same subject anywhere in a module. `datapages gen` and `datapages lint` report conflicts across applications. To share a subject, use 1 event declaration; see [Events declared outside the application package](#events-declared-outside-the-application-package).
 - An event with subject fields reserves every subject below its base. `"notify"` with 1 subject field conflicts with `"notify.user"`.
 
-Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected. So is a field whose type holds a subject-field type in a slice, array, map, pointer or channel, such as `[]datapages.SubjectUser`. To address several values, dispatch once per value.
+Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected. So is a field whose type holds a subject-field type in a slice, array, map, pointer or channel, such as `[]datapages.SubjectUser`.
 
 Each dispatcher publishes 1 event type. A handler may declare 1 dispatcher per event type, but cannot declare 2 for the same type. Events publish in dispatch order. Failure does not undo earlier publishes or prevent later ones.
 

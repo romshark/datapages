@@ -1,6 +1,6 @@
 # Performance
 
-Datapages compresses SSE streams, page and action responses, and static assets by default. The settings trade CPU time and memory for transfer size. Benchmarks in this repository measure those costs and the cost of rendering whole fragments.
+Datapages compresses SSE streams, page and action responses, and static assets by default. The settings trade CPU time and memory for transfer size.
 
 ## SSE compression
 
@@ -151,10 +151,10 @@ The numbers on this page come from benchmarks in the Datapages repository. The g
 - [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig): `BenchmarkResponseCompression` in `runtime/httpserve` compresses pages of 8 KB and 100 KB.
 - [`assetcompress.Config`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Config): `BenchmarkPrecompress` in `modules/assetcompress` compresses files of the examples, such as a 222 KB script and a 218 KB stylesheet.
 
-Times depend on the machine. Run a benchmark in a checkout of the repository to measure on yours. The sizes that `BenchmarkReRender` reports depend on the iteration count, because each iteration changes 1 more item of the list. `-benchtime 300x` reproduces the sizes of the godoc:
+Times depend on the machine. Run a benchmark in a checkout of the repository to measure on yours. The sizes that `BenchmarkReRender` reports depend on the iteration count, because each iteration changes 1 more item of the list. `-benchtime 200x` reproduces the sizes of the godoc:
 
 ```sh
-go test -run '^$' -bench BenchmarkReRender -benchtime 300x ./runtime/sse
+go test -run '^$' -bench BenchmarkReRender -benchtime 200x ./runtime/sse
 ```
 
 ## See also

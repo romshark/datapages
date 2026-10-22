@@ -298,12 +298,13 @@ func WithRetryScaler(r *Reporter, multiplier float64) Option {
 // WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
 // in milliseconds between retries. Defaults to 30000 (30 seconds).
 // A negative wait is dropped and warn-logged.
+// Datastar names the option retryMaxWait.
 func WithRetryMaxWaitMs(r *Reporter, ms int) Option {
 	if ms < 0 {
 		r.warnDropped("WithRetryMaxWaitMs", strconv.Itoa(ms))
 		return Option{}
 	}
-	return Option{key: "retryMaxWaitMs", value: strconv.Itoa(ms)}
+	return Option{key: "retryMaxWait", value: strconv.Itoa(ms)}
 }
 
 // WithRetryMaxCount creates an action option for the maximum number of retry attempts.

@@ -13,7 +13,7 @@ Put the files in a directory of the app package, such as `app/static/`. Declare 
 var StaticFS embed.FS
 ```
 
-The doc comment sets the URL prefix the way the doc comment of a page sets its route. The `//go:embed` directive names the directory. `datapages gen` and `datapages lint` reject a declaration that breaks these rules:
+The doc comment sets the URL prefix the way the doc comment of a page sets its route. `datapages gen` and `datapages lint` reject a declaration that breaks these rules:
 
 - An app package declares at most 1 such variable.
 - The prefix starts and ends with `/` and is not `/`. It contains only ASCII letters, digits, `-`, `.`, `_`, `~` and `/`.

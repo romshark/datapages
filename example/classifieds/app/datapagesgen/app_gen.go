@@ -1170,7 +1170,7 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PageMessages{
 		App: s.app,
@@ -1796,11 +1796,11 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('`)
-		_, _ = io.WriteString(w, `/post/`)
-		htmlattr.WritePathValue(w, path.Values.Slug)
-		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('`)
+			_, _ = io.WriteString(w, `/post/`)
+			htmlattr.WritePathValue(w, path.Values.Slug)
+			_, _ = io.WriteString(w, `/`)
 			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
@@ -2427,11 +2427,11 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('`)
-		_, _ = io.WriteString(w, `/user/`)
-		htmlattr.WritePathValue(w, path.Values.Name)
-		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('`)
+			_, _ = io.WriteString(w, `/user/`)
+			htmlattr.WritePathValue(w, path.Values.Name)
+			_, _ = io.WriteString(w, `/`)
 			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}

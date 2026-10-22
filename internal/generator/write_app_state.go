@@ -28,7 +28,7 @@ func (w *Writer) writeMintInstanceIDOnGET() {
 	w.Line(1, "}")
 	w.Line(1, "w.Header().Set(stateInstanceIDHeader, instanceID)")
 	w.Line(1, "// A shared cache would expose this bearer id to another visitor.")
-	w.Line(1, `w.Header().Set("Cache-Control", "no-store")`)
+	w.Line(1, "httpserve.SetNoStore(w.Header())")
 }
 
 // writeStateFetchWrapper emits the inline script that replaces globalThis.fetch

@@ -4,7 +4,7 @@ An action is a method that handles a request from an open page. A Datastar attri
 
 ## Declare an action
 
-Name the method after an HTTP method and the action name, as in `POSTReview`. Put its route on the first line of its doc comment. A page action has a value receiver of its page type. Its route must be below the page route. This `POSTReview` belongs to `PageProduct` at `/products/{id}`:
+Name the method after an HTTP method and the action name, as in `POSTReview`. Put its route on the first line of its doc comment. A page action has a value receiver of its page type. Its route must be the page route or below it. This `POSTReview` belongs to `PageProduct` at `/products/{id}`:
 
 ```go title="app/app.go"
 // POSTReview is /products/{id}/reviews
@@ -106,7 +106,7 @@ The generator matches parameters by type. They may appear in any order and with 
 | Parameter | Provides | Rules |
 | --------- | -------- | ----- |
 | `r *http.Request` | headers, cookies and the request context | |
-| `signals datapages.Signals[T]` | the signals that Datastar sends in the body | [`Signals`](../SPECIFICATION.md#parameter-datapagessignalsstruct-) |
+| `signals datapages.Signals[T]` | the signals that Datastar sends in the body, or for `DELETE` in the `datastar` query parameter | [`Signals`](../SPECIFICATION.md#parameter-datapagessignalsstruct-) |
 | `path datapages.Path[T]` | route variables, as on a [page](pages.md#path-parameters) | [`Path`](../SPECIFICATION.md#parameter-datapagespathstruct-) |
 | `query datapages.Query[T]` | query parameters of the action URL | [`Query`](../SPECIFICATION.md#parameter-datapagesquerystruct-) |
 | `session Session` | the visitor's session | [`Session`](../SPECIFICATION.md#parameter-session-datapagessessiondata) |
@@ -116,9 +116,9 @@ The generator matches parameters by type. They may appear in any order and with 
 | `state datapages.State[T]` | the per-tab state of the calling tab | [`State[T]`](../SPECIFICATION.md#parameter-datapagesstatet) |
 | `stateID string` | the address of the calling tab for events, next to `state` | [`State[T]`](../SPECIFICATION.md#parameter-datapagesstatet) |
 
-`datapages.Signals` decodes the JSON body from Datastar. Every field needs a `json` tag. A nested struct represents nested signals. For example, `Review` holds `$review.rating` and `$review.text`. A signal name matches `[A-Za-z_][A-Za-z0-9_]*` and contains no `__`.
+`datapages.Signals` decodes the JSON that Datastar sends in the body, or for `DELETE` in the `datastar` query parameter. Every field needs a `json` tag. A nested struct represents nested signals. For example, `Review` holds `$review.rating` and `$review.text`. A signal name matches `[A-Za-z_][A-Za-z0-9_]*` and contains no `__`.
 
-The server reads at most 1 MiB of signals and answers 400 to a larger body. `datapages.WithBodySizeLimit` changes the limit. The limit does not apply to an action without `Signals`. A handler that reads `r.Body` must set its own limit, for example with `http.MaxBytesReader`.
+For an action other than `DELETE`, the server reads at most 1 MiB of signals and answers 400 to a larger body. `datapages.WithBodySizeLimit` changes the limit. The limit does not apply to an action without `Signals`. A handler that reads `r.Body` must set its own limit, for example with `http.MaxBytesReader`.
 
 An action that takes `Signals`, `SSE` or `PageCacheWriter` answers 406 to a request without the `Datastar-Request: true` header, such as a plain form submission.
 
@@ -176,7 +176,7 @@ An `sse` parameter makes the server send status 200 and the event stream headers
 
 ## Return values
 
-An action returns `error` and optionally the values below. Of these, only `redirect` combines with `sse`:
+An action may return `error` and the values below. Of these, only `redirect` combines with `sse`:
 
 | Return value | Effect |
 | ------------ | ------ |
@@ -231,7 +231,7 @@ type memBody struct{ *bytes.Reader }
 func (memBody) Close() error { return nil }
 ```
 
-The response carries `Content-Disposition: attachment; filename=reviews.csv`, which makes the browser save the file, and `Cache-Control: no-cache`, the header of the zero `Cache` field. `net/http.ServeContent` writes the body and handles `HEAD`, `Range` and, with `ModTime` or `ETag`, conditional requests. `Body` must support seeking, and Datapages closes it after serving. A `bytes.Reader` has no `Close` method, which is what `memBody` adds.
+The response carries `Content-Disposition: attachment; filename=reviews.csv`, which makes the browser save the file, and `Cache-Control: no-cache`, the header of the zero `Cache` field. `net/http.ServeContent` writes the body and handles `HEAD`, `Range` and, with `ModTime` or `ETag`, conditional requests. `Body` must support seeking, and Datapages closes it after serving.
 
 A GET action takes only `r`, `session`, `path` and `query`. Other actions may return a `datapages.File` too. Serve a file that a visitor uploaded with `Disposition.Download`. Shown inline, an uploaded `text/html` or `image/svg+xml` file runs its scripts on the application's origin. Return application HTML as a templ component and never as a file, because templ escapes it and `datapages lint` checks it.
 

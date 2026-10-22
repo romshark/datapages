@@ -40,7 +40,7 @@ The `datapages` skill also tells agents not to run `templ generate` while `datap
 
 ## The specification link
 
-The last line of `AGENTS.md` links the specification of the release that wrote it:
+The last line of `AGENTS.md` before its stamp links the specification of the release that wrote it:
 
 ```text
 Full reference: https://github.com/romshark/datapages/blob/v0.10.1/SPECIFICATION.md

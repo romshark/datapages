@@ -8,6 +8,7 @@
 *.so
 *.dylib
 /datapages
+/internal/tools/render-pages/render-pages
 
 # npm
 **/node_modules/

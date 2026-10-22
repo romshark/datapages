@@ -22,7 +22,7 @@ The watcher reacts to these files.
 | `docs/*` | The tab reloads. |
 | `internal/tools/render-pages/style.css` | The tab reloads. The server serves this file unminified in place of `docs/style.css`. |
 | `internal/tools/render-pages/*.templ` | templ regenerates the Go code and the tab reloads. A change to the Go code of a template rebuilds the server first. |
-| `internal/tools/render-pages/*.go` | The server is rebuilt and restarted, and the tab reloads. |
+| `internal/tools/render-pages/*.go`, except `*_test.go` | The server is rebuilt and restarted, and the tab reloads. |
 
 Compiler and Markdown errors appear in the tab. A link to a missing heading is 1 such error. The tab reloads after the error is fixed.
 

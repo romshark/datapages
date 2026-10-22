@@ -173,6 +173,6 @@ customElements.define("place-map", PlaceMap);
 ## Pitfalls
 
 - Put `//datapages:nolint` on the line above an element to suppress its attribute lint errors. You may add a reason after `//`. It does not suppress a cross-page action ownership error.
-- Templ parses a text line that starts with `switch`, `if`, `for`, `else` or `case` as Go control flow, even inside HTML. Wrap the text in an element or reword it.
+- Templ parses text that starts with `if `, `for ` or `switch ` as Go control flow, also at the start of the content of an element. Write the word as `{ "if" }` or reword the text.
 - An apostrophe in an attribute becomes `&#39;`. The browser decodes it before the JavaScript parser reads the expression, which can make the expression invalid. Reword it, use `&quot;` for inner strings or escape it with a backslash.
 - Encode a value interpolated into `data-signals` with `json.Marshal` instead of quoting it yourself. An apostrophe in the value ends the string, and what follows it runs as script.

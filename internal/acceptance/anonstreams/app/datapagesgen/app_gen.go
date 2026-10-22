@@ -380,6 +380,12 @@ func evSubjPageTabs(userID string) []string {
 	}
 }
 
+func evSubjPageThread(userID string) []string {
+	return []string{
+		"noticed." + subject.Encode(userID),
+	}
+}
+
 const stateInstanceIDHeader = "Datapages-Instance"
 
 // stateRetryHeader tells the generated client that no state slot exists and
@@ -649,6 +655,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /tabs/_$/anon/{$}",
 		pageTabsHandlers{s}.GETStreamAnon)
+	s.Mux().HandleFunc(
+		"GET /threads/{thread}/{$}",
+		pageThreadHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /threads/{thread}/_$/{$}",
+		pageThreadHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /notes/count/{$}",
 		pageNotesHandlers{s}.POSTCount)
@@ -1375,7 +1387,7 @@ func (s pageNotesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PageNotes{
 		App: s.app,
@@ -2213,7 +2225,7 @@ func (s pageTabsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PageTabs{
 		App: s.app,
@@ -2491,6 +2503,104 @@ func (s pageTabsHandlers) POSTBump(
 		s.httpErrIntern(w, r, nil, "handling action PageTabs.Bump", err)
 		return
 	}
+}
+
+type pageThreadHandlers struct{ *Server }
+
+func (s pageThreadHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageThread.GET")
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	var path datapages.Path[struct {
+		Thread string `path:"thread"`
+	}]
+	path.Values.Thread = r.PathValue("thread")
+
+	p := dpapp.PageThread{
+		App: s.app,
+	}
+	body, err := p.GET(
+		r,
+		path,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageThread.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		if sess.UserID() != "" {
+			httpserve.WriteReloadOnVisibility(w)
+		}
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('`)
+			_, _ = io.WriteString(w, `/threads/`)
+			htmlattr.WritePathValue(w, path.Values.Thread)
+			_, _ = io.WriteString(w, `/`)
+			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, sess.Token(), genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageThread", err)
+		return
+	}
+}
+
+func (s pageThreadHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageThread stream")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		s.streams.Reload(w, r, s.SSECompression())
+		return
+	}
+
+	p := dpapp.PageThread{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, evSubjPageThread(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageThread stream")
+			var eventNoticed dpapp.EventNoticed
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					if err := p.OnNoticed(
+						eventNoticed,
+						sse,
+					); err != nil {
+						s.LogErr("handling PageThread.OnNoticed", err)
+					}
+				}
+			}
+		})
 }
 
 type dispatcherEventFaulted struct {

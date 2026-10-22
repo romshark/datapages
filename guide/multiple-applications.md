@@ -102,7 +102,7 @@ fix: Add `func (p PageCart) GET(r *http.Request) (body datapages.Component, err 
 error: parsing app package: 2 error(s)
 ```
 
-Positions are relative to the directory of the app package and do not name it. Each failed application adds 1 `parsing app package` line at the end, in the order of the app directories. Here the module still builds, because the earlier code of `app/frontend/datapagesgen` refers to nothing the failed change removed. `datapages lint` reports the errors of every application in 1 run and writes nothing.
+Positions are relative to the directory of the app package and do not name it. Each failed application adds 1 `parsing app package` line at the end, in the order of the app directories. Here the module still builds, because the earlier code of `app/frontend/datapagesgen` refers to nothing the failed change removed.
 
 ## Run 1 application in development
 

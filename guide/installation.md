@@ -11,7 +11,7 @@ Install the Datapages CLI and templ, then use `datapages init` to create a proje
 | Git | any | `datapages init`, which creates a repository when the directory is not in one |
 | [Docker](https://www.docker.com/) with Compose | any | The NATS server of a new project, which `make dev` starts |
 | make | any | The targets of the generated `Makefile` |
-| [Node.js](https://nodejs.org/) with npm | any | Only `datapages init --web-components typescript`, which installs and runs esbuild |
+| [Node.js](https://nodejs.org/) with npm | any | A project set up with `--web-components typescript`. `init` installs esbuild, and `init`, `make dev`, `make build` and `datapages watch` run it |
 
 Use the templ version named by the `github.com/a-h/templ` requirement in `go.mod`. A new project requires v0.3.1070. Generated templ files record that version. The generated CI workflow fails when `templ generate` changes a committed file.
 
@@ -38,7 +38,7 @@ templ version
 v0.3.1070
 ```
 
-A release of the CLI prints its version without the `v` prefix. A CLI built from source prints `(devel)`. `datapages version --full` adds the build information and the modules the binary was built with.
+A release of the CLI prints its version without the `v` prefix. A CLI built with `go build` or `go install` in a git checkout prints a pseudo-version, such as `0.10.2-0.20261022233632-c5bb9323e8fb`, with `+dirty` for uncommitted changes. `go run` prints `(devel)`. `datapages version --full` adds the build information and the modules the binary was built with.
 
 ## Create a project
 
