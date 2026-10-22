@@ -1,0 +1,282 @@
+package main
+
+// The icons of the site. Each is 16 by 16 pixels unless CSS sizes it,
+// takes the color of the text around it and is hidden from screen readers,
+// because the element that shows it names what it does.
+//
+// iconRocket, iconBook, iconGitHub, iconMarkdown, iconHash, iconHistory and
+// iconFile are the Octicons rocket, book, mark-github, markdown, hash, history
+// and file. iconDiscord is the discord icon of Simple Icons. The stroked icons
+// are drawn for the site.
+templ iconRocket() {
+	<svg
+		class="icon-rocket"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M14.064 0a8.75 8.75 0 00-6.187 2.563l-.459.458c-.314.314-.616.641
+            -.904.979H3.31a1.75 1.75 0 00-1.49.833L.11 7.607a.75.75 0 00.418 1.11l3.102
+            .954c.037.051.079.1.124.145l2.429 2.428c.046.046.094.088.145.125l.954 3.102a.75.75
+            0 001.11.418l2.774-1.707a1.75 1.75 0 00.833-1.49V9.485c.338-.288.665-.59.979
+            -.904l.458-.459A8.75 8.75 0 0016 1.936V1.75A1.75 1.75 0 0014.25 0h-.186zM10.5
+            5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z"
+		></path>
+	</svg>
+}
+
+templ iconBook() {
+	<svg
+		class="icon-book"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M0 1.75A.75.75 0 01.75 1h4.253c1.227 0 2.317.59 3 1.501A3.744
+            3.744 0 0111.006 1h4.245a.75.75 0 01.75.75v10.5a.75.75 0
+            01-.75.75h-4.507a2.25 2.25 0 00-1.591.659l-.622.621a.75.75 0
+            01-1.06 0l-.622-.621A2.25 2.25 0 005.258 13H.75a.75.75 0
+            01-.75-.75zm7.251 10.324l.004-5.073-.002-2.253A2.25 2.25 0
+            005.003 2.5H1.5v9h3.757a3.75 3.75 0 011.994.574zM8.755
+            4.75l-.004 7.322a3.752 3.752 0 011.992-.572H14.5v-9h-3.495a2.25
+            2.25 0 00-2.25 2.25z"
+		></path>
+	</svg>
+}
+
+templ iconGitHub() {
+	<svg
+		class="icon-github"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38
+            0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95
+            0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18
+            -1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16
+            1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44
+            .55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38
+            .01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0
+            .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+		></path>
+	</svg>
+}
+
+templ iconMarkdown() {
+	<svg
+		class="icon-markdown"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M14.85 3c.63 0 1.15.52 1.14 1.15v7.7c0 .63-.51 1.15-1.15 1.15H1.15C.52 13 0
+            12.48 0 11.84V4.15C0 3.52.52 3 1.15 3ZM9 11V5H7L5.5 7 4 5H2v6h2V8l1.5 1.92L7
+            8v3Zm2.99.5L14.5 8H13V5h-2v3H9.5Z"
+		></path>
+	</svg>
+}
+
+templ iconDiscord() {
+	<svg
+		class="icon-discord"
+		width="16"
+		height="16"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0
+            00-.0785.0371c-.211.3753-.4447.8648-.6083
+            1.2495-1.8447-.2762-3.68-.2762-5.4868
+            0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363
+            19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319
+            13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228
+            5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952
+            1.226-1.9942a.076.076 0
+            00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0
+            01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0
+            01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0
+            01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986
+            12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225
+            1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219
+            6.0023-3.0294a.077.077 0
+            00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0
+            00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419
+            0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0
+            1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825
+            0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0
+            2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"
+		></path>
+	</svg>
+}
+
+templ iconHash() {
+	<svg
+		class="icon-hash"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M6.368 1.01a.75.75 0 0 1 .623.859L6.57 4.5h3.98l.46-2.868a.75.75 0 0 1
+            1.48.237L12.07 4.5h2.18a.75.75 0 0 1 0 1.5h-2.42l-.64 4h2.56a.75.75 0 0 1 0
+            1.5h-2.8l-.46 2.869a.75.75 0 0 1-1.48-.237l.42-2.632H5.45l-.46 2.869a.75.75 0
+            0 1-1.48-.237l.42-2.632H1.75a.75.75 0 0 1 0-1.5h2.42l.64-4H2.25a.75.75 0 0 1
+            0-1.5h2.8l.46-2.868a.75.75 0 0 1 .858-.622ZM9.67 10l.64-4H6.33l-.64 4Z"
+		></path>
+	</svg>
+}
+
+templ iconHistory() {
+	<svg
+		class="icon-history"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="m.427 1.927 1.215 1.215a8.002 8.002 0 1 1-1.6 5.685.75.75 0 1 1 1.493-.154
+            6.5 6.5 0 1 0 1.18-4.458l1.358 1.358A.25.25 0 0 1 3.896 6H.25A.25.25 0 0 1 0
+            5.75V2.104a.25.25 0 0 1 .427-.177ZM7.75 4a.75.75 0 0 1
+            .75.75v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7
+            8.25v-3.5A.75.75 0 0 1 7.75 4Z"
+		></path>
+	</svg>
+}
+
+templ iconFile() {
+	<svg
+		class="icon-file"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="currentColor"
+		aria-hidden="true"
+	>
+		<path
+			d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914
+            2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75
+            0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0
+            .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9
+            4.25V1.5Zm6.75.062V4.25c0
+            .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"
+		></path>
+	</svg>
+}
+
+templ iconMenu() {
+	<svg
+		class="icon-menu"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1.5"
+		stroke-linecap="round"
+		aria-hidden="true"
+	>
+		<path d="M2 4h12M2 8h12M2 12h12"></path>
+	</svg>
+}
+
+templ iconSearch() {
+	<svg
+		class="icon-search"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1.5"
+		stroke-linecap="round"
+		aria-hidden="true"
+	>
+		<circle cx="7" cy="7" r="4.5"></circle>
+		<path d="M10.5 10.5L14 14"></path>
+	</svg>
+}
+
+templ iconArrowUpRight() {
+	<svg
+		class="icon-arrow-up-right"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1.5"
+		stroke-linecap="round"
+		aria-hidden="true"
+	>
+		<path d="M6 3h7v7M13 3L4 12"></path>
+	</svg>
+}
+
+templ iconDesktop() {
+	<svg
+		class="icon-desktop"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1.5"
+		stroke-linecap="round"
+		aria-hidden="true"
+	>
+		<rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1.25"></rect>
+		<path d="M5.5 14.25h5M8 11.25v3"></path>
+	</svg>
+}
+
+templ iconSun() {
+	<svg
+		class="icon-sun"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1.5"
+		stroke-linecap="round"
+		aria-hidden="true"
+	>
+		<circle cx="8" cy="8" r="3"></circle>
+		<path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"></path>
+	</svg>
+}
+
+templ iconMoon() {
+	<svg
+		class="icon-moon"
+		width="16"
+		height="16"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1.5"
+		stroke-linejoin="round"
+		aria-hidden="true"
+	>
+		<path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z"></path>
+	</svg>
+}

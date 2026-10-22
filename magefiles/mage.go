@@ -24,6 +24,7 @@ const (
 	toolGovulncheck = "golang.org/x/vuln/cmd/govulncheck@latest"
 	toolTempl       = "github.com/a-h/templ/cmd/templ@v0.3.1070"
 	toolMinify      = "github.com/tdewolff/minify/v2/cmd/minify@latest"
+	toolTemplier    = "github.com/romshark/templier@v0.13.2"
 )
 
 // submoduleRoots lists directories containing sub-modules (their own go.mod)
@@ -32,6 +33,7 @@ var submoduleRoots = []string{
 	"example",
 	acceptanceRoot,
 	"internal/templatingbench",
+	docsModule,
 	"internal/parser/testdata",
 	"internal/parser/internal/templcheck/testdata",
 }
@@ -63,7 +65,11 @@ func Test() error {
 	if err := Lint(); err != nil {
 		return err
 	}
-	return run("go", "test", "./...", "-cover")
+	if err := run("go", "test", "./...", "-cover"); err != nil {
+		return err
+	}
+	fmt.Println("==> go test ./... in", docsModule)
+	return runIn(docsModule, "go", "test", "./...", "-cover")
 }
 
 // Coverage reports 2 numbers. The first is how much of the generator itself
@@ -139,6 +145,10 @@ func Lint() error {
 		return err
 	}
 	if err := goRun(toolGolangCI, "run", "./..."); err != nil {
+		return err
+	}
+	fmt.Println("==> golangci-lint in", docsModule)
+	if err := runIn(docsModule, "go", "run", toolGolangCI, "run", "./..."); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
@@ -312,9 +322,14 @@ func LintDatapages() error {
 	})
 }
 
-// Vulncheck runs govulncheck on the root module and all examples.
+// Vulncheck runs govulncheck on the root module, the docs module and all
+// examples.
 func Vulncheck() error {
 	if err := goRun(toolGovulncheck, "./..."); err != nil {
+		return err
+	}
+	fmt.Println("==> govulncheck in", docsModule)
+	if err := runIn(docsModule, "go", "run", toolGovulncheck, "./..."); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
@@ -495,6 +510,10 @@ func GenTempl() error {
 	return nil
 }
 
+// docsModule holds the templates, the stylesheet and the renderer of the GitHub
+// Pages site. A module of its own keeps goldmark and Chroma out of the root go.mod.
+const docsModule = "internal/tools/render-pages"
+
 // GenDocs generates documentation pages.
 func GenDocs() error {
 	if err := CheckWatch(); err != nil {
@@ -505,14 +524,47 @@ func GenDocs() error {
 		version = "latest"
 	}
 	version = strings.TrimSpace(version)
-	if err := goRun(toolTempl, "generate", "-path", "./internal/docs-src"); err != nil {
+	if err := goRun(toolTempl, "generate", "-path", docsModule); err != nil {
 		return err
 	}
-	if err := run("go", "run", "./internal/tools/render-pages", "-version", version); err != nil {
+	if err := runIn(docsModule, "go", "run", ".", "-version", version); err != nil {
 		return err
 	}
-	fmt.Println("==> minify internal/docs-src/style.css -> docs/style.css")
-	return goRun(toolMinify, "-o", "docs/style.css", "internal/docs-src/style.css")
+	css := filepath.Join(docsModule, "style.css")
+	fmt.Println("==> minify", css, "-> docs/style.css")
+	return goRun(toolMinify, "-o", "docs/style.css", css)
+}
+
+// WatchDocs serves the GitHub Pages site on http://127.0.0.1:7340 and reloads
+// it when its templates, its stylesheet, its Markdown files or docs/ change.
+// See DEV.md.
+//
+// templ watch mode keeps the template strings in files under
+// TEMPL_DEV_MODE_ROOT, the system temporary directory by default.
+// templ generate deletes them there, which fails every page of a watch until
+// the next template change. A directory of its own keeps a templ generate
+// that runs meanwhile, as in [GenDocs], from deleting them.
+//
+// TEMPL_DEV_MODE_WATCH_ROOT limits those files to the templates of the docs
+// module. Without it the server looks for them for the Morpheus components in
+// the module cache too, which no watch writes, and fails the docs pages.
+func WatchDocs() error {
+	root, err := os.MkdirTemp("", "datapages-watchdocs-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+	watched, err := filepath.Abs(docsModule)
+	if err != nil {
+		return err
+	}
+	if err := os.Setenv("TEMPL_DEV_MODE_ROOT", root); err != nil {
+		return err
+	}
+	if err := os.Setenv("TEMPL_DEV_MODE_WATCH_ROOT", watched); err != nil {
+		return err
+	}
+	return runIn(docsModule, "go", "run", toolTemplier)
 }
 
 // GenOfflineWorker minifies the service worker the offline module embeds.

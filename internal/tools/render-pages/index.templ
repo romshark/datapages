@@ -1,11 +1,11 @@
-package docs
+package main
 
 import _ "embed"
 
 //go:embed example.go.txt
 var exampleGoTxt string
 
-templ Index(version string) {
+templ indexPage(version string) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -17,62 +17,49 @@ templ Index(version string) {
 				content="Datapages is a Templ + Go + Datastar web framework. Focus on your business logic, generate the boilerplate."
 			/>
 			<link rel="icon" href="favicon.svg" type="image/svg+xml"/>
+			@themeScript()
 			<link rel="stylesheet" href="style.css"/>
 		</head>
 		<body>
-			<header class="site-header">
-				<span class="logo">
-					@svgLogo()
-					<span class="beta-badge">beta</span>
-				</span>
-				<nav>
-					<a href="https://github.com/romshark/datapages">GitHub</a>
-					<a href="https://pkg.go.dev/github.com/romshark/datapages">Docs</a>
-				</nav>
-			</header>
-			// Hero
-			<section class="hero">
-				<div class="gopher">
-					@svgGopher()
-				</div>
-				<h1>Write your web frontend <span class="accent">entirely in <i>Go</i></span></h1>
-				<p class="subtitle">
-					Focus on your business logic
-					<br/>
-					and let Datapages generate the boilerplate.
-				</p>
-				<div class="install">go install github.com/romshark/datapages/cmd/datapages@{ version }</div>
-				<div class="cta">
+			@skipLink()
+			@siteHeader("./", "", "")
+			<main id="main-content" tabindex="-1">
+				// Hero
+				<section class="hero">
+					<div class="gopher">
+						@svgGopher()
+					</div>
+					<h1>Write your web frontend <span class="accent">entirely in <i>Go</i></span></h1>
+					<p class="subtitle">
+						Focus on your business logic
+						<br/>
+						and let Datapages generate the boilerplate.
+					</p>
+					<div class="install">go install github.com/romshark/datapages/cmd/datapages@{ version }</div>
+					<div class="cta">
+						<a href="docs/installation" class="btn btn-primary">
+							@iconRocket()
+							Getting Started
+						</a>
+						<a href="docs/" class="btn btn-secondary">
+							@iconBook()
+							Documentation
+						</a>
+					</div>
+				</section>
+				// Tech badges
+				<div class="tech">
+					<a href="https://templ.guide" target="_blank">Templ</a>
+					<a href="https://go.dev" target="_blank">Go</a>
+					<a href="https://data-star.dev" target="_blank">Datastar</a>
+					<a href="https://nats.io" target="_blank">NATS</a>
 					<a
-						href="https://github.com/romshark/datapages/blob/main/GUIDE.md"
-						class="btn btn-primary"
-					>
-						@svgIconGettingStarted()
-						Getting Started
-					</a>
-					<a
-						href="https://pkg.go.dev/github.com/romshark/datapages#section-readme"
-						class="btn btn-secondary"
-					>
-						@svgIconDoc()
-						Documentation
-					</a>
+						href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events"
+						target="_blank"
+					>Server-Sent Events</a>
 				</div>
-			</section>
-			// Tech badges
-			<div class="tech">
-				<a href="https://templ.guide" target="_blank">Templ</a>
-				<a href="https://go.dev" target="_blank">Go</a>
-				<a href="https://data-star.dev" target="_blank">Datastar</a>
-				<a href="https://nats.io" target="_blank">NATS</a>
-				<a
-					href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events"
-					target="_blank"
-				>Server-Sent Events</a>
-			</div>
-			<footer class="site-footer">
-				<span>MIT License &copy; 2026 Roman Scharkov</span>
-			</footer>
+			</main>
+			@siteFooter("./")
 			<script src="index.js"></script>
 		</body>
 	</html>
@@ -140,33 +127,5 @@ templ svgGopher() {
 			<path fill-rule="evenodd" clip-rule="evenodd" fill="#F6D2A2" stroke="#231F20" stroke-width="3" stroke-linecap="round" d="M178.431,138.673c-12.059,1.028-21.916,15.366-15.646,26.709c8.303,15.024,26.836-1.329,38.379,0.203c13.285,0.272,24.17,14.047,34.84,2.49c11.867-12.854-5.109-25.373-18.377-30.97L178.431,138.673z"></path>
 			<path fill-rule="evenodd" clip-rule="evenodd" d="M176.913,138.045c-0.893-20.891,38.938-23.503,43.642-6.016C225.247,149.475,178.874,153.527,176.913,138.045C175.348,125.682,176.913,138.045,176.913,138.045z"></path>
 		</g>
-	</svg>
-}
-
-templ svgIconGettingStarted() {
-	<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-		<path
-			d="M14.064 0a8.75 8.75 0 00-6.187 2.563l-.459.458c-.314.314-.616.641
-            -.904.979H3.31a1.75 1.75 0 00-1.49.833L.11 7.607a.75.75 0 00.418 1.11l3.102
-            .954c.037.051.079.1.124.145l2.429 2.428c.046.046.094.088.145.125l.954 3.102a.75.75
-            0 001.11.418l2.774-1.707a1.75 1.75 0 00.833-1.49V9.485c.338-.288.665-.59.979
-            -.904l.458-.459A8.75 8.75 0 0016 1.936V1.75A1.75 1.75 0 0014.25 0h-.186zM10.5
-            5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z"
-		></path>
-	</svg>
-}
-
-templ svgIconDoc() {
-	<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-		<path
-			d="M0 1.75A.75.75 0 01.75 1h4.253c1.227 0 2.317.59 3 1.501A3.744
-            3.744 0 0111.006 1h4.245a.75.75 0 01.75.75v10.5a.75.75 0
-            01-.75.75h-4.507a2.25 2.25 0 00-1.591.659l-.622.621a.75.75 0
-            01-1.06 0l-.622-.621A2.25 2.25 0 005.258 13H.75a.75.75 0
-            01-.75-.75zm7.251 10.324l.004-5.073-.002-2.253A2.25 2.25 0
-            005.003 2.5H1.5v9h3.757a3.75 3.75 0 011.994.574zM8.755
-            4.75l-.004 7.322a3.752 3.752 0 011.992-.572H14.5v-9h-3.495a2.25
-            2.25 0 00-2.25 2.25z"
-		></path>
 	</svg>
 }

@@ -17,6 +17,7 @@
 - `mage genDatapages`: generate Datapages code.
 - `mage genAISkills`: generate AI agent instructions for every example.
 - `mage genOfflineWorker`: minify the offline service worker.
+- `mage watchDocs`: serve the GitHub Pages site and reload it on changes. See `DEV.md`.
 - `mage gen`: generate templ files, Datapages code, AI agent instructions, documentation and the offline service worker.
 - `mage checkGen`: check that generated code is current.
 - `mage checkWatch`: report active `datapages watch` processes and fail if any exist.
@@ -53,10 +54,10 @@ Internal, used by the CLI and build tooling:
 - `internal/serverscan/` - finds the app package and the target package from the `datapages.NewServer` calls. AST only, so it reads a `main.go` naming a package the first run has not written yet.
 - `internal/templatingbench/` - the templating benchmarks `FAQ.md` quotes.
 - `internal/cmd/` - CLI command implementations, `package cmd`.
-- `internal/tools/render-pages/` - renders `docs/index.html`.
+- `internal/tools/render-pages/` - the GitHub Pages templates, stylesheet and renderer. It uses goldmark and Chroma to render the files listed in `docs.go`. Those sources include `guide/`, `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md`. It writes `docs/index.html`, 1 HTML and Markdown file per documentation page, `docs/search.json`, `docs/llms.txt` and `docs/llms-full.txt`. A separate module keeps its dependencies out of the root `go.mod`. `DEV.md` describes the watcher.
 - `internal/tools/release-notes/` - prints the section of `CHANGELOG.md` that the release workflow publishes for a tag.
-- `internal/docs-src/` - templ source and CSS for the docs page.
-- `docs/` - generated GitHub Pages output.
+- `guide/` - the Markdown sources of the documentation pages, 1 file per page.
+- `docs/` - the GitHub Pages site: committed images, scripts and minified stylesheet, and the generated pages.
 - `magefiles/` - build targets.
 
 Public, imported by application or generated code:
@@ -119,7 +120,7 @@ Never edit a generated file. Change the source or the generator, then regenerate
 - `*_templ.go`: written by templ from the `*.templ` next to it. `mage genTempl`, not `templ generate` directly.
 - `*/datapagesgen/**` in examples and acceptance cases: written by the CLI from the app package. `mage genDatapages` builds `cmd/datapages` from source and runs `datapages gen` in every example and acceptance module.
 - In every `example/*` module: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and everything under `.agents/skills/` and `.claude/skills/`. Written by `datapages init` from `internal/generator/agentdocs/data`. `mage genAISkills` runs it in every example to catch drift.
-- `docs/index.html`: written by `internal/tools/render-pages` from `internal/docs-src/`. `mage genDocs`.
+- `docs/index.html`, `docs/docs/`, `docs/specification.html`, `docs/specification.md`, `docs/search.json`, `docs/llms.txt` and `docs/llms-full.txt`: written by `mage genDocs` through `internal/tools/render-pages`. The inputs are its templates, `guide/`, `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md`. Git ignores the output. The Pages workflow generates it for each deployment.
 - `modules/offline/sw.min.js`: minified from `sw.js` next to it. `mage genOfflineWorker`. The module embeds the minified file, which is why it is committed: `go build` cannot run the target.
 - `mage gen` runs all of them.
 
