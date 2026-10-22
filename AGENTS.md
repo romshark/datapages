@@ -54,7 +54,7 @@ Internal, used by the CLI and build tooling:
 - `internal/serverscan/` - finds the app package and the target package from the `datapages.NewServer` calls. AST only, so it reads a `main.go` naming a package the first run has not written yet.
 - `internal/templatingbench/` - the templating benchmarks `FAQ.md` quotes.
 - `internal/cmd/` - CLI command implementations, `package cmd`.
-- `internal/tools/render-pages/` - the GitHub Pages templates, stylesheet and renderer. It uses goldmark and Chroma to render the files listed in `docs.go`. Those sources include `guide/`, `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md`. It writes `docs/index.html`, 1 HTML and Markdown file per documentation page, `docs/search.json`, `docs/llms.txt` and `docs/llms-full.txt`. A separate module keeps its dependencies out of the root `go.mod`. `DEV.md` describes the watcher.
+- `internal/tools/render-pages/` - renders the GitHub Pages site, as its `README.md` describes.
 - `internal/tools/release-notes/` - prints the section of `CHANGELOG.md` that the release workflow publishes for a tag.
 - `guide/` - the Markdown sources of the documentation pages, 1 file per page.
 - `docs/` - the GitHub Pages site: committed images, scripts and minified stylesheet, and the generated pages.
