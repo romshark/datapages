@@ -226,6 +226,27 @@ func (p PageInbox) OnNoticed(event EventNoticed, sse datapages.SSE) error {
 	))
 }
 
+// PageThread is /threads/{thread}
+//
+// PageInbox with a path variable, which the stream path is built from.
+type PageThread struct{ App *App }
+
+func (PageThread) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Thread string `path:"thread"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="thread">thread ` +
+		templ.EscapeString(path.Values.Thread) + `</div>`), nil
+}
+
+func (p PageThread) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="thread">` + templ.EscapeString(event.Text) + `</div>`,
+	))
+}
+
 // StateNotes is the per-tab state of PageNotes.
 type StateNotes struct{ Count int }
 

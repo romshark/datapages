@@ -1796,11 +1796,11 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('`)
-		_, _ = io.WriteString(w, `/post/`)
-		htmlattr.WritePathValue(w, path.Values.Slug)
-		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('`)
+			_, _ = io.WriteString(w, `/post/`)
+			htmlattr.WritePathValue(w, path.Values.Slug)
+			_, _ = io.WriteString(w, `/`)
 			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}
@@ -2427,11 +2427,11 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('`)
-		_, _ = io.WriteString(w, `/user/`)
-		htmlattr.WritePathValue(w, path.Values.Name)
-		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, ` data-init="@get('`)
+			_, _ = io.WriteString(w, `/user/`)
+			htmlattr.WritePathValue(w, path.Values.Name)
+			_, _ = io.WriteString(w, `/`)
 			_, _ = io.WriteString(w, `_$/',{retry:'always',retryMaxCount:Infinity})"`)
 		}
 	}

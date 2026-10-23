@@ -860,18 +860,16 @@ func (w *Writer) writeGETBodyAttrs(
 				// Auth-only stream.
 				if h.InputPath != nil {
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
+					w.Line(2, `if sess.UserID() != "" {`)
+					w.Line(3, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					if hasEnableBgStream {
-						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `_$/'`)")
 						writeTailChoice(3)
-						w.Line(2, "}")
 					} else {
-						w.Line(2, `if sess.UserID() != "" {`)
 						w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
-						w.Line(2, "}")
 					}
+					w.Line(2, "}")
 				} else if hasEnableBgStream {
 					w.Line(0, "")
 					w.Line(2, `if sess.UserID() != "" {`)
