@@ -217,3 +217,52 @@ func TestGenerateNilModelWritesStubs(t *testing.T) {
 		require.Contains(t, string(b), generator.GeneratedHeader)
 	}
 }
+
+// TestGenerateWriteErrorKeepsExistingCode tests a destination that refuses
+// 1 file after the others were written, here with a file in the way of the
+// href package, which is written last. Written 1 by 1, the files before it
+// would hold new code next to the old code of the rest. Every file keeps what
+// the last run wrote, and no temporary file is left behind.
+func TestGenerateWriteErrorKeepsExistingCode(t *testing.T) {
+	t.Parallel()
+
+	app, errs := parser.Parse(filepath.Join("..", "parser", "testdata", "basic"))
+	require.Zero(t, errs.Len(), errs.Error())
+
+	dst := t.TempDir()
+	opts := generator.Options{GenImport: "datapagestest/x/datapagesgen"}
+	require.NoError(t, generator.Generate(dst, "datapagesgen", app, 0o644, opts))
+
+	href := filepath.Join(dst, "href")
+	require.NoError(t, os.RemoveAll(href))
+	require.NoError(t, os.WriteFile(href, nil, 0o644))
+	before := filesOf(t, dst)
+
+	// Prometheus changes app_gen.go, the first file written.
+	opts.Prometheus = true
+	require.Error(t, generator.Generate(dst, "datapagesgen", app, 0o644, opts))
+	require.Equal(t, before, filesOf(t, dst))
+}
+
+// filesOf reads every file of a tree, keyed by its path relative to the tree.
+func filesOf(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	require.NoError(t, filepath.WalkDir(dir,
+		func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			files[rel] = string(b)
+			return nil
+		}))
+	return files
+}

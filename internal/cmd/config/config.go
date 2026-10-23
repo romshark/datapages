@@ -159,12 +159,26 @@ func (r *WatcherRequires) UnmarshalText(text []byte) error {
 	return unmarshalEnum(text, "requires", watcherRequires, r)
 }
 
+// fileNames are the names [Load] reads the configuration from.
+var fileNames = [...]string{"datapages.yml", "datapages.yaml"}
+
+// Exists reports whether moduleDir holds a configuration file under one of
+// the names [Load] reads.
+func Exists(moduleDir string) bool {
+	for _, name := range fileNames {
+		if _, err := os.Stat(filepath.Join(moduleDir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Load reads datapages.yml or datapages.yaml from moduleDir.
 // If neither file exists, default values are returned and found is false.
 // Returns an error if both files exist simultaneously or if cmd leaves moduleDir.
 func Load(moduleDir string) (c Config, found bool, _ error) {
 	var foundName string
-	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
+	for _, name := range fileNames {
 		if _, err := os.Stat(filepath.Join(moduleDir, name)); err != nil {
 			continue
 		}

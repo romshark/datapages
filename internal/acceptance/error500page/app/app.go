@@ -2,7 +2,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -40,4 +42,18 @@ type PageGone struct{ App *App }
 
 func (PageGone) GET(_ *http.Request) (body datapages.Component, err error) {
 	return nil, datapages.ErrNotFound
+}
+
+// PageHalf is /half
+//
+// Its body panics after it wrote part of the page.
+type PageHalf struct{ App *App }
+
+func (PageHalf) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
+		if _, err := io.WriteString(w, `<p id="half">half</p>`); err != nil {
+			return err
+		}
+		panic("the body failed halfway")
+	}), nil
 }

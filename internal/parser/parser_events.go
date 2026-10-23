@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/structtag"
 )
@@ -160,7 +161,10 @@ func validateEventType(
 			}
 		}
 
-		// Recurse
-		validateEventType(ctx, errs, name, f.Type(), visited)
+		// A field of a type from another module, as url.URL, encodes the way
+		// encoding/json encodes it. Its fields are not the app's to tag.
+		if !gotypes.DeclaredOutside(f.Type(), ctx.modulePath()) {
+			validateEventType(ctx, errs, name, f.Type(), visited)
+		}
 	}
 }

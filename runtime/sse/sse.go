@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/contentcoding"
 )
 
 // Datastar event types for the client version loaded by
@@ -44,16 +45,17 @@ type Stream struct {
 	ctx    context.Context
 	w      http.ResponseWriter
 	rc     *http.ResponseController
-	coding *coding // Nil without compression.
+	coding *contentcoding.Coding // Nil without compression.
 
 	lock   sync.Mutex
-	enc    *pooledEncoder // Taken from coding by the first event.
-	err    error          // The first failed write, which every later event returns.
+	enc    *contentcoding.Encoder // Taken from coding by the first event.
+	err    error                  // First write error, returned by later events.
 	closed bool
 }
 
 // Open starts and flushes an event stream. It selects the first coding of c
-// that r accepts by name, else gzip when r accepts *, and none when c is nil.
+// that r accepts by name, else gzip when r accepts *, and none when c is nil
+// or the response already has Cache-Control: no-transform.
 // The caller must call [Stream.Close].
 // The headers and the first flush follow the [SDK specification].
 //
@@ -64,16 +66,23 @@ type Stream struct {
 func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 	s := &Stream{ctx: r.Context(), w: w, rc: http.NewResponseController(w)}
 	h := w.Header()
-	h.Set("Cache-Control", "no-cache")
+	if contentcoding.NoTransform(h) {
+		// Events would compress against each other in 1 window, as attacker
+		// input against a secret sent earlier.
+		c = nil
+		h.Set("Cache-Control", "no-cache, no-transform")
+	} else {
+		h.Set("Cache-Control", "no-cache")
+	}
 	h.Set("Content-Type", "text/event-stream")
 	if r.ProtoMajor == 1 {
 		h.Set("Connection", "keep-alive")
 	}
 	if c != nil {
-		h.Add("Vary", "Accept-Encoding")
+		contentcoding.AddVaryAcceptEncoding(h)
 	}
 	if cd := c.negotiate(r.Header["Accept-Encoding"]); cd != nil {
-		h.Set("Content-Encoding", cd.name)
+		cd.SetContentEncoding(h)
 		s.coding = cd
 	}
 	if err := s.rc.Flush(); err != nil {
@@ -107,11 +116,11 @@ func (s *Stream) Close() {
 		if s.err == nil {
 			s.err = s.enc.Close()
 		}
-		s.coding.put(s.enc)
+		s.coding.Put(s.enc)
 		s.enc = nil
 	case s.err == nil:
 		// Send a valid empty stream for the announced coding.
-		_, s.err = s.w.Write(s.coding.empty)
+		_, s.err = s.w.Write(s.coding.Empty())
 	}
 }
 
@@ -315,7 +324,7 @@ func (s *Stream) write(e *event) error {
 		return s.rc.Flush()
 	}
 	if s.enc == nil {
-		s.enc = s.coding.take(s.w)
+		s.enc = s.coding.Get(s.w)
 	}
 	if err := e.writeFrames(s.enc); err != nil {
 		return err

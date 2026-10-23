@@ -3,11 +3,15 @@
 package acceptance_test
 
 import (
+	"compress/gzip"
 	"context"
+	"io"
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +25,8 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/assets"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/assetcompress"
+	"github.com/romshark/datapages/modules/assetcompress/disk"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -106,6 +112,78 @@ func TestAssetsAreServed(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPageIsCompressed tests that gzip wraps the complete identity response once.
+func TestPageIsCompressed(t *testing.T) {
+	t.Parallel()
+	v := serve(t).Visitor(t)
+
+	plain := v.Get(t, "/")
+	require.Empty(t, plain.Header.Get("Content-Encoding"))
+
+	req := v.NewRequest(t, http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp := v.Send(t, req)
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
+	raw := strings.NewReader(resp.Body)
+	zr, err := gzip.NewReader(raw)
+	require.NoError(t, err, "reading the gzip header")
+	zr.Multistream(false)
+	got, err := io.ReadAll(zr)
+	require.NoError(t, err, "decoding the page")
+	require.Equal(t, plain.Body, string(got))
+	require.Zero(t, raw.Len(), "the page has bytes after its gzip stream")
+}
+
+// countingStore counts the copies put into it.
+type countingStore struct {
+	assetcompress.Store
+	puts atomic.Int64
+}
+
+func (s *countingStore) Put(key string, r io.Reader) error {
+	s.puts.Add(1)
+	return s.Store.Put(key, r)
+}
+
+// TestAssetIsCompressed tests that precompressing the embed.FS passed to
+// WithAssets creates the copies the generated server sends from its
+// subdirectory.
+func TestAssetIsCompressed(t *testing.T) {
+	t.Parallel()
+	copies, err := disk.New(t.TempDir(), disk.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = copies.Close() })
+	store := &countingStore{Store: copies}
+	compressor, err := assetcompress.New(assetcompress.Config{Store: store})
+	require.NoError(t, err)
+	v := serve(t, datapages.WithAssetsCompression(compressor)).Visitor(t)
+	require.NoError(t, compressor.Precompress(context.Background(), app.StaticFS))
+	// Brotli and gzip copies of theme.css. The other files are below 256 bytes.
+	require.Equal(t, int64(2), store.puts.Load())
+
+	want, err := app.StaticFS.ReadFile("static/theme.css")
+	require.NoError(t, err, "reading theme.css")
+	plain := v.Get(t, href.Asset("theme.css"))
+	require.Empty(t, plain.Header.Get("Content-Encoding"))
+	require.Equal(t, string(want), plain.Body)
+
+	req := v.NewRequest(t, http.MethodGet, href.Asset("theme.css"), nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp := v.Send(t, req)
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
+	require.Equal(t, strconv.Itoa(len(resp.Body)), resp.Header.Get("Content-Length"))
+	zr, err := gzip.NewReader(strings.NewReader(resp.Body))
+	require.NoError(t, err, "reading the gzip header")
+	got, err := io.ReadAll(zr)
+	require.NoError(t, err, "decoding the copy")
+	require.Equal(t, string(want), string(got))
+	require.Equal(t, int64(2), store.puts.Load(), "the request created a copy")
 }
 
 // TestAssetsNotBrowsable tests browsable false: a request for a directory
@@ -427,6 +505,48 @@ func counterTotal(t *testing.T, name string) float64 {
 	return total
 }
 
+// TestErrorCounters tests that every error of a handler counts as not recovered,
+// since the app defines no RecoverError. A route that nothing serves is no
+// error of a handler and counts as neither.
+//
+// It doesn't call t.Parallel, because the counters are global to the process.
+// The parallel tests of the case start only after it returns.
+func TestErrorCounters(t *testing.T) {
+	v := serve(t).Visitor(t)
+	tests := map[string]struct {
+		method, path string
+		notRecovered float64
+	}{
+		"action":                  {http.MethodPost, "/fail/", 1},
+		"action after its events": {http.MethodPost, "/half-written/", 1},
+		"refused stream":          {http.MethodGet, "/_$/?refuse=1", 1},
+		"route miss":              {http.MethodGet, "/nowhere/", 0},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			recovered := counterTotal(t,
+				"datapages_internal_errors_recovered_total")
+			notRecovered := counterTotal(t,
+				"datapages_internal_errors_not_recovered_total")
+
+			req := v.NewRequest(t, tt.method, tt.path, nil)
+			req.Header.Set("Datastar-Request", "true")
+			// Send reads to EOF, and the response ends after the handler returns.
+			v.Send(t, req)
+
+			require.Zero(t,
+				counterTotal(t,
+					"datapages_internal_errors_recovered_total")-recovered,
+				"recovered")
+			require.Equal(t, tt.notRecovered,
+				counterTotal(t,
+					"datapages_internal_errors_not_recovered_total")-notRecovered,
+				"not recovered")
+		})
+	}
+}
+
 // TestMetricsWithoutOption tests a server generated with
 // datapages.EnablePrometheus and built without datapages.WithPrometheus.
 // The metrics it counts have nowhere to go.
@@ -454,7 +574,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		wantCacheControl string
 		wantETag         bool
 	}{
-		"no option": {},
+		"no option": {wantCacheControl: "public, max-age=0", wantETag: true},
 		"default": {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
@@ -476,6 +596,8 @@ func TestAssetsCacheHeaders(t *testing.T) {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{Disabled: true}),
 			},
+			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -494,22 +616,31 @@ func TestAssetsCacheHeaders(t *testing.T) {
 }
 
 // TestAssetsCacheRevalidates tests that a matching If-None-Match value returns
-// 304 with an empty body.
+// 304 with an empty body for an embedded file, also without WithAssetsCache.
 func TestAssetsCacheRevalidates(t *testing.T) {
 	t.Parallel()
-	v := serve(t, datapages.WithAssetsCache(datapages.AssetsCacheConfig{})).Visitor(t)
 
-	first := v.Get(t, href.Asset("style.css"))
-	require.Equal(t, http.StatusOK, first.Status)
-	require.NotEmpty(t, first.Body)
-	etag := first.Header.Get("ETag")
-	require.NotEmpty(t, etag)
+	for name, opts := range map[string][]datapages.ServerOption{
+		"no option":  nil,
+		"zero value": {datapages.WithAssetsCache(datapages.AssetsCacheConfig{})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			v := serve(t, opts...).Visitor(t)
 
-	req := v.NewRequest(t, http.MethodGet, href.Asset("style.css"), nil)
-	req.Header.Set("If-None-Match", etag)
-	second := v.Send(t, req)
+			first := v.Get(t, href.Asset("style.css"))
+			require.Equal(t, http.StatusOK, first.Status)
+			require.NotEmpty(t, first.Body)
+			etag := first.Header.Get("ETag")
+			require.NotEmpty(t, etag)
 
-	require.Equal(t, http.StatusNotModified, second.Status)
-	require.Empty(t, second.Body)
-	require.Equal(t, etag, second.Header.Get("ETag"))
+			req := v.NewRequest(t, http.MethodGet, href.Asset("style.css"), nil)
+			req.Header.Set("If-None-Match", etag)
+			second := v.Send(t, req)
+
+			require.Equal(t, http.StatusNotModified, second.Status)
+			require.Empty(t, second.Body)
+			require.Equal(t, etag, second.Header.Get("ETag"))
+		})
+	}
 }

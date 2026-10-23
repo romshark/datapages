@@ -163,6 +163,24 @@ func TestOpen(t *testing.T) {
 	}
 }
 
+// TestOpenNoTransform tests that a Cache-Control: no-transform set before Open
+// keeps the stream uncompressed and stays in the header.
+func TestOpenNoTransform(t *testing.T) {
+	t.Parallel()
+
+	r := streamRequest()
+	r.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+	w := &recorder{h: http.Header{"Cache-Control": {"private, no-transform"}}}
+	s := sse.Open(w, r, compression)
+	require.NoError(t, s.PatchElement(element))
+	s.Close()
+	require.NoError(t, s.Err())
+	require.Empty(t, w.h.Get("Content-Encoding"))
+	require.Empty(t, w.h.Values("Vary"))
+	require.Equal(t, "no-cache, no-transform", w.h.Get("Cache-Control"))
+	require.Contains(t, w.buf.String(), `<div id="out">x</div>`)
+}
+
 // TestOpenWithoutFlushPanics tests a writer that hides [http.Flusher].
 func TestOpenWithoutFlushPanics(t *testing.T) {
 	t.Parallel()
@@ -789,14 +807,14 @@ func TestCompressionConfig(t *testing.T) {
 			acceptEncoding: browser,
 		},
 		"gzip preferred": {
-			conf: datapages.SSECompressionConfig{Codings: []datapages.SSECoding{
-				datapages.SSECodingGzip, datapages.SSECodingZstd,
+			conf: datapages.SSECompressionConfig{Codings: []datapages.Coding{
+				datapages.CodingGzip, datapages.CodingZstd,
 			}},
 			acceptEncoding: browser, want: "gzip",
 		},
 		"zstd only, client without zstd": {
-			conf: datapages.SSECompressionConfig{Codings: []datapages.SSECoding{
-				datapages.SSECodingZstd,
+			conf: datapages.SSECompressionConfig{Codings: []datapages.Coding{
+				datapages.CodingZstd,
 			}},
 			acceptEncoding: "gzip, br",
 		},
@@ -858,6 +876,35 @@ func TestCompressionConfig(t *testing.T) {
 				return
 			}
 			require.Equal(t, want+want, decode(t, tc.want, w.buf.Bytes()))
+		})
+	}
+}
+
+// TestOpenVaryOnce tests that a stream adds Accept-Encoding to a Vary that
+// middleware set before, and keeps it once when it is already listed.
+func TestOpenVaryOnce(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		vary []string
+		want []string
+	}{
+		"other": {
+			vary: []string{"Cookie"},
+			want: []string{"Cookie", "Accept-Encoding"},
+		},
+		"listed": {
+			vary: []string{"Cookie, Accept-Encoding"},
+			want: []string{"Cookie, Accept-Encoding"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &recorder{h: http.Header{"Vary": tc.vary}}
+			s := sse.Open(w, codingRequest("gzip, deflate, br, zstd"), compression)
+			s.Close()
+			require.Equal(t, tc.want, w.h.Values("Vary"))
 		})
 	}
 }
@@ -1211,7 +1258,7 @@ func BenchmarkReRender(b *testing.B) {
 		} {
 			b.Run(size.name+"/"+tc.name, func(b *testing.B) {
 				comp := sse.NewCompression(tc.conf)
-				w := &countingWriter{discard: discard{h: make(http.Header)}}
+				w := &countingWriter{h: make(http.Header)}
 				versions := make([]int, len(items))
 				// 2 collections empty the pools of the previous runs.
 				var before, after runtime.MemStats
@@ -1267,10 +1314,12 @@ func listItems(n int) []string {
 	var items []string
 	for size := 0; size < n; {
 		var b strings.Builder
-		b.WriteString(`<li id="item-` + strconv.Itoa(len(items)) +
-			`"><input type="checkbox">`)
+		b.WriteString(`<li id="item-`)
+		b.WriteString(strconv.Itoa(len(items)))
+		b.WriteString(`"><input type="checkbox">`)
 		for range 3 + r.IntN(4) {
-			b.WriteString(" " + words[r.IntN(len(words))])
+			b.WriteByte(' ')
+			b.WriteString(words[r.IntN(len(words))])
 		}
 		b.WriteString("</li>")
 		items = append(items, b.String())

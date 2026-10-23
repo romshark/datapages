@@ -519,11 +519,11 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	p := dpapp.PageError404{
 		App: s.app,
 	}
 
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, redirect := p.GET(r)
 	if httpserve.Redirect(w, r, redirect) {
 		return
@@ -540,6 +540,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Edit")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -576,7 +577,6 @@ func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
 	path.Values.ID = r.PathValue("id")
 
 	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "App.Edit")
 	err := s.app.PUTEdit(
 		r,
 		path,
@@ -593,10 +593,10 @@ func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	p := dpapp.PageError404{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, redirect := p.GET(r)
 	if httpserve.Redirect(w, r, redirect) {
 		return
@@ -614,6 +614,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -640,7 +641,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		query,
@@ -689,6 +689,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -776,6 +777,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTCreate(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Create")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -791,7 +793,6 @@ func (s pageIndexHandlers) POSTCreate(
 	}
 
 	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Create")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -809,6 +810,7 @@ func (s pageIndexHandlers) POSTCreate(
 func (s pageIndexHandlers) POSTFilter(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Filter")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -863,6 +865,7 @@ func (s pageIndexHandlers) POSTFilter(
 type pageItemHandlers struct{ *Server }
 
 func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 
 	var path datapages.Path[struct {
 		ID string `path:"id"`
@@ -881,7 +884,6 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 	body, redirect, err := p.GET(
 		r,
 		path,
@@ -917,6 +919,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageItem stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1002,6 +1005,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageItemHandlers) DELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageItem.Item")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -1012,7 +1016,6 @@ func (s pageItemHandlers) DELETEItem(
 	path.Values.ID = r.PathValue("id")
 
 	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageItem.Item")
 	p := dpapp.PageItem{
 		App: s.app,
 	}

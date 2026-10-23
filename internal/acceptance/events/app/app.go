@@ -384,7 +384,7 @@ func (PageAdaptive) StreamConfig(r *http.Request) (datapages.StreamConfig, error
 		return datapages.StreamConfig{}, errors.New("the stream configuration failed")
 	case r.Header.Get("Save-Data") == "on":
 		return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
-			Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+			Codings: []datapages.Coding{datapages.CodingGzip},
 		}}, nil
 	case r.URL.Query().Has("invalid"):
 		return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
@@ -405,7 +405,7 @@ func (PageAdaptive) POSTGzip(_ *http.Request, sse datapages.SSE) error {
 
 func (PageAdaptive) StreamConfigPOSTGzip() datapages.StreamConfig {
 	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
-		Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+		Codings: []datapages.Coding{datapages.CodingGzip},
 	}}
 }
 
@@ -444,7 +444,7 @@ func (PageBoard) StreamConfig(
 		return datapages.StreamConfig{}, nil
 	}
 	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
-		Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+		Codings: []datapages.Coding{datapages.CodingGzip},
 	}}, nil
 }
 

@@ -6,11 +6,23 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
+	"github.com/romshark/datapages/internal/parser/validate"
 	"github.com/romshark/datapages/internal/subject"
 )
+
+// queryKeyOf replaces each character a query tag may not contain with '_'.
+func queryKeyOf(tag string) string {
+	return strings.Map(func(r rune) rune {
+		if r < utf8.RuneSelf && validate.IsQueryKeyChar(byte(r)) {
+			return r
+		}
+		return '_'
+	}, tag)
+}
 
 // toSnakeCase converts a PascalCase or camelCase Go identifier to snake_case.
 // Examples:
@@ -349,6 +361,14 @@ func Suggest(err error) string {
 			d.FieldName, toSnakeCase(d.FieldName),
 		)
 
+	case errors.Is(err, parser.ErrQueryFieldInvalidTag):
+		var d *paramvalidation.QueryFieldInvalidTagError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Rename the query tag of field %s, e.g. `query:\"%s\"`",
+			d.FieldName, queryKeyOf(d.TagValue))
+
 	case errors.Is(err, parser.ErrSignalsFieldMissingTag):
 		var d *paramvalidation.SignalsFieldMissingTagError
 		if !errors.As(err, &d) {
@@ -544,8 +564,9 @@ func Suggest(err error) string {
 				fn, d.URL)
 		}
 		return fmt.Sprintf(
-			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } from the generated action package "+
-				"instead of %q", d.URL,
+			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } "+
+				"from the generated action package instead of %q",
+			d.URL,
 		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiableWithPrefix):

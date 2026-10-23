@@ -497,6 +497,24 @@ func TestError404HeadRendersFromTheSession(t *testing.T) {
 	})
 }
 
+// TestOfflinePageRendersWithAZeroSession tests PageOffline loaded with a session cookie,
+// as the service worker loads it when it installs. The worker shows that
+// copy to every visitor, which neither the page nor the head may tailor.
+func TestOfflinePageRendersWithAZeroSession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+		c.signIn(t, "carol", "")
+
+		status, body := c.get(t, "/offline/")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.Contains(t, body, "<title>anonymous</title>", "%s", body)
+		require.NotContains(t, body, "carol", "%s", body)
+		require.NotContains(t, body, "X-CSRF-Token", "%s", body)
+	})
+}
+
 // TestInlineSignInCarriesCSRFScript tests a sign-in answering with a document
 // instead of a navigation. Its Set-Cookie makes the CSRF token mandatory for
 // every later action of the page, which sends what the script carries.

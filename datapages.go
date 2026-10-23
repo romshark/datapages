@@ -381,6 +381,13 @@ type Redirect struct {
 // and with ModTime or ETag the conditional requests
 // [If-Modified-Since], [If-None-Match], [If-Match] and [If-Range].
 //
+// [WithResponseCompression] leaves a File unchanged to preserve [Content-Length],
+// ranges and its ETag. To reduce transfer size, serve a precompressed archive
+// such as export.csv.gz with Type application/gzip, or negotiate [Accept-Encoding]
+// and set [Content-Encoding] in Header.
+// Each representation needs its own ETag and Vary: Accept-Encoding.
+// Ranges then address encoded bytes, and ServeContent omits Content-Length.
+//
 // A handler that takes a [Session] sends [Vary]: Cookie, which keeps a browser
 // from showing one visitor the copy it stored for another. A shared cache, such
 // as a CDN, then stores 1 copy per cookie: serve a file that is the same for
@@ -408,6 +415,9 @@ type Redirect struct {
 // [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
 // [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
 // [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+// [Accept-Encoding]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Accept-Encoding
+// [Content-Encoding]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Encoding
+// [Content-Length]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Length
 // [Vary]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary
 // [X-Content-Type-Options]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options
 // [MIME sniffing]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types#mime_sniffing

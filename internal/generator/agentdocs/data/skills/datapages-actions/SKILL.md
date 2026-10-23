@@ -107,6 +107,8 @@ Datapages template linter.
 
 Serve a file a visitor uploaded with `Disposition: datapages.FileDisposition{Download: true}`, or show inline only types from an allowlist. The type of an upload is what the uploading browser reported, and `text/html` or `image/svg+xml` runs script on the application's origin when shown. `X-Content-Type-Options: nosniff`, which Datapages always sends, does not prevent that.
 
+Datapages leaves `datapages.File` responses uncompressed to preserve `Content-Length`, ranges and `ETag`. For smaller transfers, serve a precompressed archive such as `export.csv.gz` with `Type: "application/gzip"`, or negotiate `Accept-Encoding`. A negotiated representation needs `Content-Encoding` in `Header`, its own `ETag` and `Vary: Accept-Encoding`.
+
 The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. Without `MaxAge` or `NoStore`, Datapages adds `no-cache`, also next to `Private`. `NoStore` also keeps the file out of the offline worker's cache. A handler that takes `Session` sends `Vary: Cookie`, which keeps one visitor from getting the copy a browser or CDN stored for another. Serve a file that is the same for every visitor from a handler without `Session`, which a CDN can share.
 
 ## SSE

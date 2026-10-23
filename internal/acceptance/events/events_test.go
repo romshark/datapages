@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -668,7 +669,7 @@ func TestStreamConfigCompression(t *testing.T) {
 		"server's": {want: "zstd"},
 		"gzip only": {
 			conf: &datapages.SSECompressionConfig{
-				Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+				Codings: []datapages.Coding{datapages.CodingGzip},
 			},
 			want: "gzip",
 		},
@@ -824,9 +825,7 @@ func streamResponse(
 	t.Helper()
 	v := srv.Visitor(t)
 	req := v.NewRequest(t, http.MethodGet, path, nil)
-	for k, vs := range header {
-		req.Header[k] = vs
-	}
+	maps.Copy(req.Header, header)
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	// Only the head is read. Visitor.Send would wait for the end of a stream.
@@ -843,9 +842,7 @@ func actionResponse(
 	t.Helper()
 	v := srv.Visitor(t)
 	req := v.NewRequest(t, http.MethodPost, path, nil)
-	for k, vs := range header {
-		req.Header[k] = vs
-	}
+	maps.Copy(req.Header, header)
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	// Only the head is read. Visitor.Send would wait for the end of a stream.

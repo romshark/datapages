@@ -92,15 +92,24 @@ func findModuleDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("getting working directory: %w", err)
 	}
+	if m := moduleDirOf(dir); m != "" {
+		return m, nil
+	}
+	return "", errors.New(
+		"not inside a Go module (no go.mod found in any parent directory)",
+	)
+}
+
+// moduleDirOf returns the nearest directory at or above dir that contains go.mod.
+// It returns an empty string when none exists.
+func moduleDirOf(dir string) string {
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", errors.New(
-				"not inside a Go module (no go.mod found in any parent directory)",
-			)
+			return ""
 		}
 		dir = parent
 	}

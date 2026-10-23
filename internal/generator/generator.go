@@ -3,8 +3,10 @@ package generator
 import (
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	goimports "golang.org/x/tools/imports"
 
@@ -42,9 +44,9 @@ type Options struct {
 // none yet, so that IDEs can resolve the import. A package that already holds a
 // file keeps it.
 //
-// Nothing is written unless every file renders.
-// On error the destination is left as it was.
-// A failed run cannot replace working generated code with code that does not build.
+// Nothing is written unless every file renders, and nothing is replaced unless
+// every file is written in full. An error leaves the destination as it was,
+// except after a failed rename, see [writeFiles].
 func Generate(
 	dstDir string, pkgName string, m *model.App, perm os.FileMode, opts Options,
 ) error {
@@ -60,11 +62,7 @@ func Generate(
 
 	// rendered holds every file to write.
 	// They are written only after all of them are formatted.
-	type file struct {
-		path    string
-		content []byte
-	}
-	var rendered []file
+	var rendered []genFile
 
 	render := func(rel string, write func()) error {
 		path := filepath.Join(dstDir, rel)
@@ -75,7 +73,7 @@ func Generate(
 		}
 		// goimports may hand back the writer's own buffer,
 		// which the next file reuses.
-		rendered = append(rendered, file{path, append([]byte(nil), out...)})
+		rendered = append(rendered, genFile{path, append([]byte(nil), out...)})
 		return nil
 	}
 
@@ -119,13 +117,8 @@ func Generate(
 		return err
 	}
 
-	for _, f := range rendered {
-		if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
-			return fmt.Errorf("creating directory %s: %w", filepath.Dir(f.path), err)
-		}
-		if err := os.WriteFile(f.path, f.content, perm); err != nil {
-			return fmt.Errorf("writing %s: %w", f.path, err)
-		}
+	if err := writeFiles(rendered, perm); err != nil {
+		return err
 	}
 
 	// An old assets package is removed once the rest is in place.
@@ -165,6 +158,7 @@ func generateStubs(dstDir, pkgName string, perm os.FileMode, hasAssets bool) err
 	}
 	// The assets package is not removed here. Whether the application has
 	// assets is only known from a model, and there is none.
+	var files []genFile
 	for _, pkg := range stubs {
 		p := filepath.Join(pkg.dir, pkg.file)
 		if _, err := os.Stat(p); err == nil {
@@ -172,13 +166,74 @@ func generateStubs(dstDir, pkgName string, perm os.FileMode, hasAssets bool) err
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("reading %s: %w", p, err)
 		}
-		if err := os.MkdirAll(pkg.dir, 0o755); err != nil {
-			return fmt.Errorf("creating directory %s: %w", pkg.dir, err)
+		files = append(files, genFile{
+			p, []byte(GeneratedHeader + "\n\npackage " + pkg.name + "\n"),
+		})
+	}
+	return writeFiles(files, perm)
+}
+
+// genFile is 1 file to write and its content.
+type genFile struct {
+	path    string
+	content []byte
+}
+
+// writeFiles writes each file to a new file in its directory, then renames
+// them over their paths. An error, or the process being killed, before the
+// renames leaves every path as it was. A failed rename keeps the files renamed
+// before it. [os.WriteFile] is not used because it truncates the file first,
+// which leaves it cut off on such an error.
+//
+// The files are not synced. A power loss can leave one empty,
+// which the next run that succeeds rewrites.
+func writeFiles(files []genFile, perm os.FileMode) error {
+	temps := make([]string, 0, len(files))
+	renamed := 0
+	defer func() {
+		for _, name := range temps[renamed:] {
+			_ = os.Remove(name)
 		}
-		content := []byte(GeneratedHeader + "\n\npackage " + pkg.name + "\n")
-		if err := os.WriteFile(p, content, perm); err != nil {
-			return fmt.Errorf("writing %s: %w", pkg.file, err)
+	}()
+	for _, f := range files {
+		name, err := writeTemp(f.path, f.content, perm)
+		if err != nil {
+			return err
 		}
+		temps = append(temps, name)
+	}
+	for i, f := range files {
+		if err := os.Rename(temps[i], f.path); err != nil {
+			return fmt.Errorf("writing %s: %w", f.path, err)
+		}
+		renamed++
 	}
 	return nil
+}
+
+// writeTemp writes content to a new file in the directory of path and
+// returns the name of the new file.
+func writeTemp(path string, content []byte, perm os.FileMode) (string, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating directory %s: %w", dir, err)
+	}
+	// The name starts with a dot and does not end in .go, which keeps the file
+	// out of every build, also when a killed run leaves it behind.
+	// [os.CreateTemp] would create it 0o600 instead of perm under the umask.
+	name := filepath.Join(dir, "."+filepath.Base(path)+"."+
+		strconv.FormatUint(rand.Uint64(), 36)+".tmp")
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return "", fmt.Errorf("writing %s: %w", path, err)
+	}
+	_, err = f.Write(content)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(name)
+		return "", fmt.Errorf("writing %s: %w", path, err)
+	}
+	return name, nil
 }

@@ -61,13 +61,7 @@ func GenerateCmd(
 	if err != nil {
 		return fmt.Errorf("generating cmd/main.go: %w", err)
 	}
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return fmt.Errorf("creating directory %s: %w", dstDir, err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(dstDir, "main.go"), src, perm,
-	); err != nil {
-		return fmt.Errorf("writing cmd/main.go: %w", err)
-	}
-	return nil
+	// gen leaves an existing cmd package alone,
+	// which would keep a main.go cut off after its package clause.
+	return writeFiles([]genFile{{filepath.Join(dstDir, "main.go"), src}}, perm)
 }

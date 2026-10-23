@@ -368,7 +368,7 @@ func TestCheckCmdPackage(t *testing.T) {
 func TestUpgradeGoMod(t *testing.T) {
 	const goModTemplate = `module example.com/myapp
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/romshark/datapages %s
@@ -535,6 +535,52 @@ func TestSelectApp(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.wantDir, a.Dir)
+		})
+	}
+}
+
+// TestWatchInclude tests that watch re-runs gen when an app package or a
+// package calling NewServer changes.
+func TestWatchInclude(t *testing.T) {
+	app := func(dir string, callDirs ...string) serverscan.App {
+		a := serverscan.App{Dir: dir}
+		for _, d := range callDirs {
+			a.Calls = append(a.Calls, serverscan.Call{Dir: d})
+		}
+		return a
+	}
+	cmdDir := filepath.Join("cmd", "server")
+	for name, tt := range map[string]struct {
+		apps []serverscan.App
+		want []string
+	}{
+		"no call": {
+			apps: []serverscan.App{app("app")},
+			want: []string{"app/**/*.go", "datapages.yaml", "datapages.yml"},
+		},
+		"call in a command": {
+			apps: []serverscan.App{app("app", cmdDir)},
+			want: []string{
+				"app/**/*.go", "cmd/server/*.go", "datapages.yaml", "datapages.yml",
+			},
+		},
+		"call in the module root": {
+			apps: []serverscan.App{app("app", ".")},
+			want: []string{"app/**/*.go", "*.go", "datapages.yaml", "datapages.yml"},
+		},
+		"2 apps built in 1 command": {
+			apps: []serverscan.App{
+				app(filepath.Join("app", "admin"), cmdDir),
+				app(filepath.Join("app", "frontend"), cmdDir),
+			},
+			want: []string{
+				"app/admin/**/*.go", "cmd/server/*.go", "app/frontend/**/*.go",
+				"datapages.yaml", "datapages.yml",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, watchInclude(serverscan.Result{Apps: tt.apps}))
 		})
 	}
 }

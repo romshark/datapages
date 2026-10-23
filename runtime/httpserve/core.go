@@ -19,11 +19,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/exactpath"
 	"github.com/romshark/datapages/internal/logsample"
+	"github.com/romshark/datapages/modules/assetcompress"
 	"github.com/romshark/datapages/runtime/prom"
 	"github.com/romshark/datapages/runtime/sse"
 )
@@ -71,28 +74,31 @@ type Core struct {
 	lockRun   sync.Mutex
 	runCancel context.CancelFunc
 
-	httpServer       *http.Server
-	metricsServer    *http.Server
-	mux              *http.ServeMux
-	handler          http.Handler
-	logger           *slog.Logger
-	sampledLogger    *slog.Logger
-	middleware       []func(http.Handler) http.Handler
-	outermost        func(http.Handler) http.Handler
-	assetsFS         http.FileSystem
-	assetsBrowsable  bool
-	assetsCache      *datapages.AssetsCacheConfig
-	crossOrigin      *http.CrossOriginProtection
-	datastarJSSrc    string
-	htmlPrefix       string
-	htmlHead         string
-	htmlDatastar     string
-	datastarJSSrcEsc string
-	cspNonce         func(*http.Request) string
-	bodySizeLimit    int64
-	shutdownTimeout  time.Duration
-	fileSendTimeout  time.Duration
-	sseCompression   *sse.Compression
+	httpServer          *http.Server
+	metricsServer       *http.Server
+	mux                 *http.ServeMux
+	handler             http.Handler
+	logger              *slog.Logger
+	sampledLogger       *slog.Logger
+	middleware          []func(http.Handler) http.Handler
+	outermost           func(http.Handler) http.Handler
+	assetsFS            http.FileSystem
+	assetsBrowsable     bool
+	assetsCache         *datapages.AssetsCacheConfig
+	crossOrigin         *http.CrossOriginProtection
+	datastarJSSrc       string
+	htmlPrefix          string
+	htmlHead            string
+	htmlDatastar        string
+	datastarJSSrcEsc    string
+	cspNonce            func(*http.Request) string
+	bodySizeLimit       int64
+	shutdownTimeout     time.Duration
+	fileSendTimeout     time.Duration
+	sseCompression      *sse.Compression
+	responseCompression *responseCompression // Nil when disabled.
+	// assetsCompressor is nil for the compressor of the zero [assetcompress.Config].
+	assetsCompressor datapages.AssetsCompressor
 
 	// streamCompressions shares encoders by [sse.CompressionKey].
 	lockStreamCompressions sync.Mutex
@@ -125,23 +131,36 @@ type Core struct {
 // [notBrowsableFS] unless cfg.AssetsBrowsable is set,
 // whichever option carried the file system here.
 func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
+	// Direct ServerConfig values bypass option validation.
+	if conf := cfg.SSECompression; conf != nil {
+		if err := conf.Validate(); err != nil {
+			return nil, fmt.Errorf("SSE compression: %w", err)
+		}
+	}
+	if conf := cfg.ResponseCompression; conf != nil {
+		if err := conf.Validate(); err != nil {
+			return nil, fmt.Errorf("response compression: %w", err)
+		}
+	}
 	c := &Core{
-		assetsURLPrefix: assetsURLPrefix,
-		mux:             http.NewServeMux(),
-		middleware:      cfg.Middleware,
-		outermost:       cfg.OutermostMiddleware,
-		assetsFS:        cfg.AssetsFS,
-		assetsBrowsable: cfg.AssetsBrowsable,
-		assetsCache:     cfg.AssetsCache,
-		crossOrigin:     http.NewCrossOriginProtection(),
-		datastarJSSrc:   cfg.DatastarJS,
-		cspNonce:        cfg.CSPNonce,
-		logger:          cfg.Logger,
-		httpServer:      cfg.HTTPServer,
-		bodySizeLimit:   cfg.BodySizeLimit,
-		shutdownTimeout: cfg.ShutdownTimeout,
-		fileSendTimeout: cfg.FileSendTimeout,
-		sseCompression:  sse.NewCompression(cfg.SSECompression),
+		assetsURLPrefix:     assetsURLPrefix,
+		mux:                 http.NewServeMux(),
+		middleware:          cfg.Middleware,
+		outermost:           cfg.OutermostMiddleware,
+		assetsFS:            cfg.AssetsFS,
+		assetsBrowsable:     cfg.AssetsBrowsable,
+		assetsCache:         cfg.AssetsCache,
+		crossOrigin:         http.NewCrossOriginProtection(),
+		datastarJSSrc:       cfg.DatastarJS,
+		cspNonce:            cfg.CSPNonce,
+		logger:              cfg.Logger,
+		httpServer:          cfg.HTTPServer,
+		bodySizeLimit:       cfg.BodySizeLimit,
+		shutdownTimeout:     cfg.ShutdownTimeout,
+		fileSendTimeout:     cfg.FileSendTimeout,
+		sseCompression:      sse.NewCompression(cfg.SSECompression),
+		responseCompression: newResponseCompression(cfg.ResponseCompression),
+		assetsCompressor:    cfg.AssetsCompressor,
 	}
 	c.shutdown, c.cancelShutdown = context.WithCancel(context.Background())
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
@@ -194,14 +213,26 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		}
 	}
 	if p := cfg.Prometheus; p != nil {
+		// An option other than [datapages.WithPrometheus] can set p without
+		// the defaults of that option.
+		reg, gatherer := p.Registerer, p.Gatherer
+		if reg == nil {
+			reg = prometheus.DefaultRegisterer
+		}
+		if gatherer == nil {
+			gatherer = prometheus.DefaultGatherer
+		}
+		if c.outermost == nil {
+			c.outermost = prom.Middleware
+		}
 		// The registering happens here rather than in [datapages.WithPrometheus]
 		// so a rejected configuration leaves the registerer as it found it.
-		if err := prom.Register(p.Registerer, p.Collectors...); err != nil {
+		if err := prom.Register(reg, p.Collectors...); err != nil {
 			return nil, fmt.Errorf("registering prometheus metrics: %w", err)
 		}
 		h := p.Handler
 		if h == nil {
-			h = promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
+			h = promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{})
 		}
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", h)
@@ -245,17 +276,35 @@ func (c *Core) Build() {
 		if !c.assetsBrowsable {
 			fsys = notBrowsableFS{fsys: fsys}
 		}
-		h := http.FileServer(fsys)
-		switch {
-		case datapages.IsDevMode():
+		compressor := c.assetsCompressor
+		if compressor == nil {
+			// New accepts the zero Config.
+			compressor, _ = assetcompress.New(assetcompress.Config{})
+		}
+		tags := new(assetTags)
+		// Compressed ETags extend the cache middleware's base tag.
+		h := compressor.Handler(
+			fsys, tags.sum, typedFonts(http.FileServer(fsys)), c.sampledLogger,
+		)
+		// c.assetsFS lists the directories that fsys hides.
+		exact := exactpath.New(c.assetsFS).Exact
+		if datapages.IsDevMode() {
 			// Dev files may change while the server runs. The browser asks
 			// before every reuse, and without Last-Modified it gets the file.
-			h = DevNoCache(http.FileServer(noModTimeFS{fsys}))
-		case c.assetsCache != nil && !c.assetsCache.Disabled:
-			h = newAssetsCache(fsys, *c.assetsCache, h)
+			h = DevNoCache(typedFonts(http.FileServer(noModTimeFS{fsys})))
+			exact = func(p string) bool { return exactpath.New(c.assetsFS).Exact(p) }
+		} else {
+			// An embed.FS has no modification time, which leaves the ETag as the
+			// only validator of its files.
+			var conf datapages.AssetsCacheConfig
+			if c.assetsCache != nil && !c.assetsCache.Disabled {
+				conf = *c.assetsCache
+			}
+			h = newAssetsCache(fsys, tags, conf, h)
 		}
+		h = exactSpellings(exact, h)
 		c.mux.Handle("GET "+c.assetsURLPrefix,
-			http.StripPrefix(c.assetsURLPrefix, limitingFileWrites(h)))
+			http.StripPrefix(c.assetsURLPrefix, servingAssets(h)))
 	}
 
 	c.handler = http.Handler(c.mux)
@@ -272,15 +321,26 @@ func (c *Core) Build() {
 	for _, h := range c.middleware {
 		c.handler = h(c.handler)
 	}
+	if c.responseCompression != nil {
+		// Application middleware reads and edits the uncompressed body.
+		assetsPrefix := c.assetsURLPrefix
+		if c.assetsFS == nil {
+			assetsPrefix = ""
+		}
+		c.handler = c.responseCompression.wrap(c.handler, assetsPrefix)
+	}
 	if c.outermost != nil {
 		c.handler = c.outermost(c.handler)
 	}
 	c.httpServer.Handler = c
 }
 
-// limitingFileWrites limits the writes of the files next sends, see [limitFileWrites].
-func limitingFileWrites(next http.Handler) http.Handler {
+// servingAssets marks the responses of next as files, as [ServeFile] does.
+// Middleware that edits bodies passes them through unchanged,
+// and [limitFileWrites] limits their writes.
+func servingAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		passFileThrough(w)
 		limitFileWrites(w)
 		next.ServeHTTP(w, r)
 	})
@@ -296,7 +356,8 @@ func (c *Core) Mux() *http.ServeMux { return c.mux }
 // Logger is the logger the server writes to.
 func (c *Core) Logger() *slog.Logger { return c.logger }
 
-// SampledLogger is the logger for a warning the framework emits on every render.
+// SampledLogger is the logger for a warning the framework emits on every render
+// or request.
 // It writes 1 record of each kind per interval and counts what it throttles,
 // which [github.com/romshark/datapages.WithLogSampling] configures.
 // Application code writes to [Core.Logger] instead.
@@ -753,11 +814,16 @@ func unwrapWriter(w http.ResponseWriter) http.ResponseWriter {
 // ResponseBodyWritten reports whether any of the response body was written.
 // A handler that failed past this point can be logged and nothing more.
 //
+// A middleware that holds the body back from the writer underneath,
+// as offline.Middleware does with a page, reports it through a BodyWritten method.
 // Reports false when a middleware wraps the writer without an Unwrap method.
 func ResponseBodyWritten(w http.ResponseWriter) bool {
 	for {
 		if t, ok := w.(*tracked); ok {
 			return t.wroteBody
+		}
+		if b, ok := w.(interface{ BodyWritten() bool }); ok && b.BodyWritten() {
+			return true
 		}
 		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
 		if !ok {

@@ -563,7 +563,7 @@ func TestActionExpressions(t *testing.T) {
 				action.WithRetryMaxCount(3),
 			),
 			"@post('/form/submit/', {retry: 'always', retryInterval: 500, " +
-				"retryScaler: 1.5, retryMaxWaitMs: 30000, retryMaxCount: 3})",
+				"retryScaler: 1.5, retryMaxWait: 30000, retryMaxCount: 3})",
 		},
 		"request cancellation": {
 			action.PageForm.Submit.POST(

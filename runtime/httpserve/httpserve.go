@@ -7,9 +7,12 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/contentcoding"
+	"github.com/romshark/datapages/internal/exactpath"
 )
 
 // IsDatastarRequest reports whether h carries the header the Datastar client sends.
@@ -49,14 +52,27 @@ func Redirect(
 	return true
 }
 
-// DevNoCache makes the browser ask the server before every reuse of what
-// next serves. no-store would also keep it out of the offline worker's cache,
+// DevNoCache makes the browser ask the server before every reuse of what next serves.
+// no-store would also keep it out of the offline worker's cache,
 // which then has no copy to answer with offline.
 func DevNoCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// typedFonts presets the [contentcoding.FontType] of a font file,
+// which [http.FileServer] keeps over the host's mime table.
+func typedFonts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ct := contentcoding.FontType(path.Ext(r.URL.Path)); ct != "" {
+			if _, ok := w.Header()["Content-Type"]; !ok {
+				w.Header().Set("Content-Type", ct)
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -133,6 +149,17 @@ func (f noModTimeFile) Stat() (fs.FileInfo, error) {
 type noModTimeInfo struct{ fs.FileInfo }
 
 func (noModTimeInfo) ModTime() time.Time { return time.Time{} }
+
+// exactSpellings answers a path that exact rejects with the 404 of a missing file.
+func exactSpellings(exact func(string) bool, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !exact(exactpath.Clean(strings.TrimSuffix(r.URL.Path, "/"))) {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // notBrowsableFS returns fs.ErrNotExist for a directory that holds no index.html,
 // which [http.FileServer] turns into 404.

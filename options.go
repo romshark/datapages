@@ -1,6 +1,7 @@
 package datapages
 
 import (
+	"crypto/sha256"
 	"embed"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/romshark/datapages/internal/contentcoding/levels"
 	"github.com/romshark/datapages/internal/logsample"
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/sessions"
@@ -39,7 +41,8 @@ type ServerConfig struct {
 	// Middleware wraps the router, in the order it was added.
 	Middleware []func(http.Handler) http.Handler
 
-	// OutermostMiddleware wraps every other middleware.
+	// OutermostMiddleware wraps every other middleware. With Prometheus set,
+	// nil selects the middleware that counts the HTTP metrics.
 	OutermostMiddleware func(http.Handler) http.Handler
 
 	// HTTPServer serves the application. Its Addr and Handler are always overwritten.
@@ -70,7 +73,7 @@ type ServerConfig struct {
 	AssetsBrowsable bool
 
 	// AssetsCache configures production asset cache headers.
-	// A nil value adds no Cache-Control or ETag header.
+	// A nil value sends the headers of the zero [AssetsCacheConfig].
 	AssetsCache *AssetsCacheConfig
 
 	// Sessions configures the session cookie and the token generator.
@@ -97,9 +100,19 @@ type ServerConfig struct {
 	// 0 selects httpserve.DefaultFileSendTimeout.
 	FileSendTimeout time.Duration
 
-	// SSECompression is what [WithSSECompression] carries.
+	// SSECompression is what [WithSSECompression] and [WithNoSSECompression] carry.
 	// Nil selects the defaults of [SSECompressionConfig].
 	SSECompression *SSECompressionConfig
+
+	// ResponseCompression is what [WithResponseCompression] and
+	// [WithNoResponseCompression] carry. Nil selects the defaults of
+	// [ResponseCompressionConfig].
+	ResponseCompression *ResponseCompressionConfig
+
+	// AssetsCompressor is what [WithAssetsCompression] and
+	// [WithNoAssetsCompression] carry. Nil selects a compressor with the defaults of
+	// [github.com/romshark/datapages/modules/assetcompress.Config].
+	AssetsCompressor AssetsCompressor
 
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
@@ -115,7 +128,56 @@ type ServerConfig struct {
 }
 
 // ServerOption configures a generated server.
+//
+// An option may set a field of [ServerConfig] itself.
+// [NewServer] refuses a value there that the With option of the field refuses.
 type ServerOption func(*ServerConfig) error
+
+// validate refuses what the With options refuse, for an option that sets
+// a field itself. A zero field selects its default and passes.
+// A negative BodySizeLimit, ShutdownTimeout, FileSendTimeout or LogSampling
+// field passes too, because the server treats it as zero.
+func (c *ServerConfig) validate() error {
+	if err := checkMiddleware(c.Middleware); err != nil {
+		return fmt.Errorf("ServerConfig.Middleware: %w", err)
+	}
+	if c.Prometheus != nil {
+		if err := c.Prometheus.validate(); err != nil {
+			return fmt.Errorf("ServerConfig.Prometheus: %w", err)
+		}
+	}
+	if c.DatastarJS != "" {
+		if err := validateDatastarJS(c.DatastarJS); err != nil {
+			return fmt.Errorf("ServerConfig.DatastarJS: %w", err)
+		}
+	}
+	if c.AssetsCache != nil {
+		if err := c.AssetsCache.validate(); err != nil {
+			return fmt.Errorf("ServerConfig.AssetsCache: %w", err)
+		}
+	}
+	if name := c.Sessions.Cookie.Name; name != "" {
+		if err := checkCookieName(name); err != nil {
+			return fmt.Errorf("ServerConfig.Sessions: %w", err)
+		}
+	}
+	if c.SSECompression != nil {
+		if err := c.SSECompression.Validate(); err != nil {
+			return fmt.Errorf("ServerConfig.SSECompression: %w", err)
+		}
+	}
+	if c.ResponseCompression != nil {
+		if err := c.ResponseCompression.Validate(); err != nil {
+			return fmt.Errorf("ServerConfig.ResponseCompression: %w", err)
+		}
+	}
+	if c.BuildID != "" {
+		if err := checkBuildID(c.BuildID); err != nil {
+			return fmt.Errorf("ServerConfig.BuildID: %w", err)
+		}
+	}
+	return nil
+}
 
 // SessionsConfig configures how a session is carried between requests.
 //
@@ -130,9 +192,9 @@ type SessionsConfig struct {
 	// The token is a bearer credential: whoever holds it is the session,
 	// which is why it has to be unguessable.
 	//
-	// Optional. Defaults to sessions.DefaultTokenGenerator with sessions.DefaultTokenLen
-	// (32 random bytes). Replace it to lengthen the token or to draw the
-	// randomness from somewhere else.
+	// Optional. Defaults to sessions.DefaultTokenGenerator with
+	// [sessions.DefaultTokenLen] (32 random bytes). Replace it to
+	// lengthen the token or to draw the randomness from somewhere else.
 	TokenGenerator sessions.TokenGenerator
 
 	// Cookie is the cookie the token travels in.
@@ -222,14 +284,21 @@ func WithLogger(l *slog.Logger) ServerOption {
 //	a -> b -> c -> router
 func WithMiddleware(middleware ...func(http.Handler) http.Handler) ServerOption {
 	return func(c *ServerConfig) error {
-		for i, m := range middleware {
-			if m == nil {
-				return fmt.Errorf("WithMiddleware: nil middleware at index %d", i)
-			}
+		if err := checkMiddleware(middleware); err != nil {
+			return fmt.Errorf("WithMiddleware: %w", err)
 		}
 		c.Middleware = append(c.Middleware, middleware...)
 		return nil
 	}
+}
+
+func checkMiddleware(middleware []func(http.Handler) http.Handler) error {
+	for i, m := range middleware {
+		if m == nil {
+			return fmt.Errorf("nil middleware at index %d", i)
+		}
+	}
+	return nil
 }
 
 // WithHTTPServer sets a custom HTTP server.
@@ -318,6 +387,12 @@ func WithAssets(fsys embed.FS, browsable bool) ServerOption {
 // It serves fsys as it is. No subdirectory is extracted, and dev mode reads no
 // other directory. Dev mode still sends every file with Cache-Control: no-cache.
 //
+// The files of fsys must not change while the server runs. The server keeps
+// the ETag of a file from its first request until it exits.
+// After a change, every response carries the old ETag, and a compressed one
+// can carry the old content, also after a deletion. A restart serves the files
+// as they are then. Serve files that change through a GET action that returns a [File].
+//
 // browsable true lists a directory that has no index.html, false returns 404.
 // Pass browsable=false in production to avoid exposing every embedded file.
 func WithAssetsFS(fsys http.FileSystem, browsable bool) ServerOption {
@@ -331,8 +406,9 @@ func WithAssetsFS(fsys http.FileSystem, browsable bool) ServerOption {
 // Its zero value sends "Cache-Control: public, max-age=0" and an ETag.
 // A conditional request for an unchanged asset then receives 304 with no body.
 type AssetsCacheConfig struct {
-	// Disabled prevents [WithAssetsCache] from adding headers.
-	// It supports configuration files and flags that cannot omit the option.
+	// Disabled makes [WithAssetsCache] change nothing, which leaves the headers
+	// of a server without the option. It supports configuration files and flags
+	// that cannot omit the option.
 	Disabled bool
 
 	// MaxAge is how long a browser may reuse an asset without asking again.
@@ -349,59 +425,65 @@ type AssetsCacheConfig struct {
 
 	// CacheControl sets the header value directly.
 	// It cannot be combined with MaxAge or Immutable.
+	// A value with no-transform keeps the assets uncompressed.
 	CacheControl string
 
 	// DisableETag prevents [WithAssetsCache] from adding an ETag.
-	// Use it when a CDN or compressing middleware writes its own ETag,
-	// or when files can change during the process lifetime.
+	// Use it when a CDN or compressing middleware writes its own ETag, or with
+	// [WithNoAssetsCompression] for files of [WithAssetsFS] that change.
 	DisableETag bool
 }
 
-// WithAssetsCache adds Cache-Control and an optional ETag to static files
+// WithAssetsCache sets the Cache-Control and the optional ETag of static files
 // served by [WithAssets] and [WithAssetsFS].
 //
-// Optional. Without it Datapages adds neither header.
+// Optional. Without it, assets carry the headers of the zero [AssetsCacheConfig],
+// Cache-Control: public, max-age=0 and an ETag. A browser then asks before every reuse,
+// and an unchanged file costs a 304 without a body. A file of [WithAssets] has
+// no modification time, which leaves the ETag as its only validator.
 //
-// The server computes each ETag on the first request and caches it for the
-// process lifetime. This matches the embedded file system used by [WithAssets].
-// Set [AssetsCacheConfig.DisableETag] for a [WithAssetsFS] file system whose
-// files can change while the server runs.
+// The server computes the ETag of a file at its first request and keeps it
+// until it exits, since assets must not change. See [WithAssetsFS] for files
+// that change anyway.
 //
 // Dev mode ignores this option and sends Cache-Control:
 // no-cache without Last-Modified.
 func WithAssetsCache(conf AssetsCacheConfig) ServerOption {
 	return func(c *ServerConfig) error {
-		switch {
-		case conf.MaxAge < 0:
-			return fmt.Errorf("WithAssetsCache: max age (%s) must not be negative",
-				conf.MaxAge)
-		case conf.MaxAge > 0 && conf.MaxAge < time.Second:
-			return fmt.Errorf("WithAssetsCache: max age (%s) must be at least 1s",
-				conf.MaxAge)
-		case conf.CacheControl != "" && (conf.MaxAge != 0 || conf.Immutable):
-			return fmt.Errorf(
-				"WithAssetsCache: cache control (%q) cannot be combined with "+
-					"max age (%s) or immutable (%t)",
-				conf.CacheControl, conf.MaxAge, conf.Immutable,
-			)
-		case conf.Immutable && conf.MaxAge <= 0:
-			return fmt.Errorf("WithAssetsCache: immutable (%t) requires "+
-				"a max age (%s) above 0",
-				conf.Immutable, conf.MaxAge)
-		}
-		// Reject control characters because CR or LF could inject response headers.
-		if i := strings.IndexFunc(conf.CacheControl, func(r rune) bool {
-			return r < 0x20 || r == 0x7f
-		}); i != -1 {
-			return fmt.Errorf(
-				"WithAssetsCache: cache control (%q) contains "+
-					"a control character at byte %d",
-				conf.CacheControl, i,
-			)
+		if err := conf.validate(); err != nil {
+			return fmt.Errorf("WithAssetsCache: %w", err)
 		}
 		c.AssetsCache = &conf
 		return nil
 	}
+}
+
+func (conf AssetsCacheConfig) validate() error {
+	switch {
+	case conf.MaxAge < 0:
+		return fmt.Errorf("max age (%s) must not be negative", conf.MaxAge)
+	case conf.MaxAge > 0 && conf.MaxAge < time.Second:
+		return fmt.Errorf("max age (%s) must be at least 1s", conf.MaxAge)
+	case conf.CacheControl != "" && (conf.MaxAge != 0 || conf.Immutable):
+		return fmt.Errorf(
+			"cache control (%q) cannot be combined with "+
+				"max age (%s) or immutable (%t)",
+			conf.CacheControl, conf.MaxAge, conf.Immutable,
+		)
+	case conf.Immutable && conf.MaxAge <= 0:
+		return fmt.Errorf("immutable (%t) requires a max age (%s) above 0",
+			conf.Immutable, conf.MaxAge)
+	}
+	// Reject control characters because CR or LF could inject response headers.
+	if i := strings.IndexFunc(conf.CacheControl, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}); i != -1 {
+		return fmt.Errorf(
+			"cache control (%q) contains a control character at byte %d",
+			conf.CacheControl, i,
+		)
+	}
+	return nil
 }
 
 // WithSessions sets session-based authentication configuration.
@@ -410,14 +492,19 @@ func WithSessions(o SessionsConfig) ServerOption {
 		if o.Cookie.Name == "" {
 			o.Cookie.Name = DefaultSessionCookieName
 		}
-		if !httpread.IsCookieName(o.Cookie.Name) {
-			return fmt.Errorf(
-				"WithSessions: invalid cookie name: %q", o.Cookie.Name,
-			)
+		if err := checkCookieName(o.Cookie.Name); err != nil {
+			return fmt.Errorf("WithSessions: %w", err)
 		}
 		c.Sessions = o
 		return nil
 	}
+}
+
+func checkCookieName(name string) error {
+	if !httpread.IsCookieName(name) {
+		return fmt.Errorf("invalid cookie name: %q", name)
+	}
+	return nil
 }
 
 // LogSamplingConfig is what [WithLogSampling] applies.
@@ -445,8 +532,11 @@ type LogSamplingConfig struct {
 //   - an action option [github.com/romshark/datapages/runtime/actionexpr]
 //     drops for an invalid value
 //   - a URL the generated href.External cannot use
+//   - a static asset the compressor of [WithAssetsCompression] cannot
+//     compress or read, and a panic it recovers while compressing
 //
-// Since such warnings are written per page render, 1 bad value may spike log volume.
+// Since such warnings are written per render or request, 1 cause may spike
+// log volume.
 // This applies to the warnings named above and to nothing else,
 // neither to what the application logs nor to the rest of the built-in ones.
 //
@@ -533,14 +623,16 @@ func WithFileSendTimeout(d time.Duration) ServerOption {
 	}
 }
 
-// SSECoding is a content coding an SSE response can be compressed with.
-type SSECoding string
+// Coding is a content coding a response can be compressed with.
+type Coding string
 
-// The content codings of [SSECompressionConfig.Codings].
+// The content codings of [SSECompressionConfig.Codings],
+// [ResponseCompressionConfig.Codings] and
+// [github.com/romshark/datapages/modules/assetcompress.Config.Codings].
 const (
-	SSECodingZstd   SSECoding = "zstd"
-	SSECodingBrotli SSECoding = "br"
-	SSECodingGzip   SSECoding = "gzip"
+	CodingZstd   Coding = "zstd"
+	CodingBrotli Coding = "br"
+	CodingGzip   Coding = "gzip"
 )
 
 // The defaults of [SSECompressionConfig].
@@ -579,11 +671,11 @@ type SSECompressionConfig struct {
 	// request gets an uncompressed response.
 	//
 	// The default is zstd, brotli and gzip.
-	Codings []SSECoding
+	Codings []Coding
 
-	// ZstdLevel is from 1 to 22. 0 selects [DefaultSSEZstdLevel].
-	// At level 10 and above, BenchmarkReRender in runtime/sse
-	// retains about 35 MiB per stream.
+	// ZstdLevel is from 1 to 22, and 0 selects [DefaultSSEZstdLevel]. Only 1, 3,
+	// 6 and 10 differ, and any other level compresses like the closest of them below it.
+	// At 10, BenchmarkReRender in runtime/sse retains about 35 MiB per stream.
 	ZstdLevel int
 
 	// ZstdWindow is how far back zstd finds repeated data, a power of 2 from
@@ -625,7 +717,7 @@ func SSECompressionLowMemory() SSECompressionConfig {
 // its memory per stream. Use it for few streams with slow or metered clients.
 func SSECompressionLowBandwidth() SSECompressionConfig {
 	return SSECompressionConfig{
-		Codings: []SSECoding{SSECodingBrotli, SSECodingZstd, SSECodingGzip},
+		Codings: []Coding{CodingBrotli, CodingZstd, CodingGzip},
 	}
 }
 
@@ -641,6 +733,7 @@ func SSECompressionLargeFragments() SSECompressionConfig {
 //
 // By default, a response uses the first accepted coding among zstd, brotli and gzip.
 // A page's or an action's [StreamConfig] method replaces it.
+// [WithNoSSECompression] turns compression off.
 func WithSSECompression(conf SSECompressionConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if err := conf.Validate(); err != nil {
@@ -652,41 +745,239 @@ func WithSSECompression(conf SSECompressionConfig) ServerOption {
 	}
 }
 
+// WithNoSSECompression sends SSE responses uncompressed. Use it for
+// loopback-only entry points and before proxy body filters.
+// A page's or an action's [StreamConfig] method replaces it.
+func WithNoSSECompression() ServerOption {
+	return func(c *ServerConfig) error {
+		c.SSECompression = &SSECompressionConfig{Disabled: true}
+		return nil
+	}
+}
+
 // Validate reports the first field of conf that [WithSSECompression] refuses.
 // A disabled conf is valid whatever its other fields hold.
 func (conf SSECompressionConfig) Validate() error {
 	if conf.Disabled {
 		return nil
 	}
-	for i, coding := range conf.Codings {
-		switch coding {
-		case SSECodingZstd, SSECodingBrotli, SSECodingGzip:
-		default:
-			return fmt.Errorf("unknown coding %q", coding)
-		}
-		if slices.Contains(conf.Codings[:i], coding) {
-			return fmt.Errorf("coding %q listed 2 times", coding)
-		}
+	if err := validateCodings(conf.Codings); err != nil {
+		return err
 	}
-	switch {
-	case conf.ZstdLevel != 0 && (conf.ZstdLevel < 1 || conf.ZstdLevel > 22):
-		return fmt.Errorf("zstd level (%d) must be from 1 to 22", conf.ZstdLevel)
-	case conf.ZstdWindow != 0 && !powerOf2In(conf.ZstdWindow, 1<<10, 8<<20):
+	if err := levels.Zstd(conf.ZstdLevel); err != nil {
+		return err
+	}
+	if conf.ZstdWindow != 0 && !powerOf2In(conf.ZstdWindow, 1<<10, 8<<20) {
 		return fmt.Errorf("zstd window (%d) must be a power of 2 from 1 KiB to 8 MiB",
 			conf.ZstdWindow)
-	case conf.BrotliQuality != 0 && (conf.BrotliQuality < 1 || conf.BrotliQuality > 11):
-		return fmt.Errorf("brotli quality (%d) must be from 1 to 11", conf.BrotliQuality)
-	case conf.BrotliWindow != 0 && !powerOf2In(conf.BrotliWindow, 1<<10, 16<<20):
+	}
+	if err := levels.Brotli(conf.BrotliQuality); err != nil {
+		return err
+	}
+	if conf.BrotliWindow != 0 && !powerOf2In(conf.BrotliWindow, 1<<10, 16<<20) {
 		return fmt.Errorf("brotli window (%d) must be a power of 2 from 1 KiB to 16 MiB",
 			conf.BrotliWindow)
-	case conf.GzipLevel != 0 && (conf.GzipLevel < 1 || conf.GzipLevel > 9):
-		return fmt.Errorf("gzip level (%d) must be from 1 to 9", conf.GzipLevel)
 	}
-	return nil
+	return levels.Gzip(conf.GzipLevel)
 }
 
 func powerOf2In(n, lo, hi int) bool {
 	return n >= lo && n <= hi && n&(n-1) == 0
+}
+
+func validateCodings(codings []Coding) error {
+	for i, coding := range codings {
+		switch coding {
+		case CodingZstd, CodingBrotli, CodingGzip:
+		default:
+			return fmt.Errorf("unknown coding %q", coding)
+		}
+		if slices.Contains(codings[:i], coding) {
+			return fmt.Errorf("coding %q listed 2 times", coding)
+		}
+	}
+	return nil
+}
+
+// The defaults of [ResponseCompressionConfig].
+const (
+	// DefaultResponseMinSize is about where zstd shrinks a body
+	// by the 47 bytes of Content-Encoding and Vary that compression adds.
+	DefaultResponseMinSize       = 256
+	DefaultResponseZstdLevel     = 3
+	DefaultResponseBrotliQuality = 5
+	DefaultResponseGzipLevel     = 6
+)
+
+const maxResponseCompressionMinSize = 1 << 20
+
+// ResponseCompressionConfig configures non-SSE response compression.
+// Its zero value selects the defaults. [File] responses stay uncompressed,
+// and [WithAssetsCompression] compresses static assets.
+//
+// Each response holds an encoder only while it's written.
+// BenchmarkResponseCompression in runtime/httpserve measures each preset:
+//
+//	              sent, 8 KB / 100 KB   time, 8 KB / 100 KB   heap per response
+//	Balanced      19.0% / 11.4%         14 / 98 us            1.8 / 1.9 MiB
+//	LowCPU        19.9% / 12.1%         12 / 92 us            0.7 / 0.8 MiB
+//	LowBandwidth  16.4% / 10.5%         64 / 563 us           1.7 / 2.6 MiB
+//	uncompressed  100%                  0.7 / 2.4 us          0
+//
+// Compression can expose a secret placed beside attacker-controlled input
+// through the response size. Send affected pages with
+// Cache-Control: private, no-transform.
+type ResponseCompressionConfig struct {
+	// Disabled sends bodies uncompressed and ignores the other fields.
+	Disabled bool
+
+	// Codings lists the content codings a body may use, in the order the
+	// server prefers them. They select a coding the way
+	// [SSECompressionConfig.Codings] do.
+	//
+	// The default is zstd, brotli and gzip.
+	Codings []Coding
+
+	// MinSize is the size in bytes below which a body is sent uncompressed,
+	// from 1 to 1 MiB. 0 selects [DefaultResponseMinSize], and 1
+	// compresses every body that is not empty. A response holds back up to
+	// MinSize bytes of its body until it can decide. A response without
+	// Content-Type, such as a page, holds back up to 512 bytes when MinSize is
+	// smaller, to sniff its type.
+	MinSize int
+
+	// ZstdLevel is from 1 to 22, and 0 selects [DefaultResponseZstdLevel]. Only
+	// 1, 3, 6 and 10 differ, and any other level compresses like the closest
+	// of them below it.
+	ZstdLevel int
+
+	// BrotliQuality is from 1 to 11. 0 selects [DefaultResponseBrotliQuality].
+	BrotliQuality int
+
+	// GzipLevel is from 1 to 9. 0 selects [DefaultResponseGzipLevel].
+	GzipLevel int
+}
+
+// ResponseCompressionBalanced returns the zero value, which selects zstd at level 3,
+// brotli at quality 5 and gzip at level 6.
+func ResponseCompressionBalanced() ResponseCompressionConfig {
+	return ResponseCompressionConfig{}
+}
+
+// ResponseCompressionLowCPU returns zstd and gzip at level 1 ahead of
+// brotli at quality 1. Use it for a CPU-limited server.
+func ResponseCompressionLowCPU() ResponseCompressionConfig {
+	return ResponseCompressionConfig{
+		Codings:       []Coding{CodingZstd, CodingGzip, CodingBrotli},
+		ZstdLevel:     1,
+		BrotliQuality: 1,
+		GzipLevel:     1,
+	}
+}
+
+// ResponseCompressionLowBandwidth prefers brotli for slow or metered clients.
+func ResponseCompressionLowBandwidth() ResponseCompressionConfig {
+	return ResponseCompressionConfig{
+		Codings: []Coding{CodingBrotli, CodingZstd, CodingGzip},
+	}
+}
+
+// WithResponseCompression sets how response bodies are compressed.
+//
+// By default, text bodies of at least 256 bytes use the first accepted coding
+// among zstd, brotli and gzip. Compression runs after middleware.
+// Encoded, no-transform, range and dev-mode responses pass through.
+// A HEAD response gets the headers of its GET response.
+// [WithNoResponseCompression] turns compression off.
+func WithResponseCompression(conf ResponseCompressionConfig) ServerOption {
+	return func(c *ServerConfig) error {
+		if err := conf.Validate(); err != nil {
+			return fmt.Errorf("WithResponseCompression: %w", err)
+		}
+		conf.Codings = slices.Clone(conf.Codings)
+		c.ResponseCompression = &conf
+		return nil
+	}
+}
+
+// WithNoResponseCompression sends page, action and error bodies uncompressed.
+// Use it for loopback-only entry points and before proxy body filters.
+func WithNoResponseCompression() ServerOption {
+	return func(c *ServerConfig) error {
+		c.ResponseCompression = &ResponseCompressionConfig{Disabled: true}
+		return nil
+	}
+}
+
+// Validate reports the first field of conf that [WithResponseCompression] refuses.
+// A disabled conf is valid whatever its other fields hold.
+func (conf ResponseCompressionConfig) Validate() error {
+	if conf.Disabled {
+		return nil
+	}
+	if err := validateCodings(conf.Codings); err != nil {
+		return err
+	}
+	if conf.MinSize < 0 || conf.MinSize > maxResponseCompressionMinSize {
+		return fmt.Errorf("min size (%d) must be from 0 to 1 MiB", conf.MinSize)
+	}
+	return levels.All(conf.ZstdLevel, conf.BrotliQuality, conf.GzipLevel)
+}
+
+// AssetsCompressor compresses the static assets of [WithAssets] and [WithAssetsFS].
+// [github.com/romshark/datapages/modules/assetcompress.New] returns one.
+type AssetsCompressor interface {
+	// Handler returns a handler that sends a compressed copy of a file of fsys
+	// and passes other requests to next, which sends the files of fsys.
+	// sum returns the SHA-256 that the server takes of the file at name for its ETag,
+	// or false without one. name is a path that [io/fs.ValidPath]
+	// accepts, such as "docs/index.html". The server calls Handler once and passes
+	// it the logger that [WithLogSampling] throttles. Requests reach the handler
+	// only for paths spelled as the directories of fsys list them,
+	// unless a directory cannot be listed.
+	Handler(
+		fsys http.FileSystem, sum func(name string) ([sha256.Size]byte, bool),
+		next http.Handler, logger *slog.Logger,
+	) http.Handler
+}
+
+// WithAssetsCompression sets the compressor of static assets.
+//
+// Optional. Without it the server uses a compressor with the defaults of
+// [github.com/romshark/datapages/modules/assetcompress.Config], which compresses
+// eligible assets of at least 256 bytes with brotli or gzip on first request
+// and keeps the copies in memory. Dev mode sends assets uncompressed.
+// [WithNoAssetsCompression] turns compression off.
+//
+// Pass a compressor from [github.com/romshark/datapages/modules/assetcompress.New]
+// to configure compression or to precompress the assets before requests.
+func WithAssetsCompression(c AssetsCompressor) ServerOption {
+	return func(cfg *ServerConfig) error {
+		if c == nil {
+			return errors.New("WithAssetsCompression: nil compressor")
+		}
+		cfg.AssetsCompressor = c
+		return nil
+	}
+}
+
+// WithNoAssetsCompression sends static assets uncompressed.
+// Use it for loopback-only entry points and before proxy body filters.
+func WithNoAssetsCompression() ServerOption {
+	return func(cfg *ServerConfig) error {
+		cfg.AssetsCompressor = uncompressedAssets{}
+		return nil
+	}
+}
+
+// uncompressedAssets is the compressor of [WithNoAssetsCompression].
+type uncompressedAssets struct{}
+
+func (uncompressedAssets) Handler(
+	_ http.FileSystem, _ func(string) ([sha256.Size]byte, bool), next http.Handler,
+	_ *slog.Logger,
+) http.Handler {
+	return next
 }
 
 // maxBuildIDLen limits IDs accepted by [WithBuildID].
@@ -713,8 +1004,8 @@ func WithBuildID(id string) ServerOption {
 	}
 }
 
-// checkBuildID rejects an id that would not reach the server unchanged in
-// [HeaderBuild]. Fetch rejects control chars and chars above U+00FF,
+// checkBuildID rejects an id that would not reach the server unchanged
+// in [HeaderBuild]. Fetch rejects control chars and chars above U+00FF,
 // strips surrounding whitespace and sends U+0080 to U+00FF as Latin-1 bytes.
 // A changed ID makes every Datastar request fail or reload its page.
 // An empty ID would select the executable hash,
@@ -806,8 +1097,8 @@ type PrometheusConfig struct {
 // which is what keeps a visitor from opening time series at will.
 func WithPrometheus(conf PrometheusConfig) ServerOption {
 	return func(c *ServerConfig) error {
-		if conf.Host == "" {
-			return errors.New("prometheus host address must not be empty")
+		if err := conf.validate(); err != nil {
+			return err
 		}
 		if conf.Registerer == nil {
 			conf.Registerer = prometheus.DefaultRegisterer
@@ -819,6 +1110,13 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 		c.OutermostMiddleware = prom.Middleware
 		return nil
 	}
+}
+
+func (conf PrometheusConfig) validate() error {
+	if conf.Host == "" {
+		return errors.New("prometheus host address must not be empty")
+	}
+	return nil
 }
 
 // DefaultMaxConcurrentInstances is the default value of

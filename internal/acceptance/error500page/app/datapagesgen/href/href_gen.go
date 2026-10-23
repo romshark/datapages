@@ -46,5 +46,8 @@ func PageBoom() string { return "/boom/" }
 // PageGone references /gone/{$}
 func PageGone() string { return "/gone/" }
 
+// PageHalf references /half/{$}
+func PageHalf() string { return "/half/" }
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }

@@ -317,11 +317,11 @@ func (s *Server) httpErrFile(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	p := dpapp.PageError404{
 		App: s.app,
 	}
 
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
@@ -338,6 +338,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanicFile(w, r, "App.File")
 
 	var query datapages.Query[struct {
 		Fail     string `query:"fail"`
@@ -359,7 +360,6 @@ func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
 		Name string `path:"name"`
 	}]
 	path.Values.Name = r.PathValue("name")
-	defer s.recoverPanicFile(w, r, "App.File")
 	file, err := s.app.GETFile(
 		r,
 		path,
@@ -375,11 +375,11 @@ func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) POSTUpper(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanicFile(w, r, "App.Upper")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
 
-	defer s.recoverPanicFile(w, r, "App.Upper")
 	file, err := s.app.POSTUpper(r)
 	if err != nil {
 		s.httpErrFile(w, r, "handling action App.Upper", err)
@@ -393,6 +393,7 @@ func (s appHandlers) POSTUpper(w http.ResponseWriter, r *http.Request) {
 type pageDocHandlers struct{ *Server }
 
 func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageDoc.GET")
 
 	var path datapages.Path[struct {
 		ID string `path:"id"`
@@ -402,7 +403,6 @@ func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageDoc.GET")
 	body, err := p.GET(
 		r,
 		path,
@@ -423,12 +423,12 @@ func (s pageDocHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageDocHandlers) GETExport(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanicFile(w, r, "PageDoc.Export")
 
 	var path datapages.Path[struct {
 		ID string `path:"id"`
 	}]
 	path.Values.ID = r.PathValue("id")
-	defer s.recoverPanicFile(w, r, "PageDoc.Export")
 	p := dpapp.PageDoc{
 		App: s.app,
 	}
@@ -448,10 +448,10 @@ func (s pageDocHandlers) GETExport(
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	p := dpapp.PageError404{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErr404(w, r, "handling PageError404.GET", err)
@@ -474,10 +474,10 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 
 // render serves the page with status, 500 when httpErrIntern renders it.
 func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, status int) {
+	defer s.recoverPanicFinal(w, "PageError500.GET")
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanicFinal(w, "PageError500.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
@@ -495,6 +495,7 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -503,7 +504,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)

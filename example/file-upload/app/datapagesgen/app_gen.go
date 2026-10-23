@@ -548,12 +548,12 @@ func (s *Server) httpErrFile(
 type appHandlers struct{ *Server }
 
 func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanicFile(w, r, "App.File")
 
 	var path datapages.Path[struct {
 		ID string `path:"id"`
 	}]
 	path.Values.ID = r.PathValue("id")
-	defer s.recoverPanicFile(w, r, "App.File")
 	file, err := s.app.GETFile(
 		r,
 		path,
@@ -570,6 +570,7 @@ func (s appHandlers) GETFile(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -587,7 +588,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, enableBackgroundStreaming, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -620,6 +620,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -741,6 +742,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) DELETEFile(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.File")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -751,7 +753,6 @@ func (s pageIndexHandlers) DELETEFile(
 	path.Values.ID = r.PathValue("id")
 
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.File")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -769,6 +770,7 @@ func (s pageIndexHandlers) DELETEFile(
 func (s pageIndexHandlers) POSTLimits(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Limits")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -780,7 +782,6 @@ func (s pageIndexHandlers) POSTLimits(
 	}
 
 	dispatchLimitsChanged := dispatcherEventLimitsChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Limits")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -798,6 +799,7 @@ func (s pageIndexHandlers) POSTLimits(
 func (s pageIndexHandlers) POSTStage(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Stage")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -850,6 +852,7 @@ func (s pageIndexHandlers) POSTStage(
 func (s pageIndexHandlers) POSTCancel(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Cancel")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -893,6 +896,7 @@ func (s pageIndexHandlers) POSTCancel(
 func (s pageIndexHandlers) POSTStart(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Start")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -920,7 +924,6 @@ func (s pageIndexHandlers) POSTStart(
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
 
 	dispatchUploadStarted := dispatcherEventUploadStarted{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Start")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -940,6 +943,7 @@ func (s pageIndexHandlers) POSTStart(
 func (s pageIndexHandlers) PUTChunk(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Chunk")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -964,7 +968,6 @@ func (s pageIndexHandlers) PUTChunk(
 	path.Values.ID = r.PathValue("id")
 
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Chunk")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -983,6 +986,7 @@ func (s pageIndexHandlers) PUTChunk(
 func (s pageIndexHandlers) POSTPause(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Pause")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -1013,7 +1017,6 @@ func (s pageIndexHandlers) POSTPause(
 	}
 
 	dispatchFilesChanged := dispatcherEventFilesChanged{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Pause")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -1033,6 +1036,7 @@ func (s pageIndexHandlers) POSTPause(
 func (s pageIndexHandlers) POSTResume(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Resume")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1087,6 +1091,7 @@ func (s pageIndexHandlers) POSTResume(
 func (s pageIndexHandlers) POSTReattach(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Reattach")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}

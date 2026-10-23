@@ -99,11 +99,11 @@ deliver in publication order, which makes the anchor arrive after anything
 published before it. See [`events`](events/events_test.go). A fixed wait passes
 when the event arrives after it, and slows every run by its length.
 
-An event stream is compressed when the request names an encoding.
-`Visitor.Send` asks for `Accept-Encoding: identity` unless the request names one,
-which makes what a test reads the bytes the handler wrote. The in-memory broker matches
-subjects the way NATS does: `*` covers 1 token, `>` covers the rest. See
-`wildcardsubjects`.
+Event streams and bodies of at least 256 bytes are compressed when the request
+names an encoding. `Visitor.Send` asks for `Accept-Encoding: identity` unless the
+request names one, which makes what a test reads the bytes the handler wrote.
+The in-memory broker matches NATS subjects. `*` covers 1 token, and `>` covers
+the rest. See `wildcardsubjects`.
 
 ## Where the calls live
 

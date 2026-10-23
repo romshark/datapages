@@ -33,7 +33,7 @@ func (PageOffline) GET(r *http.Request) (body datapages.Component, err error) {
 ```go
 opts := []datapages.ServerOption{
 	// Self-host Datastar: the CDN is unreachable offline.
-	datapages.WithDatastarJS(assets.Path("datastar.js")),
+	datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 	datapagesgen.WithOffline(app.OfflineConfig()),
 }
 ```
@@ -51,7 +51,7 @@ func OfflineConfig() offline.Config {
 		WorkerVersion: OfflineWorkerVersion,
 		// Precache the files required to render cached pages offline.
 		Assets: []string{
-			assets.Path("style.css"), assets.Path("datastar.js"),
+			assets.Path("style.css"), assets.Path("datastar-1.0.4.js"),
 		},
 	}
 }
@@ -78,7 +78,7 @@ Style offline state in CSS, no Go code:
 .is-offline [data-needs-network] { opacity: .5; pointer-events: none }
 ```
 
-Register a compressing middleware before `WithOffline`. Middleware runs in the order it is given, and the offline middleware rewrites the HTML it receives. A response that already carries a `Content-Encoding` passes through unchanged, which leaves the page without the worker registration.
+Datapages compresses after `WithOffline`, so compressed pages keep the worker registration. Put a custom compressing middleware before `WithOffline`. An already encoded response passes through `WithOffline` unchanged and gets no worker registration.
 
 Offline support writes inline scripts: the connectivity script, the worker registration and queued cache writes. Each script uses the nonce from `WithCSPNonce`. `WithOffline` reads the nonce when each request arrives, independent of option order. Set `offline.Config.CSPNonce` to use a different nonce for the connectivity and registration scripts. The queued cache writes always use the nonce from `WithCSPNonce`.
 
@@ -160,7 +160,7 @@ A shim is also shown online. It must not make an offline-only claim. If the live
 ## Rules
 
 - **Pass the page body, not a document.** Datapages adds the same `<head>`, stylesheets and Datastar bundle used by a live page. Adding `<!DOCTYPE html>` to the body would nest one document inside another.
-- **A cached page is only as complete as its assets.** Its stylesheets, scripts, fonts and images must be cached too. `Config.Assets` is precached on install. Everything else is cached on its first load while online: same-origin files other than what Datastar requests (actions, hydrates and event streams always come from the network) and other than `Config.ExcludePaths`, plus cross-origin requests whose destination is in `Config.CrossOriginDestinations`. An asset that is neither listed nor ever loaded online is missing offline. A cached same-origin asset is refreshed behind the copy it serves: a file redeployed at the same URL lands on the next visit, with no `WorkerVersion` bump.
+- **A cached page is only as complete as its assets.** Its stylesheets, scripts, fonts and images must be cached too. `Config.Assets` is precached on install. Everything else is cached on its first load while online: same-origin files other than what Datastar requests (actions, hydrates and event streams always come from the network) and other than `Config.ExcludePaths`, plus cross-origin requests whose destination is in `Config.CrossOriginDestinations`. An asset that is neither listed nor ever loaded online is missing offline. A cached same-origin asset is refreshed behind the copy it serves once it is past its `max-age` or has none. A file redeployed at the same URL then lands on the next visit, with no `WorkerVersion` bump.
 - **Version by everything the body depends on.** A constant version caches once and never refreshes. Include the content state, such as an item count or an ownership flag.
 
   ```go
@@ -199,4 +199,4 @@ An action that takes `datapages.PageCacheWriter` answers 406 to a request withou
 
 `newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. Navigation waits up to 500ms for the worker to apply `ClearAll` before loading the destination.
 
-<!-- written by datapages sha256:cd5530e64bd5ef73 -->
+<!-- written by datapages sha256:29d3663c80e98cf1 -->

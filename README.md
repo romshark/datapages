@@ -66,6 +66,8 @@ Datapages ships pluggable modules with swappable implementations:
 - [`TokenWriter`, `TokenValidator`](modules/csrf/csrf.go)
   - [`Tokens`](modules/csrf/tokens.go) - the built-in default: HMAC-SHA256 over the session token under a fixed domain-separator key, BREACH-resistant masking, nothing to configure
 - [`TokenGenerator`](modules/sessions/sessions.go)
+- [`assetcompress.Store`](modules/assetcompress/store.go)
+  - [`disk`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress/disk) - Compressed assets in a directory (kept across restarts, shared by the processes that use it)
 
 ## Motivation
 

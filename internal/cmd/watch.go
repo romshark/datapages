@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -374,11 +376,20 @@ func mapWatcherRequires(r config.WatcherRequires) engine.ActionType {
 }
 
 // watchInclude lists what a change to re-runs "datapages gen" for:
-// the Go sources of every app package of the module.
+// the Go sources of every app package of the module, and those of the packages
+// calling datapages.NewServer. gen reads the Metrics type argument of a call
+// and generates no code for a call naming the wrong session type. A fix to the
+// call has to regenerate.
 func watchInclude(r serverscan.Result) []string {
 	include := make([]string, 0, len(r.Apps)+2)
 	for _, a := range r.Apps {
 		include = append(include, filepath.ToSlash(a.Dir)+"/**/*.go")
+		for _, c := range a.Calls {
+			p := path.Join(filepath.ToSlash(c.Dir), "*.go")
+			if !slices.Contains(include, p) {
+				include = append(include, p)
+			}
+		}
 	}
 	return append(include, "datapages.yaml", "datapages.yml")
 }

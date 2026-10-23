@@ -680,13 +680,16 @@ func TestParse_ErrRouteBelowAssets(t *testing.T) {
 		owners = append(owners, conflict.Owner)
 		if conflict.Owner == "App.GETThumb" {
 			require.Equal(t,
-				`conflicting route: App.GETThumb cannot serve "GET /static/thumbs/{name}/{$}", `+
+				`conflicting route: App.GETThumb cannot serve `+
+					`"GET /static/thumbs/{name}/{$}", `+
 					`the assets URL prefix serves "GET /static/": `+
 					"every path below it belongs to the static files",
 				conflict.Error())
 		}
 	}
-	require.ElementsMatch(t, []string{"PageAbout", "App.GETThumb", "App.POSTUpload"}, owners)
+	require.ElementsMatch(t,
+		[]string{"PageAbout", "App.GETThumb", "App.POSTUpload"},
+		owners)
 }
 
 // TestParse_ErrRouteUnparsablePatternHasNoOwner tests that a pattern the
@@ -1186,12 +1189,16 @@ func TestParse_ErrQueryReflectSignalType(t *testing.T) {
 }
 
 // TestParse_ErrQueryReflectSignalNotText tests rejection of a reflected query
-// field whose type parses from text but cannot write itself back as text.
+// field whose type parses from text but cannot write itself back as text,
+// with and without a Signals parameter on the handler.
 func TestParse_ErrQueryReflectSignalNotText(t *testing.T) {
 	_, err := parse(t, "err_query_reflectsignal_nottext")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err, parser.ErrQueryReflectSignalNotText)
+	requireParseErrors(t, err,
+		parser.ErrQueryReflectSignalNotText,
+		parser.ErrQueryReflectSignalNotText,
+	)
 }
 
 // TestParse_ErrEmbedPointer tests a page holding its stream embed as a pointer.
@@ -1284,8 +1291,8 @@ func TestParse_ErrEventSharedRules(t *testing.T) {
 	)
 }
 
-// TestParse_ErrEventSubjectDuplicateSignal tests 2 subject fields bound to the same signal,
-// which leaves no way to tell which value fills which field.
+// TestParse_ErrEventSubjectDuplicateSignal tests 2 subject fields bound to
+// the same signal, which leaves no way to tell which value fills which field.
 func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
 	_, err := parse(t, "err_event_subj_duplicate_signal")
 	require.NotZero(t, err.Error())
@@ -1438,7 +1445,11 @@ func TestParse_ErrEventSubjectContained(t *testing.T) {
 		4: {"EventPointer.Maybe", "*datapages.SubjectUser", user},
 		5: {"EventNamed.To", "Recipients", user},
 		6: {"EventDerived.IDs", "[]UserID", user},
-		7: {"EventStateIDs.Tabs", "[]datapages.SubjectStateID", "datapages.SubjectStateID"},
+		7: {
+			"EventStateIDs.Tabs",
+			"[]datapages.SubjectStateID",
+			"datapages.SubjectStateID",
+		},
 		8: {"EventCascade.Recipients", "[]datapages.SubjectUser", user},
 		9: {"EventChan.Feed", "chan datapages.Subject", "datapages.Subject"},
 	} {
@@ -1475,7 +1486,10 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 		"EventSingular": {
 			subject: "calc.updated",
 			subjectFields: []model.SubjectField{
-				{FieldName: "Instance", Kind: model.SubjectKindValue, SignalName: "instance_id"},
+				{
+					FieldName: "Instance", Kind: model.SubjectKindValue,
+					SignalName: "instance_id",
+				},
 			},
 			isPrivate:      false,
 			isSignalScoped: true,
@@ -1500,7 +1514,10 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 			subject: "mixed",
 			subjectFields: []model.SubjectField{
 				{FieldName: "Recipient", Kind: model.SubjectKindUser},
-				{FieldName: "Instance", Kind: model.SubjectKindValue, SignalName: "instance_id"},
+				{
+					FieldName: "Instance", Kind: model.SubjectKindValue,
+					SignalName: "instance_id",
+				},
 			},
 			isPrivate:      true,
 			isSignalScoped: true,
@@ -1532,7 +1549,11 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 		require.True(ok, "missing event: %s", name)
 		require.Equal(tc.subject, e.Subject, "event %s subject", name)
 		require.Equal(tc.isPrivate, e.IsPrivate(), "event %s IsPrivate", name)
-		require.Equal(tc.isSignalScoped, e.IsSignalScoped(), "event %s IsSignalScoped", name)
+		require.Equal(
+			tc.isSignalScoped,
+			e.IsSignalScoped(),
+			"event %s IsSignalScoped", name,
+		)
 		require.Equal(tc.subjectFields, e.SubjectFields, "event %s SubjectFields", name)
 	}
 }
@@ -1570,7 +1591,7 @@ func TestParse_ErrTypeCheck(t *testing.T) {
 func TestParse_ErrAppDirMissing(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
-		[]byte("module example.com/m\n\ngo 1.27.2\n"), 0o644))
+		[]byte("module example.com/m\n\ngo 1.27.3\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "lib.go"),
 		[]byte("package lib\n"), 0o644))
 
@@ -1867,8 +1888,9 @@ func TestParse_Query(t *testing.T) {
 	}
 }
 
-// TestParse_ErrQuery tests every refused query parameter: not a struct,
-// an unexported field, an unsupported field type, and a missing or duplicated tag.
+// TestParse_ErrQuery tests every refused query parameter:
+// not a struct, an unexported field, an unsupported field type,
+// and a missing, duplicated or invalid tag.
 func TestParse_ErrQuery(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_query")
@@ -1881,7 +1903,17 @@ func TestParse_ErrQuery(t *testing.T) {
 		parser.ErrQueryFieldUnsupportedType,
 		parser.ErrQueryFieldMissingTag,
 		parser.ErrQueryFieldDuplicateTag,
+		parser.ErrQueryFieldInvalidTag,
 	)
+}
+
+// TestParse_ForeignTypes tests an event field and a signals field of struct
+// types from other modules, url.URL and sql.NullString. encoding/json decides
+// their JSON, which leaves their fields out of the json-tag rules.
+func TestParse_ForeignTypes(t *testing.T) {
+	app, err := parse(t, "foreign_types")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
 }
 
 // TestParse_Signals tests the signals parameter: the struct's fields and the
@@ -2852,6 +2884,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrQueryFieldUnsupportedType, "app.go", 55, 3},
 			{parser.ErrQueryFieldMissingTag, "app.go", 70, 3},
 			{parser.ErrQueryFieldDuplicateTag, "app.go", 86, 3},
+			{parser.ErrQueryFieldInvalidTag, "app.go", 101, 3},
 		},
 		"err_signals": {
 			{parser.ErrSignalsParamNotStruct, "app.go", 26, 27},
@@ -3276,7 +3309,9 @@ func findAction(actions []*model.Handler, nameSuffix string) *model.Handler {
 	return nil
 }
 
-func findActionByMethod(actions []*model.Handler, method, nameSuffix string) *model.Handler {
+func findActionByMethod(
+	actions []*model.Handler, method, nameSuffix string,
+) *model.Handler {
 	for _, a := range actions {
 		if a.HTTPMethod == method && strings.HasSuffix(a.Name, nameSuffix) {
 			return a
@@ -3686,8 +3721,13 @@ func TestPosFromPackagesError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t,
-				// Errors carry the base name, which depends on the OS for a Windows path.
-				token.Position{Filename: filepath.Base(tt.file), Line: tt.line, Column: tt.col},
+				// Errors carry the base name,
+				// which depends on the OS for a Windows path.
+				token.Position{
+					Filename: filepath.Base(tt.file),
+					Line:     tt.line,
+					Column:   tt.col,
+				},
 				parser.PosFromPackagesError(packages.Error{Pos: tt.pos}))
 		})
 	}

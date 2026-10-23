@@ -281,6 +281,13 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	} else {
 		w.Rawf("func (s %s) GET(w http.ResponseWriter, r *http.Request) {\n", recv)
 	}
+	if isPageError500(p, m) {
+		// httpErrIntern renders PageError500. A panic in that page reported
+		// through it would render the page again and never terminate.
+		w.Linef(1, "defer s.recoverPanicFinal(w, %q)", p.TypeName+".GET")
+	} else {
+		w.writeDeferRecover(false, p.TypeName+".GET")
+	}
 
 	h := p.GET.Handler
 
@@ -304,12 +311,19 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
 		pageHasPrivateEvent(p, w.eventMap)
 	needsToken := h.OutputCloseSession != nil
-	if needsSession || needsToken {
+	// The worker shows the copy of PageOffline it fetched to every visitor,
+	// so the session of the browser that fetched it must not render it.
+	zeroSession := needsSession && p.PageSpecialization == model.PageTypeOffline
+	if (needsSession && !zeroSession) || needsToken {
 		if hasBody {
 			w.Line(0, "")
 		}
 		hasBody = true
-		w.writeReadSession(needsSession, needsToken)
+		w.writeReadSession(needsSession && !zeroSession, needsToken)
+	}
+	if zeroSession {
+		hasBody = true
+		w.Linef(1, "sess := %s{}", w.sessionType)
 	}
 
 	// Read query params.
@@ -417,14 +431,6 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
-
-	if isPageError500(p, m) {
-		// httpErrIntern renders PageError500. A panic in that page reported
-		// through it would render the page again and never terminate.
-		w.Linef(1, "defer s.recoverPanicFinal(w, %q)", p.TypeName+".GET")
-	} else {
-		w.writeDeferRecover(false, p.TypeName+".GET")
-	}
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)
@@ -854,18 +860,16 @@ func (w *Writer) writeGETBodyAttrs(
 				// Auth-only stream.
 				if h.InputPath != nil {
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
+					w.Line(2, `if sess.UserID() != "" {`)
+					w.Line(3, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					if hasEnableBgStream {
-						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `_$/'`)")
 						writeTailChoice(3)
-						w.Line(2, "}")
 					} else {
-						w.Line(2, `if sess.UserID() != "" {`)
 						w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
-						w.Line(2, "}")
 					}
+					w.Line(2, "}")
 				} else if hasEnableBgStream {
 					w.Line(0, "")
 					w.Line(2, `if sess.UserID() != "" {`)
@@ -1025,6 +1029,12 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 // writeDeferRecover registers the deferred recover of 1 handler. hasSSE
 // selects the open stream, which is what a recovered panic patches into when
 // the application renders one.
+//
+// Every handler registers its recover as its first statement, which has no
+// stream yet. Reading the session, the path, the query and the signals runs
+// application code, such as a session store, UnmarshalText and UnmarshalJSON.
+// A panic there otherwise reaches net/http, which drops the connection
+// without a response.
 func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 	sse := "nil"
 	if hasSSE {
@@ -1109,6 +1119,9 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(0, "")
 	w.Rawf("func (s %s) GETStream(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType(p.TypeName))
+	// The stream is not open yet. The message loop registers a recover of its
+	// own with the stream.
+	w.writeDeferRecover(false, p.TypeName+" stream")
 
 	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
@@ -1559,6 +1572,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(0, "")
 	w.Rawf("func (s %s) GETStreamAnon(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType(p.TypeName))
+	w.writeDeferRecover(false, p.TypeName+" anonymous stream")
 
 	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
@@ -1699,6 +1713,11 @@ func (w *Writer) writePageActionHandler(
 		strings.ToUpper(h.HTTPMethod), h.Name)
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
+	if h.OutputFile != nil {
+		w.writeDeferRecoverFile(p.TypeName + "." + h.Name)
+	} else {
+		w.writeDeferRecover(false, p.TypeName+"."+h.Name)
+	}
 
 	switch {
 	case h.IsGETAction():
@@ -1799,12 +1818,9 @@ func (w *Writer) writePageActionHandler(
 			w.Line(1, "sse := s.OpenSSE(w, r)")
 		}
 		w.Line(1, "defer sse.Close()")
-	}
-
-	if h.OutputFile != nil {
-		w.writeDeferRecoverFile(p.TypeName + "." + h.Name)
-	} else {
-		w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
+		// The first recover has no stream. A panic from here on patches into
+		// the open one, and runs before it closes.
+		w.writeDeferRecover(true, p.TypeName+"."+h.Name)
 	}
 
 	// Page constructor.
@@ -2125,6 +2141,12 @@ func (w *Writer) writeParseField(
 	// UnmarshalText comes first: a type that declares one parses through it,
 	// however its underlying kind reads.
 	if gotypes.ImplementsTextUnmarshaler(f.Type) {
+		if ptr, ok := types.Unalias(f.Type).(*types.Pointer); ok {
+			// UnmarshalText of a nil pointer has no value to write to.
+			tabs(indent)
+			w.Rawf("%s.%s = new(%s)\n", varName, f.Name,
+				gotypes.QualifiedTypeNameWith(ptr.Elem(), w.imports.Qualifier()))
+		}
 		tabs(indent)
 		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
 			varName, f.Name, raw)

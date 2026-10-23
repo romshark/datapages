@@ -99,7 +99,9 @@ type ServerInitializer[App, SessionData any] interface {
 //
 // PS is inferred from S and is never written at the call site.
 //
-// Options are applied in the order they are given.
+// Options are applied in the order they are given. NewServer then refuses
+// a [ServerConfig] field that holds a value its With option refuses,
+// as an option that sets the field itself can leave there.
 func NewServer[App, SessionData any, Metrics MetricsMode, S any, PS interface {
 	*S
 	Server
@@ -121,6 +123,9 @@ func NewServer[App, SessionData any, Metrics MetricsMode, S any, PS interface {
 		if err := opt(&cfg); err != nil {
 			return nil, fmt.Errorf("applying server option: %w", err)
 		}
+	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 	sessions, err := asSessionManager[SessionData](cfg.sessionManager)
 	if err != nil {

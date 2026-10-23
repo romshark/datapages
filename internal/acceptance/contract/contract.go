@@ -138,7 +138,7 @@ func Options[O any](opts []any) []O {
 // in the order the generated writer emits them.
 var optionKeys = []string{
 	"contentType", "selector", "headers", "filterSignals", "openWhenHidden",
-	"payload", "retry", "retryInterval", "retryScaler", "retryMaxWaitMs",
+	"payload", "retry", "retryInterval", "retryScaler", "retryMaxWait",
 	"retryMaxCount", "requestCancellation",
 }
 

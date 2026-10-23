@@ -43,10 +43,11 @@ that model to `Generate`. It describes an application nobody wrote. `Generate`
 validates it and returns an error. It also writes nothing unless every file
 renders. On error the destination is left as it was.
 
-`datapages gen` stops before it generates when the app package does not parse.
-Generated code keeps what the last successful run produced. A package that was
-never generated is written as stubs. Stubs hold no application code and let the
-import resolve. See `TestGenFailure*` in [../cmd/cmd_test.go](../cmd/cmd_test.go).
+`datapages gen` parses and checks every app of the module before it generates
+any. An app that fails keeps the code an earlier run generated for it. A
+package that was never generated is written as stubs. Stubs hold no
+application code and let the import resolve. See `TestGenFailure*` and
+`TestGenSubjectAcrossApps` in [../cmd/cmd_test.go](../cmd/cmd_test.go).
 
 ## Coverage
 

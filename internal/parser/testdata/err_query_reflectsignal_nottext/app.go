@@ -33,3 +33,19 @@ func (PageIndex) GET(
 	_, _ = query, signals
 	return body, err
 }
+
+// PageSearch is /search
+//
+// Without a Signals parameter, Day is rejected all the same. The page seeds
+// the signal with the field's text, and Day cannot write itself as text.
+type PageSearch struct{ App *App }
+
+func (PageSearch) GET(
+	r *http.Request,
+	query datapages.Query[struct {
+		Day Day `query:"day" reflectsignal:"day"` /* ErrQueryReflectSignalNotText */
+	}],
+) (body datapages.Component, err error) {
+	_ = query
+	return body, err
+}

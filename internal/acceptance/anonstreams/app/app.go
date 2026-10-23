@@ -11,8 +11,10 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/a-h/templ"
@@ -224,6 +226,27 @@ func (p PageInbox) OnNoticed(event EventNoticed, sse datapages.SSE) error {
 	))
 }
 
+// PageThread is /threads/{thread}
+//
+// PageInbox with a path variable, which the stream path is built from.
+type PageThread struct{ App *App }
+
+func (PageThread) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Thread string `path:"thread"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="thread">thread ` +
+		templ.EscapeString(path.Values.Thread) + `</div>`), nil
+}
+
+func (p PageThread) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="thread">` + templ.EscapeString(event.Text) + `</div>`,
+	))
+}
+
 // StateNotes is the per-tab state of PageNotes.
 type StateNotes struct{ Count int }
 
@@ -387,4 +410,44 @@ func (PagePanic) POSTFault(
 	_ *http.Request, faulted datapages.Dispatcher[EventFaulted],
 ) error {
 	return faulted.Dispatch(EventFaulted{})
+}
+
+// PageDecode is /decode
+//
+// Mixed like PageRooms, which gives it an anonymous stream.
+// StreamOpen reads a signal through PanicJSON.
+type PageDecode struct{ App *App }
+
+func (PageDecode) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="out">decode</div>`), nil
+}
+
+func (PageDecode) StreamOpen(
+	_ *http.Request,
+	_ datapages.StreamID,
+	_ datapages.Signals[struct {
+		V PanicJSON `json:"v"`
+	}],
+) error {
+	return nil
+}
+
+func (PageDecode) OnTicked(_ EventTicked, _ datapages.SSE) error { return nil }
+
+func (PageDecode) OnNoticed(_ EventNoticed, _ datapages.SSE) error { return nil }
+
+// PanicJSON panics while it decodes a string that starts with "x",
+// the way a parser of the application fails on input it does not expect.
+type PanicJSON string
+
+func (j *PanicJSON) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	if strings.HasPrefix(s, "x") {
+		panic("the JSON parser panicked")
+	}
+	*j = PanicJSON(s)
+	return nil
 }

@@ -48,7 +48,7 @@ func main() {
 		datapages.WithSessions(datapages.SessionsConfig{}),
 		datapages.WithAssets(app.StaticFS, false),
 		// Self-host Datastar so the app also works offline.
-		datapages.WithDatastarJS(assets.Path("datastar.js")),
+		datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 		// Service-worker-based offline support: serves the worker and injects
 		// its registration into every page. The PageOffline route is supplied
 		// by the generated option.

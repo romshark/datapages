@@ -42,6 +42,10 @@ Internal, used by the CLI and build tooling:
 - `internal/gotypes/` - go/types predicates and renderings that know nothing about Datapages. Shared by the parser and the generator.
 - `internal/buildconstraint/` - which `//go:build` lines exclude a file from every build. Shared by the parser and `internal/serverscan/`.
 - `internal/logsample/` - the throttling `slog.Handler` behind `datapages.WithLogSampling`.
+- `internal/backoff/` - an iterator over retry attempts with growing, randomized pauses. Used by `modules/assetcompress` for store writes.
+- `internal/exactpath/` - cleans asset paths without allocating and reports whether a path spells its elements as their directories list them, which keeps the asset caches bounded on file systems that fold case.
+- `internal/contentcoding/levels/` - the level ranges of the codings, without an encoder, which keeps the root package free of them.
+- `internal/contentcoding/` - pooled encoders, `Accept-Encoding` negotiation and the compressible media types, shared by `runtime/sse`, `runtime/httpserve` and `modules/assetcompress`.
 - `internal/testlog/` - collects what code under test logs, 1 line per record without its time, for tests to compare exactly. Examples keep their own loggers because they model application code, which cannot import it.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.
 - `internal/structtag/` - the `path`, `query`, `json` and `reflectsignal` tags.
@@ -60,9 +64,9 @@ Public, imported by application or generated code:
 - root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds the server options of the root package: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. The others are `offline.WithServiceWorker` and the generated `WithOffline`, which passes it the route of `PageOffline`.
 - `cmd/datapages/` - the shipped binary.
 - `datapagestest/` - the client an application's tests use: visitors with a cookie jar and CSRF tokens, page loads, Datastar actions, SSE streams and redirect targets. The acceptance cases and the examples' tests send their requests with it, and `internal/acceptance/datapagestest` tests it against a generated server.
-- `modules/` - pluggable modules: csrf, messaging, offline, sessions.
+- `modules/` - pluggable modules: assetcompress, csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
-  - `httpserve` - the generated server core: listener, routes, middleware, logging, shutdown, redirects, request checks, assets, HTML and SSE responses.
+  - `httpserve` - the generated server core: listener, routes, middleware, logging, shutdown, redirects, request checks, assets, HTML and SSE responses, response compression.
   - `auth` - session cookie, the record behind it and the CSRF check. Generic over the application's session data.
   - `sse` - writes and compresses the Datastar events of an SSE response and reads the signals of a request. `Stream` implements `datapages.SSE`.
   - `stream` - serves the SSE event stream of a page: the broker subscription behind it, the session that may end it and the shutdown that closes it.
@@ -96,6 +100,7 @@ Where code goes:
 - The page cache is generated, not imported: `writePageCache` emits the `datapages.PageCacheWriter` implementation (`newPageCache`/`pageCacheWriter`) and its delivery lifecycle (`flush`, `embedInto`, `redirectScript`). It renders cached bodies through the application's own `writeHTML`, so it is shaped by the app model, not by the Go version.
 - `datapages.NewServer` is generic over the app type, the session data type and the generated `Server`. Generated code contributes the `Init` method satisfying `datapages.ServerInitializer`, which is where `httpserve.NewCore` is called: the root package cannot import `runtime/`, since `runtime/httpserve` imports the root package.
 - An option that needs per-app constants carries only what the caller has and lets `Init` apply the rest: `WithAssets` carries the `embed.FS`, the generated code supplies the subdirectory, the URL prefix and the dev-mode path from the app package.
+- `modules/assetcompress` imports the root package for `datapages.Coding`, which keeps the root package from importing it. `WithAssetsCompression` therefore takes the 1-method `datapages.AssetsCompressor` interface, and `runtime/httpserve` creates the default compressor.
 
 # Dependencies
 

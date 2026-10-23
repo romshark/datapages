@@ -1,15 +1,20 @@
 package httpserve_test
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/modules/assetcompress"
 )
 
 // TestAssetsCacheHeaders tests Cache-Control and ETag selection for each configuration.
@@ -22,10 +27,14 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		wantETag         bool
 	}{
 		"no option": {
-			conf: nil,
+			conf:             nil,
+			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 		"disabled": {
-			conf: &datapages.AssetsCacheConfig{Disabled: true},
+			conf:             &datapages.AssetsCacheConfig{Disabled: true},
+			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 		"zero value": {
 			conf:             &datapages.AssetsCacheConfig{},
@@ -77,6 +86,117 @@ func TestAssetsCacheHeaders(t *testing.T) {
 	}
 }
 
+// countingFS counts the files it opens and the bytes read from them.
+type countingFS struct {
+	http.FileSystem
+	opens, read atomic.Int64
+}
+
+func (fsys *countingFS) Open(name string) (http.File, error) {
+	fsys.opens.Add(1)
+	f, err := fsys.FileSystem.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return countingFile{File: f, read: &fsys.read}, nil
+}
+
+type countingFile struct {
+	http.File
+	read *atomic.Int64
+}
+
+func (f countingFile) Read(p []byte) (int, error) {
+	n, err := f.File.Read(p)
+	f.read.Add(int64(n))
+	return n, err
+}
+
+// TestAssetsCacheWithoutETagOpensOnce tests that without
+// ETags the cache opens a file on its first request only.
+func TestAssetsCacheWithoutETagOpensOnce(t *testing.T) {
+	t.Parallel()
+
+	fsys := &countingFS{FileSystem: http.FS(assetFiles())}
+	c := assetsCore(t, fsys, datapages.ServerConfig{
+		AssetsCache: &datapages.AssetsCacheConfig{MaxAge: time.Hour, DisableETag: true},
+	})
+	w := getAsset(t, c, http.MethodGet, "/static/style.css", "br", nil)
+	require.Equal(t, "br", w.Header().Get("Content-Encoding"))
+	opens := fsys.opens.Load()
+	for range 3 {
+		w := getAsset(t, c, http.MethodGet, "/static/style.css", "br", nil)
+		require.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+		require.Empty(t, w.Header().Get("ETag"))
+	}
+	require.Equal(t, opens, fsys.opens.Load(), "opens after the first request")
+}
+
+// wrappingCompressor adds a header to the handler of another compressor.
+type wrappingCompressor struct{ datapages.AssetsCompressor }
+
+func (wc wrappingCompressor) Handler(
+	fsys http.FileSystem, sum func(string) ([sha256.Size]byte, bool),
+	next http.Handler, logger *slog.Logger,
+) http.Handler {
+	h := wc.AssetsCompressor.Handler(fsys, sum, next, logger)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Compressor", "1")
+		h.ServeHTTP(w, r)
+	})
+}
+
+// TestAssetsCacheFirstRequestReads tests that the first request of an asset
+// reads it 2 times, to hash it and to send or compress it, also behind a
+// compressor that wraps another, and that the ETag holds the SHA-256 of the file.
+func TestAssetsCacheFirstRequestReads(t *testing.T) {
+	t.Parallel()
+
+	sum := sha256.Sum256([]byte(assetCSS))
+	tag := `"` + base64.RawURLEncoding.EncodeToString(sum[:16])
+	compressor, err := assetcompress.New(assetcompress.Config{})
+	require.NoError(t, err)
+	for name, tc := range map[string]struct {
+		opt      datapages.ServerOption
+		accept   string
+		wantETag string
+	}{
+		"compressed": {
+			accept:   "br",
+			wantETag: "W/" + tag + `.br6"`,
+		},
+		"uncompressed": {
+			accept:   "identity",
+			wantETag: tag + `"`,
+		},
+		"WithNoAssetsCompression": {
+			opt:      datapages.WithNoAssetsCompression(),
+			accept:   "br",
+			wantETag: tag + `"`,
+		},
+		"wrapped compressor": {
+			opt:      datapages.WithAssetsCompression(wrappingCompressor{compressor}),
+			accept:   "br",
+			wantETag: "W/" + tag + `.br6"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := datapages.ServerConfig{AssetsCache: &datapages.AssetsCacheConfig{}}
+			if tc.opt != nil {
+				require.NoError(t, tc.opt(&conf))
+			}
+			fsys := &countingFS{FileSystem: http.FS(assetFiles())}
+			c := assetsCore(t, fsys, conf)
+			w := getAsset(t, c, http.MethodGet, "/static/style.css", tc.accept, nil)
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, tc.wantETag, w.Header().Get("Etag"))
+			require.Equal(t, int64(2*len(assetCSS)), fsys.read.Load())
+		})
+	}
+}
+
 // TestAssetsCacheConditionalRequest tests that a matching If-None-Match value
 // returns 304 with an empty body.
 func TestAssetsCacheConditionalRequest(t *testing.T) {
@@ -102,6 +222,39 @@ func TestAssetsCacheConditionalRequest(t *testing.T) {
 	require.Empty(t, second.Body.String())
 	require.Equal(t, etag, second.Header().Get("ETag"))
 	require.Equal(t, "public, max-age=3600", second.Header().Get("Cache-Control"))
+}
+
+// TestAssetsCacheDefaultRevalidates tests that without WithAssetsCache,
+// or with it disabled, a file without a modification time, as in an embed.FS,
+// gets an ETag that answers its conditional request with 304, compressed or not.
+func TestAssetsCacheDefaultRevalidates(t *testing.T) {
+	t.Parallel()
+
+	for name, conf := range map[string]*datapages.AssetsCacheConfig{
+		"no option": nil,
+		"disabled":  {Disabled: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := assetsCore(t, http.FS(assetFiles()), datapages.ServerConfig{
+				AssetsCache: conf,
+			})
+			for _, accept := range []string{"identity", "br"} {
+				first := getAsset(t, c, http.MethodGet, "/static/style.css", accept, nil)
+				require.Equal(t, http.StatusOK, first.Code, accept)
+				require.Empty(t, first.Header().Get("Last-Modified"), accept)
+				etag := first.Header().Get("Etag")
+				require.NotEmpty(t, etag, accept)
+
+				second := getAsset(t, c, http.MethodGet, "/static/style.css", accept,
+					http.Header{"If-None-Match": {etag}})
+				require.Equal(t, http.StatusNotModified, second.Code, accept)
+				require.Empty(t, second.Body.String(), accept)
+				require.Equal(t, etag, second.Header().Get("Etag"), accept)
+			}
+		})
+	}
 }
 
 // TestAssetsCacheETagPerFile tests that different files have different ETags

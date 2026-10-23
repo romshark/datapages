@@ -559,12 +559,12 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	pageCache := newPageCache(w, s, r)
 	p := dpapp.PageError404{
 		App: s.app,
 	}
 
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(
 		r,
 		pageCache,
@@ -584,11 +584,11 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.AppPrecache")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.AppPrecache")
 	pageCache := newPageCache(w, s.Server, r)
 	compression, errStreamConfig := s.StreamCompression(s.callStreamConfig(
 		"App.StreamConfigPOSTAppPrecache",
@@ -612,11 +612,11 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) POSTAppPrecacheFail(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.AppPrecacheFail")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.AppPrecacheFail")
 	pageCache := newPageCache(w, s.Server, r)
 	err := s.app.POSTAppPrecacheFail(
 		r,
@@ -630,11 +630,11 @@ func (s appHandlers) POSTAppPrecacheFail(w http.ResponseWriter, r *http.Request)
 }
 
 func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.AppBody")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.AppBody")
 	pageCache := newPageCache(w, s.Server, r)
 	body, err := s.app.POSTAppBody(
 		r,
@@ -653,11 +653,11 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) POSTAppRedirect(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.AppRedirect")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	defer s.recoverPanic(w, r, nil, "App.AppRedirect")
 	pageCache := newPageCache(w, s.Server, r)
 	redirect, err := s.app.POSTAppRedirect(
 		r,
@@ -675,11 +675,11 @@ func (s appHandlers) POSTAppRedirect(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	pageCache := newPageCache(w, s.Server, r)
 	p := dpapp.PageError404{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(
 		r,
 		pageCache,
@@ -700,6 +700,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -709,7 +710,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		pageCache,
@@ -730,6 +730,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTStream(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -756,6 +757,7 @@ func (s pageIndexHandlers) POSTStream(
 func (s pageIndexHandlers) POSTStreamFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.StreamFail")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -782,11 +784,11 @@ func (s pageIndexHandlers) POSTStreamFail(
 func (s pageIndexHandlers) POSTRedirect(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Redirect")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	pageCache := newPageCache(w, s.Server, r)
-	defer s.recoverPanic(w, r, nil, "PageIndex.Redirect")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -806,11 +808,11 @@ func (s pageIndexHandlers) POSTRedirect(
 func (s pageIndexHandlers) POSTRedirectFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.RedirectFail")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	pageCache := newPageCache(w, s.Server, r)
-	defer s.recoverPanic(w, r, nil, "PageIndex.RedirectFail")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -830,6 +832,7 @@ func (s pageIndexHandlers) POSTRedirectFail(
 func (s pageIndexHandlers) POSTStreamRedirect(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.StreamRedirect")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -863,6 +866,7 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 func (s pageIndexHandlers) POSTBranch(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Branch")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -872,7 +876,6 @@ func (s pageIndexHandlers) POSTBranch(
 	}]
 	query.Values.Redirect = httpread.QueryValue(r.URL.RawQuery, "redirect")
 	pageCache := newPageCache(w, s.Server, r)
-	defer s.recoverPanic(w, r, nil, "PageIndex.Branch")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -899,6 +902,7 @@ func (s pageIndexHandlers) POSTBranch(
 type pageListHandlers struct{ *Server }
 
 func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageList.GET")
 
 	var query datapages.Query[struct {
 		Page string `query:"page"`
@@ -909,7 +913,6 @@ func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageList{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageList.GET")
 	body, err := p.GET(
 		r,
 		pageCache,
@@ -931,10 +934,10 @@ func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageOfflineHandlers struct{ *Server }
 
 func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOffline.GET")
 	p := dpapp.PageOffline{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageOffline.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageOffline.GET", err)
@@ -952,11 +955,11 @@ func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageWriterProbeHandlers struct{ *Server }
 
 func (s pageWriterProbeHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageWriterProbe.GET")
 	pageCache := newPageCache(w, s.Server, r)
 	p := dpapp.PageWriterProbe{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageWriterProbe.GET")
 	body, err := p.GET(
 		r,
 		pageCache,

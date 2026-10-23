@@ -303,7 +303,7 @@ func TestReflectedSignals(t *testing.T) {
 
 	resp := v.Get(t, "/reflect/?t=shoes&p=3&s=news")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `term="shoes" page=3 slug="news" odd="" title="" lang=""`,
+	require.Equal(t, `term="shoes" page=3 slug="news" title="" lang=""`,
 		echoed(t, resp))
 	for _, want := range []string{
 		`data-signals:term="'shoes'"`,
@@ -314,10 +314,6 @@ func TestReflectedSignals(t *testing.T) {
 		"window.history.replaceState",
 		"params.set('t'",
 		"params.set('p'",
-		// A query tag carrying a quote and an apostrophe: escaped for the
-		// JavaScript string first and for the attribute second, which is what
-		// the browser decodes back into the name the server reads.
-		`params.set('o\&#39;&#34;x'`,
 		// An HTML parser lowercases an attribute name, which is why Datastar
 		// reads one back as camel case: the attribute carries new-title and
 		// the expression reads $newTitle.
@@ -339,7 +335,7 @@ func TestReflectedSignalsKeepOtherQueryParams(t *testing.T) {
 
 	resp := v.Get(t, "/reflect/?t=shoes&lang=de&utm=spring")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `term="shoes" page=0 slug="" odd="" title="" lang="de"`,
+	require.Equal(t, `term="shoes" page=0 slug="" title="" lang="de"`,
 		echoed(t, resp))
 
 	require.Contains(t, resp.Body, "new URLSearchParams(location.search)")

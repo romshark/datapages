@@ -65,7 +65,7 @@ func (PageAdaptive) StreamConfig(
 		return datapages.StreamConfig{}, nil
 	}
 	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
-		Codings: []datapages.SSECoding{datapages.SSECodingGzip},
+		Codings: []datapages.Coding{datapages.CodingGzip},
 	}}, nil
 }
 

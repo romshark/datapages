@@ -258,6 +258,7 @@ func (s *Server) httpErrIntern(
 	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	prom.InternalErrorNotRecovered()
 	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -271,6 +272,7 @@ func (s *Server) httpErrIntern(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -279,7 +281,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -304,6 +305,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -351,6 +353,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTAnnounce(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Announce")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -364,7 +367,6 @@ func (s pageIndexHandlers) POSTAnnounce(
 	}
 
 	dispatchAnnounced := dispatcherEventAnnounced{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Announce")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -382,10 +384,10 @@ func (s pageIndexHandlers) POSTAnnounce(
 func (s pageIndexHandlers) POSTFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Fail")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Fail")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -399,6 +401,7 @@ func (s pageIndexHandlers) POSTFail(
 func (s pageIndexHandlers) POSTHalfWritten(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.HalfWritten")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -422,10 +425,10 @@ func (s pageIndexHandlers) POSTHalfWritten(
 type pageQuietHandlers struct{ *Server }
 
 func (s pageQuietHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageQuiet.GET")
 	p := dpapp.PageQuiet{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageQuiet.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageQuiet.GET", err)
@@ -450,6 +453,7 @@ func (s pageQuietHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageQuietHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageQuiet stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}

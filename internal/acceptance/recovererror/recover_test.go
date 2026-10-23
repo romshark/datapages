@@ -9,6 +9,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -50,6 +52,22 @@ func readStream(
 	v := srv.Visitor(t)
 	tab := v.Load(t, page)
 	return v.Send(t, tab.NewRequest(t, http.MethodGet, page+"_$/"+query, nil))
+}
+
+// send sends method to path the way the Datastar client sends a request,
+// with body as the signals. It loads no page first, since a page whose path
+// value panics fails to load.
+func send(
+	t *testing.T, srv *datapagestest.Server, method, path, body string,
+) *datapagestest.Response {
+	t.Helper()
+	v := srv.Visitor(t)
+	req := v.NewRequest(t, method, path, strings.NewReader(body))
+	req.Header.Set("Datastar-Request", "true")
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return v.Send(t, req)
 }
 
 // TestRecoveredActionErrors tests a failed action of a Datastar request.
@@ -149,7 +167,7 @@ func TestRecoveredPanics(t *testing.T) {
 	})
 }
 
-// TestHalfWrittenPageGetsNoEvents tests that recovery does not append SSE to HTML.
+// TestHalfWrittenPageGetsNoEvents tests that recovery appends neither SSE nor a 2nd gzip stream.
 func TestHalfWrittenPageGetsNoEvents(t *testing.T) {
 	t.Parallel()
 
@@ -161,12 +179,26 @@ func TestHalfWrittenPageGetsNoEvents(t *testing.T) {
 			req.Header.Set("Accept-Encoding", coding)
 			resp := v.Send(t, req)
 
+			body := []byte(resp.Body)
+			switch ce := resp.Header.Get("Content-Encoding"); ce {
+			case "":
+				require.NotContains(t, resp.Body, "\x1f\x8b",
+					"a gzip stream was appended to the page")
+			case coding:
+				r := bytes.NewReader(body)
+				zr, err := gzip.NewReader(r)
+				require.NoError(t, err, "reading the gzip header")
+				zr.Multistream(false)
+				body, err = io.ReadAll(zr)
+				require.NoError(t, err, "decoding the page")
+				require.Zero(t, r.Len(), "a stream was appended to the page")
+			default:
+				t.Fatalf("Content-Encoding %q for Accept-Encoding %q", ce, coding)
+			}
+
 			require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
-			require.Empty(t, resp.Header.Get("Content-Encoding"))
-			require.Contains(t, resp.Body, "<!DOCTYPE html>")
-			require.NotContains(t, resp.Body, "event:", "RecoverError wrote into the page")
-			require.NotContains(t, resp.Body, "\x1f\x8b",
-				"a gzip stream was appended to the page")
+			require.Contains(t, string(body), "<!DOCTYPE html>")
+			require.NotContains(t, string(body), "event:", "RecoverError wrote into the page")
 		})
 	}
 }
@@ -257,4 +289,191 @@ func TestFailedPageLoadRendersTheErrorPage(t *testing.T) {
 	require.Contains(t, resp.Body, "server error", "the 500 page was not rendered")
 	require.NotContains(t, resp.Body, "the page could not be built",
 		"the error message reached the visitor")
+}
+
+// TestRecoveredDecodePanics tests a panic in the application code that parses
+// a request input: UnmarshalText of a path or query field and UnmarshalJSON of
+// a signal. It takes the error path of the handler that reads the input.
+// net/http otherwise closes the connection without a response.
+func TestRecoveredDecodePanics(t *testing.T) {
+	t.Parallel()
+	datastar := "?datastar=" + url.QueryEscape(`{"s":"xbad"}`)
+
+	// A page load gets the 500 page.
+	for name, tt := range map[string]struct{ path, handler string }{
+		"page path":    {"/thing/xbad/", "PageThing.GET"},
+		"page query":   {"/thing/ok/?q=xbad", "PageThing.GET"},
+		"page signals": {"/thing/ok/" + datastar, "PageThing.GET"},
+		"404 page":     {"/nowhere/?nf=xbad", "PageError404.GET"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			resp := serveLogged(t, &log).Visitor(t).Get(t, tt.path)
+
+			require.Equal(t, http.StatusInternalServerError, resp.Status)
+			require.Contains(t, resp.Body, "server error", "the 500 page was not rendered")
+			require.NotContains(t, resp.Body, "parser panicked",
+				"the panic value reached the visitor")
+			log.RequireMatch(t, `^level=ERROR msg="recovered panic" handler=`+
+				regexp.QuoteMeta(tt.handler)+` panic="the (text|JSON) parser panicked" stack=`)
+		})
+	}
+
+	// PageError500 answers its own panic with the status alone. Rendering
+	// itself again would panic again.
+	t.Run("500 page", func(t *testing.T) {
+		t.Parallel()
+		resp := serve(t).Visitor(t).Get(t, "/server-error/?se=xbad")
+
+		require.Equal(t, http.StatusInternalServerError, resp.Status)
+		require.Equal(t, "Internal Server Error\n", resp.Body)
+	})
+
+	// A file goes to an img element or a fetch as often as to a document,
+	// which shows nothing of an error page.
+	for name, path := range map[string]string{
+		"file action":     "/thing/ok/file/?q=xbad",
+		"app file action": "/app-file/?q=xbad",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resp := serve(t).Visitor(t).Get(t, path)
+
+			require.Equal(t, http.StatusInternalServerError, resp.Status)
+			require.Equal(t, "Internal Server Error\n", resp.Body)
+		})
+	}
+
+	// A Datastar request gets what RecoverError renders. An action reads its
+	// signals first, which have to be valid for the path and the query to be read.
+	// handler is as logged, which quotes a name with a space.
+	for name, tt := range map[string]struct{ method, path, body, handler string }{
+		"action path":    {http.MethodPost, "/thing/xbad/act/", "{}", "PageThing.Act"},
+		"action query":   {http.MethodPost, "/thing/ok/act/?q=xbad", "{}", "PageThing.Act"},
+		"action signals": {http.MethodPost, "/thing/ok/act/", `{"s":"xbad"}`, "PageThing.Act"},
+		"action without stream": {
+			http.MethodPost, "/thing/ok/plain/?q=xbad", "", "PageThing.Plain",
+		},
+		"app action": {http.MethodPost, "/app-act/?q=xbad", "", "App.AppAct"},
+		"stream": {
+			http.MethodGet, "/thing/ok/_$/" + datastar, "", `"PageThing stream"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var log testlog.Buffer
+			resp := send(t, serveLogged(t, &log), tt.method, tt.path, tt.body)
+			require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
+			require.Contains(t, resp.Body, `<div id="toast">panic</div>`)
+			require.NotContains(t, resp.Body, ">ran<", "the action ran")
+			require.NotContains(t, resp.Body, "parser panicked",
+				"the panic value reached the client")
+			log.RequireMatch(t, `^level=ERROR msg="recovered panic" handler=`+
+				regexp.QuoteMeta(tt.handler)+` panic="the (text|JSON) parser panicked" stack=`)
+		})
+	}
+}
+
+// TestErrorCounters tests that every error of a handler counts once,
+// as recovered when RecoverError handles it and as not recovered otherwise.
+// A route that nothing serves is no error of a handler and counts as neither.
+//
+// It doesn't call t.Parallel, because the counters are global to the process.
+// The parallel tests of the case start only after it returns.
+func TestErrorCounters(t *testing.T) {
+	v := serve(t).Visitor(t)
+	tests := map[string]struct {
+		method, path            string
+		datastar                bool
+		recovered, notRecovered float64
+	}{
+		"handled action": {
+			http.MethodPost, "/bad/", true, 1, 0,
+		},
+		"handled stream": {
+			http.MethodGet, "/stream-panic/_$/", true, 1, 0,
+		},
+		"RecoverError fails": {
+			http.MethodPost, "/unrecoverable/", true, 0, 1,
+		},
+		"RecoverError panics": {
+			http.MethodPost, "/recover-panic/", true, 0, 1,
+		},
+		"page load": {
+			http.MethodGet, "/boom/", false, 0, 1,
+		},
+		"page load after body": {
+			http.MethodGet, "/render-panic/", false, 0, 1,
+		},
+		"Datastar GET after body": {
+			http.MethodGet, "/render-panic/", true, 0, 1,
+		},
+		"failing 500 page": {
+			http.MethodGet, "/server-error/?se=xbad", false, 0, 1,
+		},
+		"failing 404 page": {
+			http.MethodGet, "/nowhere/?nf=gone", false, 0, 1,
+		},
+		"file action": {
+			http.MethodGet, "/app-file/?q=xbad", false, 0, 1,
+		},
+		"route miss": {
+			http.MethodGet, "/nowhere/", false, 0, 0,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			recovered := counter(t, "datapages_internal_errors_recovered_total")
+			notRecovered := counter(t, "datapages_internal_errors_not_recovered_total")
+
+			req := v.NewRequest(t, tt.method, tt.path, nil)
+			if tt.datastar {
+				req.Header.Set("Datastar-Request", "true")
+			}
+			// Send reads to EOF, and the response ends after the handler returns.
+			v.Send(t, req)
+
+			require.Equal(t, tt.recovered,
+				counter(t, "datapages_internal_errors_recovered_total")-recovered,
+				"recovered")
+			require.Equal(t, tt.notRecovered,
+				counter(t, "datapages_internal_errors_not_recovered_total")-notRecovered,
+				"not recovered")
+		})
+	}
+}
+
+// counter reads the counter name from the registry.
+func counter(t *testing.T, name string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	for _, f := range families {
+		if f.GetName() == name {
+			return f.GetMetric()[0].GetCounter().GetValue()
+		}
+	}
+	t.Fatalf("%s is not registered", name)
+	return 0
+}
+
+// TestPointerParameters tests path and query fields that are pointers to a type
+// that parses itself. UnmarshalText writes to a value the server allocates,
+// and a query parameter that is absent leaves its field nil.
+func TestPointerParameters(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct{ path, want string }{
+		"query absent":  {"/pointer/abc/", "abc absent"},
+		"query present": {"/pointer/abc/?q=def", "abc def"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resp := serve(t).Visitor(t).Get(t, tt.path)
+
+			require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
+			require.Contains(t, resp.Body, `<pre id="echo">`+tt.want+`</pre>`)
+		})
+	}
 }

@@ -9,6 +9,18 @@ import (
 	"github.com/romshark/datapages/internal/parser/validate"
 )
 
+// TestIsQueryKeyChar tests that a query tag may contain the unreserved
+// characters of RFC 3986 and no others.
+func TestIsQueryKeyChar(t *testing.T) {
+	t.Parallel()
+	for _, c := range []byte("azAZ09-._~") {
+		require.True(t, validate.IsQueryKeyChar(c), "%q", c)
+	}
+	for _, c := range []byte("&=#+% '\"?/;:@[]!$()*,\\`<>\x00\x7f\x80\xff") {
+		require.False(t, validate.IsQueryKeyChar(c), "%q", c)
+	}
+}
+
 // TestPageTypeName tests the naming convention a page type has to follow:
 // the "Page" prefix plus an upper-case ASCII letter and alphanumerics after it.
 // The name becomes an identifier in generated code and a URL path, which is why

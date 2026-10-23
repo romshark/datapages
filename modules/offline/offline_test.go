@@ -750,6 +750,24 @@ func TestMiddlewareContentEncoding(t *testing.T) {
 	}
 }
 
+// TestMiddlewareReportsHeldBackPage tests that httpserve.ResponseBodyWritten
+// sees the part of a page the middleware holds back. A handler that fails
+// halfway through the page then sends no error page after it.
+func TestMiddlewareReportsHeldBackPage(t *testing.T) {
+	t.Parallel()
+	var before, after bool
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		before = httpserve.ResponseBodyWritten(w)
+		_, _ = io.WriteString(w, "<!DOCTYPE html><html><head></head><body>half")
+		after = httpserve.ResponseBodyWritten(w)
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.False(t, before, "reported written before the write")
+	require.True(t, after, "the held-back page is not reported")
+}
+
 // TestMiddlewareFlushBeforeWrite tests early flushes for streams and pages.
 func TestMiddlewareFlushBeforeWrite(t *testing.T) {
 	t.Parallel()

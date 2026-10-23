@@ -89,3 +89,18 @@ func (PageDuplicateTag) GET(
 	_ = query
 	return body, err
 }
+
+// PageInvalidTag is /invalid-tag
+type PageInvalidTag struct{ App *App }
+
+/* ErrQueryFieldInvalidTag */
+
+func (PageInvalidTag) GET(
+	r *http.Request,
+	query datapages.Query[struct {
+		Term string `query:"q&a"`
+	}],
+) (body datapages.Component, err error) {
+	_ = query
+	return body, err
+}

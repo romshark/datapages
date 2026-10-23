@@ -225,21 +225,33 @@ func TestBackgroundStreamingKeepsBothStreamsOpen(t *testing.T) {
 }
 
 // TestPrivatePageStreamsOnlyWithASession tests that a stateless page with only
-// private events gives a guest neither a stream nor the visibility reload.
+// private events gives a guest neither a stream attribute nor the visibility reload,
+// also when the stream path holds a path variable.
 func TestPrivatePageStreamsOnlyWithASession(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		for name, signedIn := range map[string]bool{
-			"guest":     false,
-			"signed in": true,
+		for name, tt := range map[string]struct {
+			path, stream string
+			signedIn     bool
+		}{
+			"guest":     {path: "/inbox/", stream: "/inbox/_$/", signedIn: false},
+			"signed in": {path: "/inbox/", stream: "/inbox/_$/", signedIn: true},
+			"guest, path variable": {
+				path: "/threads/t1/", stream: "/threads/t1/_$/", signedIn: false,
+			},
+			"signed in, path variable": {
+				path: "/threads/t1/", stream: "/threads/t1/_$/", signedIn: true,
+			},
 		} {
 			t.Run(name, func(t *testing.T) {
-				resp := load(t, broker, "/inbox/", signedIn)
+				resp := load(t, broker, tt.path, tt.signedIn)
 
 				require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-				require.Equal(t, signedIn, strings.Contains(resp.Body, "/inbox/_$/"),
+				require.Equal(t, tt.signedIn, strings.Contains(resp.Body, "data-init="),
+					"the page writes a stream attribute")
+				require.Equal(t, tt.signedIn, strings.Contains(resp.Body, tt.stream),
 					"the page starts a stream")
-				require.Equal(t, signedIn,
+				require.Equal(t, tt.signedIn,
 					strings.Contains(resp.Body, "data-on:visibilitychange"),
 					"the page reloads when the tab becomes visible again")
 			})
@@ -248,9 +260,8 @@ func TestPrivatePageStreamsOnlyWithASession(t *testing.T) {
 }
 
 // TestPrivateStatefulPageStreamsForGuests tests a stateful page whose events
-// are all private. A guest gets the anonymous stream, which allocates the
-// per-tab state the actions of the guest need. Without a stream, each of them
-// answers 409.
+// are all private. A guest gets the anonymous stream, which allocates the per-tab
+// state the actions of the guest need. Without a stream, each of them answers 409.
 func TestPrivateStatefulPageStreamsForGuests(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		for name, tt := range map[string]struct {
@@ -325,5 +336,29 @@ func TestAnonStreamRecoversHandlerPanic(t *testing.T) {
 		var pe datapages.PanicError
 		require.ErrorAs(t, recovered[0], &pe)
 		require.Equal(t, "the faulted handler panicked", pe.Value)
+	})
+}
+
+// TestAnonStreamRecoversDecodePanic tests a StreamOpen signal whose
+// UnmarshalJSON panics, on the stream of a visitor with no session.
+// RecoverError receives a datapages.PanicError. net/http otherwise
+// closes the connection without a response.
+func TestAnonStreamRecoversDecodePanic(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		a := &app.App{}
+		srv := datapagestest.New(t, mustNewServer(t, a, broker, newSessions()))
+
+		st := srv.Visitor(t).Load(t, "/decode/").Connect(t, map[string]string{"v": "xbad"})
+		require.Equal(t, "/decode/_$/anon/", st.Path())
+		st.WaitFor(t, datapagestest.TextContains("out",
+			"recovered: panic: the JSON parser panicked"),
+			"RecoverError did not answer on the stream")
+
+		recovered := a.Recovered()
+		require.Len(t, recovered, 1)
+		var pe datapages.PanicError
+		require.ErrorAs(t, recovered[0], &pe)
+		require.Equal(t, "the JSON parser panicked", pe.Value)
 	})
 }
