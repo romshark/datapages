@@ -4,14 +4,13 @@
 package acceptance_test
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/href"
@@ -19,12 +18,31 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
+func serve(t *testing.T) *datapagestest.Server {
+	t.Helper()
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
+}
+
+// echoed returns the markup inside the element a handler writes the values it parsed
+// into, byte for byte. The handlers do not escape the values for HTML, and
+// [datapagestest.Text] would decode a character reference that reached a handler,
+// such as "&amp;" from a URL escaped twice.
+func echoed(t *testing.T, resp *datapagestest.Response) string {
+	t.Helper()
+	const open, end = `<pre id="echo">`, "</pre>"
+	_, rest, ok := strings.Cut(resp.Body, open)
+	require.True(t, ok, "no %s in:\n%s", open, resp.Body)
+	v, _, ok := strings.Cut(rest, end)
+	require.True(t, ok, "no %s after %s in:\n%s", end, open, resp.Body)
+	return v
+}
+
 // TestHrefEscaping hands a value with a URL separator in it to a generated
 // builder and asks the server what it received.
 func TestHrefEscaping(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct {
 		url  string
@@ -78,9 +96,9 @@ func TestHrefEscaping(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, tt.url)
+			resp := v.Get(t, tt.url)
 			require.Equal(t, http.StatusOK, resp.Status, "GET %s", tt.url)
-			require.Equal(t, tt.want, resp.Element(t, "echo"), "GET %s", tt.url)
+			require.Equal(t, tt.want, echoed(t, resp), "GET %s", tt.url)
 		})
 	}
 }
@@ -89,8 +107,7 @@ func TestHrefEscaping(t *testing.T) {
 // which carries its URL the same way a link does.
 func TestActionURLEscaping(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t).Visitor(t)
 
 	expr := action.PageItem.Rename.POST("a/b",
 		action.PageItem.Rename.POSTQuery("c&d=e"))
@@ -101,7 +118,7 @@ func TestActionURLEscaping(t *testing.T) {
 	require.True(t, strings.HasSuffix(expr, suffix), expr)
 	url := strings.TrimSuffix(strings.TrimPrefix(expr, prefix), suffix)
 
-	resp := c.Action(t, http.MethodPost, url, "")
+	resp := v.Load(t, href.PageItem("a/b")).Do(t, http.MethodPost, url, nil)
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Contains(t, resp.Body, `renamed "a/b" to "c&d=e"`,
 		"the values did not survive the action URL")
@@ -111,8 +128,7 @@ func TestActionURLEscaping(t *testing.T) {
 // attribute a stream page renders, which carries the path value it was reached by.
 func TestStreamInitCarriesNoQuote(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t).Visitor(t)
 
 	for name, value := range map[string]string{
 		"quote":     `a'b`,
@@ -120,7 +136,7 @@ func TestStreamInitCarriesNoQuote(t *testing.T) {
 		"tag":       `a"></template><img src=x onerror=alert(1)>`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, href.PageItem(value))
+			resp := v.Get(t, href.PageItem(value))
 			require.Equal(t, http.StatusOK, resp.Status)
 
 			const attr = `data-init="`
@@ -144,11 +160,10 @@ func TestStreamInitCarriesNoQuote(t *testing.T) {
 // path and answering a redirect instead of the stream.
 func TestStreamInitURLIsRouted(t *testing.T) {
 	t.Parallel()
-	c := client.New(t, mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, href.PageItem("abc"))
-	require.Equal(t, http.StatusOK, resp.Status)
+	tab := v.Load(t, href.PageItem("abc"))
+	resp := tab.Page()
 
 	const attr = `data-init="@get('`
 	i := strings.Index(resp.Body, attr)
@@ -157,18 +172,10 @@ func TestStreamInitURLIsRouted(t *testing.T) {
 	url = url[:strings.Index(url, "'")]
 	require.NotContains(t, url, "//", "the stream URL carries an empty segment")
 
+	// Tab.Connect would open a URL built from the page path instead of this one.
 	// The stream stays open until the request context ends,
 	// hence only the status of the response matters here.
-	req := c.Request(t, http.MethodGet, url, "")
-	ctx, cancel := context.WithCancel(req.Context())
-	defer cancel()
-	client := &http.Client{
-		Transport: c.HTTP().Transport,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	streamResp, err := client.Do(req.WithContext(ctx))
+	streamResp, err := v.Client().Do(tab.NewRequest(t, http.MethodGet, url, nil))
 	require.NoError(t, err)
 	defer func() { _ = streamResp.Body.Close() }()
 	require.Equal(t, http.StatusOK, streamResp.StatusCode,

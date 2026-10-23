@@ -96,7 +96,7 @@ func TestValidInput(t *testing.T) {
 		"asterisk":       {input: "1*2", want: false},
 		"less_than":      {input: "<script>", want: false},
 		"nul":            {input: "1\x002", want: false},
-		"combining":      {input: "1́", want: false},
+		"combining":      {input: "1\u0301", want: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tt.want, ValidInput(tt.input))

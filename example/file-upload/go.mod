@@ -9,6 +9,7 @@ require (
 	github.com/romshark/datapages v0.10.1
 	github.com/romshark/morpheus v0.1.0
 	github.com/stretchr/testify v1.12.1
+	golang.org/x/net v0.61.0
 )
 
 require (

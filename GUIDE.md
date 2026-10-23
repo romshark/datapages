@@ -488,7 +488,7 @@ The command backs up a changed file before replacing it. If the project uses bot
 
 ## Test through HTTP
 
-Use `httptest` against the generated `http.Handler` to test page loads, actions, and streams. Test domain logic separately without HTTP. The [acceptance-test guide](internal/acceptance/README.md) shows how to construct a generated server and assert HTML and SSE responses.
+Use the [`datapagestest`](datapagestest) package to test page loads, actions, and streams. It sends the requests a browser running Datastar sends and reads the pages, events, and redirects the server answers with. Test domain logic separately without HTTP. [`internal/acceptance/datapagestest`](internal/acceptance/datapagestest/datapagestest_test.go) uses the package against a generated server.
 
 ## Continue
 

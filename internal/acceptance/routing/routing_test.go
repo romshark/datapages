@@ -12,17 +12,26 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/routing/app"
 	"github.com/romshark/datapages/internal/acceptance/routing/app/datapagesgen/href"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
+}
+
+// echoed returns the text of the element a handler writes the values it parsed into.
+// The handlers do not escape the values for HTML, and [datapagestest.Text] drops tags,
+// decodes character references and collapses runs of whitespace: compare a value
+// carrying any of these on resp.Body.
+func echoed(t *testing.T, resp *datapagestest.Response) string {
+	t.Helper()
+	return datapagestest.Text(resp.ElementByID(t, "echo"))
 }
 
 // TestRoundTrip tests the pair the generator writes for every page:
@@ -31,7 +40,7 @@ func newClient(t *testing.T) *client.Client {
 // A change of order, name or number format in one of them cannot pass unnoticed.
 func TestRoundTrip(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct {
 		url  string
@@ -80,9 +89,9 @@ func TestRoundTrip(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, tt.url)
+			resp := v.Get(t, tt.url)
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-			require.Equal(t, tt.want, resp.Element(t, "echo"))
+			require.Equal(t, tt.want, echoed(t, resp))
 		})
 	}
 }
@@ -91,19 +100,19 @@ func TestRoundTrip(t *testing.T) {
 // Absent parameters are the common case on a first page load and must not be an error.
 func TestQueryDefaults(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/q/")
+	resp := v.Get(t, "/q/")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	const want = `term="" limit=0 ratio=0 score=0 big=0 deep=0 flag=false`
-	require.Equal(t, want, resp.Element(t, "echo"))
+	require.Equal(t, want, echoed(t, resp))
 }
 
 // TestRawQuery tests query strings the generated reader must
 // read the way url.URL.Query does.
 func TestRawQuery(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	for name, tt := range map[string]struct {
 		rawQuery string
@@ -126,12 +135,12 @@ func TestRawQuery(t *testing.T) {
 		"other key first":      {rawQuery: "x=1&term=2&term=3", want: "2"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, "/q/?"+tt.rawQuery)
+			resp := v.Get(t, "/q/?"+tt.rawQuery)
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 			require.Equal(t,
 				`term=`+strconv.Quote(tt.want)+
 					` limit=0 ratio=0 score=0 big=0 deep=0 flag=false`,
-				resp.Element(t, "echo"))
+				echoed(t, resp))
 		})
 	}
 }
@@ -141,7 +150,7 @@ func TestRawQuery(t *testing.T) {
 // request rather than that the server broke.
 func TestUnparsableValues(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	tests := map[string]string{
 		"path int is a word":       "/p/x/notanint/1/1.0/true/",
@@ -183,7 +192,7 @@ func TestUnparsableValues(t *testing.T) {
 
 	for name, url := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, url)
+			resp := v.Get(t, url)
 			require.Equal(t, http.StatusBadRequest, resp.Status,
 				"GET %s\n%s", url, resp.Body)
 		})
@@ -197,7 +206,7 @@ func TestUnparsableValues(t *testing.T) {
 // different check than the other spellings. A path segment keeps its "+".
 func TestNonFiniteFloatHref(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	for name, tt := range map[string]struct {
 		url  string
@@ -222,7 +231,7 @@ func TestNonFiniteFloatHref(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tt.want, tt.url)
-			resp := c.Get(t, tt.url)
+			resp := v.Get(t, tt.url)
 			require.Equal(t, http.StatusBadRequest, resp.Status, resp.Body)
 		})
 	}
@@ -236,11 +245,11 @@ func TestNonFiniteFloatHref(t *testing.T) {
 // inside <head> and before the resp.Body.
 func TestPageHead(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, href.PageTitled("welcome"))
+	resp := v.Get(t, href.PageTitled("welcome"))
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, "titled welcome", resp.Element(t, "echo"))
+	require.Equal(t, "titled welcome", echoed(t, resp))
 
 	head := strings.Index(resp.Body, "<title>welcome</title>")
 	require.GreaterOrEqual(t, head, 0,
@@ -254,11 +263,11 @@ func TestPageHead(t *testing.T) {
 // type refuses, and the validation the application wrote never runs.
 func TestTextUnmarshaler(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/slug/hello/?tag=news")
+	resp := v.Get(t, "/slug/hello/?tag=news")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
+	require.Equal(t, `slug="hello" tag="news"`, echoed(t, resp))
 
 	// The builder takes the declared type and writes what it marshals to,
 	// which prefixes and lowercases. A conversion would put "HELLO" in the URL,
@@ -267,16 +276,16 @@ func TestTextUnmarshaler(t *testing.T) {
 		Tag: app.Slug("NEWS"),
 	})
 	require.Equal(t, "/slug/s-hello/?tag=s-news", url)
-	resp = c.Get(t, url)
+	resp = v.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
+	require.Equal(t, `slug="hello" tag="news"`, echoed(t, resp))
 
 	for name, url := range map[string]string{
 		"path":  "/slug/HELLO/",
 		"query": "/slug/hello/?tag=NEWS",
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, url)
+			resp := v.Get(t, url)
 			require.Equal(t, http.StatusBadRequest, resp.Status, resp.Body)
 		})
 	}
@@ -290,12 +299,12 @@ func TestTextUnmarshaler(t *testing.T) {
 // leaves the client without state and the URL without the current values.
 func TestReflectedSignals(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/reflect/?t=shoes&p=3&s=news")
+	resp := v.Get(t, "/reflect/?t=shoes&p=3&s=news")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	require.Equal(t, `term="shoes" page=3 slug="news" title="" lang=""`,
-		resp.Element(t, "echo"))
+		echoed(t, resp))
 	for _, want := range []string{
 		`data-signals:term="'shoes'"`,
 		`data-signals:page="3"`,
@@ -322,12 +331,12 @@ func TestReflectedSignals(t *testing.T) {
 // unreflected query fields and undeclared parameters.
 func TestReflectedSignalsKeepOtherQueryParams(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/reflect/?t=shoes&lang=de&utm=spring")
+	resp := v.Get(t, "/reflect/?t=shoes&lang=de&utm=spring")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	require.Equal(t, `term="shoes" page=0 slug="" title="" lang="de"`,
-		resp.Element(t, "echo"))
+		echoed(t, resp))
 
 	require.Contains(t, resp.Body, "new URLSearchParams(location.search)")
 	for _, want := range []string{
@@ -345,11 +354,11 @@ func TestReflectedSignalsKeepOtherQueryParams(t *testing.T) {
 // and int seeds a numeric signal.
 func TestReflectedSignalSeedQuoting(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/when/?when=2020-01-02T03%3A04%3A05Z&n=7")
+	resp := v.Get(t, "/when/?when=2020-01-02T03%3A04%3A05Z&n=7")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `when="2020-01-02T03:04:05Z" count=7`, resp.Element(t, "echo"))
+	require.Equal(t, `when="2020-01-02T03:04:05Z" count=7`, echoed(t, resp))
 
 	require.Contains(t, resp.Body, `data-signals:when="'2020-01-02T03:04:05Z'"`)
 	require.Contains(t, resp.Body, `data-signals:count="7"`)
@@ -360,7 +369,7 @@ func TestReflectedSignalSeedQuoting(t *testing.T) {
 // lets a quote end the JavaScript string after the browser decodes the attribute.
 func TestReflectedSignalEscapesPathValue(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct {
 		send string // the path segment, already percent-encoded
@@ -380,17 +389,17 @@ func TestReflectedSignalEscapesPathValue(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			resp := c.Get(t, "/shop/"+tt.send+"/?q=x")
+			resp := v.Get(t, "/shop/"+tt.send+"/?q=x")
 
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 			require.Equal(t, `cat=`+strconv.Quote(tt.read)+` term="x"`,
-				resp.Element(t, "echo"))
+				echoed(t, resp))
 			require.Contains(t, resp.Body, tt.want)
 		})
 	}
 
 	// The browser decodes &#39; back to a quote before Datastar reads the effect.
-	resp := c.Get(t, "/shop/%27%2Balert(1)%2B%27/?q=x")
+	resp := v.Get(t, "/shop/%27%2Balert(1)%2B%27/?q=x")
 	require.NotContains(t, resp.Body, "&#39;+alert")
 }
 
@@ -399,7 +408,7 @@ func TestReflectedSignalEscapesPathValue(t *testing.T) {
 // attribute and an angle bracket opens an element of its own.
 func TestReflectedSignalEscapesMarkup(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct {
 		value string // what the client sends as ?t=
@@ -424,7 +433,7 @@ func TestReflectedSignalEscapesMarkup(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, "/reflect/?t="+url.QueryEscape(tt.value))
+			resp := v.Get(t, "/reflect/?t="+url.QueryEscape(tt.value))
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 			require.Contains(t, resp.Body, `data-signals:term="'`+tt.want+`'"`,
 				"the attribute does not carry the escaped value:\n%s", resp.Body)
@@ -445,7 +454,7 @@ func TestReflectedSignalEscapesMarkup(t *testing.T) {
 // trailing slash or not.
 func TestTrailingWildcard(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	for name, tt := range map[string]struct{ url, want string }{
 		"1 segment":                 {"/files/a/", `rest="a"`},
@@ -459,9 +468,9 @@ func TestTrailingWildcard(t *testing.T) {
 		"encoded separator": {"/files/a%2Fb/", `rest="a/b"`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, tt.url)
+			resp := v.Get(t, tt.url)
 			require.Equal(t, http.StatusOK, resp.Status, "GET %s\n%s", tt.url, resp.Body)
-			require.Equal(t, tt.want, resp.Element(t, "echo"), "GET %s", tt.url)
+			require.Equal(t, tt.want, echoed(t, resp), "GET %s", tt.url)
 		})
 	}
 }
@@ -474,7 +483,7 @@ func TestTrailingWildcard(t *testing.T) {
 // which is what made a value come back with a separator appended to it.
 func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	for name, want := range map[string]string{
 		"1 segment":        "a",
@@ -489,9 +498,9 @@ func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			url := href.PageFiles(want)
-			resp := c.Get(t, url)
+			resp := v.Get(t, url)
 			require.Equal(t, http.StatusOK, resp.Status, "GET %s\n%s", url, resp.Body)
-			require.Equal(t, `rest=`+strconv.Quote(want), resp.Element(t, "echo"),
+			require.Equal(t, `rest=`+strconv.Quote(want), echoed(t, resp),
 				"href.PageFiles(%q) built %s", want, url)
 		})
 	}
@@ -506,7 +515,7 @@ func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
 // one path and reads its variables out of the other.
 func TestEncodedPathSegments(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct{ url, want string }{
 		"encoded space": {
@@ -537,9 +546,9 @@ func TestEncodedPathSegments(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, tt.url)
+			resp := v.Get(t, tt.url)
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-			require.Equal(t, tt.want, resp.Element(t, "echo"))
+			require.Equal(t, tt.want, echoed(t, resp))
 		})
 	}
 }
@@ -547,7 +556,7 @@ func TestEncodedPathSegments(t *testing.T) {
 // TestUnknownRoutes tests paths no page claims.
 func TestUnknownRoutes(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	for name, url := range map[string]string{
 		"no such page":            "/nothing/",
@@ -557,7 +566,7 @@ func TestUnknownRoutes(t *testing.T) {
 		"page path without slash": "/nothing",
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := c.Get(t, url)
+			resp := v.Get(t, url)
 			require.Equal(t, http.StatusNotFound, resp.Status, "GET %s", url)
 		})
 	}

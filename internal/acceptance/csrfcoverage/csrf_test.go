@@ -4,13 +4,10 @@
 package acceptance_test
 
 import (
-	"context"
 	"errors"
-	"io"
 	"net/http"
-	"net/http/cookiejar"
-	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -51,38 +49,53 @@ func (failingSessions) ReadSessionFromCookie(string) (
 
 var errStoreDown = errors.New("session store is down")
 
-// newClient returns a client that keeps cookies, on the transport of srv.
-// net/http returns a connection to the idle pool before it hands over a
-// response without a body, and the [httptest.Server.Close] of a parallel test
-// closes the idle connections of [http.DefaultTransport], failing that request.
-func newClient(t *testing.T, srv *httptest.Server) *http.Client {
-	t.Helper()
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	return &http.Client{Jar: jar, Transport: srv.Client().Transport}
+func newSessions() *sessinmem.SessionManager[struct{}] {
+	return sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)
 }
 
-// newPost returns a function that sends a Datastar POST and returns the status code.
-// An empty token sends no CSRF header.
-func newPost(
-	t *testing.T, srv *httptest.Server, client *http.Client,
-) func(path, body, token string) int {
-	return func(path, body, token string) int {
-		t.Helper()
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodPost, srv.URL+path, strings.NewReader(body))
-		require.NoError(t, err, "building POST %s", path)
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Content-Type", "application/json")
-		if token != "" {
-			req.Header.Set("X-CSRF-Token", token)
-		}
-		resp, err := client.Do(req)
-		require.NoError(t, err, "POST %s", path)
-		defer func() { _ = resp.Body.Close() }()
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode
-	}
+func serve(
+	t *testing.T, store sessions.Manager[struct{}], opts ...datapages.ServerOption,
+) *datapagestest.Server {
+	t.Helper()
+	return datapagestest.New(t, mustNewServer(
+		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store, opts...,
+	))
+}
+
+// signIn signs v in as alice from the index page and returns that page's tab,
+// which was rendered for a guest.
+func signIn(t *testing.T, v *datapagestest.Visitor) *datapagestest.Tab {
+	t.Helper()
+	tab := v.Load(t, "/")
+	resp := tab.Do(t, http.MethodPost, "/sign-in/", map[string]string{"user": "alice"})
+	require.Equal(t, http.StatusOK, resp.Status, "signing in")
+	return tab
+}
+
+// sendWithoutToken sends a Datastar request of tab with the JSON signals and
+// without a CSRF token, whether or not the page of tab carries one.
+func sendWithoutToken(
+	t *testing.T, v *datapagestest.Visitor, tab *datapagestest.Tab,
+	method, path, signals string,
+) *datapagestest.Response {
+	t.Helper()
+	req := tab.NewRequest(t, method, path, strings.NewReader(signals))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Del("X-CSRF-Token")
+	return v.Send(t, req)
+}
+
+// postWithToken sends a POST of tab without a body, with token as its CSRF token
+// in place of the one the page of tab carries.
+func postWithToken(
+	t *testing.T, v *datapagestest.Visitor, tab *datapagestest.Tab, path, token string,
+) *datapagestest.Response {
+	t.Helper()
+	req := tab.NewRequest(t, http.MethodPost, path, nil)
+	req.Header.Set("X-CSRF-Token", token)
+	return v.Send(t, req)
 }
 
 // TestCSRFOnlyActionReadsNoSession tests the check an action runs when it
@@ -90,25 +103,13 @@ func newPost(
 // stays out of the request.
 func TestCSRFOnlyActionReadsNoSession(t *testing.T) {
 	t.Parallel()
-	store := &countingSessions{Manager: sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)}
-
-	srv := httptest.NewServer(mustNewServer(
-		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
-	))
-	t.Cleanup(srv.Close)
-
-	client := newClient(t, srv)
-
-	post := newPost(t, srv, client)
-
-	require.Equal(t, http.StatusOK,
-		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+	store := &countingSessions{Manager: newSessions()}
+	v := serve(t, store).Visitor(t)
+	tab := signIn(t, v)
 
 	before := store.reads.Load()
-	require.Equal(t, http.StatusForbidden,
-		post("/delete/", `{"confirm":true}`, ""),
+	resp := sendWithoutToken(t, v, tab, http.MethodPost, "/delete/", `{"confirm":true}`)
+	require.Equal(t, http.StatusForbidden, resp.Status,
 		"an action without a CSRF token was served")
 	require.Equal(t, before, store.reads.Load(),
 		"the store was read for an action that takes no session")
@@ -122,78 +123,36 @@ func TestCSRFOnlyActionReadsNoSession(t *testing.T) {
 // The server refuses it and the action does not take effect.
 func TestCSRFCoversEveryAction(t *testing.T) {
 	t.Parallel()
-	sessions := sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)
+	v := serve(t, newSessions()).Visitor(t)
+	tab := signIn(t, v)
 
-	srv := httptest.NewServer(mustNewServer(
-		t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), sessions,
-	))
-	t.Cleanup(srv.Close)
-
-	client := newClient(t, srv)
-
-	post := newPost(t, srv, client)
-
-	require.Equal(t, http.StatusOK,
-		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
-
-	require.Equal(t, http.StatusForbidden,
-		post("/delete/", `{"confirm":true}`, ""),
+	resp := sendWithoutToken(t, v, tab, http.MethodPost, "/delete/", `{"confirm":true}`)
+	require.Equal(t, http.StatusForbidden, resp.Status,
 		"a state-changing action of a visitor with a session was served "+
 			"without a CSRF token")
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+"/", nil,
-	)
-	require.NoError(t, err, "building GET /")
-	resp, err := client.Do(req)
-	require.NoError(t, err, "GET /")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading /")
-	require.NotContains(t, string(b), "deleted=1", "the refused action took effect")
+	require.NotContains(t, v.Get(t, "/").Body, "deleted=1",
+		"the refused action took effect")
 }
 
 // TestQueryNeedsNoCSRFToken tests the QUERY actions of a visitor with a session.
-// They send no CSRF token, as a page that was rendered for a guest or before
-// a sign-in in another tab does. QUERY is safe and both are served:
+// They carry no CSRF token: the page's script adds none to a QUERY.
+// QUERY is safe and both are served:
 // the action that reads the session and the action that takes none.
 func TestQueryNeedsNoCSRFToken(t *testing.T) {
 	t.Parallel()
-	sessions := sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)
-
-	srv := httptest.NewServer(mustNewServer(
-		t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), sessions,
-	))
-	t.Cleanup(srv.Close)
-
-	client := newClient(t, srv)
-
-	require.Equal(t, http.StatusOK,
-		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+	v := serve(t, newSessions()).Visitor(t)
+	tab := signIn(t, v)
 
 	for name, tc := range map[string]struct{ path, want string }{
 		"reading the session": {path: "/count/", want: "user=alice"},
 		"taking no session":   {path: "/status/"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(context.Background(),
-				"QUERY", srv.URL+tc.path, strings.NewReader("{}"))
-			require.NoError(t, err, "building QUERY %s", tc.path)
-			req.Header.Set("Datastar-Request", "true")
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := client.Do(req)
-			require.NoError(t, err, "QUERY %s", tc.path)
-			defer func() { _ = resp.Body.Close() }()
-			b, err := io.ReadAll(resp.Body)
-			require.NoError(t, err, "reading QUERY %s", tc.path)
-			require.Equal(t, http.StatusOK, resp.StatusCode, "QUERY %s:\n%s", tc.path, b)
-			require.Contains(t, string(b), tc.want)
+			resp := tab.Do(t, "QUERY", tc.path, nil)
+			require.Equal(t, http.StatusOK, resp.Status,
+				"QUERY %s:\n%s", tc.path, resp.Body)
+			require.Contains(t, resp.Body, tc.want)
 		})
 	}
 }
@@ -203,37 +162,12 @@ func TestQueryNeedsNoCSRFToken(t *testing.T) {
 // WriteCSRFScript writes nothing and every action reachable from them answers 403.
 func TestErrorPagesCarryTheCSRFScript(t *testing.T) {
 	t.Parallel()
-	store := sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)
+	v := serve(t, newSessions()).Visitor(t)
+	signIn(t, v)
 
-	srv := httptest.NewServer(mustNewServer(
-		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
-	))
-	t.Cleanup(srv.Close)
-
-	client := newClient(t, srv)
-
-	require.Equal(t, http.StatusOK,
-		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
-
-	get := func(path string) (int, string) {
-		t.Helper()
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodGet, srv.URL+path, nil,
-		)
-		require.NoError(t, err, "building GET %s", path)
-		resp, err := client.Do(req)
-		require.NoError(t, err, "GET %s", path)
-		defer func() { _ = resp.Body.Close() }()
-		b, err := io.ReadAll(resp.Body)
-		require.NoError(t, err, "reading %s", path)
-		return resp.StatusCode, string(b)
-	}
-
-	status, page := get("/")
-	require.Equal(t, http.StatusOK, status)
-	require.Contains(t, page, "X-CSRF-Token", "the page carries no CSRF script")
+	page := v.Get(t, "/")
+	require.Equal(t, http.StatusOK, page.Status)
+	require.Contains(t, page.Body, "X-CSRF-Token", "the page carries no CSRF script")
 
 	for name, tt := range map[string]struct {
 		path   string
@@ -244,11 +178,11 @@ func TestErrorPagesCarryTheCSRFScript(t *testing.T) {
 		"500": {"/boom/", http.StatusInternalServerError, "500 user=alice"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			status, body := get(tt.path)
-			require.Equal(t, tt.status, status)
-			require.Contains(t, body, tt.echo, "the page did not see the session")
-			require.Contains(t, body, "X-CSRF-Token",
-				"the document carries no CSRF script:\n%s", body)
+			resp := v.Get(t, tt.path)
+			require.Equal(t, tt.status, resp.Status)
+			require.Contains(t, resp.Body, tt.echo, "the page did not see the session")
+			require.Contains(t, resp.Body, "X-CSRF-Token",
+				"the document carries no CSRF script:\n%s", resp.Body)
 		})
 	}
 }
@@ -260,37 +194,15 @@ var csrfTokenInScript = regexp.MustCompile(`"X-CSRF-Token",'([^']+)'`)
 // event stream requires it.
 func TestPrivateEventPageCarriesTheCSRFScript(t *testing.T) {
 	t.Parallel()
-	store := sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)
+	v := serve(t, newSessions()).Visitor(t)
+	signIn(t, v)
 
-	srv := httptest.NewServer(mustNewServer(
-		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
-	))
-	t.Cleanup(srv.Close)
-
-	client := newClient(t, srv)
-
-	post := newPost(t, srv, client)
+	inbox := v.Load(t, "/inbox/")
+	m := csrfTokenInScript.FindStringSubmatch(inbox.Page().Body)
+	require.NotNil(t, m, "the document carries no CSRF script:\n%s", inbox.Page().Body)
 
 	require.Equal(t, http.StatusOK,
-		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
-
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+"/inbox/", nil,
-	)
-	require.NoError(t, err, "building GET /inbox/")
-	resp, err := client.Do(req)
-	require.NoError(t, err, "GET /inbox/")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading /inbox/")
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	m := csrfTokenInScript.FindStringSubmatch(string(b))
-	require.NotNil(t, m, "the document carries no CSRF script:\n%s", b)
-
-	require.Equal(t, http.StatusOK, post("/inbox/mark-read/", "", m[1]),
+		postWithToken(t, v, inbox, "/inbox/mark-read/", m[1]).Status,
 		"posting with the page's CSRF token")
 }
 
@@ -300,63 +212,34 @@ func TestPrivateEventPageCarriesTheCSRFScript(t *testing.T) {
 // A request without a session cookie produces no script.
 func TestHandlersWithoutSessionWriteCSRFScript(t *testing.T) {
 	t.Parallel()
-	store := sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)
+	srv := serve(t, newSessions())
 
-	srv := httptest.NewServer(mustNewServer(
-		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
-	))
-	t.Cleanup(srv.Close)
-
-	send := func(
-		t *testing.T, client *http.Client, method, path, token string,
-	) (int, string) {
-		t.Helper()
-		req, err := http.NewRequestWithContext(
-			context.Background(), method, srv.URL+path, nil,
-		)
-		require.NoError(t, err, "building %s %s", method, path)
-		if method != http.MethodGet {
-			req.Header.Set("Datastar-Request", "true")
-		}
-		if token != "" {
-			req.Header.Set("X-CSRF-Token", token)
-		}
-		resp, err := client.Do(req)
-		require.NoError(t, err, "%s %s", method, path)
-		defer func() { _ = resp.Body.Close() }()
-		b, err := io.ReadAll(resp.Body)
-		require.NoError(t, err, "reading %s", path)
-		return resp.StatusCode, string(b)
-	}
-
-	status, guestPage := send(t, srv.Client(), http.MethodGet, "/about/", "")
-	require.Equal(t, http.StatusOK, status)
-	require.NotContains(t, guestPage, "X-CSRF-Token",
+	guestPage := srv.Visitor(t).Get(t, "/about/")
+	require.Equal(t, http.StatusOK, guestPage.Status)
+	require.NotContains(t, guestPage.Body, "X-CSRF-Token",
 		"the document contains a CSRF script without a session cookie")
 
-	client := newClient(t, srv)
-	require.Equal(t, http.StatusOK,
-		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+	v := srv.Visitor(t)
+	signIn(t, v)
 
-	status, page := send(t, client, http.MethodGet, "/about/", "")
-	require.Equal(t, http.StatusOK, status)
-	pageToken := csrfTokenInScript.FindStringSubmatch(page)
-	require.NotNil(t, pageToken, "the page contains no CSRF script:\n%s", page)
+	about := v.Load(t, "/about/")
+	pageToken := csrfTokenInScript.FindStringSubmatch(about.Page().Body)
+	require.NotNil(t, pageToken,
+		"the page contains no CSRF script:\n%s", about.Page().Body)
 
-	status, doc := send(t, client, http.MethodPost, "/about/preview/", pageToken[1])
-	require.Equal(t, http.StatusOK, status, "posting with the page's CSRF token")
-	docToken := csrfTokenInScript.FindStringSubmatch(doc)
-	require.NotNil(t, docToken, "the action response contains no CSRF script:\n%s", doc)
+	doc := postWithToken(t, v, about, "/about/preview/", pageToken[1])
+	require.Equal(t, http.StatusOK, doc.Status, "posting with the page's CSRF token")
+	docToken := csrfTokenInScript.FindStringSubmatch(doc.Body)
+	require.NotNil(t, docToken,
+		"the action response contains no CSRF script:\n%s", doc.Body)
 
 	for name, token := range map[string]string{
 		"page":            pageToken[1],
 		"action response": docToken[1],
 	} {
 		t.Run(name, func(t *testing.T) {
-			status, _ := send(t, client, http.MethodPost, "/ping/", token)
-			require.Equal(t, http.StatusOK, status,
+			require.Equal(t, http.StatusOK,
+				postWithToken(t, v, about, "/ping/", token).Status,
 				"POST /ping/ with the %s CSRF token", name)
 		})
 	}
@@ -369,42 +252,19 @@ func TestHandlersWithoutSessionWriteCSRFScript(t *testing.T) {
 // trips and, with a stale cookie, 2 clearing Set-Cookie headers.
 func TestUnclaimedPathReadsTheSessionOnce(t *testing.T) {
 	t.Parallel()
-	store := &countingSessions{Manager: sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)}
-
-	srv := httptest.NewServer(mustNewServer(
-		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
-	))
-	t.Cleanup(srv.Close)
-
-	client := newClient(t, srv)
-
-	require.Equal(t, http.StatusOK,
-		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
-
-	get := func(path string) *http.Response {
-		t.Helper()
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodGet, srv.URL+path, nil,
-		)
-		require.NoError(t, err, "building GET %s", path)
-		resp, err := client.Do(req)
-		require.NoError(t, err, "GET %s", path)
-		t.Cleanup(func() { _ = resp.Body.Close() })
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp
-	}
+	store := &countingSessions{Manager: newSessions()}
+	v := serve(t, store).Visitor(t)
+	signIn(t, v)
 
 	before := store.reads.Load()
-	resp := get("/no-such-path/")
-	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp := v.Get(t, "/no-such-path/")
+	require.Equal(t, http.StatusNotFound, resp.Status)
 	require.Equal(t, int64(1), store.reads.Load()-before,
 		"the 404 read the session store more than once")
 
 	before = store.reads.Load()
-	resp = get("/")
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp = v.Get(t, "/")
+	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, int64(1), store.reads.Load()-before,
 		"the index page read the session store more than once")
 }
@@ -418,53 +278,30 @@ func TestUnclaimedPathReadsTheSessionOnce(t *testing.T) {
 func TestError500PageStatusFollowsItsSessionRead(t *testing.T) {
 	t.Parallel()
 
-	get := func(t *testing.T, srv *httptest.Server, cookie string) *http.Response {
+	get := func(
+		t *testing.T, srv *datapagestest.Server, cookie string,
+	) *datapagestest.Response {
 		t.Helper()
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodGet, srv.URL+"/boom/", nil,
-		)
-		require.NoError(t, err, "building GET /boom/")
+		v := srv.Visitor(t)
+		req := v.NewRequest(t, http.MethodGet, "/boom/", nil)
 		req.AddCookie(&http.Cookie{Name: "sessiontoken", Value: cookie})
-		resp, err := srv.Client().Do(req)
-		require.NoError(t, err, "GET /boom/")
-		t.Cleanup(func() { _ = resp.Body.Close() })
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp
+		return v.Send(t, req)
 	}
 
 	t.Run("stale cookie is cleared", func(t *testing.T) {
 		t.Parallel()
-		store := sessinmem.New[struct{}](
-			sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-		)
-		srv := httptest.NewServer(mustNewServer(
-			t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
-		))
-		t.Cleanup(srv.Close)
-
-		resp := get(t, srv, "not-a-real-token")
-		require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
-		var cleared bool
-		for _, ck := range resp.Cookies() {
-			if ck.Name == "sessiontoken" && ck.Value == "" {
-				cleared = true
-			}
-		}
+		resp := get(t, serve(t, newSessions()), "not-a-real-token")
+		require.Equal(t, http.StatusInternalServerError, resp.Status)
+		cleared := slices.ContainsFunc(resp.Cookies(), func(ck *http.Cookie) bool {
+			return ck.Name == "sessiontoken" && ck.Value == ""
+		})
 		require.True(t, cleared, "the stale cookie was left in place")
 	})
 
 	t.Run("a store outage answers 503", func(t *testing.T) {
 		t.Parallel()
-		store := failingSessions{sessinmem.New[struct{}](
-			sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-		)}
-		srv := httptest.NewServer(mustNewServer(
-			t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
-		))
-		t.Cleanup(srv.Close)
-
-		resp := get(t, srv, "any-token")
-		require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+		resp := get(t, serve(t, failingSessions{newSessions()}), "any-token")
+		require.Equal(t, http.StatusServiceUnavailable, resp.Status)
 	})
 }
 
@@ -472,33 +309,14 @@ func TestError500PageStatusFollowsItsSessionRead(t *testing.T) {
 // and no WithLogger. It starts, and it serves the action the check refuses.
 func TestCSRFDisabledServesWithoutLogger(t *testing.T) {
 	t.Parallel()
-	store := sessinmem.New[struct{}](
-		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
-	)
-
-	srv := httptest.NewServer(mustNewServer(
-		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
+	v := serve(t, newSessions(),
 		datapages.WithCSRFProtection(datapages.CSRFConfig{Disabled: true}),
-	))
-	t.Cleanup(srv.Close)
+	).Visitor(t)
+	tab := signIn(t, v)
 
-	client := newClient(t, srv)
-	post := newPost(t, srv, client)
-
-	require.Equal(t, http.StatusOK,
-		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
-	require.Equal(t, http.StatusOK,
-		post("/delete/", `{"confirm":true}`, ""),
+	resp := sendWithoutToken(t, v, tab, http.MethodPost, "/delete/", `{"confirm":true}`)
+	require.Equal(t, http.StatusOK, resp.Status,
 		"an action was refused with CSRF protection disabled")
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+"/", nil,
-	)
-	require.NoError(t, err, "building GET /")
-	resp, err := client.Do(req)
-	require.NoError(t, err, "GET /")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading /")
-	require.Contains(t, string(b), "deleted=1", "the action did not take effect")
+	require.Contains(t, v.Get(t, "/").Body, "deleted=1", "the action did not take effect")
 }

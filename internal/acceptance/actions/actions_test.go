@@ -4,10 +4,8 @@ package acceptance_test
 
 import (
 	"compress/gzip"
-	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -16,73 +14,23 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/actions/app"
 	"github.com/romshark/datapages/internal/acceptance/actions/app/datapagesgen/action"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-type server struct {
-	*httptest.Server
-}
-
-func newServer(t *testing.T) server {
+func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 	t.Helper()
-	s := httptest.NewServer(mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer)))
-	t.Cleanup(s.Close)
-	return server{s}
-}
-
-// do sends an action request the way the Datastar client sends it.
-func (s server) do(t *testing.T, method, url, body string) *http.Response {
-	t.Helper()
-	var r io.Reader
-	if body != "" {
-		r = strings.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(context.Background(), method, s.URL+url, r)
-	require.NoError(t, err, "building %s %s", method, url)
-	req.Header.Set("Datastar-Request", "true")
-	// Keep assertions against the uncompressed handler output.
-	req.Header.Set("Accept-Encoding", "identity")
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := s.Client().Do(req)
-	require.NoError(t, err, "%s %s", method, url)
-	return resp
-}
-
-// call sends an action request and returns its status and body.
-func (s server) call(t *testing.T, method, url, body string) (int, string) {
-	t.Helper()
-	resp := s.do(t, method, url, body)
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading body of %s %s", method, url)
-	return resp.StatusCode, string(b)
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer), opts...))
 }
 
 // logOf reads back what the actions recorded.
-func (s server) logOf(t *testing.T) string {
+func logOf(t *testing.T, v *datapagestest.Visitor) string {
 	t.Helper()
-	resp, err := s.Client().Get(s.URL + "/log/")
-	require.NoError(t, err, "GET /log/")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading /log/")
-	return echoed(t, string(b))
-}
-
-func echoed(t *testing.T, body string) string {
-	t.Helper()
-	const open = `<pre id="echo">`
-	_, after, ok := strings.Cut(body, open)
-	require.True(t, ok, "no echo element in response:\n%s", body)
-	before, _, ok := strings.Cut(after, "</pre>")
-	require.True(t, ok, "unterminated echo element in response:\n%s", body)
-	return before
+	return datapagestest.Text(v.Get(t, "/log/").ElementByID(t, "echo"))
 }
 
 // TestMethods tests 1 action per HTTP method, page-level and app-level.
@@ -91,16 +39,16 @@ func echoed(t *testing.T, body string) string {
 func TestMethods(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
-		method string
-		expr   string
-		body   string
-		want   string
+		method  string
+		expr    string
+		signals any
+		want    string
 	}{
 		"post on a page": {
-			method: http.MethodPost,
-			expr:   action.PageForm.Submit.POST(),
-			body:   `{"name":"ada","age":36}`,
-			want:   `submit name="ada" age=36`,
+			method:  http.MethodPost,
+			expr:    action.PageForm.Submit.POST(),
+			signals: map[string]any{"name": "ada", "age": 36},
+			want:    `submit name="ada" age=36`,
 		},
 		"put on a page": {
 			method: http.MethodPut,
@@ -123,10 +71,10 @@ func TestMethods(t *testing.T) {
 			want:   "ping",
 		},
 		"query on a page": {
-			method: "QUERY",
-			expr:   action.PageForm.Search.QUERY(),
-			body:   `{"term":"ada"}`,
-			want:   `search term="ada"`,
+			method:  "QUERY",
+			expr:    action.PageForm.Search.QUERY(),
+			signals: map[string]string{"term": "ada"},
+			want:    `search term="ada"`,
 		},
 		"query on the app": {
 			method: "QUERY",
@@ -137,11 +85,13 @@ func TestMethods(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			srv := newServer(t)
-			url := urlOf(t, tt.expr)
-			st, body := srv.call(t, tt.method, url, tt.body)
-			require.Equal(t, http.StatusOK, st, "%s %s\n%s", tt.method, url, body)
-			require.Equal(t, tt.want, srv.logOf(t))
+			v := serve(t).Visitor(t)
+			method, url := datapagestest.ParseAction(t, tt.expr)
+			require.Equal(t, tt.method, method, "the method of %s", tt.expr)
+			resp := v.Load(t, "/form/").Do(t, method, url, tt.signals)
+			require.Equal(t, http.StatusOK, resp.Status,
+				"%s %s\n%s", tt.method, url, resp.Body)
+			require.Equal(t, tt.want, logOf(t, v))
 		})
 	}
 }
@@ -149,24 +99,26 @@ func TestMethods(t *testing.T) {
 // TestParameters tests path variables and query parameters on an action.
 func TestParameters(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
-	url := urlOf(t, action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)))
-	status, body := srv.call(t, http.MethodPost, url, "")
-	require.Equal(t, http.StatusOK, status, "POST %s\n%s", url, body)
-	require.Equal(t, "bump id=7 by=3", srv.logOf(t))
+	_, url := datapagestest.ParseAction(t,
+		action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)))
+	resp := v.Load(t, "/form/").Do(t, http.MethodPost, url, nil)
+	require.Equal(t, http.StatusOK, resp.Status, "POST %s\n%s", url, resp.Body)
+	require.Equal(t, "bump id=7 by=3", logOf(t, v))
 }
 
 // TestSignalsAreRequired tests a request whose body is not the signals the
 // handler declares.
 func TestSignalsAreRequired(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
-	url := urlOf(t, action.PageForm.Submit.POST())
-	status, _ := srv.call(t, http.MethodPost, url, `{"age":"not a number"}`)
-	require.Equal(t, http.StatusBadRequest, status)
-	require.Empty(t, srv.logOf(t), "the handler ran on a body it could not read")
+	_, url := datapagestest.ParseAction(t, action.PageForm.Submit.POST())
+	resp := v.Load(t, "/form/").Do(t, http.MethodPost, url,
+		map[string]string{"age": "not a number"})
+	require.Equal(t, http.StatusBadRequest, resp.Status)
+	require.Empty(t, logOf(t, v), "the handler ran on a body it could not read")
 }
 
 // TestBodySizeLimit tests the limit on a signals body, on an action that
@@ -175,17 +127,18 @@ func TestSignalsAreRequired(t *testing.T) {
 func TestBodySizeLimit(t *testing.T) {
 	t.Parallel()
 	// datapagesgen.DefaultBodySizeLimit is 1 MiB.
-	body := `{"count":1,"pad":"` + strings.Repeat("a", 2*1024*1024) + `"}`
+	signals := map[string]any{"count": 1, "pad": strings.Repeat("a", 2*1024*1024)}
 	for name, expr := range map[string]string{
 		"signals":     action.PageForm.Submit.POST(),
 		"signals+sse": action.PageForm.Patch.POST(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			srv := newServer(t)
-			status, _ := srv.call(t, http.MethodPost, urlOf(t, expr), body)
-			require.Equal(t, http.StatusBadRequest, status)
-			require.Empty(t, srv.logOf(t), "the handler ran on an oversized body")
+			v := serve(t).Visitor(t)
+			_, url := datapagestest.ParseAction(t, expr)
+			resp := v.Load(t, "/form/").Do(t, http.MethodPost, url, signals)
+			require.Equal(t, http.StatusBadRequest, resp.Status)
+			require.Empty(t, logOf(t, v), "the handler ran on an oversized body")
 		})
 	}
 }
@@ -195,47 +148,44 @@ func TestBodySizeLimit(t *testing.T) {
 func TestBodySizeLimitOption(t *testing.T) {
 	t.Parallel()
 	const limit = 4096
-	srv := server{httptest.NewServer(mustNewServer(t, &app.App{},
-		inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithBodySizeLimit(limit)))}
-	t.Cleanup(srv.Close)
+	form := serve(t, datapages.WithBodySizeLimit(limit)).Visitor(t).Load(t, "/form/")
 
-	pad := func(n int) string {
-		return `{"count":1,"pad":"` + strings.Repeat("a", n) + `"}`
+	pad := func(n int) map[string]any {
+		return map[string]any{"count": 1, "pad": strings.Repeat("a", n)}
 	}
-	url := urlOf(t, action.PageForm.Submit.POST())
+	_, url := datapagestest.ParseAction(t, action.PageForm.Submit.POST())
 
-	status, _ := srv.call(t, http.MethodPost, url, pad(limit/2))
-	require.Equal(t, http.StatusOK, status, "a body under the limit")
+	resp := form.Do(t, http.MethodPost, url, pad(limit/2))
+	require.Equal(t, http.StatusOK, resp.Status, "a body under the limit")
 
-	status, _ = srv.call(t, http.MethodPost, url, pad(2*limit))
-	require.Equal(t, http.StatusBadRequest, status, "a body over the limit")
+	resp = form.Do(t, http.MethodPost, url, pad(2*limit))
+	require.Equal(t, http.StatusBadRequest, resp.Status, "a body over the limit")
 }
 
 // TestBodyOutput tests an action that answers with a document.
 func TestBodyOutput(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	form := serve(t).Visitor(t).Load(t, "/form/")
 
-	status, body := srv.call(t, http.MethodPost, "/form/render/", "")
-	require.Equal(t, http.StatusOK, status, "%s", body)
-	require.Equal(t, "rendered by an action", echoed(t, body))
+	resp := form.Do(t, http.MethodPost, "/form/render/", nil)
+	require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
+	require.Equal(t, "rendered by an action",
+		datapagestest.Text(resp.ElementByID(t, "echo")))
 }
 
 // TestGlobalHead tests the head the app declares once for everything it renders,
 // on a page load and on a rendering action alike.
 func TestGlobalHead(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
-	for name, req := range map[string]struct{ method, url string }{
-		"page load": {http.MethodGet, "/"},
-		"action":    {http.MethodPost, "/form/render/"},
+	for name, resp := range map[string]*datapagestest.Response{
+		"page load": v.Get(t, "/"),
+		"action":    v.Load(t, "/form/").Do(t, http.MethodPost, "/form/render/", nil),
 	} {
 		t.Run(name, func(t *testing.T) {
-			status, body := srv.call(t, req.method, req.url, "")
-			require.Equal(t, http.StatusOK, status, "%s", body)
-			require.Contains(t, body, "<title>actions</title>",
+			require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
+			require.Contains(t, resp.Body, "<title>actions</title>",
 				"the global head is not in the response")
 		})
 	}
@@ -247,48 +197,30 @@ func TestGlobalHead(t *testing.T) {
 func TestRedirect(t *testing.T) {
 	t.Parallel()
 	t.Run("datastar request navigates by script", func(t *testing.T) {
-		srv := newServer(t)
-		resp := srv.do(t, http.MethodPost, "/form/go/", "")
-		defer func() { _ = resp.Body.Close() }()
+		form := serve(t).Visitor(t).Load(t, "/form/")
+		resp := form.Do(t, http.MethodPost, "/form/go/", nil)
 
 		requireContentType(t, resp, "text/javascript")
-		b, err := io.ReadAll(resp.Body)
-		require.NoError(t, err, "reading body")
-		require.Equal(t, `window.location = "/log/";`, string(b))
+		require.Equal(t, `window.location = "/log/";`, resp.Body)
 	})
 
 	// An action holding the stream of its own request has no response head
 	// left to redirect with, hence the navigation is an event of the stream.
 	t.Run("stream request navigates through the stream", func(t *testing.T) {
-		srv := newServer(t)
-		resp := srv.do(t, http.MethodPost, "/form/go-stream/", "")
-		defer func() { _ = resp.Body.Close() }()
+		form := serve(t).Visitor(t).Load(t, "/form/")
+		resp := form.Do(t, http.MethodPost, "/form/go-stream/", nil)
 
 		requireContentType(t, resp, "text/event-stream")
-		b, err := io.ReadAll(resp.Body)
-		require.NoError(t, err, "reading stream")
-		stream := string(b)
-		require.Contains(t, stream, "event: datastar-patch-elements")
-		require.Contains(t, stream, `window.location.href = "/log/"`)
+		require.Equal(t, "/log/", resp.Redirect(t))
 	})
 
 	// An action that needs neither signals nor an SSE connection is reachable
 	// by a plain form post, and that client can only be moved by a real redirect.
 	// The status the handler asked for is the status it must send.
 	t.Run("plain request gets the status it asked for", func(t *testing.T) {
-		srv := newServer(t)
-		client := *srv.Client()
-		client.CheckRedirect = func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodPost, srv.URL+"/form/go/", nil,
-		)
-		require.NoError(t, err, "building request")
-		resp, err := client.Do(req)
-		require.NoError(t, err, "POST /form/go/")
-		defer func() { _ = resp.Body.Close() }()
-		require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+		v := serve(t).Visitor(t)
+		resp := v.Send(t, v.NewRequest(t, http.MethodPost, "/form/go/", nil))
+		require.Equal(t, http.StatusSeeOther, resp.Status)
 		require.Equal(t, "/log/", resp.Header.Get("Location"))
 	})
 }
@@ -297,7 +229,7 @@ func TestRedirect(t *testing.T) {
 // reading signals and answering on an SSE connection both require the Datastar client.
 func TestDatastarOnlyActions(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
 	for name, tc := range map[string]struct{ method, url string }{
 		"action reading signals":       {http.MethodPost, "/form/submit/"},
@@ -305,14 +237,8 @@ func TestDatastarOnlyActions(t *testing.T) {
 		"query action reading signals": {"QUERY", "/form/search/"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(
-				context.Background(), tc.method, srv.URL+tc.url, nil,
-			)
-			require.NoError(t, err, "building request")
-			resp, err := srv.Client().Do(req)
-			require.NoError(t, err, "%s %s", tc.method, tc.url)
-			defer func() { _ = resp.Body.Close() }()
-			require.Equal(t, http.StatusNotAcceptable, resp.StatusCode)
+			resp := v.Send(t, v.NewRequest(t, tc.method, tc.url, nil))
+			require.Equal(t, http.StatusNotAcceptable, resp.Status)
 		})
 	}
 }
@@ -322,7 +248,7 @@ func TestDatastarOnlyActions(t *testing.T) {
 // which the browser reports through Sec-Fetch-Site and Origin.
 func TestCrossOriginFormAction(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
 	for name, tc := range map[string]struct {
 		headers    map[string]string
@@ -343,21 +269,11 @@ func TestCrossOriginFormAction(t *testing.T) {
 		"no origin headers": {wantStatus: http.StatusSeeOther},
 	} {
 		t.Run(name, func(t *testing.T) {
-			client := *srv.Client()
-			client.CheckRedirect = func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
+			req := v.NewRequest(t, http.MethodPost, "/form/go/", nil)
+			for k, value := range tc.headers {
+				req.Header.Set(k, value)
 			}
-			req, err := http.NewRequestWithContext(
-				context.Background(), http.MethodPost, srv.URL+"/form/go/", nil,
-			)
-			require.NoError(t, err, "building request")
-			for k, v := range tc.headers {
-				req.Header.Set(k, v)
-			}
-			resp, err := client.Do(req)
-			require.NoError(t, err, "POST /form/go/")
-			defer func() { _ = resp.Body.Close() }()
-			require.Equal(t, tc.wantStatus, resp.StatusCode)
+			require.Equal(t, tc.wantStatus, v.Send(t, req).Status)
 		})
 	}
 }
@@ -368,7 +284,7 @@ func TestCrossOriginFormAction(t *testing.T) {
 // A Go release that also exempts QUERY fails this test.
 func TestCrossOriginQuery(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
 	for name, tc := range map[string]struct {
 		site       string
@@ -379,15 +295,9 @@ func TestCrossOriginQuery(t *testing.T) {
 		"same origin": {site: "same-origin", wantStatus: http.StatusOK},
 	} {
 		t.Run(name, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(
-				context.Background(), "QUERY", srv.URL+"/lookup/", nil,
-			)
-			require.NoError(t, err, "building request")
+			req := v.NewRequest(t, "QUERY", "/lookup/", nil)
 			req.Header.Set("Sec-Fetch-Site", tc.site)
-			resp, err := srv.Client().Do(req)
-			require.NoError(t, err, "QUERY /lookup/")
-			defer func() { _ = resp.Body.Close() }()
-			require.Equal(t, tc.wantStatus, resp.StatusCode)
+			require.Equal(t, tc.wantStatus, v.Send(t, req).Status)
 		})
 	}
 }
@@ -396,24 +306,18 @@ func TestCrossOriginQuery(t *testing.T) {
 // The client sent 1 request and reads elements and signals back from it.
 func TestSSEOutput(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
-	resp := srv.do(t, http.MethodPost, "/form/patch/", `{"count":41}`)
-	defer func() { _ = resp.Body.Close() }()
+	resp := v.Load(t, "/form/").Do(t, http.MethodPost, "/form/patch/",
+		map[string]int{"count": 41})
 
-	requireContentType(t, resp, "text/event-stream")
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading stream")
-	stream := string(b)
-	for _, want := range []string{
-		"event: datastar-patch-elements",
-		`<div id="out">count 42</div>`,
-		"event: datastar-patch-signals",
-		`{"count":42}`,
-	} {
-		require.Contains(t, stream, want)
-	}
-	require.Equal(t, "patch count=41", srv.logOf(t))
+	evs := resp.Events(t)
+	require.Len(t, evs, 2, "want the element patch, then the signal patch")
+	require.Equal(t, datapagestest.PatchElements, evs[0].Type)
+	require.Equal(t, "count 42", datapagestest.Text(evs[0].ElementByID(t, "out")))
+	require.Equal(t, datapagestest.PatchSignals, evs[1].Type)
+	require.JSONEq(t, `{"count":42}`, evs[1].Data["signals"])
+	require.Equal(t, "patch count=41", logOf(t, v))
 }
 
 // TestSSEOutputPatchElementAt tests every shape the generated SSE wrapper
@@ -421,48 +325,47 @@ func TestSSEOutput(t *testing.T) {
 func TestSSEOutputPatchElementAt(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
-		signals string
-		want    []string
-		unwant  []string
+		signals map[string]string
+		want    map[string]string // the event's data fields by name
+		unwant  []string          // data fields the event must not carry
 	}{
 		"selector and mode": {
-			signals: `{"selector":"#target","mode":"append"}`,
-			want:    []string{"selector #target", "mode append"},
+			signals: map[string]string{"selector": "#target", "mode": "append"},
+			want:    map[string]string{"selector": "#target", "mode": "append"},
 		},
 		"selector only": {
-			signals: `{"selector":"#target","mode":""}`,
-			want:    []string{"selector #target"},
-			unwant:  []string{"mode "},
+			signals: map[string]string{"selector": "#target", "mode": ""},
+			want:    map[string]string{"selector": "#target"},
+			unwant:  []string{"mode"},
 		},
 		"mode only": {
-			signals: `{"selector":"","mode":"inner"}`,
-			want:    []string{"mode inner"},
-			unwant:  []string{"selector "},
+			signals: map[string]string{"selector": "", "mode": "inner"},
+			want:    map[string]string{"mode": "inner"},
+			unwant:  []string{"selector"},
 		},
 		"neither": {
-			signals: `{"selector":"","mode":""}`,
-			unwant:  []string{"selector ", "mode "},
+			signals: map[string]string{"selector": "", "mode": ""},
+			unwant:  []string{"selector", "mode"},
 		},
 		"unknown mode is ignored": {
-			signals: `{"selector":"","mode":"sideways"}`,
-			unwant:  []string{"mode ", "selector "},
+			signals: map[string]string{"selector": "", "mode": "sideways"},
+			unwant:  []string{"mode", "selector"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			srv := newServer(t)
+			form := serve(t).Visitor(t).Load(t, "/form/")
 
-			resp := srv.do(t, http.MethodPost, "/form/patch-at/", tc.signals)
-			defer func() { _ = resp.Body.Close() }()
+			resp := form.Do(t, http.MethodPost, "/form/patch-at/", tc.signals)
 
-			b, err := io.ReadAll(resp.Body)
-			require.NoError(t, err, "reading stream")
-			stream := string(b)
-			require.Contains(t, stream, `<div id="out">patched</div>`)
-			for _, want := range tc.want {
-				require.Contains(t, stream, want)
+			evs := resp.Events(t)
+			require.Len(t, evs, 1)
+			ev := evs[0]
+			require.Equal(t, "patched", datapagestest.Text(ev.ElementByID(t, "out")))
+			for field, want := range tc.want {
+				require.Equal(t, want, ev.Data[field], "data field %q", field)
 			}
-			for _, unwant := range tc.unwant {
-				require.NotContains(t, stream, unwant)
+			for _, field := range tc.unwant {
+				require.NotContains(t, ev.Data, field)
 			}
 		})
 	}
@@ -471,16 +374,13 @@ func TestSSEOutputPatchElementAt(t *testing.T) {
 // TestSSEOutputRemoveElement tests the removal event.
 func TestSSEOutputRemoveElement(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
-	resp := srv.do(t, http.MethodPost, "/form/remove/", "")
-	defer func() { _ = resp.Body.Close() }()
+	resp := v.Load(t, "/form/").Do(t, http.MethodPost, "/form/remove/", nil)
 
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading stream")
-	require.Contains(t, string(b),
+	require.Contains(t, resp.Body,
 		"event: datastar-patch-elements\ndata: selector #gone\ndata: mode remove\n")
-	require.Equal(t, "remove", srv.logOf(t))
+	require.Equal(t, "remove", logOf(t, v))
 }
 
 // TestSSEOutputSignals tests the signal patches of the SSE wrapper:
@@ -521,20 +421,16 @@ func TestSSEOutputSignals(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			srv := newServer(t)
+			form := serve(t).Visitor(t).Load(t, "/form/")
 
-			resp := srv.do(t, http.MethodPost, tc.path, "")
-			defer func() { _ = resp.Body.Close() }()
+			resp := form.Do(t, http.MethodPost, tc.path, nil)
 
-			require.Equal(t, tc.wantStatus, resp.StatusCode)
-			b, err := io.ReadAll(resp.Body)
-			require.NoError(t, err, "reading stream")
-			stream := string(b)
+			require.Equal(t, tc.wantStatus, resp.Status)
 			for _, want := range tc.want {
-				require.Contains(t, stream, want)
+				require.Contains(t, resp.Body, want)
 			}
 			for _, unwant := range tc.unwant {
-				require.NotContains(t, stream, unwant)
+				require.NotContains(t, resp.Body, unwant)
 			}
 		})
 	}
@@ -558,21 +454,17 @@ func TestSSEOutputCompressed(t *testing.T) {
 	} {
 		t.Run(coding, func(t *testing.T) {
 			t.Parallel()
-			srv := newServer(t)
+			v := serve(t).Visitor(t)
+			form := v.Load(t, "/form/")
 
-			req, err := http.NewRequestWithContext(context.Background(),
-				http.MethodPost, srv.URL+"/form/patch/", strings.NewReader(`{"count":1}`))
-			require.NoError(t, err, "building request")
-			req.Header.Set("Datastar-Request", "true")
+			req := form.NewRequest(t, http.MethodPost, "/form/patch/",
+				strings.NewReader(`{"count":1}`))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Accept-Encoding", coding)
-
-			resp, err := srv.Client().Do(req)
-			require.NoError(t, err, "POST /form/patch/")
-			defer func() { _ = resp.Body.Close() }()
+			resp := v.Send(t, req)
 			require.Equal(t, coding, resp.Header.Get("Content-Encoding"))
 
-			r, err := decoder(resp.Body)
+			r, err := decoder(strings.NewReader(resp.Body))
 			require.NoError(t, err, "starting the decoder")
 			defer func() { _ = r.Close() }()
 			b, err := io.ReadAll(r)
@@ -586,12 +478,12 @@ func TestSSEOutputCompressed(t *testing.T) {
 // TestWrongMethod tests a route reached with a method no action claims.
 func TestWrongMethod(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
-	status, _ := srv.call(t, http.MethodPost, "/form/replace/", "")
+	resp := v.Load(t, "/form/").Do(t, http.MethodPost, "/form/replace/", nil)
 	require.Contains(t,
-		[]int{http.StatusMethodNotAllowed, http.StatusNotFound}, status)
-	require.Empty(t, srv.logOf(t),
+		[]int{http.StatusMethodNotAllowed, http.StatusNotFound}, resp.Status)
+	require.Empty(t, logOf(t, v),
 		"an action ran for a method it does not serve")
 }
 
@@ -722,19 +614,9 @@ func TestActionExpressions(t *testing.T) {
 
 // requireContentType fails unless the response was written with the given media type.
 // The header also carries the charset, which is why it is a prefix match.
-func requireContentType(t *testing.T, resp *http.Response, want string) {
+func requireContentType(t *testing.T, resp *datapagestest.Response, want string) {
 	t.Helper()
 	got := resp.Header.Get("Content-Type")
 	require.True(t, strings.HasPrefix(got, want),
 		"Content-Type = %q, want prefix %q", got, want)
-}
-
-// urlOf takes the URL out of a Datastar action expression such as
-// "@post('/form/submit/')". That is the form a template carries.
-func urlOf(t *testing.T, expr string) string {
-	t.Helper()
-	i := strings.Index(expr, "('")
-	j := strings.LastIndex(expr, "')")
-	require.False(t, i < 0 || j < i, "not an action expression: %s", expr)
-	return expr[i+2 : j]
 }
