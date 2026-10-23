@@ -5,7 +5,9 @@ import _ "embed"
 //go:embed example.go.txt
 var exampleGoTxt string
 
-templ indexPage(version string) {
+// indexPage is the landing page of edition e, which leads to its default version.
+templ indexPage(e edition) {
+	{{ docs := "docs/" + e.defaultVersion() + "/" }}
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -16,13 +18,16 @@ templ indexPage(version string) {
 				name="description"
 				content="Datapages is a Templ + Go + Datastar web framework. Focus on your business logic, generate the boilerplate."
 			/>
+			if !e.indexed() {
+				<meta name="robots" content="noindex"/>
+			}
 			<link rel="icon" href="favicon.svg" type="image/svg+xml"/>
 			@themeScript()
 			<link rel="stylesheet" href="style.css"/>
 		</head>
 		<body>
 			@skipLink()
-			@siteHeader("./", "", "")
+			@siteHeader("./", docs, "", nil)
 			<main id="main-content" tabindex="-1">
 				// Hero
 				<section class="hero">
@@ -35,13 +40,13 @@ templ indexPage(version string) {
 						<br/>
 						and let Datapages generate the boilerplate.
 					</p>
-					<div class="install">go install github.com/romshark/datapages/cmd/datapages@{ version }</div>
+					<div class="install">go install github.com/romshark/datapages/cmd/datapages@{ e.defaultVersion() }</div>
 					<div class="cta">
-						<a href="docs/installation" class="btn btn-primary">
+						<a href={ docs + "installation" } class="btn btn-primary">
 							@iconRocket()
 							Getting Started
 						</a>
-						<a href="docs/" class="btn btn-secondary">
+						<a href={ docs } class="btn btn-secondary">
 							@iconBook()
 							Documentation
 						</a>
@@ -59,8 +64,25 @@ templ indexPage(version string) {
 					>Server-Sent Events</a>
 				</div>
 			</main>
-			@siteFooter("./")
+			@siteFooter(docs)
 			<script src="index.js"></script>
+		</body>
+	</html>
+}
+
+// docsIndex is docs/index.html of the site, which opens the first page of the
+// default version of e. GitHub Pages serves files without redirects.
+templ docsIndex(e edition) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta http-equiv="refresh" content={ "0; url=" + e.defaultVersion() + "/" }/>
+			<title>Datapages documentation</title>
+			<link rel="icon" href="../favicon.svg" type="image/svg+xml"/>
+		</head>
+		<body>
+			<a href={ e.defaultVersion() + "/" }>Datapages documentation</a>
 		</body>
 	</html>
 }

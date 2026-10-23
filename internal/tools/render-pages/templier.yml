@@ -13,7 +13,7 @@ templ-cmd: go run github.com/a-h/templ/cmd/templ@v0.3.1070
 
 app:
   host: http://127.0.0.1:7341
-  flags: -version dev -serve 127.0.0.1:7341
+  flags: -version main -serve 127.0.0.1:7341
   exclude:
     - .*
     - "*~"

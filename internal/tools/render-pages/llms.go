@@ -30,7 +30,7 @@ func llmsTxt(pages []docPage, docs []doc) []byte {
 }
 
 // llmsFullTxt returns llms-full.txt, the Markdown copies of all pages in the
-// order of the navigation with their links as seen from the site root.
+// order of the navigation with their links as seen from the root of the version.
 func llmsFullTxt(pages []docPage, docs []doc) []byte {
 	var b bytes.Buffer
 	for i, p := range pages {
@@ -43,5 +43,23 @@ func llmsFullTxt(pages []docPage, docs []doc) []byte {
 		b.Write(bytes.TrimSpace(docs[i].markdownFromRoot))
 		b.WriteString("\n")
 	}
+	return b.Bytes()
+}
+
+// rootLlmsTxt returns the llms.txt of the site root, which links the llms.txt
+// of each version that the site serves with edition e, the default version first.
+// description introduces the project.
+func rootLlmsTxt(e edition, description string) []byte {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "# Datapages\n\n> %s\n\n", description)
+	b.WriteString("Each link leads to the llms.txt of a version " +
+		"of the documentation.\n\n")
+	b.WriteString("## Versions\n\n")
+	if e.release != "" {
+		fmt.Fprintf(&b, "- [%s](docs/%s/llms.txt): The latest release\n",
+			e.release, e.release)
+	}
+	fmt.Fprintf(&b, "- [%s](docs/%s/llms.txt): The main branch, unreleased\n",
+		mainVersion, mainVersion)
 	return b.Bytes()
 }

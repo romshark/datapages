@@ -213,6 +213,23 @@ a {
     }
   }
 
+  /* Above 59.25rem the header takes 1 row. On a docs page the row needs a
+     viewport of 956px with main and of 986px with an 8 character version,
+     such as v0.12.10, measured in Chrome on macOS. Up to 64rem the gaps of
+     the navigation are those of 2 rows, and the search button drops its
+     shortcut hint as it does there. */
+  @media (59.25rem < width <= 64rem) {
+    .docs-page & {
+      nav {
+        gap: 1rem;
+      }
+
+      .search-button kbd {
+        display: none;
+      }
+    }
+  }
+
   /* The footer links GitHub too. */
   @media (width <= 480px) {
     .header-github {
@@ -499,12 +516,37 @@ a {
   }
 }
 
-/* ── Version badge ───────────────────────────────── */
+/* ── Version menu ────────────────────────────────── */
 
-.version-badge {
+/* The version menu of a docs page, as wide as the version it shows. The
+   button, popover and option colors of Morpheus have no dark variant. */
+.version-select {
+  --neo-select-min-width: 0;
+  --neo-button-bg: var(--bg);
+  --neo-button-color: var(--text);
+  --neo-button-border-color: var(--border);
+  --neo-button-hover-bg: var(--bg-card);
+  --neo-button-focus-ring: var(--accent);
+  --neo-popover-bg: var(--bg);
+  --neo-popover-color: var(--text);
+  --neo-popover-border-color: var(--border);
+  --neo-select-option-hover-bg: var(--bg-card);
+  --neo-select-option-selected-bg: color-mix(in srgb, var(--accent) 15%, transparent);
+  --neo-select-option-selected-color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  color: var(--text-muted);
+}
+
+/* The note above a page of the main branch, in the colors of a warning
+   callout. */
+.main-note {
+  --note: light-dark(#9a6700, #d29922);
+  margin-block: 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 4px solid var(--note);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--note) 8%, transparent);
+  font-size: 0.875rem;
 }
 
 /* ── Docs ────────────────────────────────────────── */

@@ -26,9 +26,11 @@ const repoURL = "https://github.com/romshark/datapages"
 
 // docPage is an entry of the navigation of the site: a page that shows a
 // Markdown file of the repository or, with url set, a link that leaves the site.
+// The pages of a version are under docs/<version>/ of the site, which is the
+// root that their paths and links are relative to.
 type docPage struct {
 	file  string // Path from the repository root.
-	path  string // URL path from the site root.
+	path  string // URL path from the root of the version. Empty for its first page.
 	url   string // Destination of a link that leaves the site.
 	title string // Title in the navigation and in <title>.
 	group string // Group of the navigation that lists the entry.
@@ -42,127 +44,127 @@ type docPage struct {
 var docPages = []docPage{
 	{
 		file:  "guide/README.md",
-		path:  "docs/",
+		path:  "",
 		title: "Introduction",
 		group: "Get started",
 	},
 	{
 		file:  "guide/installation.md",
-		path:  "docs/installation",
+		path:  "installation",
 		title: "Installation",
 		group: "Get started",
 	},
 	{
 		file:  "guide/tutorial.md",
-		path:  "docs/tutorial",
+		path:  "tutorial",
 		title: "Tutorial",
 		group: "Get started",
 	},
 	{
 		file:  "guide/upgrading.md",
-		path:  "docs/upgrading",
+		path:  "upgrading",
 		title: "Upgrading",
 		group: "Get started",
 	},
 	{
 		file:  "guide/application-model.md",
-		path:  "docs/application-model",
+		path:  "application-model",
 		title: "Application model",
 		group: "Concepts",
 	},
 	{
 		file:  "guide/request-lifecycle.md",
-		path:  "docs/request-lifecycle",
+		path:  "request-lifecycle",
 		title: "Request lifecycle",
 		group: "Concepts",
 	},
 	{
 		file:  "guide/pages.md",
-		path:  "docs/pages",
+		path:  "pages",
 		title: "Pages and routes",
 		group: "Guides",
 	},
 	{
 		file:  "guide/actions.md",
-		path:  "docs/actions",
+		path:  "actions",
 		title: "Actions",
 		group: "Guides",
 	},
 	{
 		file:  "guide/templates.md",
-		path:  "docs/templates",
+		path:  "templates",
 		title: "Templates and forms",
 		group: "Guides",
 	},
 	{
 		file:  "guide/events.md",
-		path:  "docs/events",
+		path:  "events",
 		title: "Events",
 		group: "Guides",
 	},
 	{
 		file:  "guide/state.md",
-		path:  "docs/state",
+		path:  "state",
 		title: "Per-tab state",
 		group: "Guides",
 	},
 	{
 		file:  "guide/sessions.md",
-		path:  "docs/sessions",
+		path:  "sessions",
 		title: "Sessions and auth",
 		group: "Guides",
 	},
 	{
 		file:  "guide/assets.md",
-		path:  "docs/assets",
+		path:  "assets",
 		title: "Static assets",
 		group: "Guides",
 	},
 	{
 		file:  "guide/offline.md",
-		path:  "docs/offline",
+		path:  "offline",
 		title: "Offline and shims",
 		group: "Guides",
 	},
 	{
 		file:  "guide/testing.md",
-		path:  "docs/testing",
+		path:  "testing",
 		title: "Testing",
 		group: "Guides",
 	},
 	{
 		file:  "guide/deployment.md",
-		path:  "docs/deployment",
+		path:  "deployment",
 		title: "Deployment",
 		group: "Guides",
 	},
 	{
 		file:  "guide/performance.md",
-		path:  "docs/performance",
+		path:  "performance",
 		title: "Performance",
 		group: "Guides",
 	},
 	{
 		file:  "guide/security.md",
-		path:  "docs/security",
+		path:  "security",
 		title: "Security",
 		group: "Guides",
 	},
 	{
 		file:  "guide/multiple-applications.md",
-		path:  "docs/multiple-applications",
+		path:  "multiple-applications",
 		title: "Multiple applications",
 		group: "Guides",
 	},
 	{
 		file:  "guide/ai-agents.md",
-		path:  "docs/ai-agents",
+		path:  "ai-agents",
 		title: "AI agents",
 		group: "Guides",
 	},
 	{
 		file:  "guide/troubleshooting.md",
-		path:  "docs/troubleshooting",
+		path:  "troubleshooting",
 		title: "Troubleshooting",
 		group: "Guides",
 	},
@@ -176,13 +178,13 @@ var docPages = []docPage{
 	// would repeat 5 times in the contents.
 	{
 		file:  "guide/cli.md",
-		path:  "docs/cli",
+		path:  "cli",
 		title: "CLI",
 		group: "Reference", tocDepth: 2,
 	},
 	{
 		file:  "guide/configuration.md",
-		path:  "docs/configuration",
+		path:  "configuration",
 		title: "datapages.yaml",
 		group: "Reference",
 	},
@@ -193,19 +195,19 @@ var docPages = []docPage{
 	},
 	{
 		file:  "CHANGELOG.md",
-		path:  "docs/changelog",
+		path:  "changelog",
 		title: "Changelog",
 		group: "Reference", tocDepth: 2,
 	},
 	{
 		file:  "guide/examples.md",
-		path:  "docs/examples",
+		path:  "examples",
 		title: "Examples",
 		group: "More",
 	},
 	{
 		file:  "FAQ.md",
-		path:  "docs/faq",
+		path:  "faq",
 		title: "FAQ",
 		group: "More",
 	},
@@ -214,21 +216,23 @@ var docPages = []docPage{
 // external reports whether p is a link that leaves the site.
 func (p docPage) external() bool { return p.url != "" }
 
-// outFile returns the path of the file that holds p, relative to docs/.
-// GitHub Pages serves a path without "/" at the end from the file with ".html" appended.
+// outFile returns the path of the file that holds p, relative to the root of
+// the version. GitHub Pages serves a path without "/" at the end from the file
+// with ".html" appended.
 func (p docPage) outFile() string {
-	if strings.HasSuffix(p.path, "/") {
+	if p.path == "" || strings.HasSuffix(p.path, "/") {
 		return p.path + "index.html"
 	}
 	return p.path + ".html"
 }
 
-// markdownFile returns the path of the Markdown copy of p, relative to docs/.
+// markdownFile returns the path of the Markdown copy of p, relative to the root
+// of the version.
 func (p docPage) markdownFile() string {
 	return strings.TrimSuffix(p.outFile(), ".html") + ".md"
 }
 
-// base returns the URL of the site root relative to p.
+// base returns the URL of the root of the version relative to p.
 func (p docPage) base() string {
 	if n := strings.Count(p.path, "/"); n > 0 {
 		return strings.Repeat("../", n)
@@ -236,9 +240,9 @@ func (p docPage) base() string {
 	return "./"
 }
 
-// sourceURL returns the URL of the file of p on the main branch on GitHub.
-func (p docPage) sourceURL() string {
-	return repoURL + "/blob/main/" + p.file
+// sourceURL returns the URL of the file of p at the Git ref on GitHub.
+func (p docPage) sourceURL(ref string) string {
+	return repoURL + "/blob/" + ref + "/" + p.file
 }
 
 // depth returns the deepest heading level that the contents of p list.
@@ -258,7 +262,7 @@ type doc struct {
 	body        string
 	// markdown is the Markdown copy of the page, whose links lead to the
 	// Markdown copies of the other pages. markdownFromRoot links them as seen
-	// from the site root, which is where llms-full.txt lives.
+	// from the root of the version, which is where llms-full.txt lives.
 	markdown         []byte
 	markdownFromRoot []byte
 	search           []searchEntry
@@ -351,40 +355,51 @@ type docView struct {
 	nav        []navGroup
 	toc        []tocEntry
 	prev, next navEntry
-	version    string // The release that the header names.
+	edition    edition
+	versions   []versionLink // The versions that the header offers.
 }
 
-// newView returns the view of docs[i], the doc of pages[i].
-func newView(pages []docPage, docs []doc, i int, version string) docView {
+// newView returns the view of docs[i], the doc of pages[i], in edition e.
+func newView(pages []docPage, docs []doc, i int, e edition) docView {
 	prev, next := neighbors(pages, i)
 	return docView{
-		doc:     docs[i],
-		nav:     navigation(pages, i),
-		toc:     contents(docs[i]),
-		prev:    prev,
-		next:    next,
-		version: version,
+		doc:      docs[i],
+		nav:      navigation(pages, i),
+		toc:      contents(docs[i]),
+		prev:     prev,
+		next:     next,
+		edition:  e,
+		versions: e.versions(pages[i].base(), pages[i].path),
 	}
 }
 
-// base returns the URL of the site root relative to the page of v.
+// base returns the URL of the root of the version relative to the page of v.
 func (v docView) base() string { return v.doc.page.base() }
 
-// section returns the link of the site header that leads to the part of the
-// site that the page of v belongs to.
+// home returns the URL of the site root, the landing page, relative to the
+// page of v.
+func (v docView) home() string { return v.base() + "../../" }
+
+// sourceURL returns the URL of the file of the page of v on GitHub, at the Git
+// ref of its edition.
+func (v docView) sourceURL() string { return v.doc.page.sourceURL(v.edition.ref()) }
+
+// section returns the part of the site that the page of v belongs to, as
+// [siteHeader] takes it.
 func (v docView) section() string {
 	switch v.doc.page.path {
-	case "specification", "docs/examples":
+	case "specification", "examples":
 		return v.doc.page.path
 	}
-	return "docs/"
+	return "docs"
 }
 
-// readDocs reads the files of [docPages] from the repository root and converts them.
+// readDocs reads the files of [docPages] from the repository root and converts
+// them, with links to the files of the Git ref on GitHub.
 // With drafts, a page whose file does not exist yet is a placeholder,
 // which the watcher shows while the page is being written. Without,
 // the missing file is an error.
-func readDocs(root string, drafts bool) ([]doc, error) {
+func readDocs(root, ref string, drafts bool) ([]doc, error) {
 	srcs := make([][]byte, len(docPages))
 	missing := make([]bool, len(docPages))
 	for i, p := range docPages {
@@ -400,7 +415,7 @@ func readDocs(root string, drafts bool) ([]doc, error) {
 		}
 		srcs[i] = src
 	}
-	return convertDocs(docPages, srcs, missing)
+	return convertDocs(docPages, srcs, missing, ref)
 }
 
 // convertDocs converts srcs, the Markdown files of pages, to HTML with GitHub
@@ -409,14 +424,17 @@ func readDocs(root string, drafts bool) ([]doc, error) {
 //
 // A link is relative to the file that contains it, as on GitHub. A link to the
 // file of a page leads to that page. A link to another file of the repository
-// is rewritten to the file on GitHub. The site contains none of these files.
+// is rewritten to the file at the Git ref on GitHub. The site contains none of
+// these files.
 //
 // A link to a fragment must name a heading of its page. goldmark derives the ID
 // of a heading with "_" or a non-ASCII letter differently from GitHub, which
 // would leave a link that works on GitHub dead on the site. A link to a page
 // that is a placeholder, as placeholders[i] reports for pages[i], is not
 // checked: its headings are not written yet.
-func convertDocs(pages []docPage, srcs [][]byte, placeholders []bool) ([]doc, error) {
+func convertDocs(
+	pages []docPage, srcs [][]byte, placeholders []bool, ref string,
+) ([]doc, error) {
 	p := parser.New(
 		parser.WithAutoHeadingID(),
 		parser.WithExtensions(extension.GFMParser),
@@ -425,6 +443,7 @@ func convertDocs(pages []docPage, srcs [][]byte, placeholders []bool) ([]doc, er
 		pages:        pages,
 		ids:          make([]map[string]bool, len(pages)),
 		placeholders: placeholders,
+		ref:          ref,
 	}
 	docs := make([]doc, len(pages))
 	nodes := make([]ast.Node, len(pages))
@@ -540,6 +559,7 @@ type site struct {
 	pages        []docPage
 	ids          []map[string]bool // The heading IDs of every page.
 	placeholders []bool            // Which pages have no file yet. May be nil.
+	ref          string            // The Git ref of the links to GitHub.
 }
 
 // resolveLink returns the URL that the link dest has on the page with index from.
@@ -550,8 +570,8 @@ func (s site) resolveLink(from int, dest string) (string, error) {
 }
 
 // resolve returns the URL that the link dest of the file of pages[from] has on
-// the site. base is the URL of the site root from where the URL is read,
-// and target returns the URL of a page relative to the site root.
+// the site. base is the URL of the root of the version from where the URL is
+// read, and target returns the URL of a page relative to that root.
 func (s site) resolve(
 	from int, dest, base string, target func(docPage) string,
 ) (string, error) {
@@ -566,7 +586,7 @@ func (s site) resolve(
 	if u.Path != "" {
 		file := repoPath(s.pages[from].file, u.Path)
 		if to = s.pageOf(file); to < 0 {
-			return githubURL(file, strings.HasSuffix(u.Path, "/"), u), nil
+			return githubURL(s.ref, file, strings.HasSuffix(u.Path, "/"), u), nil
 		}
 	}
 	page := ""
@@ -608,12 +628,12 @@ func repoPath(from, p string) string {
 	return path.Join(path.Dir(from), p)
 }
 
-// githubURL returns the URL of file on the main branch on GitHub,
+// githubURL returns the URL of file at the Git ref on GitHub,
 // with the query and the fragment of the link u. A directory has a tree URL.
-func githubURL(file string, dir bool, u *url.URL) string {
-	kind := "/blob/main/"
+func githubURL(ref, file string, dir bool, u *url.URL) string {
+	kind := "/blob/" + ref + "/"
 	if dir {
-		kind, file = "/tree/main/", file+"/"
+		kind, file = "/tree/"+ref+"/", file+"/"
 	}
 	r := repoURL + kind + file
 	if u.RawQuery != "" {

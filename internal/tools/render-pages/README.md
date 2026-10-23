@@ -10,14 +10,30 @@ render-pages generates the GitHub Pages site of Datapages from the Markdown file
 | `mage watchDocs` | Serves the site on http://127.0.0.1:7340 and reloads it on changes. See [DEV.md](../../../DEV.md). |
 | `go test ./...` | Runs the tests. Run it in this directory. |
 
-The [Pages](../../../.github/workflows/pages.yml) and [release](../../../.github/workflows/release.yml) workflows render and deploy the site.
+The [Pages workflow](../../../.github/workflows/pages.yml) renders and deploys the site. The [release workflow](../../../.github/workflows/release.yml) runs it after it publishes a release.
+
+## Versions
+
+The site serves the pages of the latest release under `/docs/<tag>/` and the pages of the main branch under `/docs/main/`. Each version renders with the render-pages of its own commit. Until a release has render-pages, the site serves main alone.
+
+| Flags | Pages |
+| ----- | ----- |
+| `-version v1.2.0` | The release. The version menu of the header offers the same page of main. |
+| `-version main -release v1.2.0` | main, next to the release. The version menu and a note offer the same page of the release. `noindex` keeps search engines on the release. The landing page, `/docs/` and `/llms.txt` lead to the release. |
+| `-version main` | main alone, as `mage genDocs` and `mage watchDocs` render it. The version menu offers main alone, a note says that it is unreleased, and the landing page leads to it. |
+
+Links to files of the repository name the tag of a release and `main` for main. When the other version lacks a page, such as one added after the release, `docs.js` opens the first page of that version instead.
 
 ## Output
 
-- `index.html`, the landing page
+Each version is a directory of `docs/docs/`, named after it, with:
+
 - 1 HTML page and 1 Markdown copy for each page in `docPages` in [docs.go](docs.go)
 - `search.json`, the search index
 - `llms.txt` and `llms-full.txt`, which list and concatenate the Markdown copies for language models
+- copies of `style.css`, `docs.js` and `favicon.svg` of `docs/`, which keep the pages of a release on the stylesheet and script of their release
+
+The run for main also writes `docs/index.html`, the landing page, `docs/docs/index.html`, which opens the default version, and `docs/llms.txt`, which links the `llms.txt` of each version.
 
 Git ignores these files. `docs/style.css` is committed, and `mage checkGen` fails when it is stale.
 
@@ -37,15 +53,16 @@ The build splits each page into sections at the headings that its contents list 
 
 ## Browser
 
-- `docs.js` runs the navigation overlay, the highlight of the current section, the search and the Mermaid diagrams. It loads Mermaid only on pages with a diagram.
+- `docs.js` runs the navigation overlay, the highlight of the current section, the search, the version menu and the Mermaid diagrams. It loads Mermaid only on pages with a diagram.
 - A script in `<head>` applies the stored theme before the first paint.
-- The sidebar, the search dialog, the copy buttons and the theme menu are Morpheus components. The pages load Morpheus from jsDelivr at the version in `go.mod`, which matches its Go components. The landing page does not load it.
+- The sidebar, the search dialog, the copy buttons, the theme menu and the version menu are Morpheus components. The pages load Morpheus from jsDelivr at the version in `go.mod`, which matches its Go components. The landing page does not load it.
 
 ## Files
 
 | File | Contents |
 | ---- | -------- |
 | `main.go` | Flags and the build |
+| `edition.go` | The version that a build documents and the links to the other version |
 | `serve.go` | The server of `mage watchDocs` |
 | `docs.go` | `docPages`, Markdown conversion and links |
 | `highlight.go`, `blocks.go` | Code blocks, callouts and heading links |

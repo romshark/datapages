@@ -1,6 +1,9 @@
 package main
 
-import "runtime/debug"
+import (
+	"runtime/debug"
+	"strings"
+)
 
 const morpheusModule = "github.com/romshark/morpheus"
 
@@ -18,3 +21,8 @@ var morpheusAssets = func() string {
 	}
 	panic("render-pages: the build info lists no " + morpheusModule)
 }()
+
+// morpheusIcons is the URL of the directory on jsDelivr that holds the icons
+// that <neo-icon> loads, such as the caret of the version menu.
+var morpheusIcons = strings.TrimSuffix(morpheusAssets, "min/") +
+	"internal/site/static/icons"

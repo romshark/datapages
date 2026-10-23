@@ -514,25 +514,23 @@ func GenTempl() error {
 // Pages site. A module of its own keeps goldmark and Chroma out of the root go.mod.
 const docsModule = "internal/tools/render-pages"
 
-// GenDocs generates documentation pages.
+// GenDocs generates documentation pages from the working tree, as the pages of
+// the main branch. The Pages workflow renders the pages of a release from its tag.
 func GenDocs() error {
 	if err := CheckWatch(); err != nil {
 		return err
 	}
-	version, err := output("git", "describe", "--tags", "--abbrev=0")
-	if err != nil {
-		version = "latest"
-	}
-	version = strings.TrimSpace(version)
 	if err := goRun(toolTempl, "generate", "-path", docsModule); err != nil {
 		return err
 	}
-	if err := runIn(docsModule, "go", "run", ".", "-version", version); err != nil {
-		return err
-	}
+	// The pages of a version load a copy of docs/style.css, which the
+	// render takes, so the stylesheet is minified first.
 	css := filepath.Join(docsModule, "style.css")
 	fmt.Println("==> minify", css, "-> docs/style.css")
-	return goRun(toolMinify, "-o", "docs/style.css", css)
+	if err := goRun(toolMinify, "-o", "docs/style.css", css); err != nil {
+		return err
+	}
+	return runIn(docsModule, "go", "run", ".", "-version", "main")
 }
 
 // WatchDocs serves the GitHub Pages site and reloads it on changes.

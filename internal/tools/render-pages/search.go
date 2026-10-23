@@ -12,7 +12,7 @@ import (
 type searchEntry struct {
 	Page    string `json:"p"` // Title of the page.
 	Section string `json:"s"` // Heading of the section, empty above the first.
-	URL     string `json:"u"` // Relative to the site root.
+	URL     string `json:"u"` // Relative to the root of the version.
 	Text    string `json:"t"`
 }
 
@@ -23,8 +23,7 @@ const searchTextLimit = 1500
 
 // searchEntries returns the entries of d, whose document is node. The first
 // entry holds the text above the first heading below level 1. Each heading of
-// a level that the contents of the page list starts another. Code blocks are
-// left out.
+// a level that the contents of the page list starts another. Code blocks are left out.
 func searchEntries(d doc, node ast.Node, src []byte) []searchEntry {
 	entries := []searchEntry{{Page: d.page.title, URL: d.page.path}}
 	var text strings.Builder
@@ -59,8 +58,7 @@ func searchEntries(d doc, node ast.Node, src []byte) []searchEntry {
 	return entries
 }
 
-// truncate returns s cut at the last space before n bytes, or s if it is not
-// longer.
+// truncate returns s cut at the last space before n bytes, or s if it is not longer.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

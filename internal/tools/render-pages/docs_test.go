@@ -12,8 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testPages are pages at the paths of [docPages]: 1 for a directory, 1 in it,
-// 1 in the site root, and a link that leaves the site.
+// testPages are pages at paths that cover [docPage.base]: 1 for a directory,
+// 1 in it, 1 in the root of the version, and a link that leaves the site.
+// The paths of [docPages] have no directories.
 var testPages = []docPage{
 	{
 		file:  "guide/README.md",
@@ -49,6 +50,7 @@ var testSite = site{
 		{"spec": true, "pages": true},
 		nil,
 	},
+	ref: mainVersion,
 }
 
 // blob is the URL of the files of the main branch on GitHub.
@@ -194,7 +196,7 @@ func TestConvertDocs(t *testing.T) {
 		[]byte("# Spec\n\n## Pages\n\n### Actions\n\n#### Parameters\n\n" +
 			"See [the guide](guide/) and [pages](#pages).\n"),
 		nil,
-	}, nil)
+	}, nil, mainVersion)
 	require.NoError(t, err)
 	require.Len(t, docs, 4)
 
@@ -239,7 +241,7 @@ func TestConvertDocs(t *testing.T) {
 func TestConvertDocsDeadFragment(t *testing.T) {
 	_, err := convertDocs(testPages[:1], [][]byte{
 		[]byte("# Title\n\nSee [usage](#use_it).\n\n## Use_it\n"),
-	}, nil)
+	}, nil, mainVersion)
 	require.ErrorContains(t, err,
 		`guide/README.md: link "#use_it" names no heading`)
 }
@@ -250,7 +252,7 @@ func TestConvertDocsPlaceholder(t *testing.T) {
 	docs, err := convertDocs(testPages[:2], [][]byte{
 		[]byte("# Introduction\n\nSee [dispatch](events.md#dispatch).\n"),
 		[]byte("# Events\n\n`guide/events.md` does not exist yet.\n"),
-	}, []bool{false, true})
+	}, []bool{false, true}, mainVersion)
 	require.NoError(t, err)
 	require.Contains(t, docs[0].body, `<a href="../docs/events#dispatch">`)
 }
@@ -259,10 +261,10 @@ func TestConvertDocsPlaceholder(t *testing.T) {
 // placeholder page that names the file.
 func TestReadDocs(t *testing.T) {
 	root := t.TempDir()
-	_, err := readDocs(root, false)
+	_, err := readDocs(root, mainVersion, false)
 	require.ErrorIs(t, err, fs.ErrNotExist)
 
-	docs, err := readDocs(root, true)
+	docs, err := readDocs(root, mainVersion, true)
 	require.NoError(t, err)
 	require.Equal(t, "Introduction", docs[0].title)
 	require.Contains(t, docs[0].body,
@@ -358,7 +360,7 @@ func TestNeighbors(t *testing.T) {
 // convert converts md as the file of the first test page.
 func convert(t *testing.T, md string) doc {
 	t.Helper()
-	docs, err := convertDocs(testPages[:1], [][]byte{[]byte(md)}, nil)
+	docs, err := convertDocs(testPages[:1], [][]byte{[]byte(md)}, nil, mainVersion)
 	require.NoError(t, err)
 	return docs[0]
 }
@@ -465,7 +467,8 @@ func TestHeadingLinks(t *testing.T) {
 func TestSearchEntries(t *testing.T) {
 	docs, err := convertDocs(testPages[1:2], [][]byte{[]byte("# Events\n\n" +
 		"Events update\nother tabs.\n\n```go\nfunc hidden() {}\n```\n\n" +
-		"## Dispatch\n\nUse a `Dispatcher`.\n\n#### Details\n\n- a list\n")}, nil)
+		"## Dispatch\n\nUse a `Dispatcher`.\n\n#### Details\n\n- a list\n")},
+		nil, mainVersion)
 	require.NoError(t, err)
 	require.Equal(t, []searchEntry{
 		{
@@ -546,11 +549,11 @@ func TestSkipLink(t *testing.T) {
 		[]byte("# Events\n\n## Dispatch\n"),
 		[]byte("# Spec\n"),
 		nil,
-	}, nil)
+	}, nil, mainVersion)
 	require.NoError(t, err)
 	for name, c := range map[string]templ.Component{
-		"landing page": indexPage("v1"),
-		"docs page":    docsPage(newView(testPages, docs, 1, "v1")),
+		"landing page": indexPage(edition{version: "v1"}),
+		"docs page":    docsPage(newView(testPages, docs, 1, edition{version: "v1"})),
 	} {
 		t.Run(name, func(t *testing.T) {
 			html := render(t, c)
@@ -573,9 +576,9 @@ func TestTemplateIDs(t *testing.T) {
 		[]byte("# Events\n\n## Dispatch\n\n```go\nfunc f() {}\n```\n"),
 		[]byte("# Spec\n"),
 		nil,
-	}, nil)
+	}, nil, mainVersion)
 	require.NoError(t, err)
-	html := render(t, docsPage(newView(testPages, docs, 1, "v1")))
+	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1"})))
 	written := make(map[string]bool)
 	ids := regexp.MustCompile(` id="([^"]+)"`)
 	for _, m := range ids.FindAllStringSubmatch(html, -1) {
@@ -601,7 +604,7 @@ func TestPageLinks(t *testing.T) {
 		[]byte("# Events\n"),
 		[]byte("# Spec\n"),
 		nil,
-	}, nil)
+	}, nil, mainVersion)
 	require.NoError(t, err)
 	for name, tt := range map[string]struct {
 		page int
@@ -628,7 +631,7 @@ func TestPageLinks(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			v := newView(testPages, docs, tt.page, "v1")
+			v := newView(testPages, docs, tt.page, edition{version: mainVersion})
 			html := render(t, docsPage(v))
 			for _, want := range tt.want {
 				require.Contains(t, html, want)

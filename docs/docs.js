@@ -16,6 +16,54 @@ nav?.addEventListener("click", (e) => {
 	}
 });
 
+// openVersion opens href, the same page in another version of the site, or
+// fallback, the first page of that version, if the version lacks the page,
+// such as one added after the release.
+const openVersion = async (href, fallback) => {
+	let target = new URL(href, location.href).href;
+	try {
+		const r = await fetch(target, { method: "HEAD" });
+		if (!r.ok) {
+			target = new URL(fallback, location.href).href;
+		}
+	} catch {
+		// Without an answer the page opens as linked.
+	}
+	location.href = target;
+};
+
+// The version menu of the header opens the page in the version picked.
+const versions = document.querySelector("neo-select.version-select");
+if (versions) {
+	const current = versions.getAttribute("value");
+	versions.addEventListener("neo-select-change", (e) => {
+		const option = [...versions.querySelectorAll("neo-option")]
+			.find((o) => o.getAttribute("value") === e.detail.value);
+		if (option && e.detail.value !== current) {
+			openVersion(option.dataset.href, option.dataset.fallback);
+		}
+	});
+	// Back from the other version, the browser restores this page with the
+	// version that was picked.
+	addEventListener("pageshow", (e) => {
+		if (e.persisted) {
+			versions.value = current;
+		}
+	});
+}
+
+// The link of the note on a page of main. A click that opens a new tab or
+// window follows the link as written.
+for (const a of document.querySelectorAll("a[data-fallback]")) {
+	a.addEventListener("click", (e) => {
+		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+			return;
+		}
+		e.preventDefault();
+		openVersion(a.getAttribute("href"), a.dataset.fallback);
+	});
+}
+
 // The contents column marks the section whose heading was scrolled past last.
 const sections = [...document.querySelectorAll(".docs-toc a")]
 	.map((a) => [a, document.getElementById(decodeURIComponent(a.hash.slice(1)))])
