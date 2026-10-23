@@ -303,7 +303,7 @@ func WithRetryMaxWaitMs(r *Reporter, ms int) Option {
 		r.warnDropped("WithRetryMaxWaitMs", strconv.Itoa(ms))
 		return Option{}
 	}
-	return Option{key: "retryMaxWaitMs", value: strconv.Itoa(ms)}
+	return Option{key: "retryMaxWait", value: strconv.Itoa(ms)}
 }
 
 // WithRetryMaxCount creates an action option for the maximum number of retry attempts.

@@ -64,7 +64,7 @@ Request options:
 | `retry` | `auto` for network errors, `error` for 4xx and 5xx, `always` or `never` |
 | `retryInterval` | defaults to 1000 ms |
 | `retryScaler` | defaults to 2 |
-| `retryMaxWaitMs` | defaults to 30000 ms |
+| `retryMaxWait` | defaults to 30000 ms |
 | `retryMaxCount` | defaults to 10 |
 | `requestCancellation` | `auto`, `cleanup`, `disabled` or an `AbortController` |
 
