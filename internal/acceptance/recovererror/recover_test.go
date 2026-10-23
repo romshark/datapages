@@ -338,7 +338,8 @@ func TestRecoveredDecodePanics(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			resp := serve(t).Visitor(t).Get(t, path)
+			v := serve(t).Visitor(t)
+			resp := v.Send(t, v.NewRequest(t, http.MethodGet, path, nil))
 
 			require.Equal(t, http.StatusInternalServerError, resp.Status)
 			require.Equal(t, "Internal Server Error\n", resp.Body)

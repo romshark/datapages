@@ -503,15 +503,14 @@ func TestError404HeadRendersFromTheSession(t *testing.T) {
 func TestOfflinePageRendersWithAZeroSession(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		srv := newServer(t, broker)
-		c := srv.client(t)
-		c.signIn(t, "carol", "")
+		v := serve(t, broker).Visitor(t)
+		signIn(t, v, "carol", "")
 
-		status, body := c.get(t, "/offline/")
-		require.Equal(t, http.StatusOK, status, "%s", body)
-		require.Contains(t, body, "<title>anonymous</title>", "%s", body)
-		require.NotContains(t, body, "carol", "%s", body)
-		require.NotContains(t, body, "X-CSRF-Token", "%s", body)
+		resp := v.Get(t, "/offline/")
+		require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
+		require.Contains(t, resp.Body, "<title>anonymous</title>", "%s", resp.Body)
+		require.NotContains(t, resp.Body, "carol", "%s", resp.Body)
+		require.NotContains(t, resp.Body, "X-CSRF-Token", "%s", resp.Body)
 	})
 }
 

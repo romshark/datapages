@@ -519,10 +519,10 @@ func (s *Server) httpErrIntern(
 type pageDoneHandlers struct{ *Server }
 
 func (s pageDoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageDone.GET")
 	p := dpapp.PageDone{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageDone.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageDone.GET", err)
@@ -541,6 +541,7 @@ func (s pageDoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -573,7 +574,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(
 		r,
 		query,
@@ -613,6 +613,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -698,6 +699,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTAdd(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Add")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -715,7 +717,6 @@ func (s pageIndexHandlers) POSTAdd(
 	}
 
 	dispatchRowAdded := dispatcherEventRowAdded{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Add")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -733,6 +734,7 @@ func (s pageIndexHandlers) POSTAdd(
 func (s pageIndexHandlers) POSTFilter(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Filter")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -789,6 +791,7 @@ func (s pageIndexHandlers) POSTFilter(
 func (s pageIndexHandlers) POSTClear(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Clear")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -816,6 +819,7 @@ func (s pageIndexHandlers) POSTClear(
 func (s pageIndexHandlers) POSTFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Fail")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -843,6 +847,7 @@ func (s pageIndexHandlers) POSTFail(
 func (s pageIndexHandlers) DELETERow(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Row")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -863,7 +868,6 @@ func (s pageIndexHandlers) DELETERow(
 		ID string `path:"id"`
 	}]
 	path.Values.ID = r.PathValue("id")
-	defer s.recoverPanic(w, r, nil, "PageIndex.Row")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -881,6 +885,7 @@ func (s pageIndexHandlers) DELETERow(
 func (s pageIndexHandlers) POSTGo(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Go")
 	if !s.CheckSameOrigin(w, r) {
 		return
 	}
@@ -888,7 +893,6 @@ func (s pageIndexHandlers) POSTGo(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Go")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -905,6 +909,7 @@ func (s pageIndexHandlers) POSTGo(
 func (s pageIndexHandlers) POSTGoStream(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GoStream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -932,10 +937,10 @@ func (s pageIndexHandlers) POSTGoStream(
 type pageLoginHandlers struct{ *Server }
 
 func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
@@ -954,6 +959,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageLoginHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -969,7 +975,6 @@ func (s pageLoginHandlers) POSTSubmit(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
@@ -995,10 +1000,10 @@ func (s pageLoginHandlers) POSTSubmit(
 type pageOldHandlers struct{ *Server }
 
 func (s pageOldHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOld.GET")
 	p := dpapp.PageOld{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageOld.GET")
 	body, redirect, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageOld.GET", err)
@@ -1020,6 +1025,7 @@ func (s pageOldHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageRoomHandlers struct{ *Server }
 
 func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageRoom.GET")
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1028,7 +1034,6 @@ func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageRoom{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageRoom.GET")
 	body, err := p.GET(
 		r,
 		sess,
@@ -1062,6 +1067,7 @@ func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageRoom stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1141,6 +1147,7 @@ func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageRoomHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageRoom anonymous stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1201,6 +1208,7 @@ func (s pageRoomHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 func (s pageRoomHandlers) POSTSay(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageRoom.Say")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1219,7 +1227,6 @@ func (s pageRoomHandlers) POSTSay(
 	}
 
 	dispatchRoomSaid := dispatcherEventRoomSaid{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageRoom.Say")
 	p := dpapp.PageRoom{
 		App: s.app,
 	}
@@ -1237,6 +1244,7 @@ func (s pageRoomHandlers) POSTSay(
 func (s pageRoomHandlers) POSTNotify(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageRoom.Notify")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1255,7 +1263,6 @@ func (s pageRoomHandlers) POSTNotify(
 	}
 
 	dispatchNoticed := dispatcherEventNoticed{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageRoom.Notify")
 	p := dpapp.PageRoom{
 		App: s.app,
 	}
