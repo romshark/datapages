@@ -1,7 +1,11 @@
 package actionexpr_test
 
 import (
+	"errors"
+	"io/fs"
 	"math"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -430,4 +434,47 @@ func TestWithOption(t *testing.T) {
 		writeOptions([]actionexpr.Option{actionexpr.WithOption("custom", "$x")}))
 	require.Empty(t,
 		writeOptions([]actionexpr.Option{actionexpr.WithOption("", "$x")}))
+}
+
+// TestDatastarReadsEveryKey tests that Datastar 1.0.4, which
+// httpserve.DefaultDatastarJSSrc loads, reads the key each typed helper writes.
+// Datastar ignores a key it does not know, and the option has no effect.
+func TestDatastarReadsEveryKey(t *testing.T) {
+	t.Parallel()
+
+	src, err := os.ReadFile("../../example/classifieds/app/static/datastar-1.0.4.js")
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Skip("the examples are not checked out")
+	}
+	require.NoError(t, err)
+
+	for name, option := range map[string]actionexpr.Option{
+		"WithContentType":    actionexpr.WithContentType(nil, actionexpr.ContentTypeForm),
+		"WithFilterSignals":  actionexpr.WithFilterSignals(nil, "a", "b"),
+		"WithHeaders":        actionexpr.WithHeaders(map[string]string{"X-A": "a"}),
+		"WithOpenWhenHidden": actionexpr.WithOpenWhenHidden(true),
+		"WithPayload":        actionexpr.WithPayload("$a"),
+		"WithSelector":       actionexpr.WithSelector("#a"),
+		"WithRetry":          actionexpr.WithRetry(nil, actionexpr.RetryNever),
+		"WithRetryInterval":  actionexpr.WithRetryInterval(nil, 1),
+		"WithRetryScaler":    actionexpr.WithRetryScaler(nil, 1),
+		"WithRetryMaxWaitMs": actionexpr.WithRetryMaxWaitMs(nil, 1),
+		"WithRetryMaxCount":  actionexpr.WithRetryMaxCount(nil, 1),
+		"WithRequestCancellation": actionexpr.WithRequestCancellation(
+			nil, actionexpr.RequestCancellationDisabled,
+		),
+		"WithRequestCancellationController": actionexpr.
+			WithRequestCancellationController("new AbortController()"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			written := writeOptions([]actionexpr.Option{option})
+			key, _, ok := strings.Cut(strings.TrimPrefix(written, ", {"), ":")
+			require.True(t, ok, "no option written: %q", written)
+			// The fetch actions destructure their options as {selector:c,headers:l,...}.
+			read := regexp.MustCompile(`[{,]` + regexp.QuoteMeta(key) + `:`)
+			require.True(t, read.Match(src), "Datastar 1.0.4 does not read %q", key)
+		})
+	}
 }

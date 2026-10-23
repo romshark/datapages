@@ -217,7 +217,7 @@ Run `datapages gen` to apply these.
 - Refuse in `datapages.NewServer` a `ServerConfig` value that a custom `ServerOption` sets and the field's `With` option refuses. A session cookie name with a space, for example, passed and kept every visitor signed out.
 - Apply the defaults of `datapages.WithPrometheus` to a `datapages.PrometheusConfig` that a custom `ServerOption` writes into `ServerConfig.Prometheus`. Without a `Registerer`, `NewServer` panicked, without a `Gatherer`, every scrape of `/metrics` panicked, and no HTTP request was counted.
 - Serve font assets with their `font/*` type on every host. Some mime tables, such as shared-mime-info on Linux, typed `.otf` and `.otc` fonts as OpenDocument templates, which also kept them uncompressed.
-- Send the wait of `action.WithRetryMaxWaitMs` as `retryMaxWait`, the option Datastar reads. Datastar ignored the `retryMaxWaitMs` that the option sent, which left the longest wait between retries at its default of 30s.
+- Send `action.WithRetryMaxWaitMs` as `retryMaxWait`, which Datastar 1.0.0 and later read. From v0.9.2 to v0.10.1 it sent `retryMaxWaitMs`, which Datastar ignores, so the wait between retries stayed capped at the 30s default.
 
 #### `datapages init`
 
@@ -226,6 +226,7 @@ Run `datapages gen` to apply these.
 - Check out the repository before installing Go in `.github/workflows/ci.yml`, which lets `actions/setup-go` restore its cache. In a project scaffolded earlier, move the `Checkout repository` step above `Install Go`.
 - Use the enclosing Go module when run in a subdirectory, as `datapages gen` does, instead of creating a nested module there.
 - Run in place in a project that has a `go.mod` and a `datapages.yaml` but no git repository. `datapages gen` recommends `datapages init -n` to update the agent instructions, which failed there with "--name is required", and an interactive run created a new project inside the existing one.
+- Correct the templ pitfall in the generated `datapages-templates` skill. It told agents that wrapping text in an element keeps templ from parsing a leading `if`, `for` or `switch` as Go, but `<p>if you agree</p>` fails as well. It now says to put the text in a string expression, as `<p>{ "if you agree" }</p>`, and no longer warns about `else` and `case`, which templ reads as text. Run `datapages init` in an existing project to update it.
 
 ### Security
 
