@@ -311,12 +311,19 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
 		pageHasPrivateEvent(p, w.eventMap)
 	needsToken := h.OutputCloseSession != nil
-	if needsSession || needsToken {
+	// The worker shows the copy of PageOffline it fetched to every visitor,
+	// so the session of the browser that fetched it must not render it.
+	zeroSession := needsSession && p.PageSpecialization == model.PageTypeOffline
+	if (needsSession && !zeroSession) || needsToken {
 		if hasBody {
 			w.Line(0, "")
 		}
 		hasBody = true
-		w.writeReadSession(needsSession, needsToken)
+		w.writeReadSession(needsSession && !zeroSession, needsToken)
+	}
+	if zeroSession {
+		hasBody = true
+		w.Linef(1, "sess := %s{}", w.sessionType)
 	}
 
 	// Read query params.

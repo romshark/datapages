@@ -377,6 +377,18 @@ func (p PageLog) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo(p.App.entries()), nil
 }
 
+// PageOffline is /offline
+//
+// The service worker shows 1 copy of this page to every visitor, which its GET
+// and the application-wide head render from the zero session.
+type PageOffline struct{ App *App }
+
+func (PageOffline) GET(_ *http.Request, session Session) (
+	body datapages.Component, err error,
+) {
+	return echo("offline " + session.UserID()), nil
+}
+
 // PageError404 is /not-found
 //
 // The page a URL no page claims is served. Its GET takes no session,

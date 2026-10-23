@@ -17,6 +17,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/offline"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/httpserve"
@@ -39,6 +40,17 @@ const (
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
+
+// WithOffline enables service worker offline support. The route of PageOffline is
+// supplied automatically; the worker precaches that page and serves it for
+// navigations to URLs with no cached copy while the browser is offline.
+//
+// The module's scripts use conf.CSPNonce when it is set. Otherwise, they use the
+// nonce from [datapages.WithCSPNonce].
+// [WithOffline] and [datapages.WithCSPNonce] work in either order.
+func WithOffline(conf offline.Config) datapages.ServerOption {
+	return offline.WithServiceWorker("/offline/", conf)
+}
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
@@ -537,6 +549,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /login/{$}",
 		pageLoginHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /offline/{$}",
+		pageOfflineHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /room/{$}",
 		pageRoomHandlers{s}.GET)
@@ -1269,6 +1284,33 @@ func (s pageLoginHandlers) POSTRename(
 	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Rename", err)
+		return
+	}
+}
+
+type pageOfflineHandlers struct{ *Server }
+
+func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOffline.GET")
+	sess := datapages.Session[dpapp.SessionData]{}
+
+	p := dpapp.PageOffline{
+		App: s.app,
+	}
+	body, err := p.GET(
+		r,
+		sess,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageOffline.GET", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, "", genericHead, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageOffline", err)
 		return
 	}
 }
