@@ -225,6 +225,7 @@ Run `datapages gen` to apply these.
 - Check out the repository before installing Go in `.github/workflows/ci.yml`, which lets `actions/setup-go` restore its cache. In a project scaffolded earlier, move the `Checkout repository` step above `Install Go`.
 - Use the enclosing Go module when run in a subdirectory, as `datapages gen` does, instead of creating a nested module there.
 - Run in place in a project that has a `go.mod` and a `datapages.yaml` but no git repository. `datapages gen` recommends `datapages init -n` to update the agent instructions, which failed there with "--name is required", and an interactive run created a new project inside the existing one.
+- Correct the templ pitfall in the generated `datapages-templates` skill. It told agents that wrapping text in an element keeps templ from parsing a leading `if`, `for` or `switch` as Go, but `<p>if you agree</p>` fails as well. It now says to put the text in a string expression, as `<p>{ "if you agree" }</p>`, and no longer warns about `else` and `case`, which templ reads as text. Run `datapages init` in an existing project to update it.
 
 ### Security
 
