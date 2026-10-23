@@ -91,3 +91,7 @@ func FuzzEncode(f *testing.F) {
 		}
 	})
 }
+
+func TestPrefix(t *testing.T) {
+	require.Equal(t, "messaging.writing.", subject.Prefix("messaging.writing"))
+}

@@ -24,7 +24,7 @@ s, err := datapages.NewServer[
 ](&a, broker, opts...) // the app is passed by pointer
 ```
 
-Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. 1 module can contain several apps. Run one with `datapages watch --app frontend`.
+Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. 1 module can contain several apps. Run one with `datapages watch --app app/frontend`, the directory of its app package.
 
 `datapages.EnablePrometheus` requires `WithPrometheus`, `DisablePrometheus` rejects it.
 
@@ -43,17 +43,21 @@ opts = append(opts,
 	datapages.WithSessionManager[app.SessionData](mgr),
 	datapages.WithAssets(app.StaticFS, false),
 	datapages.WithHTTPServer(&http.Server{ReadHeaderTimeout: 10 * time.Second}),
-	datapages.WithDatastarJS("https://cdn.example.com/datastar.js"),
+	datapages.WithDatastarJS("https://cdn.example.com/datastar@1.0.4/datastar.js"),
 	datapages.WithShutdownTimeout(30*time.Second),
 	datapages.WithFileSendTimeout(time.Minute),
 	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
 	datapages.WithBodySizeLimit(1<<20),
 	datapages.WithLogSampling(datapages.LogSamplingConfig{Interval: time.Minute}),
+	datapages.WithSSECompression(datapages.SSECompressionConfig{}),
+	datapages.WithResponseCompression(datapages.ResponseCompressionConfig{}),
 	datapages.WithPrometheus(datapages.PrometheusConfig{Host: ":9091"}),
 )
 ```
 
-`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at 0 because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends the response of a `datapages.File` or a static asset whose client accepts no more of it for the time, a minute by default.
+`WithBodySizeLimit` limits the request body of an action that declares `Signals`. The default is 1 MiB. An over-limit request returns 400 while reading signals. A handler that reads `r.Body` itself gets no limit: wrap the body in `http.MaxBytesReader`. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at 0 because a nonzero value ends long-lived SSE streams. `WithFileSendTimeout` ends a blocked file response after 1 minute by default. `WithSSECompression` sets the codings, order, levels and windows; the default order is zstd, brotli and gzip. CPU and memory scale with stream count. Use the presets `datapages.SSECompressionLowMemory()` for many streams with fragments below about 100 KB, `datapages.SSECompressionLowBandwidth()` for few streams with slow or metered clients, and `datapages.SSECompressionLargeFragments()` for fragments above about 1 MB. `WithNoSSECompression` turns compression off. A page's `StreamConfig` overrides it for the page's streams, and a `StreamConfig` method named after an action, such as `StreamConfigPOSTSave`, for that action's response. Use `WithNoSSECompression` in an entry point that only loopback clients reach, such as a desktop app whose webview loads from a server on `127.0.0.1`. Compression there costs CPU and saves no transfer.
+
+`WithResponseCompression` sets the codings, order, levels and minimum size for page and action bodies. Bodies of at least 256 bytes use zstd, brotli or gzip by default. `ResponseCompressionLowCPU` reduces CPU and memory. `ResponseCompressionLowBandwidth` prefers brotli. Static assets use `WithAssetsCompression`. `datapages.File` and SSE responses pass through, as do responses with `Content-Encoding` or `Cache-Control: no-transform`. A `HEAD` response gets the headers of its `GET` response. Compression runs after every middleware and is disabled in dev mode. For loopback-only clients, add `WithNoResponseCompression`, `WithNoSSECompression` and `WithNoAssetsCompression`. Before a proxy body filter such as nginx `sub_filter`, add the ones for the responses it edits. Compressing proxies pass encoded bodies through. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input, and on their `_$/` streams, or give such a page a `StreamConfig` that returns `Compression: &datapages.SSECompressionConfig{Disabled: true}`.
 
 `WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns. Cancel the context on SIGTERM as well as SIGINT with `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`. Docker, Kubernetes and systemd stop a process with SIGTERM, which otherwise ends it without a graceful shutdown.
 
@@ -90,13 +94,15 @@ Declare at most 1 such variable in an app package. The URL prefix must start and
 
 `WithAssetsFS` accepts an `http.FileSystem` and overrides `WithAssets`. Datapages uses that filesystem as-is: it does not extract the declared source directory or replace it in development mode. The app's declared URL prefix still determines where files are served. Without an asset declaration, the option is accepted but no asset route is registered.
 
-Without `WithAssetsCache`, Datapages sends neither `Cache-Control` nor `ETag` for assets. A zero `AssetsCacheConfig` sends `Cache-Control: public, max-age=0` and an ETag. The browser revalidates every request. An unchanged file returns 304 with an empty body.
+Without `WithAssetsCache`, assets carry `Cache-Control: public, max-age=0` and an ETag, the headers of a zero `AssetsCacheConfig`. The browser asks before every reuse, and an unchanged file returns 304 with an empty body.
 
-Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` omits both headers.
+Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash or the version of a vendored library, as in `datastar-1.0.4.js`. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` leaves the headers of a server without `WithAssetsCache`.
 
-The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
+The server computes an ETag on a file's first request and keeps it until the process exits, since assets must not change while it runs. A file that changes anyway keeps its old ETag, and browsers may get its old compressed content, until a restart. Serve files that change through a GET action that returns `datapages.File`. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
 
-Use `assets.Path("style.css")` from the generated `assets` package to reference a file. Use `href.Asset("style.css")` inside an `<a href>`. The linter checks app-internal URLs in `<a href>` and Datastar action attributes. It does not check asset URLs in `<link>` or `<script>` elements.
+Assets of at least 256 bytes use brotli 6 or gzip 9 by default when their type is text, HTML included, JSON, JavaScript, XML, YAML, TOML, SVG, WebAssembly, a TrueType or OpenType font, an icon or a BMP image. The first request compresses and caches its copy. Per 200 KB, brotli 6 takes a few milliseconds and brotli 11 takes 140 to 215 ms. To avoid this delay, create the compressor with `assetcompress.New`, pass it to `WithAssetsCompression`, and run `assets.Precompress(ctx, app.StaticFS)` in a goroutine that logs its error, or before `ListenAndServe`. With `Levels.BrotliQuality` 11, run `Precompress` before `ListenAndServe`, since a request that finds no copy waits for its brotli 11 compression. Copies are keyed by content, not path, which is why the whole `embed.FS` precompresses the files the server serves from its subdirectory. `assetcompress.Config` sets codings, levels and storage; `modules/assetcompress/disk` persists copies. `WithNoAssetsCompression` turns it off, and a `CacheControl` with `no-transform` keeps the assets uncompressed. Dev mode disables asset compression.
+
+Use `assets.Path("style.css")` from the generated `assets` package to reference a file. Paths match file names exactly, case included, on every system and in dev mode. Use `href.Asset("style.css")` inside an `<a href>`. The linter checks app-internal URLs in `<a href>` and Datastar action attributes. It does not check asset URLs in `<link>` or `<script>` elements.
 
 ## datapages.yaml
 
@@ -115,4 +121,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:37cdbe0bd680e575 -->
+<!-- written by datapages sha256:3f51596e530ff291 -->

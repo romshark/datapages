@@ -44,12 +44,16 @@ call, defaulting to ./app when the module holds none.`,
 			var errs []error
 			var events []subject.AppEvent
 			for _, a := range scan.Apps {
+				if err := serverscan.CheckAppDir(moduleDir, a); err != nil {
+					errs = append(errs, err)
+					continue
+				}
 				m, err := parseApp(filepath.Join(moduleDir, a.Dir), stderr)
+				events = append(events, appEvents(a.Dir, m)...)
 				if err != nil {
 					errs = append(errs, err)
 					continue
 				}
-				events = append(events, appEvents(a.Dir, m)...)
 				if err := serverscan.CheckSessionData(
 					a, m.Session != nil,
 				); err != nil {

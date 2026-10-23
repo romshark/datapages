@@ -99,21 +99,6 @@ func PageFiles(rest string) string {
 	return b.String()
 }
 
-// PageFilesEmbedded references /files-embedded/{rest...}
-func PageFilesEmbedded(rest string) string {
-	s_rest := url.PathEscape(rest)
-	var b strings.Builder
-	b.Grow(
-		len("/files-embedded/") +
-			len(s_rest) +
-			len("/"),
-	)
-	b.WriteString("/files-embedded/")
-	b.WriteString(s_rest)
-	b.WriteString("/")
-	return b.String()
-}
-
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 
@@ -488,7 +473,6 @@ func PageReflect(query QueryPageReflect) string {
 		termStr     string
 		pageStr     string
 		slugStr     string
-		oddStr      string
 		newTitleStr string
 		langStr     string
 	)
@@ -502,9 +486,6 @@ func PageReflect(query QueryPageReflect) string {
 	if query.Slug != nil {
 		slugStr = url.QueryEscape(textOf(query.Slug))
 	}
-	if query.Odd != "" {
-		oddStr = url.QueryEscape(query.Odd)
-	}
 	if query.NewTitle != "" {
 		newTitleStr = url.QueryEscape(query.NewTitle)
 	}
@@ -515,7 +496,6 @@ func PageReflect(query QueryPageReflect) string {
 	anyQuery := query.Term != "" ||
 		query.Page != 0 ||
 		query.Slug != nil ||
-		query.Odd != "" ||
 		query.NewTitle != "" ||
 		query.Lang != ""
 
@@ -548,13 +528,6 @@ func PageReflect(query QueryPageReflect) string {
 		}
 		n++
 		l += len("s=") + len(slugStr)
-	}
-	if query.Odd != "" {
-		if n > 0 {
-			l += len("&")
-		}
-		n++
-		l += len("o'\"x=") + len(oddStr)
 	}
 	if query.NewTitle != "" {
 		if n > 0 {
@@ -605,14 +578,6 @@ func PageReflect(query QueryPageReflect) string {
 		b.WriteString("s=")
 		b.WriteString(slugStr)
 	}
-	if query.Odd != "" {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		n++
-		b.WriteString("o'\"x=")
-		b.WriteString(oddStr)
-	}
 	if query.NewTitle != "" {
 		if n > 0 {
 			b.WriteString("&")
@@ -637,7 +602,6 @@ type QueryPageReflect struct {
 	Term     string                 `query:"t"`
 	Page     int                    `query:"p"`
 	Slug     encoding.TextMarshaler `query:"s"`
-	Odd      string                 `query:"o'"x"`
 	NewTitle string                 `query:"nt"`
 	Lang     string                 `query:"lang"`
 }

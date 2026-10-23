@@ -18,14 +18,11 @@ import (
 	"github.com/romshark/datapages/internal/structtag"
 )
 
-// baseIdent unwraps a type expression to the identifier naming its type:
-// T, *T, T[A] and *T[A, B] all yield T. A qualified name yields nil,
-// the passes key on names declared in the app package.
-func baseIdent(expr ast.Expr) *ast.Ident {
+// baseType unwraps a type expression to the name of its type.
+// T, *T, T[A] and *T[A, B] all yield T, and *pkg.T[A] yields pkg.T.
+func baseType(expr ast.Expr) ast.Expr {
 	for {
 		switch t := expr.(type) {
-		case *ast.Ident:
-			return t
 		case *ast.StarExpr:
 			expr = t.X
 		case *ast.IndexExpr:
@@ -33,9 +30,17 @@ func baseIdent(expr ast.Expr) *ast.Ident {
 		case *ast.IndexListExpr:
 			expr = t.X
 		default:
-			return nil
+			return expr
 		}
 	}
+}
+
+// baseIdent unwraps a type expression to the identifier naming its type:
+// T, *T, T[A] and *T[A, B] all yield T. A qualified name yields nil,
+// the passes key on names declared in the app package.
+func baseIdent(expr ast.Expr) *ast.Ident {
+	id, _ := baseType(expr).(*ast.Ident)
+	return id
 }
 
 // ReceiverTypeName extracts the type name from a method
@@ -50,10 +55,12 @@ func ReceiverTypeName(expr ast.Expr) string {
 // EmbeddedType is 1 embedded field of a struct.
 type EmbeddedType struct {
 	// Name is what the field embeds, with the pointer and the type
-	// arguments stripped: *Base[int] is Base.
+	// arguments stripped: *Base[int] is Base. A type of another package
+	// keeps its qualifier, as *sync.Mutex is sync.Mutex,
+	// which is the name of no type of the app package.
 	Name string
 	// Pointer reports whether the field embeds *T rather than T.
-	// The caller sees what [baseIdent] folded away.
+	// The caller sees what [baseType] folded away.
 	Pointer bool
 	// Pos is where the embedding field is written.
 	Pos token.Pos
@@ -66,13 +73,9 @@ func EmbeddedTypes(st *ast.StructType) []EmbeddedType {
 		if len(f.Names) != 0 {
 			continue
 		}
-		id := baseIdent(f.Type)
-		if id == nil {
-			continue
-		}
 		_, isPtr := f.Type.(*ast.StarExpr)
 		out = append(out, EmbeddedType{
-			Name: id.Name, Pointer: isPtr, Pos: f.Pos(),
+			Name: types.ExprString(baseType(f.Type)), Pointer: isPtr, Pos: f.Pos(),
 		})
 	}
 	return out
@@ -99,8 +102,7 @@ func EmbeddedFieldPosMap(
 }
 
 // EmbeddedFieldTypeExprs returns a map from embedded type name to the
-// type expression written at the embed site. For a generic embed the expression carries
-// the type arguments, e.g. `Base` maps to the expression `Base[StateFoo]`.
+// type expression written at the embed site.
 func EmbeddedFieldTypeExprs(st *ast.StructType) map[string]ast.Expr {
 	out := map[string]ast.Expr{}
 	if st == nil || st.Fields == nil {

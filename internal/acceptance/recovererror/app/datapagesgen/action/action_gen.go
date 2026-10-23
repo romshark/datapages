@@ -6,6 +6,7 @@ package action
 
 import (
 	"log/slog"
+	"net/url"
 	"strings"
 
 	"github.com/romshark/datapages/runtime/actionexpr"
@@ -170,13 +171,85 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var App app
+
+type app struct {
+	AppAct app_AppAct
+}
+
+type app_AppAct struct{}
+
+// POST references /app-act/
+func (app_AppAct) POST(
+	query app_AppAct_POSTQuery,
+	options ...Option,
+) string {
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/app-act/'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("q=") + len(qStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/app-act/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(qStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type app_AppAct_POSTQuery struct {
+	Q string `query:"q"`
+}
+
+func (app_AppAct) POSTQuery(vQ string) app_AppAct_POSTQuery {
+	return app_AppAct_POSTQuery{
+		Q: vQ,
+	}
+}
+
 var PageIndex pageIndex
 
 type pageIndex struct {
 	Bad           pageIndex_Bad
+	ConfigPanic   pageIndex_ConfigPanic
 	Missing       pageIndex_Missing
 	Panic         pageIndex_Panic
 	Plain         pageIndex_Plain
+	RecoverPanic  pageIndex_RecoverPanic
 	Unrecoverable pageIndex_Unrecoverable
 }
 
@@ -192,6 +265,24 @@ func (pageIndex_Bad) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/bad/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/bad/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_ConfigPanic struct{}
+
+// POST references /config-panic/
+func (pageIndex_ConfigPanic) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/config-panic/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/config-panic/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/config-panic/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
@@ -252,6 +343,24 @@ func (pageIndex_Plain) POST(options ...Option) string {
 	return b.String()
 }
 
+type pageIndex_RecoverPanic struct{}
+
+// POST references /recover-panic/
+func (pageIndex_RecoverPanic) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/recover-panic/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/recover-panic/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/recover-panic/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 type pageIndex_Unrecoverable struct{}
 
 // POST references /unrecoverable/
@@ -268,4 +377,147 @@ func (pageIndex_Unrecoverable) POST(options ...Option) string {
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
 	return b.String()
+}
+
+var PageThing pageThing
+
+type pageThing struct {
+	Act   pageThing_Act
+	Plain pageThing_Plain
+}
+
+type pageThing_Act struct{}
+
+// POST references /thing/{id}/act/
+func (pageThing_Act) POST(
+	id string,
+	query pageThing_Act_POSTQuery,
+	options ...Option,
+) string {
+	s_id := url.PathEscape(id)
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/thing/") + len(s_id) + len("/act/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("q=") + len(qStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/thing/")
+	b.WriteString(s_id)
+	b.WriteString("/act/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(qStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type pageThing_Act_POSTQuery struct {
+	Q string `query:"q"`
+}
+
+func (pageThing_Act) POSTQuery(vQ string) pageThing_Act_POSTQuery {
+	return pageThing_Act_POSTQuery{
+		Q: vQ,
+	}
+}
+
+type pageThing_Plain struct{}
+
+// POST references /thing/{id}/plain/
+func (pageThing_Plain) POST(
+	id string,
+	query pageThing_Plain_POSTQuery,
+	options ...Option,
+) string {
+	s_id := url.PathEscape(id)
+	var (
+		qStr string
+	)
+
+	if query.Q != "" {
+		qStr = url.QueryEscape(query.Q)
+	}
+
+	anyQuery := query.Q != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/thing/") + len(s_id) + len("/plain/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Q != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("q=") + len(qStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/thing/")
+	b.WriteString(s_id)
+	b.WriteString("/plain/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Q != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(qStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type pageThing_Plain_POSTQuery struct {
+	Q string `query:"q"`
+}
+
+func (pageThing_Plain) POSTQuery(vQ string) pageThing_Plain_POSTQuery {
+	return pageThing_Plain_POSTQuery{
+		Q: vQ,
+	}
 }

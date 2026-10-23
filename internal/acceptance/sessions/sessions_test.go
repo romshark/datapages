@@ -74,7 +74,12 @@ func (s server) client(t *testing.T) *client {
 	}
 	return &client{
 		http: &http.Client{
-			Jar: jar,
+			// net/http returns a connection to the idle pool before it hands
+			// over a response without a body, and the [httptest.Server.Close] of
+			// a parallel test closes the idle connections of
+			// [http.DefaultTransport], failing that request.
+			Transport: s.Client().Transport,
+			Jar:       jar,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -366,7 +371,7 @@ func TestCookieHeaderVariants(t *testing.T) {
 				if header != "" {
 					req.Header.Set("Cookie", header)
 				}
-				resp, err := (&http.Client{}).Do(req)
+				resp, err := srv.Client().Do(req)
 				require.NoError(t, err)
 				defer func() { _ = resp.Body.Close() }()
 				b, err := io.ReadAll(resp.Body)
@@ -663,6 +668,24 @@ func TestError404HeadRendersFromTheSession(t *testing.T) {
 		status, body := c.get(t, "/no-such-page-a1b2c3/")
 		require.Equal(t, http.StatusNotFound, status, "%s", body)
 		require.Contains(t, body, "<title>carol</title>", "%s", body)
+	})
+}
+
+// TestOfflinePageRendersWithAZeroSession tests PageOffline loaded with a session cookie,
+// as the service worker loads it when it installs. The worker shows that
+// copy to every visitor, which neither the page nor the head may tailor.
+func TestOfflinePageRendersWithAZeroSession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+		c.signIn(t, "carol", "")
+
+		status, body := c.get(t, "/offline/")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.Contains(t, body, "<title>anonymous</title>", "%s", body)
+		require.NotContains(t, body, "carol", "%s", body)
+		require.NotContains(t, body, "X-CSRF-Token", "%s", body)
 	})
 }
 

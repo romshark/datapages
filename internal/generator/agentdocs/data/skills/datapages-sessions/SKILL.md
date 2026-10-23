@@ -76,7 +76,7 @@ The store is a server option, see `datapages-server`:
 opts = append(opts, datapages.WithSessionManager[app.SessionData](mgr))
 ```
 
-Specify the data type in this call. Go cannot infer it here. The type argument also makes the compiler check that the manager matches the app's session type.
+Specify the data type in this call. Go cannot infer it here. The compiler checks that the manager stores that type. `datapages.NewServer` returns an error at startup when it is not the app's session data type.
 
 Use `modules/sessions/natskv`. Use `modules/sessions/inmem` only for development. It stores sessions in memory and loses them on restart.
 

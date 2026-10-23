@@ -63,6 +63,9 @@ func PageLog() string { return "/log/" }
 // PageLogin references /login/{$}
 func PageLogin() string { return "/login/" }
 
+// PageOffline references /offline/{$}
+func PageOffline() string { return "/offline/" }
+
 // PageRoom references /room/{$}
 func PageRoom() string { return "/room/" }
 

@@ -87,8 +87,7 @@ func (v visitor) post(
 	require.NoError(t, err, "building POST %s", path)
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Content-Type", "application/json")
-	// The transport asks for gzip by default. The SSE writer never ends the
-	// gzip stream, and reading an SSE response fails with an unexpected EOF.
+	// Keep assertions against the uncompressed handler output.
 	req.Header.Set("Accept-Encoding", "identity")
 	if v.session != "" {
 		// A cookie jar would not send the Secure session cookie

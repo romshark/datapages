@@ -19,11 +19,10 @@ import (
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	dpapp "github.com/romshark/datapages/example/fast-shim/app"
 	"github.com/romshark/datapages/example/fast-shim/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -39,15 +38,13 @@ const (
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
-func newPageCache(
-	w http.ResponseWriter, s *Server, r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
-) *pageCacheWriter {
+// newPageCache adds Vary before an event stream sends the response head.
+func newPageCache(w http.ResponseWriter, s *Server, r *http.Request) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
 	// one client's page and its embedded cache write to another.
 	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
-	return &pageCacheWriter{s: s, r: r, sse: sse}
+	return &pageCacheWriter{s: s, r: r}
 }
 
 // pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
@@ -64,17 +61,19 @@ func (p *pageCacheBuf) Header() http.Header {
 	return p.h
 }
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
-func (p *pageCacheBuf) WriteHeader(int)             {}
+
+// WriteString takes the strings writeHTML writes the document frame with,
+// which [io.WriteString] copies into a new slice for a writer without it.
+func (p *pageCacheBuf) WriteString(s string) (int, error) { return p.b.WriteString(s) }
+func (p *pageCacheBuf) WriteHeader(int)                   {}
 
 func (s *Server) pageCacheHead(r *http.Request) datapages.Head {
 	return s.app.Head(r)
 }
 
 type pageCacheWriter struct {
-	s *Server
-	r *http.Request
-	// sse is nil, unless the handler takes [datapages.SSE].
-	sse      *datastar.ServerSentEventGenerator
+	s        *Server
+	r        *http.Request
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -113,9 +112,10 @@ func (c *pageCacheWriter) Clear(url string) { c.clears = append(c.clears, url) }
 func (c *pageCacheWriter) ClearAll() { c.clearAll = true }
 
 type pageCacheEntry struct {
-	URL     string `json:"url"`
-	HTML    string `json:"html"`
-	Version uint64 `json:"version"`
+	URL  string `json:"url"`
+	HTML string `json:"html"`
+	// A string, since JS rounds numbers above 2^53.
+	Version uint64 `json:"version,string"`
 	Shim    bool   `json:"shim,omitempty"`
 }
 
@@ -185,28 +185,40 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-func (c *pageCacheWriter) flush() error {
-	if c.sse == nil {
-		return nil
+// flush sends queued writes on a handler's stream. Render errors are logged.
+func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
+	payload := c.loggedPayload()
+	if payload == "" {
+		return
 	}
-	payload, err := c.payload()
-	if err != nil || payload == "" {
-		return err
-	}
-	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // flushToNewStream answers with an SSE stream carrying the queued writes, for a
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
-	payload, err := c.payload()
-	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
-	if err != nil || payload == "" {
-		return err
+// compression is the handler's StreamConfig, or the server's setting.
+func (c *pageCacheWriter) flushToNewStream(
+	w http.ResponseWriter, compression *dpsse.Compression,
+) {
+	payload := c.loggedPayload()
+	sse := dpsse.Open(w, c.r, compression)
+	defer sse.Close()
+	if payload == "" {
+		return
 	}
-	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// loggedPayload returns the payload and logs render errors.
+func (c *pageCacheWriter) loggedPayload() string {
+	payload, err := c.payload()
+	if err != nil {
+		c.s.LogErr("rendering page cache writes", err)
+		return ""
+	}
+	return payload
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -222,11 +234,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 				return err
 			}
 		}
-		payload, err := c.payload()
-		if err != nil {
-			c.s.LogErr("rendering page cache writes", err)
-			return nil
-		}
+		payload := c.loggedPayload()
 		if payload == "" {
 			return nil
 		}
@@ -236,31 +244,25 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
 			return err
 		}
-		_, err = io.WriteString(w, "</script>")
+		_, err := io.WriteString(w, "</script>")
 		return err
 	})
 }
 
-// redirectScript returns JavaScript that sends queued writes to the worker and
-// then navigates to target. Redirect actions return this JavaScript instead of
-// an SSE stream.
+// redirectScript sends queued writes to the worker, then navigates to target.
+// It logs and omits a payload that fails to render.
 //
 // Navigation waits for the worker to apply the writes because that worker also
 // serves the destination. The 500ms timeout supports older workers that do not
 // acknowledge the message.
-func (c *pageCacheWriter) redirectScript(target string) (string, error) {
-	tj, err := json.Marshal(target)
-	if err != nil {
-		return "", err
-	}
+func (c *pageCacheWriter) redirectScript(target string) string {
+	// Marshaling a string cannot fail.
+	tj, _ := json.Marshal(target)
 	nav := "window.location=" + string(tj) + ";"
 
-	payload, err := c.payload()
-	if err != nil {
-		return "", err
-	}
+	payload := c.loggedPayload()
 	if payload == "" {
-		return nav, nil
+		return nav
 	}
 
 	var b strings.Builder
@@ -275,7 +277,7 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	b.WriteString("w.postMessage(")
 	b.WriteString(payload)
 	b.WriteString(",[ch.port2]);},once);setTimeout(once,500);})();")
-	return b.String(), nil
+	return b.String()
 }
 
 func (s *Server) writeHTML(
@@ -300,7 +302,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -325,7 +327,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -345,7 +347,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -410,7 +412,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -426,17 +428,20 @@ func (s *Server) httpErrIntern(
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	pageCache := newPageCache(w, s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r)
 
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -454,10 +459,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageNoShimHandlers struct{ *Server }
 
 func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoShim.GET")
 	p := dpapp.PageNoShim{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageNoShim.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageNoShim.GET", err)
@@ -476,10 +481,10 @@ func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageNoShim2Handlers struct{ *Server }
 
 func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoShim2.GET")
 	p := dpapp.PageNoShim2{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageNoShim2.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageNoShim2.GET", err)
@@ -498,12 +503,15 @@ func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageSubpageHandlers struct{ *Server }
 
 func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(w, s.Server, r, nil)
+	defer s.recoverPanic(w, r, nil, "PageSubpage.GET")
+	pageCache := newPageCache(w, s.Server, r)
 	p := dpapp.PageSubpage{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageSubpage.GET")
-	body, err := p.GET(r, pageCache)
+	body, err := p.GET(
+		r,
+		pageCache,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSubpage.GET", err)
 		return

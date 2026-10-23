@@ -136,7 +136,7 @@ func Options[O any](opts []any) []O {
 // in the order the generated writer emits them.
 var optionKeys = []string{
 	"contentType", "selector", "headers", "filterSignals", "openWhenHidden",
-	"payload", "retry", "retryInterval", "retryScaler", "retryMaxWaitMs",
+	"payload", "retry", "retryInterval", "retryScaler", "retryMaxWait",
 	"retryMaxCount", "requestCancellation",
 }
 
@@ -362,9 +362,7 @@ func (c Case) testAttributeSeparation(t *testing.T) {
 	}
 }
 
-// testCompression tests the response a browser actually asks for.
-// Compression is on by default.
-// A page that renders only uncompressed reaches no browser.
+// testCompression tests that a page response matches its Content-Encoding.
 func (c Case) testCompression(t *testing.T) {
 	srv := c.server(t)
 

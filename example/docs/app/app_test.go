@@ -174,8 +174,7 @@ func (tb *tab) action(t *testing.T, method, path, body string) (int, string) {
 		req.Header.Set("Datapages-Instance", tb.instance)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// The transport asks for gzip by default, but the SSE writer never ends
-	// the gzip stream and reading fails with an unexpected EOF.
+	// Keep assertions against the uncompressed handler output.
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := tb.s.srv.Client().Do(req)
 	require.NoError(t, err)
@@ -293,6 +292,8 @@ func TestCursor(t *testing.T) {
 	doc := s.create(t)
 	a, b := s.open(t, doc), s.open(t, doc)
 	a.submit(t, "1", "0", `[{"insert":"Hello"}]`)
+	// MoveCursor drops the cursor of a tab whose stream has not joined yet.
+	a.waitFor(t, 0, `"ack":1`)
 	b.waitFor(t, 0, `"rev":1`)
 
 	from := b.at()

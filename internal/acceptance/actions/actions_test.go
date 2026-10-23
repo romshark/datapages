@@ -3,14 +3,16 @@
 package acceptance_test
 
 import (
+	"compress/gzip"
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
@@ -42,8 +44,7 @@ func (s server) do(t *testing.T, method, url, body string) *http.Response {
 	req, err := http.NewRequestWithContext(context.Background(), method, s.URL+url, r)
 	require.NoError(t, err, "building %s %s", method, url)
 	req.Header.Set("Datastar-Request", "true")
-	// Responses are compressed by default. Asking for none of it keeps the
-	// bytes this test reads the bytes the handler wrote.
+	// Keep assertions against the uncompressed handler output.
 	req.Header.Set("Accept-Encoding", "identity")
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
@@ -539,33 +540,47 @@ func TestSSEOutputSignals(t *testing.T) {
 	}
 }
 
-// TestSSEOutputCompressed tests the same action as a client that accepts compression,
-// which every browser does. The events must survive the encoding.
-//
-// The compressed body ends without its gzip footer, because the response ends
-// when the handler returns rather than when the encoder is closed.
-// A reader therefore sees every event and then an unexpected EOF.
-// That is tolerated here rather than asserted: the events are what the client acts on.
+// TestSSEOutputCompressed tests that each coding preserves the event and ends cleanly.
 func TestSSEOutputCompressed(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	for coding, decoder := range map[string]func(io.Reader) (io.ReadCloser, error){
+		"gzip": func(r io.Reader) (io.ReadCloser, error) { return gzip.NewReader(r) },
+		"zstd": func(r io.Reader) (io.ReadCloser, error) {
+			d, err := zstd.NewReader(r)
+			if err != nil {
+				return nil, err
+			}
+			return d.IOReadCloser(), nil
+		},
+		"br": func(r io.Reader) (io.ReadCloser, error) {
+			return io.NopCloser(brotli.NewReader(r)), nil
+		},
+	} {
+		t.Run(coding, func(t *testing.T) {
+			t.Parallel()
+			srv := newServer(t)
 
-	req, err := http.NewRequestWithContext(context.Background(),
-		http.MethodPost, srv.URL+"/form/patch/", strings.NewReader(`{"count":1}`))
-	require.NoError(t, err, "building request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Content-Type", "application/json")
+			req, err := http.NewRequestWithContext(context.Background(),
+				http.MethodPost, srv.URL+"/form/patch/", strings.NewReader(`{"count":1}`))
+			require.NoError(t, err, "building request")
+			req.Header.Set("Datastar-Request", "true")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept-Encoding", coding)
 
-	resp, err := srv.Client().Do(req)
-	require.NoError(t, err, "POST /form/patch/")
-	defer func() { _ = resp.Body.Close() }()
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "POST /form/patch/")
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, coding, resp.Header.Get("Content-Encoding"))
 
-	b, err := io.ReadAll(resp.Body)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		require.NoError(t, err, "reading stream")
+			r, err := decoder(resp.Body)
+			require.NoError(t, err, "starting the decoder")
+			defer func() { _ = r.Close() }()
+			b, err := io.ReadAll(r)
+			require.NoError(t, err, "decoding the stream")
+			require.Contains(t, string(b), `<div id="out">count 2</div>`,
+				"the compressed stream lost the patched element")
+		})
 	}
-	require.Contains(t, string(b), `<div id="out">count 2</div>`,
-		"the compressed stream lost the patched element")
 }
 
 // TestWrongMethod tests a route reached with a method no action claims.
@@ -656,7 +671,7 @@ func TestActionExpressions(t *testing.T) {
 				action.WithRetryMaxCount(3),
 			),
 			"@post('/form/submit/', {retry: 'always', retryInterval: 500, " +
-				"retryScaler: 1.5, retryMaxWaitMs: 30000, retryMaxCount: 3})",
+				"retryScaler: 1.5, retryMaxWait: 30000, retryMaxCount: 3})",
 		},
 		"request cancellation": {
 			action.PageForm.Submit.POST(

@@ -122,9 +122,11 @@ func TestPage(t *testing.T) {
 			indexes: []string{"GLWT"},
 			refresh: "1s",
 		},
-		"no indexes": {typ: "area",
+		"no indexes": {
+			typ:     "area",
 			query:   "type=area&indexes=none",
-			refresh: "1s"},
+			refresh: "1s",
+		},
 		"unknown refresh interval": {
 			typ:     "area",
 			query:   "type=area&refresh=7s",

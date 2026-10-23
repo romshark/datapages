@@ -23,6 +23,9 @@ type App struct {
 	log       []string
 	hold      chan struct{}
 	holdClose chan struct{}
+
+	// CompressedStream configures PageCompressed. Nil uses the server setting.
+	CompressedStream *datapages.SSECompressionConfig
 }
 
 // holdTicks blocks every OnTick until releaseTicks.
@@ -324,7 +327,7 @@ func (p PagePanicOnClose) OnTick(event EventTick, sse datapages.SSE) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(`<div id="ticked">%d</div>`, event.N)))
 }
 
-// Notifier is an abstract type: a handler written once and embedded by the
+// Notifier is a stream embed: a handler written once and embedded by the
 // pages that want it. It is not a page and has no route.
 type Notifier struct{ App *App }
 
@@ -347,6 +350,106 @@ type PageOther struct {
 
 func (PageOther) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("other"), nil
+}
+
+// PageCompressed is /compressed
+//
+// StreamConfig overrides the server compression.
+type PageCompressed struct{ App *App }
+
+func (PageCompressed) GET(_ *http.Request) (body datapages.Component, err error) {
+	return echo("compressed"), nil
+}
+
+func (p PageCompressed) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{Compression: p.App.CompressedStream}
+}
+
+func (p PageCompressed) OnTick(event EventTick, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(`<div id="ticked">%d</div>`, event.N)))
+}
+
+// PageAdaptive is /adaptive
+//
+// StreamConfig selects gzip for Save-Data and exposes error cases for tests.
+type PageAdaptive struct{ App *App }
+
+func (PageAdaptive) GET(_ *http.Request) (body datapages.Component, err error) {
+	return echo("adaptive"), nil
+}
+
+func (PageAdaptive) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	switch {
+	case r.URL.Query().Has("fail"):
+		return datapages.StreamConfig{}, errors.New("the stream configuration failed")
+	case r.Header.Get("Save-Data") == "on":
+		return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
+			Codings: []datapages.Coding{datapages.CodingGzip},
+		}}, nil
+	case r.URL.Query().Has("invalid"):
+		return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
+			ZstdWindow: 3,
+		}}, nil
+	}
+	return datapages.StreamConfig{}, nil
+}
+
+func (p PageAdaptive) OnTick(event EventTick, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(`<div id="ticked">%d</div>`, event.N)))
+}
+
+// POSTGzip is /adaptive/gzip
+func (PageAdaptive) POSTGzip(_ *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(echo("gzip"))
+}
+
+func (PageAdaptive) StreamConfigPOSTGzip() datapages.StreamConfig {
+	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
+		Codings: []datapages.Coding{datapages.CodingGzip},
+	}}
+}
+
+// POSTAdapt is /adaptive/adapt
+func (PageAdaptive) POSTAdapt(_ *http.Request, sse datapages.SSE) error {
+	return sse.PatchElement(echo("adapt"))
+}
+
+func (p PageAdaptive) StreamConfigPOSTAdapt(
+	r *http.Request,
+) (datapages.StreamConfig, error) {
+	return p.StreamConfig(r)
+}
+
+// PageBoard is /board/{name}
+//
+// StreamConfig selects gzip for the board named big.
+type PageBoard struct{ App *App }
+
+func (PageBoard) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Name string `path:"name"`
+	}],
+) (body datapages.Component, err error) {
+	return echo("board " + path.Values.Name), nil
+}
+
+func (PageBoard) StreamConfig(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Name string `path:"name"`
+	}],
+) (datapages.StreamConfig, error) {
+	if path.Values.Name != "big" {
+		return datapages.StreamConfig{}, nil
+	}
+	return datapages.StreamConfig{Compression: &datapages.SSECompressionConfig{
+		Codings: []datapages.Coding{datapages.CodingGzip},
+	}}, nil
+}
+
+func (p PageBoard) OnTick(event EventTick, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(`<div id="ticked">%d</div>`, event.N)))
 }
 
 // PageRoom is /room

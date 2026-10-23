@@ -1,7 +1,7 @@
 // Package app exercises 1 state type shared by 2 pages,
 // and an app-level action that reaches it.
 //
-// An abstract page gives its state type to every page that embeds it.
+// A stream embed gives its state type to every page that embeds it.
 // The pages are still separate and their tabs must not share a value.
 // An app-level action must act on the tab that called it,
 // or refuse when the calling tab is bound to no page that uses the type.
@@ -29,7 +29,7 @@ type TabContext struct {
 	Note    string
 }
 
-// Base is an abstract page. Embedding it binds a page to TabContext.
+// Base is a stream embed. Embedding it binds a page to TabContext.
 type Base struct{ App *App }
 
 func (Base) StreamOpen(

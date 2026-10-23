@@ -52,6 +52,8 @@ func (PageChat) OnMessageSent(
 
 The event and `sse` are required. `On` handlers cannot accept signals. Put required data on the event, or use `datapages.State[T]` for per-tab data.
 
+Datapages logs an error that an `On` handler returns and keeps the stream open. It does not call `RecoverError`, so send feedback with `sse` before returning. A panic reaches `RecoverError` as a `datapages.PanicError` and closes the stream.
+
 ## Subjects
 
 A subject field must have the exact type `datapages.Subject` or `datapages.SubjectUser`. The generator rejects a defined type such as `type Recipient datapages.SubjectUser`, and a field that holds a subject type, such as `[]datapages.SubjectUser`, which would route nothing. Subject fields must be exported and must precede payload fields. Their values extend the base subject in field order, separated by periods. `EventDirectMessage{Recipient: "u1"}` publishes to `messaging.direct.u1`. A subject field must not be tagged `json:"-"`: the payload carries its value, the subject only routes the event.
@@ -94,6 +96,28 @@ func (PageIndex) StreamOpen(
 
 Use `State[T]` for filters, sort order and other per-tab values. Use stream hooks to acquire and release resources for a stream. `streamID` is internal and must not be sent to a client.
 
-Datapages serves the stream at the page route plus `_$/`. A page with both public and user-addressed events has a second stream at `_$/anon/`.
+`StreamConfig` replaces `datapages.WithSSECompression` for a page's streams. Fields left zero take the package defaults, not the server's values. Only a page with a stream may declare it. A static method returns `datapages.StreamConfig` during `NewServer`; an invalid configuration fails `NewServer`. A request-scoped method takes `r *http.Request`, may also take `session`, `path` and `signals`, and returns `(datapages.StreamConfig, error)` before each stream. Its error or an invalid configuration fails the stream request. Return a bounded set of request-scoped configurations.
+
+```go
+func (PageDashboard) StreamConfig() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 4 << 20},
+	}
+}
+```
+
+A 4 MiB zstd window cuts a 100 KB re-render to about 1/3 as many bytes and triples per-stream memory. Keep the default with many open streams.
+
+The page's `StreamConfig` does not reach its actions. An action configures its own SSE response with a method on the same page or `App` named `StreamConfig` plus the action's method name. It takes the same 2 forms, but only the `path` and `signals` the action takes, and runs before the action. The action must take `datapages.SSE`, or take `datapages.PageCacheWriter` and return neither a body nor a redirect.
+
+```go
+func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
+}
+```
+
+Datapages serves the stream at the page route plus `_$/`. A page with user-addressed events has a second stream at `_$/anon/` for signed-out visitors when it also has public events or per-tab state.
 
 Share a handler across pages by embedding: see `datapages-pages`.

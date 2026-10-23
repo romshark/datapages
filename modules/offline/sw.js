@@ -55,6 +55,20 @@ self.addEventListener('activate', function (e) {
   })());
 });
 
+// pageKey returns the key of the page entry for url.
+// The server serves a page at /x and /x/ alike, and the entry is stored with the slash.
+function pageKey(url) {
+  const u = new URL(url, self.location.origin);
+  if (!u.pathname.endsWith('/')) u.pathname += '/';
+  return u.href;
+}
+
+// matchPage finds the page entry a navigation to key opens,
+// else an asset installed under the exact path.
+async function matchPage(cache, key) {
+  return (await cache.match(pageKey(key))) || cache.match(key);
+}
+
 self.addEventListener('message', function (e) {
   const d = e.data || {};
   if (d.type !== 'datapages-offline:apply') return;
@@ -68,14 +82,14 @@ self.addEventListener('message', function (e) {
         const reqs = await cache.keys();
         await Promise.all(reqs.map(function (req) { return cache.delete(req); }));
       }
-      for (const url of (d.clears || [])) await cache.delete(url);
+      for (const url of (d.clears || [])) await cache.delete(pageKey(url));
       for (const s of (d.sets || [])) {
         const headers = {
           'Content-Type': 'text/html; charset=utf-8',
         };
         headers[OFFLINE_VERSION_HEADER] = String(s.version);
         if (s.shim) headers[SHIM_HEADER] = '1';
-        await cache.put(s.url, new Response(s.html, { status: 200, headers: headers }));
+        await cache.put(pageKey(s.url), new Response(s.html, { status: 200, headers: headers }));
       }
     } finally {
       if (port) port.postMessage(true);
@@ -128,7 +142,7 @@ async function pageFetchHeaders(req, key) {
   h.set('Accept', 'text/html');
   h.set('X-Datapages-Worker-Version', String(CFG.workerVersion));
   const cache = await caches.open(CACHE);
-  const cached = await cache.match(key);
+  const cached = await matchPage(cache, key);
   const held = cached && cached.headers.get(OFFLINE_VERSION_HEADER);
   if (held) h.set(OFFLINE_VERSION_HEADER, held);
   return h;
@@ -163,6 +177,23 @@ function hasDirective(res, name) {
   });
 }
 
+// isFresh reports whether res is within its max-age by its Date and Age.
+// The Cache API keeps no storage time, so client clock skew shifts the result.
+function isFresh(res) {
+  const cc = res.headers.get('Cache-Control');
+  const date = Date.parse(res.headers.get('Date'));
+  if (cc === null || isNaN(date)) return false;
+  for (const d of cc.toLowerCase().split(',')) {
+    const [name, value] = d.split('=');
+    if (name.trim() !== 'max-age') continue;
+    const maxAge = parseInt((value || '').trim().replace(/^"|"$/g, ''), 10);
+    const age = Math.max(0, Date.now() - date) / 1000 +
+      (parseInt(res.headers.get('Age'), 10) || 0);
+    return age < maxAge;
+  }
+  return false;
+}
+
 // GONE holds the statuses that withdraw a stored copy: the visitor may no
 // longer read the resource, or it no longer exists.
 const GONE = [401, 403, 404, 410];
@@ -194,7 +225,7 @@ self.addEventListener('fetch', function (e) {
     e.respondWith((async function () {
       const cache = await caches.open(CACHE);
 
-      const cached = await cache.match(key);
+      const cached = await matchPage(cache, key);
       const headers = new Headers(req.headers);
       headers.set('X-Datapages-Worker-Version', String(CFG.workerVersion));
       if (cached) {
@@ -288,9 +319,9 @@ self.addEventListener('fetch', function (e) {
       // A copy marked no-cache must be revalidated before every use.
       // It answers only while the network is down.
       if (hit && !hasDirective(hit, 'no-cache')) {
-        // Refresh same-origin assets after responding because their URLs have
-        // no content hash. Opaque cross-origin responses cannot be compared.
-        if (sameOrigin) e.waitUntil(revalidate(cache, req));
+        // Refresh a stale same-origin asset after responding because its URL
+        // has no content hash. Opaque cross-origin responses cannot be compared.
+        if (sameOrigin && !isFresh(hit)) e.waitUntil(revalidate(cache, req));
         return hit;
       }
       try {

@@ -57,7 +57,7 @@ func (PageEventTest) OnArgWrongType(
 
 /* ErrSignatureEvHandMissingSSE */
 
-func (PageEventTest) OnFirstDuplicate(
+func (PageEventTest) OnFoo(
 	event EventFoo,
 ) error {
 	return nil

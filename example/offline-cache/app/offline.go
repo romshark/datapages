@@ -7,7 +7,7 @@ import (
 
 // OfflineWorkerVersion is the service worker's own version. Increment it when
 // the worker script or precached files change.
-const OfflineWorkerVersion = 4
+const OfflineWorkerVersion = 5
 
 // OfflineConfig returns the offline module configuration. The generated
 // datapagesgen.WithOffline option supplies the PageOffline route.
@@ -16,9 +16,9 @@ func OfflineConfig() offline.Config {
 		WorkerVersion: OfflineWorkerVersion,
 		Assets: []string{
 			assets.Path("style.css"),
-			assets.Path("basecoat.css"),
-			assets.Path("basecoat.js"),
-			assets.Path("datastar.js"),
+			assets.Path("basecoat-1.0.2.css"),
+			assets.Path("basecoat-1.0.2.js"),
+			assets.Path("datastar-1.0.4.js"),
 			assets.Path("favicon.svg"),
 		},
 	}

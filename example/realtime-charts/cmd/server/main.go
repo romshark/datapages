@@ -19,7 +19,6 @@ import (
 	"github.com/romshark/datapages/example/realtime-charts/tsdb"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
-	"github.com/romshark/datapages/runtime/subject"
 )
 
 func main() {
@@ -70,13 +69,13 @@ func main() {
 
 // runMarket ticks m every second and publishes an event for every index after each tick,
 // each on the subject of its index. The market runs outside of any handler, which is why
-// it publishes on the broker directly instead of through a [datapages.Dispatcher]. It
-// builds the subject the way a dispatcher does.
+// it publishes on the broker directly instead of through a [datapages.Dispatcher]. A
+// dispatcher escapes the subject value. Symbols need no escaping, see [market.Indexes].
 func runMarket(ctx context.Context, m *market.Market, p messaging.Publisher) {
 	m.Run(ctx, func(symbol string) {
 		// Marshaling a struct of a string cannot fail.
 		ev, _ := json.Marshal(app.EventIndexTicked{Index: datapages.Subject(symbol)})
-		subj := datapagesgen.EvPrefixIndexTicked + subject.Encode(symbol)
+		subj := datapagesgen.EvPrefixIndexTicked + symbol
 		err := p.Publish(ctx, messaging.NoopMetrics{}, subj, ev)
 		if err != nil && ctx.Err() == nil {
 			slog.Error("publishing index tick",

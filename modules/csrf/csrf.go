@@ -10,7 +10,8 @@ type TokenWriter interface {
 	// w and reports how many bytes it wrote. Writes nothing for an empty sessionToken.
 	//
 	// The token is handed to the client, hence it must not be possible to
-	// recover sessionToken from it.
+	// recover sessionToken from it. It must differ on every call, such as by
+	// masking with fresh random bytes, or compression can reveal it.
 	//
 	// WARNING: It's written into a JavaScript string literal of the page as it is,
 	// quoted with '. Nothing escapes it! Write only characters that cannot

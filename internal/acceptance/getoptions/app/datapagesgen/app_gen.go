@@ -23,8 +23,6 @@ import (
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/getoptions/app"
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -59,26 +57,28 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, "", "", time.Time{}, subjects, onOpen, onClose, fn)
+	s.streams.Handle(w, r, compression,
+		"", "", time.Time{},
+		subjects, onOpen, onClose, fn)
 }
 
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -104,7 +104,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -124,7 +124,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -157,6 +157,7 @@ func (s *Server) Init(
 		nil,
 		nil,
 		s.httpErrIntern,
+		false,
 	)
 
 	setupHandlers(s)
@@ -225,7 +226,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -241,10 +242,10 @@ func (s *Server) httpErrIntern(
 type pageBackgroundHandlers struct{ *Server }
 
 func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBackground.GET")
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBackground.GET")
 	body, enableBackgroundStreaming, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBackground.GET", err)
@@ -276,6 +277,7 @@ func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBackground stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -283,12 +285,12 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 	p := dpapp.PageBackground{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageBackground,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageBackground,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageBackground stream")
 			var eventPing dpapp.EventPing
@@ -302,7 +304,7 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageBackground.OnPing", err)
 					}
@@ -314,10 +316,10 @@ func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request
 type pageGoneHandlers struct{ *Server }
 
 func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageGone.GET")
 	p := dpapp.PageGone{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageGone.GET")
 	body, redirect, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageGone.GET", err)
@@ -338,6 +340,7 @@ func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -346,7 +349,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -364,10 +366,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageLiveHandlers struct{ *Server }
 
 func (s pageLiveHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLive.GET")
 	p := dpapp.PageLive{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageLive.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLive.GET", err)
@@ -392,6 +394,7 @@ func (s pageLiveHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageLive stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -399,12 +402,12 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageLive{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageLive,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageLive,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageLive stream")
 			var eventPing dpapp.EventPing
@@ -418,7 +421,7 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageLive.OnPing", err)
 					}
@@ -430,6 +433,7 @@ func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 type pageMaybeHandlers struct{ *Server }
 
 func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMaybe.GET")
 
 	var query datapages.Query[struct {
 		Go bool `query:"go"`
@@ -448,8 +452,10 @@ func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageMaybe{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageMaybe.GET")
-	body, redirect, err := p.GET(r, query)
+	body, redirect, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMaybe.GET", err)
 		return
@@ -469,10 +475,10 @@ func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageNoRefreshHandlers struct{ *Server }
 
 func (s pageNoRefreshHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoRefresh.GET")
 	p := dpapp.PageNoRefresh{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageNoRefresh.GET")
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageNoRefresh.GET", err)
@@ -499,6 +505,7 @@ func (s pageNoRefreshHandlers) GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageNoRefresh stream")
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -506,12 +513,12 @@ func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 	p := dpapp.PageNoRefresh{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageNoRefresh,
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageNoRefresh,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageNoRefresh stream")
 			var eventPing dpapp.EventPing
@@ -525,7 +532,7 @@ func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 					}
 					if err := p.OnPing(
 						eventPing,
-						dpsse.New(sse),
+						sse,
 					); err != nil {
 						s.LogErr("handling PageNoRefresh.OnPing", err)
 					}

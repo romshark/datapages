@@ -4,13 +4,9 @@
 package acceptance_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
-	"strings"
-	"sync"
+	"regexp"
 	"testing"
 	"time"
 
@@ -20,6 +16,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/files/app"
 	"github.com/romshark/datapages/internal/acceptance/files/app/datapagesgen/href"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -223,24 +220,6 @@ func TestFileError(t *testing.T) {
 	}
 }
 
-// syncBuffer is a server's log, which its handlers write while a test reads it.
-type syncBuffer struct {
-	lock sync.Mutex
-	buf  bytes.Buffer
-}
-
-func (b *syncBuffer) Write(p []byte) (int, error) {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *syncBuffer) String() string {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	return b.buf.String()
-}
-
 // TestFileBodyPanic tests a Body whose Read panics after the status went out.
 // The response ends early, the panic is logged with the stack the Body
 // panicked on, and the server keeps serving. For 2 ranges, net/http reads the
@@ -255,10 +234,10 @@ func TestFileBodyPanic(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			var log syncBuffer
+			var log testlog.Buffer
 			c := client.New(t, mustNewServer(t, &app.App{},
 				inmem.New(messaging.DefaultBrokerChanBuffer),
-				datapages.WithLogger(slog.New(slog.NewJSONHandler(&log, nil)))))
+				datapages.WithLogger(log.Logger())))
 
 			req := c.Request(t, http.MethodGet,
 				href.App.File("a.txt", href.App.FileQuery("body-panic", false)), "")
@@ -266,26 +245,15 @@ func TestFileBodyPanic(t *testing.T) {
 			if rng != "" {
 				req.Header.Set("Range", rng)
 			}
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := c.HTTP().Do(req)
 			require.NoError(t, err)
 			_, err = io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
 			require.Error(t, err, "the response did not end early")
 
-			var record struct {
-				Panic any    `json:"panic"`
-				Stack string `json:"stack"`
-			}
-			require.True(t, client.WaitFor(func() bool {
-				for line := range strings.Lines(log.String()) {
-					if strings.Contains(line, `"msg":"recovered panic"`) {
-						return json.Unmarshal([]byte(line), &record) == nil
-					}
-				}
-				return false
-			}, 5*time.Second), "no recovered panic was logged")
-			require.Equal(t, "body panicked", record.Panic)
-			require.Contains(t, record.Stack, "panicBody.Read")
+			// The record is written after the response ends early.
+			log.AwaitMatch(t,
+				panicLogPattern("body panicked", "panicBody.Read"), 5*time.Second)
 
 			require.Equal(t, http.StatusOK, get(t, c, "/files/a.txt").Status,
 				"the server stopped serving")
@@ -310,10 +278,10 @@ func TestFileSeekPanic(t *testing.T) {
 	} {
 		t.Run(dest, func(t *testing.T) {
 			t.Parallel()
-			var log syncBuffer
+			var log testlog.Buffer
 			c := client.New(t, mustNewServer(t, &app.App{},
 				inmem.New(messaging.DefaultBrokerChanBuffer),
-				datapages.WithLogger(slog.New(slog.NewJSONHandler(&log, nil)))))
+				datapages.WithLogger(log.Logger())))
 
 			resp := get(t, c,
 				href.App.File("a.txt", href.App.FileQuery("seek-panic", false)),
@@ -328,19 +296,15 @@ func TestFileSeekPanic(t *testing.T) {
 				require.Empty(t, resp.Header.Values(name), name)
 			}
 
-			var record struct {
-				Panic any    `json:"panic"`
-				Stack string `json:"stack"`
-			}
-			for line := range strings.Lines(log.String()) {
-				if strings.Contains(line, `"msg":"recovered panic"`) {
-					require.NoError(t, json.Unmarshal([]byte(line), &record))
-				}
-			}
-			require.Equal(t, "seek panicked", record.Panic)
-			require.Contains(t, record.Stack, "seekPanicBody.Seek")
+			log.RequireMatch(t, panicLogPattern("seek panicked", "seekPanicBody.Seek"))
 		})
 	}
+}
+
+// panicLogPattern matches the log line of a panic in the App.File handler.
+func panicLogPattern(value, stackFunc string) string {
+	return `^level=ERROR msg="recovered panic" handler=App\.File ` +
+		`panic="` + regexp.QuoteMeta(value) + `" stack=".*` + regexp.QuoteMeta(stackFunc)
 }
 
 // TestPageGETAction tests a GET action of a page and the page builder next to it.

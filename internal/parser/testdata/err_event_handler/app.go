@@ -55,7 +55,7 @@ type EventCorge struct {
 
 /* ErrEvHandSecondArgNotSSE */
 
-func (PageIndex) OnEventQux(
+func (PageIndex) OnQux(
 	event EventQux,
 ) error {
 	_ = event
@@ -64,7 +64,7 @@ func (PageIndex) OnEventQux(
 
 /* ErrSignatureUnsupportedInput */
 
-func (PageIndex) OnEventCorge(
+func (PageIndex) OnCorge(
 	event EventCorge,
 	sse datapages.SSE,
 	unknownParam string,
@@ -77,7 +77,7 @@ func (PageIndex) OnEventCorge(
 
 /* ErrEvHandSecondArgNotSSE */
 
-func (PageIndex) OnEventQuux(
+func (PageIndex) OnQuux(
 	event EventQuux,
 	notSSE int,
 ) error {
@@ -86,7 +86,7 @@ func (PageIndex) OnEventQuux(
 	return nil
 }
 
-func (PageIndex) OnEvent(
+func (PageIndex) OnFoo(
 	event EventFoo,
 	sse datapages.SSE,
 ) { /* ErrEvHandReturnMustBeError */
@@ -94,7 +94,7 @@ func (PageIndex) OnEvent(
 	_ = sse
 }
 
-func (PageIndex) OnEventBar(
+func (PageIndex) OnBar(
 	event EventBar,
 	sse datapages.SSE,
 ) (int, error) { /* ErrEvHandReturnMustBeError */
@@ -103,7 +103,7 @@ func (PageIndex) OnEventBar(
 	return 0, nil
 }
 
-func (PageIndex) OnEventBazz(
+func (PageIndex) OnBazz(
 	event EventBazz,
 	sse datapages.SSE,
 ) (
@@ -114,7 +114,7 @@ func (PageIndex) OnEventBazz(
 	return nil, nil
 }
 
-func (PageIndex) OnEventFuzz(
+func (PageIndex) OnFuzz(
 	event EventFuzz,
 	sse datapages.SSE,
 ) int { /* ErrEvHandReturnMustBeError */

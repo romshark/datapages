@@ -39,7 +39,7 @@ the wall time of the run and covers no shipped code.
 
 The flag `-parallel` bounds how many cases run in parallel. It defaults to `GOMAXPROCS`.
 
-2 rules a new test has to keep:
+3 rules a new test has to keep:
 
 - Anything reaching the NATS server has to go through `brokers.Conn`,
   which serializes it against the other tests of the case.
@@ -47,6 +47,13 @@ The flag `-parallel` bounds how many cases run in parallel. It defaults to `GOMA
 - Building a server sets the package-level logger of the generated `href` package.
   `contract.Run` runs its `ExternalHref` test before it starts the parallel ones,
   and the `TestContract` of a case therefore does not call `t.Parallel`.
+- No request goes over `http.DefaultTransport`, which `http.DefaultClient`,
+  `http.Get` and an `http.Client` without a `Transport` use. Send through
+  `srv.Client()`, `client.Client.HTTP` or a transport the test creates.
+  `httptest.Server.Close` closes the idle connections of `http.DefaultTransport`,
+  and net/http returns a connection to the idle pool before it hands over a
+  response without a body. A parallel test closing its server in that window
+  fails the request with `http: CloseIdleConnections called`.
 
 `minimal` carries `tools/gen.go`, a `//go:build ignore` command whose
 `NewServer` call contradicts the real one. The scan skips what no build compiles,
@@ -79,10 +86,10 @@ It names no generated code. A case keeps everything the model decides.
 [`multiapp/instances_test.go`](multiapp/instances_test.go) uses a page load,
 an action, a stream and a cookie jar.
 
-Responses are compressed by default. The client asks for
-`Accept-Encoding: identity`, which makes what a test reads the bytes the
-handler wrote. The in-memory broker matches subjects the way NATS does: `*`
-covers 1 token, `>` covers the rest. See `wildcardsubjects`.
+SSE streams and bodies of at least 256 bytes are compressed by default.
+The client asks for `Accept-Encoding: identity` to read the handler's bytes.
+The in-memory broker matches NATS subjects. `*` covers 1 token, and `>` covers
+the rest. See `wildcardsubjects`.
 
 ## Where the calls live
 

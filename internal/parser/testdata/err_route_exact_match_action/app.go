@@ -1,5 +1,5 @@
-// Package app gives a page ending in {$} 4 actions: one below its route,
-// one at it, one without a path comment and one adopted from an embedded type.
+// Package app gives a page ending in {$} 3 actions: one below its route,
+// one at it and one without a path comment.
 //
 // The parser is expected to report each of them once.
 package app
@@ -19,19 +19,8 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
-// Archiver declares an action that PageSettings adopts.
-type Archiver struct{ App *App }
-
-// POSTArchive is /settings/archive
-func (Archiver) POSTArchive(r *http.Request) error {
-	return nil
-}
-
 // PageSettings is /settings/{$}
-type PageSettings struct {
-	App *App
-	Archiver
-}
+type PageSettings struct{ App *App }
 
 func (PageSettings) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil

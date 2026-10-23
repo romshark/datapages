@@ -13,11 +13,10 @@ import (
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/pagesentinels/app"
 	"github.com/romshark/datapages/internal/acceptance/pagesentinels/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -54,7 +53,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -79,7 +78,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -99,7 +98,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -170,7 +169,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -186,10 +185,10 @@ func (s *Server) httpErrIntern(
 type pageBadHandlers struct{ *Server }
 
 func (s pageBadHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageBad.GET")
 	p := dpapp.PageBad{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBad.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageBad.GET", err)
@@ -207,10 +206,10 @@ func (s pageBadHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageConflictHandlers struct{ *Server }
 
 func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageConflict.GET")
 	p := dpapp.PageConflict{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageConflict.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageConflict.GET", err)
@@ -228,10 +227,10 @@ func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageDeniedHandlers struct{ *Server }
 
 func (s pageDeniedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageDenied.GET")
 	p := dpapp.PageDenied{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageDenied.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageDenied.GET", err)
@@ -249,10 +248,10 @@ func (s pageDeniedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageGoneHandlers struct{ *Server }
 
 func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageGone.GET")
 	p := dpapp.PageGone{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageGone.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageGone.GET", err)
@@ -270,6 +269,7 @@ func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -278,7 +278,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -296,10 +295,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pagePlainHandlers struct{ *Server }
 
 func (s pagePlainHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePlain.GET")
 	p := dpapp.PagePlain{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PagePlain.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePlain.GET", err)

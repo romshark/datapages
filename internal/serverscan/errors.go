@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Error is 1 problem found in a NewServer call, at the position it is at.
+// Error is 1 problem the scan found, at the position it is at.
 type Error struct {
 	// Pos is where the problem is. A position without a line is a file
 	// reference, which is what a "declared here" note is.

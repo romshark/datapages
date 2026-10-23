@@ -76,10 +76,10 @@ The store is a server option, see `datapages-server`:
 opts = append(opts, datapages.WithSessionManager[app.SessionData](mgr))
 ```
 
-Specify the data type in this call. Go cannot infer it here. The type argument also makes the compiler check that the manager matches the app's session type.
+Specify the data type in this call. Go cannot infer it here. The compiler checks that the manager stores that type. `datapages.NewServer` returns an error at startup when it is not the app's session data type.
 
 Use `modules/sessions/natskv`. Use `modules/sessions/inmem` only for development. It stores sessions in memory and loses them on restart.
 
 Datapages does not scan the store for expired records. It deletes an expired record only when a client sends that session. Call `mgr.DeleteExpired(ctx)` on a ticker to delete all other expired records.
 
-<!-- written by datapages sha256:d7887e4d804b4882 -->
+<!-- written by datapages sha256:55faea4cf346fc36 -->

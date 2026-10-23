@@ -1,14 +1,10 @@
 # Getting Started
 
-Datapages turns a Go application model into an HTTP server, typed URL and action helpers, event dispatchers, and browser integration. This guide follows the path from a new project to the features most applications add next.
-
-Declaration rules, valid handler signatures, lifecycle details, and error behavior are defined in [SPECIFICATION.md](SPECIFICATION.md). This guide explains when to use each feature and shows how the pieces fit together.
+This tutorial creates a Datapages project, adds an action, and introduces the features most applications need next. Use [SPECIFICATION.md](SPECIFICATION.md) for exact declaration rules and runtime behavior.
 
 ## Requirements
 
-- The latest [Go toolchain](https://go.dev/dl/).
-- [templ](https://templ.guide) `v0.3.1070`, which matches the scaffold and its CI workflow.
-- [Docker](https://www.docker.com/) for the scaffold's NATS service. A single-process application can use the in-memory modules instead.
+Install the latest [Go toolchain](https://go.dev/dl/) and [templ](https://templ.guide) `v0.3.1070`. The generated project also uses [Docker](https://www.docker.com/) for NATS. You can replace NATS with the in-memory modules for a single-process application.
 
 Install the CLI and templ:
 
@@ -19,25 +15,25 @@ go install github.com/a-h/templ/cmd/templ@v0.3.1070
 
 ## Create and run a project
 
-Run the initializer:
+Create the project:
 
 ```sh
 datapages init
 ```
 
-The command asks for missing project settings, creates the scaffold, resolves dependencies, and generates the initial server. Accept its prompt to start the application, or run:
+The initializer asks for the project settings and generates the server. Accept its prompt to start the application, or run:
 
 ```sh
 make dev
 ```
 
-`make dev` starts the scaffold's NATS container and `datapages watch`. Open the URL printed by the watcher.
+`make dev` starts NATS and `datapages watch`. Open the URL it prints.
 
 Use `datapages init --prometheus=false` when the first version of the project does not need metrics. Use `--no-ai-skills` to omit agent instructions.
 
 ## Read the scaffold
 
-The initial project has 4 main parts:
+The project starts with these files:
 
 ```text
 .
@@ -51,15 +47,15 @@ The initial project has 4 main parts:
 └── datapages.yaml       development tooling configuration
 ```
 
-Edit `app/` and `cmd/server/`. Do not edit `datapagesgen/` or files with a `DO NOT EDIT` header. Regeneration replaces them.
+Work in `app/` and `cmd/server/`. Generation replaces `datapagesgen/` and every file with a `DO NOT EDIT` header.
 
-`app/app.go` starts with `App`, `PageIndex`, error pages, and error recovery. `app/app.templ` renders the first page. `cmd/server/main.go` connects the message broker, constructs `App`, and calls `datapages.NewServer`.
+`app/app.go` defines the application model. `app/app.templ` renders the first page. `cmd/server/main.go` creates the dependencies and server.
 
 ## Use the development loop
 
-Keep `datapages watch` running while editing. It regenerates code, rebuilds the server, and reports failures in the browser preview.
+Keep `datapages watch` running while you work. It regenerates code, rebuilds the server, and reports failures in the browser.
 
-Run the individual tools when diagnosing a build or checking CI locally:
+Run the steps separately when diagnosing a build:
 
 ```sh
 templ generate
@@ -68,29 +64,19 @@ datapages lint
 go build ./...
 ```
 
-Run `templ generate` after changing a `.templ` file. Run `datapages gen` after changing the application model. `datapages lint` applies the generator checks without writing generated code.
-
-Generator failures name the declaration and usually include a suggested fix. Fix the application package and regenerate; do not patch the generated output.
+`templ generate` compiles templates. `datapages gen` generates the server from the application model. `datapages lint` checks that model without writing files. Fix generator errors in the application package, then regenerate.
 
 ## Understand the application model
 
-The application package is the model. Datapages reads its Go types, methods, and route or subject comments. There is no separate route table or handler configuration file.
+Datapages reads the types, methods, and comments in the application package. You do not maintain a separate route table.
 
-`App` holds long-lived dependencies such as repositories and API clients. Pages render documents. Actions handle browser commands. Events update open pages when data changes elsewhere. Stream hooks manage resources attached to an open page stream.
+Put long-lived dependencies, such as repositories and API clients, on `App`. Pages render documents, actions handle browser commands, events update open pages, and stream hooks manage resources for an open page.
 
-Start with the generated `PageIndex`. Add 1 feature at a time and let `datapages gen` report declarations it cannot use. The [source package specification](SPECIFICATION.md#source-package) defines all recognized types, methods, comments, parameters, and return values.
-
-As the page model grows, use these reference sections:
-
-- [Abstract page types](SPECIFICATION.md#abstract-page-types) for shared page behavior.
-- [`body`](SPECIFICATION.md#return-value-body-datapagescomponent) and [`head`](SPECIFICATION.md#return-value-head-datapageshead) for rendered output.
-- [`redirect`](SPECIFICATION.md#return-value-redirect-datapagesredirect) for navigation.
-- [Background streaming](SPECIFICATION.md#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming) and [refresh control](SPECIFICATION.md#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden)
-  for tab-visibility behavior.
+Start with `PageIndex` and add 1 feature at a time. The [source package specification](SPECIFICATION.md#source-package) lists every recognized declaration. Use [stream embeds](SPECIFICATION.md#stream-embeds) when several pages share event handlers or stream hooks.
 
 ## Add a page action
 
-Start with a fragment the action can render. Replace the generated page body in `app/app.templ`:
+First, add a fragment that the action can render. Replace the generated page body in `app/app.templ`:
 
 ```templ
 templ pageIndex() {
@@ -104,7 +90,7 @@ templ status(text string) {
 }
 ```
 
-Run `templ generate` so the component is available to Go. Then add the action to `app/app.go`:
+Generate the template, then add the action to `app/app.go`:
 
 ```go
 // POSTUpdateStatus is /status
@@ -116,7 +102,7 @@ func (PageIndex) POSTUpdateStatus(
 }
 ```
 
-Run `datapages gen`. The generated `action` package now has a builder for the new route. Import it from your module in `app/app.templ`, then add the button inside `main`:
+Run `datapages gen`. Import the generated `action` package in `app/app.templ`, then add this button inside `main`:
 
 ```templ
 <button
@@ -127,24 +113,22 @@ Run `datapages gen`. The generated `action` package now has a builder for the ne
 </button>
 ```
 
-Run `templ generate`, or let the watcher regenerate it. The button now calls the generated route, and the handler renders the updated fragment.
-
-This pattern keeps routing in generated Go and rendering in templ. The [page specification](SPECIFICATION.md#pages) defines action signatures and the [`SSE` parameter](SPECIFICATION.md#parameter-sse-datapagessse) defines the available browser updates.
+Regenerate the template or let the watcher do it. Clicking the button calls the action and replaces the `status` element. See [Pages](SPECIFICATION.md#pages) for action signatures and [`SSE`](SPECIFICATION.md#parameter-sse-datapagessse) for other browser updates.
 
 ## Read request data
 
-Choose input by where the value belongs:
+Choose a parameter by where the input belongs:
 
 - Use `datapages.Path` for route values.
 - Use `datapages.Query` for URL state that should be bookmarkable or shareable.
 - Use `datapages.Signals` for Datastar state sent with an action.
 - Use `*http.Request` for headers, context, and other HTTP data.
 
-The specification defines the supported field types and tags for [`Path`](SPECIFICATION.md#parameter-datapagespathstruct-), [`Query`](SPECIFICATION.md#parameter-datapagesquerystruct-), and [`Signals`](SPECIFICATION.md#parameter-datapagessignalsstruct-). It also defines query-to-signal reflection.
+See [`Path`](SPECIFICATION.md#parameter-datapagespathstruct-), [`Query`](SPECIFICATION.md#parameter-datapagesquerystruct-), and [`Signals`](SPECIFICATION.md#parameter-datapagessignalsstruct-) for their field types and tags.
 
 ## Update more than the acting tab
 
-An action with `datapages.SSE` updates the request's page. Use an event when a change must reach other open pages or other server processes.
+An action with `datapages.SSE` updates only the page that sent the request. Use an event to update other pages or server processes.
 
 A common flow is:
 
@@ -154,31 +138,23 @@ A common flow is:
 4. Re-read that data in each `OnXXX` handler.
 5. Render a complete current fragment.
 
-Treat events as notifications, not as the source of truth. This keeps a page correct after reconnecting or missing an update.
-
-The [`Dispatcher`](SPECIFICATION.md#parameter-datapagesdispatchereventxxx) section defines event declarations, handlers, and subject fields. Read [signal-scoped subject fields](SPECIFICATION.md#signal-scoped-subject-fields) when a subscription depends on browser state, and read [event delivery](SPECIFICATION.md#event-delivery) before relying on an event for UI consistency. Shared event types are covered under [events outside the application package](SPECIFICATION.md#events-declared-outside-the-application-package).
+Treat an event as a notification, not as the source of truth. Re-reading the data keeps the page correct after a reconnect or missed event. See [`Dispatcher`](SPECIFICATION.md#parameter-datapagesdispatchereventxxx) for declarations and [event delivery](SPECIFICATION.md#event-delivery) for delivery guarantees.
 
 ## Keep temporary state per tab
 
-Use `datapages.State[T]` for ephemeral server-side values owned by 1 browser tab. Typical examples are an unfinished wizard, a temporary filter, or a selection needed by an event handler.
+Use `datapages.State[T]` for temporary values owned by 1 browser tab, such as an unfinished wizard or a selection used by an event handler. Keep durable data in a repository, and do not use per-tab state as a session store.
 
-Keep durable domain data in a repository or another application dependency. Do not use per-tab state as a session store.
-
-Use `StreamOpen` to initialize stream resources or state and `StreamClose` to release them. The [`State[T]` specification](SPECIFICATION.md#parameter-datapagesstatet) defines declaration rules, synchronization, lifecycle, limits, security, and multi-server routing. The [page specification](SPECIFICATION.md#pages) defines stream-hook signatures.
+Initialize stream resources in `StreamOpen` and release them in `StreamClose`. See [`State[T]`](SPECIFICATION.md#parameter-datapagesstatet) for its lifecycle and multi-server requirements.
 
 ## Add sessions and authorization
 
-Sessions identify a visitor and expose application-defined session data. Add a session manager in `cmd/server/main.go`, then accept the application's session type in the handlers that need identity.
+Add a session manager in `cmd/server/main.go`, then accept the application's session type in handlers that need identity. Keep authorization in the application. A valid session identifies the caller but does not authorize an operation.
 
-Keep authorization in the application. A valid session answers who sent the request, not whether that user may perform an operation.
-
-The [`Session` parameter](SPECIFICATION.md#parameter-session-datapagessessiondata), [`NewSession`](SPECIFICATION.md#return-value-newsession-datapagesnewsessiondata), and [`CloseSession`](SPECIFICATION.md#return-value-closesession-datapagesclosesession) sections define session behavior. Read [Plain Forms and CSRF](SPECIFICATION.md#plain-forms-and-csrf) before adding authenticated forms.
+See [`Session`](SPECIFICATION.md#parameter-session-datapagessessiondata), [`NewSession`](SPECIFICATION.md#return-value-newsession-datapagesnewsessiondata), and [`CloseSession`](SPECIFICATION.md#return-value-closesession-datapagesclosesession). Read [Plain Forms and CSRF](SPECIFICATION.md#plain-forms-and-csrf) before adding authenticated forms.
 
 ## Handle failures
 
-Return ordinary Go errors from handlers. Use Datapages error sentinels when the client should receive a specific HTTP status. `App.RecoverError` can render feedback for failed Datastar requests; page error handlers cover page loads.
-
-See the [`App`](SPECIFICATION.md#app) and [`error` return](SPECIFICATION.md#return-value-error-or-err-error) sections for panic, logging, response, and recovery behavior.
+Return ordinary Go errors from handlers. Return a Datapages sentinel for a specific HTTP status. Use `App.RecoverError` to render failed Datastar requests and page error handlers for failed page loads. See [`App`](SPECIFICATION.md#app) and [`error`](SPECIFICATION.md#return-value-error-or-err-error) for recovery behavior.
 
 ## Write templates with generated helpers
 
@@ -191,48 +167,176 @@ Use the generated `href` package for links and the generated `action` package fo
 </button>
 ```
 
-The helpers keep templates synchronized with the Go model. `datapages lint` checks their use in `.templ` files. The [linting specification](SPECIFICATION.md#linting) defines the diagnostics, allowed URL forms, and suppression directive.
-
-Keep application decisions in Go. Use templates for markup and Datastar attributes for browser interaction.
+The generated helpers keep templates synchronized with the Go model, and `datapages lint` checks their use. Keep application decisions in Go. Use templates for markup and Datastar attributes. See [Linting](SPECIFICATION.md#linting) for the exact rules.
 
 ## Configure the server
 
-`cmd/server/main.go` is ordinary Go. Construct repositories and clients there, put long-lived dependencies on `App`, configure the broker and session manager, then pass server options to `datapages.NewServer`.
+Create repositories and clients in `cmd/server/main.go`, put long-lived dependencies on `App`, then configure the broker, session manager, and `datapages.NewServer` options.
 
-Common options configure logging, middleware, HTTP timeouts, sessions, static assets, request limits, graceful shutdown, metrics, per-tab state, CSP nonces, and the Datastar bundle. Use the [`ServerOption` documentation](https://pkg.go.dev/github.com/romshark/datapages#ServerOption) for the option API. Read the [Content Security Policy](SPECIFICATION.md#content-security-policy) section before setting a CSP.
+The generated server implements `http.Handler`, so standard Go middleware can wrap it. See [`ServerOption`](https://pkg.go.dev/github.com/romshark/datapages#ServerOption) for available options and [Content Security Policy](SPECIFICATION.md#content-security-policy) before setting a CSP.
 
-The generated server implements `http.Handler`. Standard Go middleware and HTTP tooling can serve it.
+## Tune SSE compression
+
+Datapages enables balanced SSE compression by default. Choose another preset when memory, bandwidth, or large fragments matter more:
+
+- `datapages.SSECompressionLowMemory()` uses smaller windows for many open streams with fragments below about 100 KB.
+- `datapages.SSECompressionLowBandwidth()` prefers brotli for slow or metered clients.
+- `datapages.SSECompressionLargeFragments()` uses 4 MiB windows for fragments above about 1 MB.
+- `datapages.SSECompressionBalanced()` returns the defaults.
+
+Apply a preset to every stream:
+
+```go
+datapages.WithSSECompression(datapages.SSECompressionLowMemory()),
+```
+
+Override it for 1 page with `StreamConfig`:
+
+```go
+func (PageReport) StreamConfig() datapages.StreamConfig {
+	c := datapages.SSECompressionLargeFragments()
+	return datapages.StreamConfig{Compression: &c}
+}
+```
+
+Override 1 action by appending its method name:
+
+```go
+func (PageEditor) StreamConfigPOSTSave() datapages.StreamConfig {
+	return datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{Disabled: true},
+	}
+}
+```
+
+The method can also choose settings per request:
+
+```go
+func (PageFeed) StreamConfig(r *http.Request) (datapages.StreamConfig, error) {
+	if !strings.Contains(r.UserAgent(), "Mobi") {
+		return datapages.StreamConfig{}, nil
+	}
+	c := datapages.SSECompressionLowBandwidth()
+	return datapages.StreamConfig{Compression: &c}, nil
+}
+```
+
+A method replaces the server setting. Zero fields use package defaults. See [Choose where compression runs](#choose-where-compression-runs) before disabling compression. See [`SSECompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#SSECompressionConfig) for the presets and [`StreamConfig`](SPECIFICATION.md#streamconfig) for valid method signatures.
+
+## Tune response compression
+
+Datapages compresses page and action bodies of at least 256 bytes. The default preset balances CPU, memory and size. `datapages.ResponseCompressionLowCPU()` reduces CPU and memory. `datapages.ResponseCompressionLowBandwidth()` prefers brotli for slow or metered clients.
+
+```go
+datapages.WithResponseCompression(datapages.ResponseCompressionLowCPU()),
+```
+
+`datapages.File` responses remain uncompressed. Static assets use separate compression; see [Tune asset compression](#tune-asset-compression). To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Give each representation its own `ETag` and send `Vary: Accept-Encoding`. See [Choose where compression runs](#choose-where-compression-runs) for loopback clients and proxies. Set `Cache-Control: private, no-transform` on pages that combine secrets with attacker-controlled input, and on their `_$/` streams, or give such a page a `StreamConfig` that returns `Compression: &datapages.SSECompressionConfig{Disabled: true}`. See [Response Compression](SPECIFICATION.md#response-compression) for the rules and [`ResponseCompressionConfig`](https://pkg.go.dev/github.com/romshark/datapages#ResponseCompressionConfig) for measurements.
+
+## Choose where compression runs
+
+Disable it for loopback-only clients:
+
+```go
+datapages.WithNoResponseCompression(),
+datapages.WithNoSSECompression(),
+datapages.WithNoAssetsCompression(),
+```
+
+Behind a reverse proxy, keep it on unless a body filter such as nginx `sub_filter` must read the HTML. Then disable it, or set `proxy_set_header Accept-Encoding "";`. Caches must honor `Vary: Accept-Encoding`.
 
 ## Choose modules for the deployment
 
-The scaffold uses NATS for messaging and sessions. Datapages also provides in-memory implementations for a single process.
+The scaffold uses NATS for messaging and sessions. A single-process deployment can use the in-memory modules:
 
 | Need | Single process | Multiple processes |
 | ---- | -------------- | ------------------ |
 | Events | `modules/messaging/inmem` | `modules/messaging/natscore` |
 | Sessions | `modules/sessions/inmem` | `modules/sessions/natskv` |
 
-The in-memory session manager is suitable for development. A restart removes its sessions. Choose a durable session manager before production.
-
-If the deployment uses per-tab state, follow the multi-server guidance in the [`State[T]` specification](SPECIFICATION.md#parameter-datapagesstatet) when running more than 1 application server.
+Restarting the in-memory session manager removes its sessions. Use durable sessions in production. With more than 1 application server, also follow the routing rules for [`State[T]`](SPECIFICATION.md#parameter-datapagesstatet).
 
 ## Deploy a new version
 
-When you change your application and deploy a new version, open tabs still use the old page. If the build ID stays the same while element IDs, signals or routes change, the new server accepts requests from those tabs. Morphs may target missing elements, actions may send incompatible data, and an action may change server data while the page stops updating.
+Open tabs keep the document from the previous deployment. Each Datastar request carries its build ID. A server with another ID returns `205 Reset Content` without running the handler, and the page reloads.
 
-Each page sends its build ID with Datastar requests. A server with a different ID returns `205 Reset Content` without running the handler. The page then reloads. Graceful shutdown resets open SSE streams. Idle tabs then reconnect. If the build ID is unchanged, a tab reconnects without reloading.
-
-The build ID defaults to a hash of the executable and changes with each rebuild. If you set `datapages.WithBuildID`, change its value whenever the browser-server API changes. Use the same value on every replica of 1 release. During a rolling deployment, route each client to 1 build. Alternating between builds causes repeated reloads with increasing delays. See [Deployments](SPECIFICATION.md#deployments).
+The default build ID is a hash of the executable. If you set `datapages.WithBuildID`, change it whenever element IDs, signals, routes, or other browser-server contracts change. Give every replica of 1 release the same ID, and route each client to 1 build during a rolling deployment. See [Deployments](SPECIFICATION.md#deployments).
 
 ## Serve static assets
 
-The scaffold contains a commented `embed.FS` example. Enable it in the application package, pass it with `datapages.WithAssets`, and use the generated `assets` or `href` helper when writing a URL.
+Declare an `embed.FS` in the app package and put the URL path in its doc comment, as the example in `app/app.go` shows:
 
-Use `datapages.WithAssetsCache` to set production cache behavior. The [dev-mode specification](SPECIFICATION.md#dev-mode) defines development loading and cache behavior. The [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets) documentation defines the filesystem options.
+```go
+// StaticFS is /static/
+//
+//go:embed static/*
+var StaticFS embed.FS
+```
+
+Pass it to the server in `cmd/server/main.go`:
+
+```go
+opts = append(opts, datapages.WithAssets(app.StaticFS, false))
+```
+
+`false` answers 404 instead of listing a directory. The browser asks before it reuses a file and gets a 304 without a body while the file is unchanged. Set a `MaxAge` with `datapages.WithAssetsCache` only for files whose name changes with their content, such as `datastar-1.0.4.js`. Otherwise browsers keep old files after a deploy.
+
+Run `datapages gen`, then write asset URLs with the generated `href` or `assets` helper:
+
+```templ
+<link rel="stylesheet" href={ href.Asset("style.css") }/>
+```
+
+Spell each path exactly like its file. `/static/App.js` gets 404 for `app.js` on every system.
+
+Keep assets unchanged while the server runs, and serve files that change through a GET action that returns `datapages.File`. See [Changing Assets](SPECIFICATION.md#changing-assets), [Dev Mode](SPECIFICATION.md#dev-mode) and [`WithAssets`](https://pkg.go.dev/github.com/romshark/datapages#WithAssets).
+
+## Tune asset compression
+
+Datapages compresses eligible assets on their first request and keeps the copies in memory. To compress them before the first request, create the compressor and precompress the embedded files:
+
+```go
+assets, err := assetcompress.New(assetcompress.Config{})
+if err != nil {
+	return err
+}
+opts = append(opts, datapages.WithAssetsCompression(assets))
+go func() {
+	if err := assets.Precompress(ctx, app.StaticFS); err != nil {
+		slog.Error("precompressing assets", slog.Any("err", err))
+	}
+}()
+```
+
+Pass the whole `embed.FS`. Copies are keyed by content, which lets them serve the subdirectory the server uses. Precompression stops at the first error, and requests compress the files it did not reach. Drop `go` to finish before serving, which delays startup.
+
+For copies 6% to 11% smaller, use brotli 11 and drop `go` before `Precompress`. A request that finds no copy otherwise waits for its compression, up to 215 ms per 200 KB:
+
+```go
+assets, err := assetcompress.New(assetcompress.Config{
+	Levels: assetcompress.Levels{BrotliQuality: 11},
+})
+```
+
+Without a store, the copies stay in memory until the server exits, at about 1/4 of the size of the compressible files per coding. Persist them in a directory when they take too much memory, or when brotli 11 has megabytes to compress again after every restart, at 1 to 1.5 MB per second:
+
+```go
+store, err := disk.New("/var/cache/myapp/assets", disk.Config{})
+if err != nil {
+	return err
+}
+assets, err := assetcompress.New(assetcompress.Config{Store: store})
+```
+
+The store serves each copy from its file instead of from memory. Skip it for a few assets at the default levels, which recompress in a few milliseconds after a restart. Give the store a directory that only the server can write to. For a Kubernetes `emptyDir` volume, pass a subdirectory of its mount point, which `disk.New` creates. The store deletes copies that no server used for 7 days. Set `disk.Config.MaxUnused` to keep them longer.
+
+To keep the copies elsewhere, such as in object storage that all servers share, implement [`assetcompress.Store`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Store) and pass it as `Store`. Every request for a stored copy calls `Open`, so cache remote copies locally. Keys contain the SHA-256 of the file, which lets the servers of every build share the store. The compressor never deletes copies. Expire old ones in the storage, for example with a lifecycle rule.
+
+See [Asset Compression](SPECIFICATION.md#asset-compression) for the rules and [`assetcompress.Config`](https://pkg.go.dev/github.com/romshark/datapages/modules/assetcompress#Config) for measurements.
 
 ## Add offline page caching
 
-The offline module installs a service worker. Handlers can cache page snapshots that the worker serves when the network is unavailable. Start by declaring the fallback for a URL that has no snapshot:
+The offline module installs a service worker and lets handlers cache page snapshots. Start with the fallback for a URL that has no snapshot:
 
 ```go
 // PageOffline is /offline
@@ -245,9 +349,9 @@ func (PageOffline) GET(
 }
 ```
 
-`PageOffline` is shared by every visitor and renders with a zero session. Keep it independent of signed-in state.
+`PageOffline` renders with a zero session and is shared by every visitor. Keep its content independent of the signed-in user.
 
-Configure the worker in the application package. Precache every asset that a snapshot needs before its first online load, including a self-hosted Datastar bundle:
+Next, configure the worker. List every asset a snapshot needs before its first online load, including a self-hosted Datastar bundle:
 
 ```go
 const offlineWorkerVersion = 1
@@ -257,22 +361,24 @@ func OfflineConfig() offline.Config {
 		WorkerVersion: offlineWorkerVersion,
 		Assets: []string{
 			assets.Path("style.css"),
-			assets.Path("datastar.js"),
+			assets.Path("datastar-1.0.4.js"),
 		},
 	}
 }
 ```
 
-Declaring `PageOffline` generates the option that supplies its route. Add these options to `datapages.NewServer`:
+Put the library version in the file name, such as `datastar-1.0.4.js`. Browsers and the offline worker cache files by URL. If an upgrade keeps the name, they can keep using the old file from their cache. A new name is a new URL, which they download.
+
+Declaring `PageOffline` generates its server option. Add it with the bundle URL:
 
 ```go
-datapages.WithDatastarJS(assets.Path("datastar.js")),
+datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 datapagesgen.WithOffline(app.OfflineConfig()),
 ```
 
-The worker runs on HTTPS and localhost. On other plain HTTP origins the offline API does nothing.
+The worker runs only on HTTPS and localhost.
 
-Add `pageCache datapages.PageCacheWriter` to a `GET` or action. `Set` stores a body for offline use; the URL must come from the generated `href` package:
+Add `pageCache datapages.PageCacheWriter` to a `GET` or action. Store an offline body with `Set`, using a URL from the generated `href` package:
 
 ```go
 func (p PageItem) GET(
@@ -293,26 +399,25 @@ func (p PageItem) GET(
 }
 ```
 
-`Version()` is the cached version of the current request URL, or 0 when that URL is absent. An action can cache another URL, but cannot read that URL's current version. `Clear` removes 1 entry; `ClearAll` removes all page entries. Writes take effect together only after the handler returns without error.
+`Version()` returns the cached version of the current URL, or 0 when it has no entry. `Clear` removes 1 entry, and `ClearAll` removes all page entries. Cache writes take effect together after the handler succeeds.
 
-Apply these rules when choosing what to cache:
+Keep snapshots safe and current:
 
-- Pass a page body, not a complete HTML document. Datapages supplies the document shell.
-- Include every value that changes the snapshot in its version. Use `!=` for hashes and other unordered version keys.
-- Cache a separate body when offline interactions cannot work. A snapshot does not need to match the live page.
-- Treat the cache as origin-readable browser storage that outlives a session. Do not store secrets or data that must disappear at sign-out. Call `ClearAll` during sign-in and sign-out, then repopulate entries from later handlers.
-- Update or clear affected URLs when an action changes their data.
-- Increment `WorkerVersion` after a Datapages upgrade or a change to `Assets`, `ExcludePaths`, `CrossOriginDestinations`, `OfflineClass`, or `PageOffline`. A same-origin file updated at an unchanged URL refreshes behind the cached copy and does not require a new worker version. A cross-origin file never refreshes: give a changed one a new URL or increment `WorkerVersion`.
+- Pass a page body, not a complete document.
+- Include every value that changes the snapshot in its version. Use `!=` for hashes and unordered version keys.
+- Do not cache secrets or data that must disappear at sign-out. Call `ClearAll` during sign-in and sign-out.
+- Update or clear a URL when an action changes its data.
+- Increment `WorkerVersion` after a Datapages upgrade or a change to the worker configuration. Give a changed cross-origin asset a new URL or increment the version.
 
-Same-origin assets are cached on their first online load unless excluded. `Config.Assets` makes required files available immediately after worker installation. `Config.CrossOriginDestinations` controls which cross-origin asset types may be cached. Use the default `is-offline` class on `<html>` to disable controls that require the network.
+Same-origin assets enter the cache on their first online load unless excluded. `Config.Assets` precaches required files. Use the `is-offline` class on `<html>` to disable controls that need the network.
 
-Register response compression before `WithOffline`; the offline middleware must edit the unencoded HTML before it is compressed. With a nonce-based CSP, `WithCSPNonce` must return the same nonce for every call with 1 request. The generated offline option applies that nonce to its inline scripts.
+Response compression runs after `WithOffline`. Put a custom compressing middleware before it. With a nonce-based CSP, `WithCSPNonce` must return the same nonce for every call with 1 request.
 
-The [`pageCache` specification](SPECIFICATION.md#parameter-pagecache-datapagespagecachewriter) defines valid handlers and write delivery. [Service Worker](SPECIFICATION.md#service-worker) defines installation, caching, CSP, and response behavior. [`example/offline-cache`](example/offline-cache/) is a complete session-aware application.
+See [`pageCache`](SPECIFICATION.md#parameter-pagecache-datapagespagecachewriter), [Service Worker](SPECIFICATION.md#service-worker), and the complete [`example/offline-cache`](example/offline-cache/).
 
 ## Show a cached shim while a page loads
 
-Use `SetShim` when a live page is slow. The worker serves the cached body immediately, fetches the live page in parallel, then uses Datastar to replace the document head and body:
+Use `SetShim` when a live page is slow. The worker shows the cached body while it fetches the live page, then replaces the document head and body:
 
 ```go
 const shimVersion = 1
@@ -332,11 +437,11 @@ func (p PageIndex) GET(
 }
 ```
 
-The first visit waits for the live response and stores the shim. Later visits can display it before the live response arrives. Increment the shim's page-cache version when its markup or data changes; this version is independent of `offline.Config.WorkerVersion`.
+The first visit stores the shim. Later visits can show it before the live response arrives. Increment `shimVersion` when its markup or data changes. This version is independent of `offline.Config.WorkerVersion`.
 
-A shim can appear online or remain visible after a failed fetch. Use neutral placeholder text, not an offline claim. It renders without a session or CSRF script and must contain no Datastar attributes. Put actions and visitor-specific content in the live body.
+A shim can remain visible after a failed fetch. Use neutral placeholder text. It has no session or CSRF script and must contain no Datastar attributes. Keep actions and visitor-specific content in the live body.
 
-An application with `PageOffline` uses the same `datapagesgen.WithOffline` setup as snapshots. When an application needs shims but no custom offline fallback, install the module directly:
+If the application has no custom `PageOffline`, install the module directly:
 
 ```go
 offline.WithServiceWorker("", offline.Config{
@@ -344,23 +449,21 @@ offline.WithServiceWorker("", offline.Config{
 })
 ```
 
-[`example/fast-shim`](example/fast-shim/) compares shimmed pages with uncached pages under the same artificial delay.
+See [`example/fast-shim`](example/fast-shim/) for a complete comparison.
 
 ## Build multiple applications
 
-1 Go module can contain several application packages and entry points. Each `datapages.NewServer` call connects an app package to its generated package. `datapages gen` processes all of them; select one for development with:
+1 Go module can contain several application packages and entry points. `datapages gen` processes them all. Select 1 for development:
 
 ```sh
-datapages watch --app frontend
+datapages watch --app app/frontend
 ```
 
-Put an event type in a shared package when applications exchange that event. The specification for [events outside the application package](SPECIFICATION.md#events-declared-outside-the-application-package) defines discovery and subject ownership.
-
-The [`example/counter`](example/counter/) module shows 2 applications with separate entry points.
+`--app` is the application directory relative to the module root. Put shared event types in a shared package. See [shared events](SPECIFICATION.md#events-declared-outside-the-application-package) and [`example/counter`](example/counter/).
 
 ## Configure development tooling
 
-`datapages.yaml` or `datapages.yml` configures generation and watch mode. The scaffold starts with:
+The scaffold configures generation and watch mode in `datapages.yaml`:
 
 ```yaml
 cmd: cmd/server
@@ -371,23 +474,25 @@ watch:
     - "*~"
 ```
 
-Use `cmd` until the project has a `datapages.NewServer` call in a main package. Use `watch` for proxy settings, debounce, TLS, compiler flags, logging, and custom file watchers. Run `datapages watch --help` for command-line overrides.
+`cmd` identifies the main package until the project contains a `datapages.NewServer` call. Add `watch` settings for the proxy, TLS, compiler flags, or custom file watchers. Run `datapages watch --help` for command-line overrides.
 
 ## Use the generated agent instructions
 
-`datapages init` writes `AGENTS.md` and tool-specific pointers, plus Datapages skills under `.agents/skills` and `.claude/skills`. The instructions describe the generated project and give coding agents task-specific guidance.
+`datapages init` writes `AGENTS.md`, tool-specific pointers, and Datapages skills. Update them from the installed CLI with:
 
-Run `datapages init -n` in an existing project to update them from the installed CLI. The command backs up a changed file before replacing it. Edit both skill directories when the project uses agents that read both locations.
+```sh
+datapages init -n
+```
+
+The command backs up a changed file before replacing it. If the project uses both skill directories, edit both copies.
 
 ## Test through HTTP
 
-Test page loads, actions, and streams at the boundary clients use with the [`datapagestest`](datapagestest) package. It sends the requests a browser running Datastar sends and reads the pages, events, and redirects the server answers with. Keep domain logic in separate Go types and test it without HTTP.
-
-[`internal/acceptance/datapagestest`](internal/acceptance/datapagestest/datapagestest_test.go) uses the package against a generated server. A successful `go build ./...` checks compilation, not request behavior.
+Use the [`datapagestest`](datapagestest) package to test page loads, actions, and streams. It sends the requests a browser running Datastar sends and reads the pages, events, and redirects the server answers with. Test domain logic separately without HTTP. [`internal/acceptance/datapagestest`](internal/acceptance/datapagestest/datapagestest_test.go) shows how to use the package against a generated server.
 
 ## Continue
 
-- [SPECIFICATION.md](SPECIFICATION.md): exact source-model and runtime rules.
-- [example/](example/): complete applications from a counter to classifieds.
-- [SECURITY.md](SECURITY.md): application and deployment responsibilities.
-- [FAQ.md](FAQ.md): design decisions and common questions.
+- [SPECIFICATION.md](SPECIFICATION.md) defines the source model and runtime.
+- [example/](example/) contains complete applications.
+- [SECURITY.md](SECURITY.md) lists application and deployment responsibilities.
+- [FAQ.md](FAQ.md) explains design decisions.

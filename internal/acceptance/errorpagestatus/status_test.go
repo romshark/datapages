@@ -56,9 +56,12 @@ func TestErrorPage404Redirects(t *testing.T) {
 	c := newClient(t)
 
 	// The default client follows the redirect, which hides the status.
-	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	hc := &http.Client{
+		Transport: c.HTTP().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	req, err := http.NewRequestWithContext(context.Background(),
 		http.MethodGet, c.URL()+"/go-home/", nil)
 	require.NoError(t, err, "building GET /go-home/")

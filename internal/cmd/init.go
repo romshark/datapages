@@ -38,9 +38,11 @@ By default, init runs interactively and prompts for project settings.
 Use -n/--non-interactive to disable prompts; when a value is needed
 that would normally be prompted for, pass it via --name or --module.
 
-If not inside a git repository, a new one is created. If not inside
-a Go module, a new one is initialized. Code generation is run, and
-finally go mod tidy resolves all dependencies. Init never deletes any files.
+If not inside a git repository, a new one is created, except in a Go
+module that has a datapages.yaml. If not inside a Go module, a new one
+is initialized. Inside a Go module, init runs in the directory of its
+go.mod. Code generation is run, and finally go mod tidy resolves all
+dependencies. Init never deletes any files.
 
 Init writes these only when they are missing and never touches them
 again: datapages.yaml, app/app.go, app/app.templ, cmd/server/main.go, .env,
@@ -135,7 +137,11 @@ func runInit(
 
 	var projectDir string
 	var created bool
-	if gitDir := findGitDir(cwd); gitDir == "" {
+	moduleRoot := moduleDirOf(cwd)
+	// An initialized project needs no git repository. gen recommends init -n
+	// to refresh the agent instructions of one that has none.
+	initialized := moduleRoot != "" && config.Exists(moduleRoot)
+	if !initialized && findGitDir(cwd) == "" {
 		dirName, err := resolveGitDir(in, out, nonInteractive, dir)
 		if err != nil {
 			return err
@@ -151,6 +157,12 @@ func runInit(
 		created = true
 	} else {
 		projectDir = cwd
+		// The enclosing module is the one gen and lint use from here.
+		// go mod init below its go.mod would take the directory out of it.
+		if moduleRoot != "" && moduleRoot != cwd {
+			projectDir = moduleRoot
+			_, _ = fmt.Fprintf(out, "Using the Go module in %s\n", moduleRoot)
+		}
 	}
 
 	goModPath := filepath.Join(projectDir, "go.mod")

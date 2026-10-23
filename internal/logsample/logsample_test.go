@@ -1,29 +1,25 @@
 package logsample_test
 
 import (
-	"bytes"
 	"log/slog"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/romshark/datapages/internal/logsample"
+	"github.com/romshark/datapages/internal/testlog"
 )
 
 const interval = time.Minute
 
 // newLogger returns a logger and what it writes to. Every test here runs in a
 // synctest bubble, where time.Sleep moves the clock the handler reads.
-func newLogger(t *testing.T, limit int) (*slog.Logger, *bytes.Buffer) {
+func newLogger(t *testing.T, limit int) (*slog.Logger, *testlog.Buffer) {
 	t.Helper()
-	var buf bytes.Buffer
-	h := slog.NewTextHandler(&buf, nil)
-	return slog.New(logsample.New(h, limit, interval)), &buf
+	var buf testlog.Buffer
+	return slog.New(logsample.New(buf.Handler(), limit, interval)), &buf
 }
 
 // TestRepeatIsHeldBack tests the record a render path repeats. 1 line says
@@ -32,23 +28,22 @@ func TestRepeatIsHeldBack(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		log, buf := newLogger(t, 0)
+		const line = "level=WARN msg=dropped value=x"
 
 		for range 100 {
 			log.Warn("dropped", slog.String("value", "x"))
 		}
-		require.Equal(t, 1, strings.Count(buf.String(), "dropped"))
-		require.NotContains(t, buf.String(), "suppressed")
+		buf.RequireLines(t, line)
 
 		// Still happening after the interval, and the log says how often.
 		time.Sleep(interval)
 		log.Warn("dropped", slog.String("value", "x"))
-		require.Equal(t, 2, strings.Count(buf.String(), "dropped"))
-		require.Contains(t, buf.String(), "suppressed=99")
+		buf.RequireLines(t, line, line+" suppressed=99")
 
 		// The count starts over.
 		time.Sleep(interval)
 		log.Warn("dropped", slog.String("value", "x"))
-		require.Equal(t, 1, strings.Count(buf.String(), "suppressed=99"))
+		buf.RequireLines(t, line, line+" suppressed=99", line)
 	})
 }
 
@@ -62,7 +57,12 @@ func TestDistinctRecordsPass(t *testing.T) {
 		log.Warn("dropped", slog.String("value", "y"))
 		log.Warn("other", slog.String("value", "x"))
 		log.Error("dropped", slog.String("value", "x"))
-		require.Equal(t, 4, strings.Count(buf.String(), "value=")) //nolint:mnd
+		buf.RequireLines(t,
+			"level=WARN msg=dropped value=x",
+			"level=WARN msg=dropped value=y",
+			"level=WARN msg=other value=x",
+			"level=ERROR msg=dropped value=x",
+		)
 	})
 }
 
@@ -76,7 +76,11 @@ func TestLimitBoundsTheSet(t *testing.T) {
 		for i := range 100 {
 			log.Warn("dropped", slog.String("value", strconv.Itoa(i)))
 		}
-		require.Equal(t, 3, strings.Count(buf.String(), "dropped"))
+		buf.RequireLines(t,
+			"level=WARN msg=dropped value=0",
+			"level=WARN msg=dropped value=1",
+			"level=WARN msg=dropped value=2",
+		)
 	})
 }
 
@@ -90,20 +94,29 @@ func TestFullSetRecovers(t *testing.T) {
 		log.Warn("dropped", slog.String("value", "a"))
 		log.Warn("dropped", slog.String("value", "b"))
 		log.Warn("dropped", slog.String("value", "c"))
-		require.Equal(t, 2, strings.Count(buf.String(), "dropped"))
+		buf.RequireLines(t,
+			"level=WARN msg=dropped value=a",
+			"level=WARN msg=dropped value=b",
+		)
 
 		// The first 2 have gone quiet, which makes room.
 		time.Sleep(interval)
 		log.Warn("dropped", slog.String("value", "c"))
-		require.Contains(t, buf.String(), "value=c")
+		buf.RequireLines(t,
+			"level=WARN msg=dropped value=a",
+			"level=WARN msg=dropped value=b",
+			"level=WARN msg=dropped value=c",
+		)
 	})
 }
 
 // TestConcurrentUse tests what every request path does to it at once.
+// 1 record of the burst is written, and the next one counts the other 49.
 func TestConcurrentUse(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		log, buf := newLogger(t, 0)
+		const line = "level=WARN msg=dropped value=x"
 
 		var wg sync.WaitGroup
 		for range 50 {
@@ -112,7 +125,11 @@ func TestConcurrentUse(t *testing.T) {
 			})
 		}
 		wg.Wait()
-		require.Equal(t, 1, strings.Count(buf.String(), "dropped"))
+		buf.RequireLines(t, line)
+
+		time.Sleep(interval)
+		log.Warn("dropped", slog.String("value", "x"))
+		buf.RequireLines(t, line, line+" suppressed=49")
 	})
 }
 
@@ -129,8 +146,9 @@ func TestWithAttrsSharesTheSet(t *testing.T) {
 			a.Warn("dropped")
 			b.Warn("dropped")
 		}
-		require.Equal(t, 2, strings.Count(buf.String(), "dropped"))
-		require.Contains(t, buf.String(), "src=a")
-		require.Contains(t, buf.String(), "src=b")
+		buf.RequireLines(t,
+			"level=WARN msg=dropped src=a",
+			"level=WARN msg=dropped src=b",
+		)
 	})
 }

@@ -51,6 +51,17 @@ func (failingSessions) ReadSessionFromCookie(string) (
 
 var errStoreDown = errors.New("session store is down")
 
+// newClient returns a client that keeps cookies, on the transport of srv.
+// net/http returns a connection to the idle pool before it hands over a
+// response without a body, and the [httptest.Server.Close] of a parallel test
+// closes the idle connections of [http.DefaultTransport], failing that request.
+func newClient(t *testing.T, srv *httptest.Server) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "building cookie jar")
+	return &http.Client{Jar: jar, Transport: srv.Client().Transport}
+}
+
 // newPost returns a function that sends a Datastar POST and returns the status code.
 // An empty token sends no CSRF header.
 func newPost(
@@ -88,9 +99,7 @@ func TestCSRFOnlyActionReadsNoSession(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 
 	post := newPost(t, srv, client)
 
@@ -123,9 +132,7 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 
 	post := newPost(t, srv, client)
 
@@ -165,9 +172,7 @@ func TestQueryNeedsNoCSRFToken(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 
 	require.Equal(t, http.StatusOK,
 		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
@@ -207,9 +212,7 @@ func TestErrorPagesCarryTheCSRFScript(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 
 	require.Equal(t, http.StatusOK,
 		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
@@ -266,9 +269,7 @@ func TestPrivateEventPageCarriesTheCSRFScript(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 
 	post := newPost(t, srv, client)
 
@@ -335,9 +336,7 @@ func TestHandlersWithoutSessionWriteCSRFScript(t *testing.T) {
 	require.NotContains(t, guestPage, "X-CSRF-Token",
 		"the document contains a CSRF script without a session cookie")
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 	require.Equal(t, http.StatusOK,
 		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
 
@@ -379,9 +378,7 @@ func TestUnclaimedPathReadsTheSessionOnce(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 
 	require.Equal(t, http.StatusOK,
 		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
@@ -485,9 +482,7 @@ func TestCSRFDisabledServesWithoutLogger(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "building cookie jar")
-	client := &http.Client{Jar: jar}
+	client := newClient(t, srv)
 	post := newPost(t, srv, client)
 
 	require.Equal(t, http.StatusOK,

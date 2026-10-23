@@ -184,7 +184,7 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 
 	slow := make(chan *http.Response, 1)
 	go func() {
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		if err != nil {
 			slow <- nil
 			return
@@ -228,7 +228,7 @@ func TestSlowFileDoesNotStallTab(t *testing.T) {
 
 	req := c.Request(t, http.MethodPost, pathExport, "")
 	req.Header.Set("Datapages-Instance", tab.InstanceID())
-	export, err := http.DefaultClient.Do(req)
+	export, err := c.HTTP().Do(req)
 	require.NoError(t, err, "export")
 	// Closing the unread body ends the export.
 	t.Cleanup(func() { _ = export.Body.Close() })
@@ -239,7 +239,7 @@ func TestSlowFileDoesNotStallTab(t *testing.T) {
 	req.Header.Set("Datapages-Instance", tab.InstanceID())
 	answered := make(chan int, 1)
 	go func() {
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		if err != nil {
 			answered <- 0
 			return
@@ -298,7 +298,7 @@ func TestUnmintedInstanceID(t *testing.T) {
 	t.Cleanup(cancel)
 	req := c.Request(t, http.MethodGet, pathStream, "").WithContext(ctx)
 	req.Header.Set("Datapages-Instance", id)
-	stream, err := http.DefaultClient.Do(req)
+	stream, err := c.HTTP().Do(req)
 	require.NoError(t, err, "opening the stream of an unminted id")
 	t.Cleanup(func() { _ = stream.Body.Close() })
 	require.Equal(t, http.StatusOK, stream.StatusCode,
@@ -469,10 +469,8 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 	id := page.Instance()
 	require.NotEmpty(t, id, "GET %s mints no instance id", pathFailOpen)
 
-	// The instance is reserved before the open hook runs.
-	// The stream is answered 200 regardless:
-	// the SSE generator commits the status line first,
-	// which leaves the hook nowhere to report the failure.
+	// The instance is reserved before the hook.
+	// The stream commits 200 before the hook can fail.
 	req := c.Request(t, http.MethodGet, pathFailOpenStream, "")
 	req.Header.Set("Datapages-Instance", id)
 	require.Equal(t, http.StatusOK, c.Do(t, req).Status,
@@ -557,7 +555,7 @@ func TestPanicInStreamCloseIsContained(t *testing.T) {
 		req.Header.Set("Datastar-Request", "true")
 		req.Header.Set("Datapages-Instance", id)
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := c.HTTP().Do(req)
 		require.NoError(t, err,
 			"the action never returned, which is the slot mutex still held "+
 				"by the hook that panicked under it")
@@ -591,7 +589,7 @@ func openStream(t *testing.T, c *client.Client, instanceID string) int {
 	defer cancel()
 	req := c.Request(t, http.MethodGet, pathStream, "").WithContext(ctx)
 	req.Header.Set("Datapages-Instance", instanceID)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP().Do(req)
 	require.NoError(t, err, "opening replacement stream")
 	_ = resp.Body.Close()
 	return resp.StatusCode

@@ -122,17 +122,14 @@ func TestQualifiedTypeName(t *testing.T) {
 		gotypes.QualifiedTypeName(named("UserID", types.Typ[types.String])))
 }
 
-// TestImplementsTextUnmarshaler tests the interface check that lets a parameter
-// type parse itself. Only the pointer receiver implements it,
-// which is why the generated code takes the address of the value.
-func TestImplementsTextUnmarshaler(t *testing.T) {
-	t.Parallel()
-
+// unmarshalsText returns a named type whose pointer receiver
+// implements encoding.TextUnmarshaler.
+func unmarshalsText(name string, underlying types.Type) types.Type {
 	pkg := types.NewPackage("example.com/app", "app")
-	obj := types.NewTypeName(0, pkg, "Date", nil)
-	nt := types.NewNamed(obj, types.Typ[types.String], nil)
+	obj := types.NewTypeName(0, pkg, name, nil)
+	nt := types.NewNamed(obj, underlying, nil)
 	sig := types.NewSignatureType(
-		types.NewVar(0, pkg, "d", types.NewPointer(nt)), nil, nil,
+		types.NewVar(0, pkg, "v", types.NewPointer(nt)), nil, nil,
 		types.NewTuple(types.NewVar(
 			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
 		)),
@@ -142,6 +139,16 @@ func TestImplementsTextUnmarshaler(t *testing.T) {
 		false,
 	)
 	nt.AddMethod(types.NewFunc(0, pkg, "UnmarshalText", sig))
+	return nt
+}
+
+// TestImplementsTextUnmarshaler tests the interface check that lets a parameter
+// type parse itself. Only the pointer receiver implements it,
+// which is why the generated code takes the address of the value.
+func TestImplementsTextUnmarshaler(t *testing.T) {
+	t.Parallel()
+
+	nt := unmarshalsText("Date", types.Typ[types.String])
 
 	// The method is on the pointer receiver, which the value type must satisfy too.
 	require.True(t, gotypes.ImplementsTextUnmarshaler(nt))
@@ -200,6 +207,8 @@ func TestTextJSONKind(t *testing.T) {
 func TestAcceptsJSONKind(t *testing.T) {
 	t.Parallel()
 	str, num, bl := gotypes.JSONString, gotypes.JSONNumber, gotypes.JSONBool
+	ptrInt := types.NewPointer(types.Typ[types.Int])
+	cents := unmarshalsText("Cents", types.Typ[types.Int64])
 	for name, td := range map[string]struct {
 		typ  types.Type
 		kind gotypes.JSONKind
@@ -217,10 +226,49 @@ func TestAcceptsJSONKind(t *testing.T) {
 		"interface takes any": {types.NewInterfaceType(nil, nil).Complete(), num, true},
 		"nil takes any":       {nil, bl, true},
 		"slice takes nothing": {types.NewSlice(types.Typ[types.String]), str, false},
+		"*int takes number":   {ptrInt, num, true},
+		"*int takes string":   {ptrInt, str, false},
+		"**int takes number":  {types.NewPointer(ptrInt), num, true},
+		// encoding/json hands a text unmarshaler only strings,
+		// whatever its underlying type.
+		"text unmarshaler takes string":  {cents, str, true},
+		"text unmarshaler takes number":  {cents, num, false},
+		"*text unmarshaler takes string": {types.NewPointer(cents), str, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, td.want, gotypes.AcceptsJSONKind(td.typ, td.kind))
+		})
+	}
+}
+
+// TestDeclaredOutside tests which types count as declared outside a module:
+// a named type of another module's package, and a pointer to one.
+func TestDeclaredOutside(t *testing.T) {
+	t.Parallel()
+	in := func(pkgPath string) types.Type {
+		obj := types.NewTypeName(0, types.NewPackage(pkgPath, "p"), "T", nil)
+		return types.NewNamed(obj, types.NewStruct(nil, nil), nil)
+	}
+	for name, tt := range map[string]struct {
+		t      types.Type
+		module string
+		want   bool
+	}{
+		"standard library":    {in("net/url"), "example.com/m", true},
+		"pointer":             {types.NewPointer(in("net/url")), "example.com/m", true},
+		"other module":        {in("example.com/other"), "example.com/m", true},
+		"shared path prefix":  {in("example.com/mx"), "example.com/m", true},
+		"module root":         {in("example.com/m"), "example.com/m", false},
+		"module subpackage":   {in("example.com/m/domain"), "example.com/m", false},
+		"no module":           {in("net/url"), "", false},
+		"unnamed struct":      {types.NewStruct(nil, nil), "example.com/m", false},
+		"basic":               {types.Typ[types.String], "example.com/m", false},
+		"predeclared (error)": {types.Universe.Lookup("error").Type(), "example.com/m", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, gotypes.DeclaredOutside(tt.t, tt.module))
 		})
 	}
 }

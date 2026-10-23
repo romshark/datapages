@@ -90,9 +90,9 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// TestIsNewerVersion tests the comparison the notice is gated on. A prerelease
-// or build suffix is ignored, and an empty version on either side is never newer:
-// a dev build must not be told it is out of date.
+// TestIsNewerVersion tests the comparison the notice is gated on.
+// A prerelease precedes its release, a build suffix is ignored, and an empty version
+// on either side is never newer. A dev build must not be told it is out of date.
 func TestIsNewerVersion(t *testing.T) {
 	for name, tc := range map[string]struct {
 		latest  string
@@ -106,10 +106,16 @@ func TestIsNewerVersion(t *testing.T) {
 		"older":               {latest: "v1.0.0", current: "v1.2.3", want: false},
 		"no v prefix":         {latest: "1.2.0", current: "1.1.0", want: true},
 		"mixed prefix":        {latest: "v1.2.0", current: "1.1.0", want: true},
-		"prerelease stripped": {latest: "v1.2.0-alpha", current: "v1.1.0", want: true},
+		"newer prerelease":    {latest: "v1.2.0-alpha", current: "v1.1.0", want: true},
 		"build meta stripped": {latest: "v1.2.0+build", current: "v1.1.0", want: true},
 		"empty latest":        {latest: "", current: "v1.0.0", want: false},
 		"empty current":       {latest: "v1.0.0", current: "", want: false},
+		"release of current prerelease": {
+			latest: "v0.11.0", current: "0.11.0-rc.1", want: true,
+		},
+		"older than current prerelease": {
+			latest: "v0.10.1", current: "0.11.0-rc.1", want: false,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := isNewerVersion(tc.latest, tc.current)
@@ -134,27 +140,4 @@ func TestPrintUpdateNotice(t *testing.T) {
 			"@latest\nchangelog: https://example.com/changelog\n",
 		buf.String(),
 	)
-}
-
-// TestParseSemver tests the version parsing behind the comparison: an optional
-// "v", missing components filled with 0, and a prerelease or build suffix cut off.
-func TestParseSemver(t *testing.T) {
-	for name, tc := range map[string]struct {
-		input string
-		want  [3]int
-	}{
-		"full with v": {input: "v1.2.3", want: [3]int{1, 2, 3}},
-		"full no v":   {input: "1.2.3", want: [3]int{1, 2, 3}},
-		"prerelease":  {input: "v1.2.3-alpha", want: [3]int{1, 2, 3}},
-		"build meta":  {input: "v1.2.3+001", want: [3]int{1, 2, 3}},
-		"zeros":       {input: "v0.0.0", want: [3]int{0, 0, 0}},
-		"partial":     {input: "v1.2", want: [3]int{1, 2, 0}},
-		"major only":  {input: "v1", want: [3]int{1, 0, 0}},
-		"empty":       {input: "", want: [3]int{0, 0, 0}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			got := parseSemver(tc.input)
-			require.Equal(t, tc.want, got)
-		})
-	}
 }

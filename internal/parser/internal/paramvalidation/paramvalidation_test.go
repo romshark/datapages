@@ -482,7 +482,7 @@ func f(signals struct {
 			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
-			err := ValidateSignalsStruct(info.TypeOf(p.Type), "Recv", "Method")
+			err := ValidateSignalsStruct(info.TypeOf(p.Type), "Recv", "Method", "")
 			if tt.wantErr == nil {
 				require.NoError(t, err)
 			} else {
@@ -493,7 +493,7 @@ func f(signals struct {
 
 	t.Run("resolved type not struct", func(t *testing.T) {
 		t.Parallel()
-		err := ValidateSignalsStruct(types.Typ[types.Int], "Recv", "Method")
+		err := ValidateSignalsStruct(types.Typ[types.Int], "Recv", "Method", "")
 		require.ErrorIs(
 			t, err, ErrSignalsParamNotStruct,
 		)
@@ -787,10 +787,18 @@ func f(d string) {}`,
 // the JSON kind seeded by its query field.
 func TestValidateReflectSignal(t *testing.T) {
 	sigType := namedType(t, "package test\n"+
+		"type Cents int64\n"+
+		"func (c *Cents) UnmarshalText([]byte) error { return nil }\n"+
+		"type Stamp struct{}\n"+
+		"func (s *Stamp) UnmarshalJSON([]byte) error { return nil }\n"+
+		"func (s *Stamp) UnmarshalText([]byte) error { return nil }\n"+
 		"type P struct {\n"+
 		"\tCount int `json:\"count\"`\n"+
 		"\tName  string `json:\"name\"`\n"+
 		"\tOn    bool `json:\"on\"`\n"+
+		"\tPtr   *int `json:\"ptr\"`\n"+
+		"\tCents Cents `json:\"cents\"`\n"+
+		"\tStamp Stamp `json:\"stamp\"`\n"+
 		"}")
 	queryType := func(tag string) types.Type {
 		return namedType(t, "package test\n"+
@@ -831,6 +839,19 @@ func TestValidateReflectSignal(t *testing.T) {
 			InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"count"`)),
 			InputSignals: input(sigType),
 		}},
+		"number to pointer": {handler: &model.Handler{
+			InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"ptr"`)),
+			InputSignals: input(sigType),
+		}},
+		"string to text unmarshaler": {handler: &model.Handler{
+			InputQuery:   input(queryType(`query:"search" reflectsignal:"cents"`)),
+			InputSignals: input(sigType),
+		}},
+		// UnmarshalJSON takes precedence over UnmarshalText.
+		"number to json unmarshaler": {handler: &model.Handler{
+			InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"stamp"`)),
+			InputSignals: input(sigType),
+		}},
 		"reflectsignal not in signals": {
 			handler: &model.Handler{
 				InputQuery:   input(queryType(`query:"search" reflectsignal:"missing"`)),
@@ -859,14 +880,68 @@ func TestValidateReflectSignal(t *testing.T) {
 			},
 			wantErr: ErrQueryReflectSignalTypeMismatch,
 		},
+		"number to text unmarshaler": {
+			handler: &model.Handler{
+				InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"cents"`)),
+				InputSignals: input(sigType),
+			},
+			wantErr: ErrQueryReflectSignalTypeMismatch,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := ValidateReflectSignal(td.handler, "Recv", "Method")
+			err := ValidateReflectSignal(td.handler, "Recv", "Method", "")
 			if td.wantErr == nil {
 				require.NoError(t, err)
 				return
 			}
 			require.ErrorIs(t, err, td.wantErr)
+		})
+	}
+}
+
+// TestSignalsForeignStruct tests a signals field of a struct type from another
+// module, as sql.NullString. It is 1 signal, whose fields are not the app's to
+// tag, and a reflectsignal reaches it by its own path. Package test declares
+// the type: module path example.com/m puts it outside the module, test inside.
+func TestSignalsForeignStruct(t *testing.T) {
+	t.Parallel()
+	sigType := namedType(t, "package test\n"+
+		"type NullString struct {\n\tString string\n\tValid  bool\n}\n"+
+		"type P struct {\n\tName NullString `json:\"name\"`\n}")
+	queryType := namedType(t, "package test\n"+
+		"type P struct {\n\tSearch string `query:\"s\" reflectsignal:\"name\"`\n}")
+	handler := &model.Handler{
+		InputQuery:   &model.Input{Type: model.Type{Resolved: queryType}},
+		InputSignals: &model.Input{Type: model.Type{Resolved: sigType}},
+	}
+
+	for name, tt := range map[string]struct {
+		module      string
+		wantStruct  error
+		wantReflect error
+	}{
+		"foreign": {
+			module: "example.com/m",
+			// A string seed does not decode into the struct.
+			wantReflect: ErrQueryReflectSignalTypeMismatch,
+		},
+		"own": {
+			module:      "test",
+			wantStruct:  ErrSignalsFieldMissingTag,
+			wantReflect: ErrQueryReflectSignalNotInSignals,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateSignalsStruct(sigType, "Recv", "Method", tt.module)
+			if tt.wantStruct == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantStruct)
+			}
+			require.ErrorIs(t,
+				ValidateReflectSignal(handler, "Recv", "Method", tt.module),
+				tt.wantReflect)
 		})
 	}
 }

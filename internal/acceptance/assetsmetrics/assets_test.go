@@ -3,13 +3,18 @@
 package acceptance_test
 
 import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +27,8 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/assets"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/assetcompress"
+	"github.com/romshark/datapages/modules/assetcompress/disk"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -124,6 +131,97 @@ func TestAssetsAreServed(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPageIsCompressed tests that gzip wraps the complete identity response once.
+func TestPageIsCompressed(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	plain := get(t, srv, "/")
+	defer func() { _ = plain.Body.Close() }()
+	want, err := io.ReadAll(plain.Body)
+	require.NoError(t, err, "reading the uncompressed page")
+	require.Empty(t, plain.Header.Get("Content-Encoding"))
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/", nil,
+	)
+	require.NoError(t, err, "building GET /")
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "GET /")
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
+	raw := bufio.NewReader(resp.Body)
+	zr, err := gzip.NewReader(raw)
+	require.NoError(t, err, "reading the gzip header")
+	zr.Multistream(false)
+	got, err := io.ReadAll(zr)
+	require.NoError(t, err, "decoding the page")
+	require.Equal(t, string(want), string(got))
+	_, err = raw.ReadByte()
+	require.ErrorIs(t, err, io.EOF, "the page has bytes after its gzip stream")
+}
+
+// countingStore counts the copies put into it.
+type countingStore struct {
+	assetcompress.Store
+	puts atomic.Int64
+}
+
+func (s *countingStore) Put(key string, r io.Reader) error {
+	s.puts.Add(1)
+	return s.Store.Put(key, r)
+}
+
+// TestAssetIsCompressed tests that precompressing the embed.FS passed to
+// WithAssets creates the copies the generated server sends from its
+// subdirectory.
+func TestAssetIsCompressed(t *testing.T) {
+	t.Parallel()
+	copies, err := disk.New(t.TempDir(), disk.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = copies.Close() })
+	store := &countingStore{Store: copies}
+	compressor, err := assetcompress.New(assetcompress.Config{Store: store})
+	require.NoError(t, err)
+	srv := newServer(t, datapages.WithAssetsCompression(compressor))
+	require.NoError(t, compressor.Precompress(context.Background(), app.StaticFS))
+	// Brotli and gzip copies of theme.css. The other files are below 256 bytes.
+	require.Equal(t, int64(2), store.puts.Load())
+
+	want, err := app.StaticFS.ReadFile("static/theme.css")
+	require.NoError(t, err, "reading theme.css")
+	plain := get(t, srv, href.Asset("theme.css"))
+	defer func() { _ = plain.Body.Close() }()
+	b, err := io.ReadAll(plain.Body)
+	require.NoError(t, err, "reading the uncompressed asset")
+	require.Empty(t, plain.Header.Get("Content-Encoding"))
+	require.Equal(t, string(want), string(b))
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+href.Asset("theme.css"), nil,
+	)
+	require.NoError(t, err, "building GET theme.css")
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "GET theme.css")
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
+	compressed, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading the copy")
+	require.Equal(t, strconv.Itoa(len(compressed)), resp.Header.Get("Content-Length"))
+	zr, err := gzip.NewReader(bytes.NewReader(compressed))
+	require.NoError(t, err, "reading the gzip header")
+	got, err := io.ReadAll(zr)
+	require.NoError(t, err, "decoding the copy")
+	require.Equal(t, string(want), string(got))
+	require.Equal(t, int64(2), store.puts.Load(), "the request created a copy")
 }
 
 // TestAssetsNotBrowsable tests browsable false: a request for a directory
@@ -434,8 +532,7 @@ func TestRefusedStreamStaysARequest(t *testing.T) {
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := srv.Client().Do(req)
 	require.NoError(t, err, "opening stream")
-	// 200: datastar.NewSSE writes the head before StreamOpen runs,
-	// which is why the refusal travels as an SSE error rather than a status.
+	// The stream commits 200 before StreamOpen can refuse it.
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// To EOF, not just Close: the middleware records after the handler returns,
@@ -532,6 +629,55 @@ func counterTotal(t *testing.T, name string) float64 {
 	return total
 }
 
+// TestErrorCounters tests that every error of a handler counts as not recovered,
+// since the app defines no RecoverError. A route that nothing serves is no
+// error of a handler and counts as neither.
+//
+// It doesn't call t.Parallel, because the counters are global to the process.
+// The parallel tests of the case start only after it returns.
+func TestErrorCounters(t *testing.T) {
+	srv := newServer(t)
+	tests := map[string]struct {
+		method, path string
+		notRecovered float64
+	}{
+		"action":                  {http.MethodPost, "/fail/", 1},
+		"action after its events": {http.MethodPost, "/half-written/", 1},
+		"refused stream":          {http.MethodGet, "/_$/?refuse=1", 1},
+		"route miss":              {http.MethodGet, "/nowhere/", 0},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			recovered := counterTotal(t,
+				"datapages_internal_errors_recovered_total")
+			notRecovered := counterTotal(t,
+				"datapages_internal_errors_not_recovered_total")
+
+			req, err := http.NewRequestWithContext(
+				context.Background(), tt.method, srv.URL+tt.path, nil,
+			)
+			require.NoError(t, err, "building %s %s", tt.method, tt.path)
+			req.Header.Set("Datastar-Request", "true")
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err, "%s %s", tt.method, tt.path)
+			// The response ends after the handler returns.
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err, "reading %s", tt.path)
+			_ = resp.Body.Close()
+
+			require.Zero(t,
+				counterTotal(t,
+					"datapages_internal_errors_recovered_total")-recovered,
+				"recovered")
+			require.Equal(t, tt.notRecovered,
+				counterTotal(t,
+					"datapages_internal_errors_not_recovered_total")-notRecovered,
+				"not recovered")
+		})
+	}
+}
+
 // TestMetricsWithoutOption tests a server generated with
 // datapages.EnablePrometheus and built without datapages.WithPrometheus.
 // The metrics it counts have nowhere to go.
@@ -559,7 +705,7 @@ func TestAssetsCacheHeaders(t *testing.T) {
 		wantCacheControl string
 		wantETag         bool
 	}{
-		"no option": {},
+		"no option": {wantCacheControl: "public, max-age=0", wantETag: true},
 		"default": {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
@@ -581,6 +727,8 @@ func TestAssetsCacheHeaders(t *testing.T) {
 			opts: []datapages.ServerOption{
 				datapages.WithAssetsCache(datapages.AssetsCacheConfig{Disabled: true}),
 			},
+			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -615,44 +763,53 @@ func TestAssetsCacheHeaders(t *testing.T) {
 }
 
 // TestAssetsCacheRevalidates tests that a matching If-None-Match value returns
-// 304 with an empty body.
+// 304 with an empty body for an embedded file, also without WithAssetsCache.
 func TestAssetsCacheRevalidates(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(mustNewServer(
-		t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
-		datapages.WithPrometheus(datapages.PrometheusConfig{
-			Host:       "127.0.0.1:0",
-			Registerer: registry,
-			Gatherer:   registry,
-		}),
-	))
-	t.Cleanup(srv.Close)
+	for name, opts := range map[string][]datapages.ServerOption{
+		"no option":  nil,
+		"zero value": {datapages.WithAssetsCache(datapages.AssetsCacheConfig{})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	first := get(t, srv, href.Asset("style.css"))
-	defer func() { _ = first.Body.Close() }()
-	body, err := io.ReadAll(first.Body)
-	require.NoError(t, err, "reading the stylesheet")
-	require.Equal(t, http.StatusOK, first.StatusCode)
-	require.NotEmpty(t, body)
-	etag := first.Header.Get("ETag")
-	require.NotEmpty(t, etag)
+			opts := append([]datapages.ServerOption{
+				datapages.WithAssets(app.StaticFS, false),
+				datapages.WithPrometheus(datapages.PrometheusConfig{
+					Host:       "127.0.0.1:0",
+					Registerer: registry,
+					Gatherer:   registry,
+				}),
+			}, opts...)
+			srv := httptest.NewServer(mustNewServer(
+				t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), opts...,
+			))
+			t.Cleanup(srv.Close)
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
-	)
-	require.NoError(t, err)
-	req.Header.Set("If-None-Match", etag)
-	second, err := srv.Client().Do(req)
-	require.NoError(t, err)
-	defer func() { _ = second.Body.Close() }()
-	body, err = io.ReadAll(second.Body)
-	require.NoError(t, err)
+			first := get(t, srv, href.Asset("style.css"))
+			defer func() { _ = first.Body.Close() }()
+			body, err := io.ReadAll(first.Body)
+			require.NoError(t, err, "reading the stylesheet")
+			require.Equal(t, http.StatusOK, first.StatusCode)
+			require.NotEmpty(t, body)
+			etag := first.Header.Get("ETag")
+			require.NotEmpty(t, etag)
 
-	require.Equal(t, http.StatusNotModified, second.StatusCode)
-	require.Empty(t, body)
-	require.Equal(t, etag, second.Header.Get("ETag"))
+			req, err := http.NewRequestWithContext(
+				context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
+			)
+			require.NoError(t, err)
+			req.Header.Set("If-None-Match", etag)
+			second, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			defer func() { _ = second.Body.Close() }()
+			body, err = io.ReadAll(second.Body)
+			require.NoError(t, err)
+
+			require.Equal(t, http.StatusNotModified, second.StatusCode)
+			require.Empty(t, body)
+			require.Equal(t, etag, second.Header.Get("ETag"))
+		})
+	}
 }

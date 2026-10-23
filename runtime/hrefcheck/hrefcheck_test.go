@@ -35,7 +35,18 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 		"bare_relative_path": {input: "foo/bar", want: false},
 		"javascript":         {input: "javascript:void(0)", want: false},
 		"javascript_upper":   {input: "JavaScript:void(0)", want: false},
+		// RFC 3986 section 3.1 starts a scheme with a letter. A URL that starts
+		// with anything else has no scheme, and its ':' is part of a relative path.
+		"leading_digit": {input: "1abc:x", want: false},
+		"leading_plus":  {input: "+abc:x", want: false},
+		"leading_dash":  {input: "-abc:x", want: false},
+		"leading_dot":   {input: ".abc:x", want: false},
+		"leading_colon": {input: ":x", want: false},
 
+		"scheme_digit":        {input: "s3://bucket/key", want: true},
+		"scheme_plus":         {input: "svn+ssh://host/repo", want: true},
+		"scheme_dash":         {input: "chrome-extension://id/page.html", want: true},
+		"scheme_dot":          {input: "com.example.app:/callback", want: true},
 		"fragment":            {input: "#section", want: true},
 		"fragment_empty":      {input: "#", want: true},
 		"fragment_with_query": {input: "#frag?query=param", want: true},

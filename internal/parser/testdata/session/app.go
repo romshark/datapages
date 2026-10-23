@@ -67,7 +67,7 @@ func (PageProfile) POSTNotify(
 }
 
 // Event handler with session.
-func (PageProfile) OnEventPing(
+func (PageProfile) OnPing(
 	event EventPing,
 	sse datapages.SSE,
 	session Session,
@@ -102,7 +102,7 @@ func (PageSettings) POSTClose(
 }
 
 // Event handler with session.
-func (PageSettings) OnEventPing(
+func (PageSettings) OnPing(
 	event EventPing,
 	sse datapages.SSE,
 	session Session,

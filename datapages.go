@@ -163,8 +163,8 @@ type State[Values any] struct{ Values *Values }
 //	}
 //
 // It pairs the 2 hooks for the same stream. 1 session can hold several streams,
-// 1 per open tab, and the ID is what tells them apart: register per-tab state under
-// it in StreamOpen, read that state in the OnXXX handlers,
+// 1 per open tab, and the ID is what tells them apart: register per-tab state
+// under it in StreamOpen, read that state in the OnXXX handlers,
 // and drop it in StreamClose. It also ties the log lines of 1 stream together.
 //
 // A StreamOpen that returns an error or panics gets no StreamClose.
@@ -218,11 +218,30 @@ type EnableBackgroundStreaming bool
 // Only a page that has a stream refreshes and may return it.
 type DisableRefreshAfterHidden bool
 
+// StreamConfig configures a page's SSE stream, or an action's SSE response.
+// Only a page with a stream may declare the StreamConfig method.
+// A page or App configures its action XXX with StreamConfigXXX.
+//
+// A parameterless method returns StreamConfig during [NewServer].
+// An invalid configuration fails [NewServer]. A method taking *http.Request returns
+// (StreamConfig, error) before each stream and may also take the session,
+// path and signals. Its error or an invalid configuration fails the request.
+// An action's method runs before the action and takes its path and signals.
+//
+// Per-request methods should return a bounded set of configurations.
+// Encoders are shared for at most 64 distinct configurations.
+type StreamConfig struct {
+	// Compression replaces the [WithSSECompression] configuration.
+	// Its zero fields select the defaults, not the server's values.
+	// Nil uses the server configuration.
+	Compression *SSECompressionConfig
+}
+
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //
-// Data carries whatever the application needs to keep for the duration of the
-// session, use struct{} when it needs nothing:
+// Data carries whatever the application needs to keep for the duration
+// of the session, use struct{} when it needs nothing:
 //
 //	func (p PageIndex) GET(
 //		r *http.Request, session datapages.Session[struct{}],
@@ -362,6 +381,13 @@ type Redirect struct {
 // and with ModTime or ETag the conditional requests
 // [If-Modified-Since], [If-None-Match], [If-Match] and [If-Range].
 //
+// [WithResponseCompression] leaves a File unchanged to preserve [Content-Length],
+// ranges and its ETag. To reduce transfer size, serve a precompressed archive
+// such as export.csv.gz with Type application/gzip, or negotiate [Accept-Encoding]
+// and set [Content-Encoding] in Header.
+// Each representation needs its own ETag and Vary: Accept-Encoding.
+// Ranges then address encoded bytes, and ServeContent omits Content-Length.
+//
 // A handler that takes a [Session] sends [Vary]: Cookie, which keeps a browser
 // from showing one visitor the copy it stored for another. A shared cache, such
 // as a CDN, then stores 1 copy per cookie: serve a file that is the same for
@@ -389,6 +415,9 @@ type Redirect struct {
 // [If-None-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match
 // [If-Match]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match
 // [If-Range]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Range
+// [Accept-Encoding]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Accept-Encoding
+// [Content-Encoding]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Encoding
+// [Content-Length]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Length
 // [Vary]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary
 // [X-Content-Type-Options]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options
 // [MIME sniffing]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types#mime_sniffing
@@ -531,9 +560,10 @@ type FileDisposition struct {
 	Filename string
 }
 
-// PanicError is the error a recovered panic is reported as.
-// A handler that panics reaches RecoverError and the error page through it,
-// the way a handler that returns an error does.
+// PanicError reports a recovered handler panic. A panic in GET, an action,
+// request-scoped StreamConfig or StreamOpen follows the returned-error path to
+// RecoverError or the error page. An OnXXX panic also reaches RecoverError.
+// A StreamClose panic is only logged.
 type PanicError struct {
 	// Value is what the panic carried.
 	Value any
@@ -888,6 +918,7 @@ const (
 // PageCacheWriter writes to the client's service worker cache. It is passed
 // to GET page methods and action methods as the pageCache parameter. Writes
 // are deferred and applied atomically once the handler returns without error.
+// A GET that redirects a page load drops them.
 type PageCacheWriter interface {
 	// Version returns the cached version of the current request's URL.
 	// It returns 0 when the URL is not cached.

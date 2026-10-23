@@ -12,13 +12,20 @@ import (
 )
 
 // attrSafe reports whether s can sit inside a double quoted HTML attribute
-// without ending it, and inside a single quoted JavaScript string
-// after the browser decoded the attribute.
+// without ending it.
 func attrSafe(t *testing.T, s string) {
 	t.Helper()
 	require.NotContains(t, s, `"`, "ends the attribute")
 	require.NotContains(t, s, "<", "opens a tag")
 	require.NotContains(t, s, ">", "closes a tag")
+}
+
+// jsStringSafe reports whether s can sit inside a double quoted HTML attribute
+// without ending it, and inside a single quoted JavaScript string
+// after the browser decoded the attribute.
+func jsStringSafe(t *testing.T, s string) {
+	t.Helper()
+	attrSafe(t, s)
 
 	// The attribute reaches Datastar decoded, where the value sits in
 	// a single quoted string. Every quote of it must be escaped.
@@ -58,7 +65,7 @@ func TestWritePathValue(t *testing.T) {
 			t.Parallel()
 			var b strings.Builder
 			htmlattr.WritePathValue(&b, v)
-			attrSafe(t, b.String())
+			jsStringSafe(t, b.String())
 
 			// The value survives the round trip a browser makes of it.
 			unescaped, err := url.PathUnescape(html.UnescapeString(b.String()))
@@ -87,7 +94,32 @@ func TestWriteSignalString(t *testing.T) {
 			t.Parallel()
 			var b strings.Builder
 			htmlattr.WriteSignalString(&b, v)
+			jsStringSafe(t, b.String())
+		})
+	}
+}
+
+// TestWriteSignalValue tests a number or a bool written unquoted into
+// a data-signals attribute. It must not end the attribute, and the browser
+// has to decode it back to the JavaScript literal it started as.
+func TestWriteSignalValue(t *testing.T) {
+	t.Parallel()
+
+	for name, v := range map[string]string{
+		"int":    "-42",
+		"float":  "-0.25",
+		"true":   "true",
+		"false":  "false",
+		"quote":  `a"b`,
+		"tag":    "<script>",
+		"entity": "&amp;",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var b strings.Builder
+			htmlattr.WriteSignalValue(&b, v)
 			attrSafe(t, b.String())
+			require.Equal(t, v, html.UnescapeString(b.String()))
 		})
 	}
 }
@@ -100,7 +132,7 @@ func FuzzWritePathValue(f *testing.F) {
 	f.Fuzz(func(t *testing.T, v string) {
 		var b strings.Builder
 		htmlattr.WritePathValue(&b, v)
-		attrSafe(t, b.String())
+		jsStringSafe(t, b.String())
 
 		unescaped, err := url.PathUnescape(html.UnescapeString(b.String()))
 		require.NoError(t, err)
@@ -116,6 +148,19 @@ func FuzzWriteSignalString(f *testing.F) {
 	f.Fuzz(func(t *testing.T, v string) {
 		var b strings.Builder
 		htmlattr.WriteSignalString(&b, v)
+		jsStringSafe(t, b.String())
+	})
+}
+
+// FuzzWriteSignalValue tests the attribute safety and the round trip over arbitrary input.
+func FuzzWriteSignalValue(f *testing.F) {
+	for _, seed := range []string{"-42", "-0.25", "true", `a"b`, "<script>", "&amp;"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, v string) {
+		var b strings.Builder
+		htmlattr.WriteSignalValue(&b, v)
 		attrSafe(t, b.String())
+		require.Equal(t, v, html.UnescapeString(b.String()))
 	})
 }

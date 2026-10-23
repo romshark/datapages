@@ -6,11 +6,23 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
-	"github.com/romshark/datapages/internal/parser/internal/urlpath"
+	"github.com/romshark/datapages/internal/parser/validate"
+	"github.com/romshark/datapages/internal/subject"
 )
+
+// queryKeyOf replaces each character a query tag may not contain with '_'.
+func queryKeyOf(tag string) string {
+	return strings.Map(func(r rune) rune {
+		if r < utf8.RuneSelf && validate.IsQueryKeyChar(byte(r)) {
+			return r
+		}
+		return '_'
+	}, tag)
+}
 
 // toSnakeCase converts a PascalCase or camelCase Go identifier to snake_case.
 // Examples:
@@ -52,11 +64,12 @@ func toSnakeCase(s string) string {
 //   - ErrSignatureMultiErrRet: message states to remove the duplicate
 //   - ErrSignatureEvHandReturnMustBeError: message names the required return type
 //   - ErrPageHasExtraFields: message states to remove the fields
-//   - ErrPageConflictingGETEmbed: message names the conflicting embedded types
 //   - ErrPageAmbiguousEmbed: message identifies the page and the method
 //   - ErrPageNameInvalid: naming rule is clear from valid examples
 //   - ErrAppUnsupportedMethod: message names what App takes
+//   - ErrStreamEmbedUnsupportedMethod: message names what a stream embed takes
 //   - ErrPageNotStruct: message names the required type form
+//   - ErrAppDirMissing: the CLI checks the directory first and gives the fix
 //   - ErrTypeParams: message names the type and what it may not have
 //   - ErrActionNameMissing: message states a name is required
 //   - ErrActionNameInvalid: naming rule is clear from valid examples
@@ -83,7 +96,6 @@ func toSnakeCase(s string) string {
 //   - ErrSignalsFieldUnexported: fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag: message names the duplicate value
 //   - ErrDispatchParamNotEvent: constraint is clear from message
-//   - ErrSessionParamNotSessionType: constraint is clear from message
 //   - ErrSessionTypeConflict: the message names both instantiations
 //   - ErrNewSessionWithSSE: message states the mutual exclusion
 //   - ErrCloseSessionWithSSE: message states the mutual exclusion
@@ -91,13 +103,16 @@ func toSnakeCase(s string) string {
 //   - ErrSSEOnGET: message states where sse is not allowed
 //   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
 //   - ErrDisableRefreshNotGET: message states it must be in a GET handler
+//   - ErrStreamConfigSignature: message names the 2 accepted signatures
+//   - ErrStreamConfigNoStream: message names what gives a page a stream
+//   - ErrActionStreamConfigNoAction: message names the actions the type declares
+//   - ErrActionStreamConfigNoStream: message names what gives an action a stream
+//   - ErrActionStreamConfigInput: message states the constraint
 //   - ErrGETActionInput: message names the parameters a GET action takes
 //   - ErrGETActionNameConflict: message names both GET actions
 //   - ErrFileWithOutput: message states what may be returned with the file
 //   - ErrFileWithSSE: message states the mutual exclusion
 //   - ErrFileWithPageCache: message states the mutual exclusion
-//   - ErrEventSubjectUserNoSession: has a dedicated suggestion
-//   - ErrEventSubjectAfterPayload: has a dedicated suggestion
 func Suggest(err error) string {
 	switch {
 	case errors.Is(err, parser.ErrAppMissingTypeApp):
@@ -150,6 +165,18 @@ func Suggest(err error) string {
 		return fmt.Sprintf("fix: Take the event as `%s`, not `*%s`",
 			d.EventType, d.EventType)
 
+	case errors.Is(err, parser.ErrBuildConstrainedFile):
+		return "fix: Move the file to another package, or remove its //go:build line " +
+			"and the operating system or architecture its name ends in"
+
+	case errors.Is(err, parser.ErrEvHandNameMismatch):
+		var d *parser.EvHandNameMismatchError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Rename %s.%s to On%s",
+			d.Recv, d.MethodName, strings.TrimPrefix(d.EventType, "Event"))
+
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.PageMissingFieldAppError
 		if !errors.As(err, &d) {
@@ -173,22 +200,16 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		suffix := methodPathSuffix(d.MethodName)
-		base := "/"
-		if d.PagePath != "" && d.PagePath != "/" {
-			base = urlpath.Clean(d.PagePath) + "/"
-		}
-		path := base + suffix
-		return fmt.Sprintf("fix: Add `// %s is %s`", d.MethodName, path)
+		return fmt.Sprintf("fix: Add `// %s is %s`",
+			d.MethodName, actionPath(d.PagePath, d.Recv, d.MethodName))
 
 	case errors.Is(err, parser.ErrActionPathNotUnderPage):
 		var d *parser.ActionPathNotUnderPageError
 		if !errors.As(err, &d) {
 			return ""
 		}
-		suffix := methodPathSuffix(d.MethodName)
-		path := urlpath.Clean(d.PagePath) + "/" + suffix
-		return fmt.Sprintf("fix: Use `// %s is %s`", d.MethodName, path)
+		return fmt.Sprintf("fix: Use `// %s is %s`",
+			d.MethodName, actionPath(d.PagePath, d.Recv, d.MethodName))
 
 	case errors.Is(err, parser.ErrRouteWildcardStream):
 		var d *parser.RouteWildcardStreamError
@@ -233,7 +254,8 @@ func Suggest(err error) string {
 		}
 		recv := strings.ToLower(string(d.TypeName[0]))
 		return fmt.Sprintf(
-			"fix: Add `func (%s %s) GET(r *http.Request) (body datapages.Component, err error) { return nil, nil }`",
+			"fix: Add `func (%s %s) GET(r *http.Request) "+
+				"(body datapages.Component, err error) { return nil, nil }`",
 			recv, d.TypeName,
 		)
 
@@ -254,12 +276,10 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		suffix := methodPathSuffix(d.MethodName)
-		path := pageTypePath(d.Recv) + suffix
 		return fmt.Sprintf(
 			"fix: First doc comment line must be `// %s is %s`; "+
 				"put a blank `//` line before any description",
-			d.MethodName, path,
+			d.MethodName, actionPath(d.PagePath, d.Recv, d.MethodName),
 		)
 
 	case errors.Is(err, parser.ErrRouteVarNameInvalid):
@@ -288,7 +308,12 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		return fmt.Sprintf(`fix: Add `+"`"+`// %s is "subject"`+"`"+` as the first doc comment line`, d.TypeName)
+		return fmt.Sprintf(`fix: Add `+
+			"`"+
+			`// %s is "subject"`+
+			"`"+
+			` as the first doc comment line`,
+			d.TypeName)
 
 	case errors.Is(err, parser.ErrEventCommInvalid):
 		var d *parser.EventCommInvalidError
@@ -335,6 +360,14 @@ func Suggest(err error) string {
 			"fix: Add a non-empty name to the query tag of field %s, e.g. `query:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName),
 		)
+
+	case errors.Is(err, parser.ErrQueryFieldInvalidTag):
+		var d *paramvalidation.QueryFieldInvalidTagError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Rename the query tag of field %s, e.g. `query:\"%s\"`",
+			d.FieldName, queryKeyOf(d.TagValue))
 
 	case errors.Is(err, parser.ErrSignalsFieldMissingTag):
 		var d *paramvalidation.SignalsFieldMissingTagError
@@ -394,9 +427,19 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
+		// The error holds the 2 events in the order the parser read them.
+		// [subject.Claim.Overlaps] finds 2 different subjects overlapping only
+		// when one of them starts with the prefix of the other, whose event has
+		// subject fields and occupies everything below its subject.
+		owner, other, prefix := d.FirstTypeName, d.TypeName,
+			subject.Prefix(d.FirstSubject)
+		if p := subject.Prefix(d.Subject); strings.HasPrefix(d.FirstSubject, p) {
+			owner, other, prefix = d.TypeName, d.FirstTypeName, p
+		}
 		return fmt.Sprintf(
-			"fix: Give %s a subject outside %q, which %s occupies with its subject fields",
-			d.TypeName, d.FirstSubject+".", d.FirstTypeName,
+			"fix: Give %s a subject outside %q, "+
+				"which %s occupies with its subject fields",
+			other, prefix, owner,
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectDuplicateSignal):
@@ -410,7 +453,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectUserSignal):
-		return "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
+		return "fix: Remove the signal tag: a datapages.SubjectUser field" +
 			" is always bound to the authenticated user's ID"
 
 	case errors.Is(err, parser.ErrEventSubjectUserDuplicate):
@@ -423,8 +466,8 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			"fix: Type %s in %s as datapages.Subject, .Subjects, .SubjectUser or"+
-				" .SubjectUsers, or rename it if it's a payload field",
+			"fix: Type %s in %s as datapages.Subject, .SubjectUser or"+
+				" .SubjectStateID, or rename it if it's a payload field",
 			d.FieldName, d.TypeName,
 		)
 
@@ -454,7 +497,8 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			"fix: Use a valid signal name for %s in %s (must start with a lowercase letter, then lowercase/digits/underscores/dots)",
+			"fix: Use a signal path for %s in %s whose period-separated segments "+
+				"each match [A-Za-z_][A-Za-z0-9_]* and contain no __",
 			d.FieldName, d.TypeName,
 		)
 
@@ -520,8 +564,9 @@ func Suggest(err error) string {
 				fn, d.URL)
 		}
 		return fmt.Sprintf(
-			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } from the generated action package "+
-				"instead of %q", d.URL,
+			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } "+
+				"from the generated action package instead of %q",
+			d.URL,
 		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiableWithPrefix):
@@ -552,8 +597,9 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } from the generated action package "+
-				"instead of %q", d.Expr,
+			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } "+
+				"from the generated action package instead of %q",
+			d.Expr,
 		)
 
 	case errors.Is(err, parser.ErrTemplFormAction):
@@ -567,7 +613,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: href.%s() returns a URL path, not a Datastar action — "+
-				"use action.<Owner>.<Name>.<METHOD>(...) from the generated action package instead",
+				"use action.<Owner>.<Name>.<METHOD>(...) "+
+				"from the generated action package instead",
 			d.HrefFunc,
 		)
 
@@ -625,7 +672,7 @@ func Suggest(err error) string {
 
 	case errors.Is(err, parser.ErrStateConflict):
 		return "fix: Reference 1 state type from every handler of the page, " +
-			"the handlers of embedded abstract pages included"
+			"the handlers of stream embeds included"
 
 	case errors.Is(err, parser.ErrStateAppActionUnbound):
 		return "fix: Bind the state type on a page, " +
@@ -654,6 +701,17 @@ func pageTypePath(typeName string) string {
 		return "/"
 	}
 	return "/" + strings.ToLower(suffix) + "/"
+}
+
+// actionPath derives a suggested route for the action method of recv below pagePath,
+// the route of its page. "/user/{name}" and "POSTFollow" -> "/user/{name}/follow".
+// A pagePath that is empty or does not start with "/" is replaced with the route
+// [pageTypePath] suggests for recv, which is "/" for App.
+func actionPath(pagePath, recv, method string) string {
+	if !strings.HasPrefix(pagePath, "/") {
+		pagePath = pageTypePath(recv)
+	}
+	return strings.TrimRight(pagePath, "/") + "/" + methodPathSuffix(method)
 }
 
 // removeRouteEnd suggests removing the {$} or {name...} wildcard a page route

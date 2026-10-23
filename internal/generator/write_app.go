@@ -53,8 +53,11 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 		w.writeAppHandleStreamRequest()
 	}
 	w.writeRecoverPanic(m)
+	if w.usage.streamConfig {
+		w.writeCallStreamConfig()
+	}
 	w.writeAppServerStruct(m, appPkg)
-	w.writeAppInit(appPkg)
+	w.writeAppInit(m, appPkg)
 	w.writeEventSubjectConsts(m.Events)
 	w.writeMessageBrokerStreamSubjects(m.Events)
 	w.writeEvSubjPageFuncs(m.Pages)
@@ -208,7 +211,6 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.Line(1, `"github.com/romshark/datapages/runtime/prom"`)
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus/promhttp"`)
 	}
-	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
 	w.Line(0, ")")
 }
 
@@ -216,15 +218,13 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 // SSE, HTML and redirect delivery paths into the application package.
 func (w *Writer) writePageCache(m *model.App) {
 	w.Raw(`
-func newPageCache(
-	w http.ResponseWriter, s *Server, r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
-) *pageCacheWriter {
+// newPageCache adds Vary before an event stream sends the response head.
+func newPageCache(w http.ResponseWriter, s *Server, r *http.Request) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
 	// one client's page and its embedded cache write to another.
 	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
-	return &pageCacheWriter{s: s, r: r, sse: sse}
+	return &pageCacheWriter{s: s, r: r}
 }
 
 // pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
@@ -241,7 +241,11 @@ func (p *pageCacheBuf) Header() http.Header {
 	return p.h
 }
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
-func (p *pageCacheBuf) WriteHeader(int)             {}
+
+// WriteString takes the strings writeHTML writes the document frame with,
+// which [io.WriteString] copies into a new slice for a writer without it.
+func (p *pageCacheBuf) WriteString(s string) (int, error) { return p.b.WriteString(s) }
+func (p *pageCacheBuf) WriteHeader(int)                   {}
 `)
 	// 1 cached document serves every visitor, so pageCacheHead uses no session.
 	w.Raw("\nfunc (s *Server) pageCacheHead(r *http.Request) datapages.Head {\n\treturn ")
@@ -254,10 +258,8 @@ func (p *pageCacheBuf) WriteHeader(int)             {}
 	}
 	w.Raw(`
 type pageCacheWriter struct {
-	s *Server
-	r *http.Request
-	// sse is nil, unless the handler takes [datapages.SSE].
-	sse      *datastar.ServerSentEventGenerator
+	s        *Server
+	r        *http.Request
 	clearAll bool
 	sets     []pageCachePendingSet
 	clears   []string
@@ -298,7 +300,8 @@ func (c *pageCacheWriter) ClearAll() { c.clearAll = true }
 type pageCacheEntry struct {
 	URL     string ` + "`json:\"url\"`" + `
 	HTML    string ` + "`json:\"html\"`" + `
-	Version uint64 ` + "`json:\"version\"`" + `
+	// A string, since JS rounds numbers above 2^53.
+	Version uint64 ` + "`json:\"version,string\"`" + `
 	Shim    bool   ` + "`json:\"shim,omitempty\"`" + `
 }
 
@@ -376,28 +379,40 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-func (c *pageCacheWriter) flush() error {
-	if c.sse == nil {
-		return nil
+// flush sends queued writes on a handler's stream. Render errors are logged.
+func (c *pageCacheWriter) flush(sse *dpsse.Stream) {
+	payload := c.loggedPayload()
+	if payload == "" {
+		return
 	}
-	payload, err := c.payload()
-	if err != nil || payload == "" {
-		return err
-	}
-	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // flushToNewStream answers with an SSE stream carrying the queued writes, for a
 // handler that takes no stream of its own. The stream opens once the handler has
 // returned and the writes are rendered: the cookie of a session output then goes
 // out with its headers, and a panic in a rendered body still gets a status.
-func (c *pageCacheWriter) flushToNewStream(w http.ResponseWriter) error {
-	payload, err := c.payload()
-	sse := datastar.NewSSE(w, c.r, datastar.WithCompression())
-	if err != nil || payload == "" {
-		return err
+// compression is the handler's StreamConfig, or the server's setting.
+func (c *pageCacheWriter) flushToNewStream(
+	w http.ResponseWriter, compression *dpsse.Compression,
+) {
+	payload := c.loggedPayload()
+	sse := dpsse.Open(w, c.r, compression)
+	defer sse.Close()
+	if payload == "" {
+		return
 	}
-	return sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+	_ = sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// loggedPayload returns the payload and logs render errors.
+func (c *pageCacheWriter) loggedPayload() string {
+	payload, err := c.payload()
+	if err != nil {
+		c.s.LogErr("rendering page cache writes", err)
+		return ""
+	}
+	return payload
 }
 
 // embedInto returns body followed by the queued writes as a <script>, which the
@@ -413,11 +428,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 				return err
 			}
 		}
-		payload, err := c.payload()
-		if err != nil {
-			c.s.LogErr("rendering page cache writes", err)
-			return nil
-		}
+		payload := c.loggedPayload()
 		if payload == "" {
 			return nil
 		}
@@ -427,31 +438,25 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
 			return err
 		}
-		_, err = io.WriteString(w, "</script>")
+		_, err := io.WriteString(w, "</script>")
 		return err
 	})
 }
 
-// redirectScript returns JavaScript that sends queued writes to the worker and
-// then navigates to target. Redirect actions return this JavaScript instead of
-// an SSE stream.
+// redirectScript sends queued writes to the worker, then navigates to target.
+// It logs and omits a payload that fails to render.
 //
 // Navigation waits for the worker to apply the writes because that worker also
 // serves the destination. The 500ms timeout supports older workers that do not
 // acknowledge the message.
-func (c *pageCacheWriter) redirectScript(target string) (string, error) {
-	tj, err := json.Marshal(target)
-	if err != nil {
-		return "", err
-	}
+func (c *pageCacheWriter) redirectScript(target string) string {
+	// Marshaling a string cannot fail.
+	tj, _ := json.Marshal(target)
 	nav := "window.location=" + string(tj) + ";"
 
-	payload, err := c.payload()
-	if err != nil {
-		return "", err
-	}
+	payload := c.loggedPayload()
 	if payload == "" {
-		return nav, nil
+		return nav
 	}
 
 	var b strings.Builder
@@ -466,7 +471,7 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	b.WriteString("w.postMessage(")
 	b.WriteString(payload)
 	b.WriteString(",[ch.port2]);},once);setTimeout(once,500);})();")
-	return b.String(), nil
+	return b.String()
 }
 `)
 }
@@ -593,11 +598,7 @@ func httpRedirectOffline(
 
 	if httpserve.IsDatastarRequest(r.Header) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		js, err := oc.redirectScript(redirect.URL)
-		if err != nil {
-			js = fmt.Sprintf("window.location = %q;", redirect.URL)
-		}
-		_, _ = w.Write([]byte(js))
+		_, _ = io.WriteString(w, oc.redirectScript(redirect.URL))
 		return true
 	}
 
@@ -621,9 +622,9 @@ func httpRedirectOffline(
 func (w *Writer) writeAppHandleStreamRequest() {
 	w.Raw(`
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,`)
+	w http.ResponseWriter, r *http.Request, compression *dpsse.Compression,`)
 	if w.usage.streamAuth {
-		w.Raw(` sessKey string, sess `)
+		w.Raw("\n\tsessKey string, sess ")
 		w.Raw(w.sessionType)
 		w.Raw(`,`)
 	}
@@ -631,22 +632,24 @@ func (s *Server) handleStreamRequest(
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 	) error,
 	onClose func(streamID datapages.StreamID),
 	fn func(
 		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
+		sse *dpsse.Stream,
 		ch <-chan messaging.Message,
 	),
 ) {
-	s.streams.Handle(w, r, `)
+	s.streams.Handle(w, r, compression,
+		`)
 	if w.usage.streamAuth {
 		w.Raw(`sessKey, sess.UserID(), sess.ExpiresAt()`)
 	} else {
 		w.Raw(`"", "", time.Time{}`)
 	}
-	w.Raw(`, subjects, onOpen, onClose, fn)
+	w.Raw(`,
+		subjects, onOpen, onClose, fn)
 }
 `)
 }
@@ -663,6 +666,14 @@ type Server struct {
 	if w.usage.stream {
 		w.Raw(`	streams              *stream.Handler
 `)
+		for _, p := range m.Pages {
+			if p.StreamConfig != nil && !streamConfigPerStream(p) && pageHasStream(p) {
+				w.Linef(1, "%s *dpsse.Compression", streamCompressionField(p))
+			}
+		}
+	}
+	for _, a := range staticActionStreamConfigs(m) {
+		w.Linef(1, "%s *dpsse.Compression", actionStreamCompressionField(a.owner, a.h))
 	}
 	w.Raw(`	app                  *`)
 	w.Raw(appPkg)
@@ -688,16 +699,60 @@ type Server struct {
 `)
 }
 
-func (w *Writer) writeAppInit(appPkg string) {
+// writeStreamConfigs emits parameterless StreamConfig calls into Init.
+func (w *Writer) writeStreamConfigs(m *model.App, appPkg string) {
+	for _, p := range m.Pages {
+		if p.StreamConfig == nil || streamConfigPerStream(p) || !pageHasStream(p) {
+			continue
+		}
+		w.Raw("\t{\n\t\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+		w.Linef(2, "s.%s, err = s.StreamCompression(p.StreamConfig(), nil)",
+			streamCompressionField(p))
+		w.Line(2, "if err != nil {")
+		w.Linef(3, `return fmt.Errorf("%s.StreamConfig: %%w", err)`, p.TypeName)
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
+}
+
+// writeActionStreamConfigs emits the static StreamConfig calls of actions into
+// Init, which an app without page streams needs too.
+func (w *Writer) writeActionStreamConfigs(m *model.App, appPkg string) {
+	for _, a := range staticActionStreamConfigs(m) {
+		method := "StreamConfig" + a.h.HTTPMethod + a.h.Name
+		field := actionStreamCompressionField(a.owner, a.h)
+		if a.page == nil {
+			w.Linef(1, "s.%s, err = s.StreamCompression(s.app.%s(), nil)", field, method)
+			w.Line(1, "if err != nil {")
+			w.Linef(2, `return fmt.Errorf("App.%s: %%w", err)`, method)
+			w.Line(1, "}")
+			continue
+		}
+		w.Raw("\t{\n\t\tp := ")
+		w.writePageConstructor(a.page, appPkg)
+		w.Byte('\n')
+		w.Linef(2, "s.%s, err = s.StreamCompression(p.%s(), nil)", field, method)
+		w.Line(2, "if err != nil {")
+		w.Linef(3, `return fmt.Errorf("%s.%s: %%w", err)`, a.owner, method)
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
+}
+
+func (w *Writer) writeAppInit(m *model.App, appPkg string) {
 	w.Raw(`
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
 //	s, err := datapages.NewServer[`)
-	w.Raw(appPkg)
+	// The call is in the application's code, which names a package as it
+	// declares itself rather than by the alias app_gen.go imports it under.
+	w.Raw(m.PkgName)
 	w.Raw(`.App, `)
 	if w.usage.hasSession {
-		w.Raw(w.sessionDataType)
+		w.Raw(types.TypeString(m.Session.Data.Resolved, (*types.Package).Name))
 	} else {
 		w.Raw(`datapages.DisableSessions`)
 	}
@@ -753,7 +808,7 @@ func (s *Server) Init(
 	if !w.usage.hasSession {
 		w.Raw(`	if sessionManager != nil {
 		return errors.New("unexpected option WithSessionManager: package `)
-		w.Raw(appPkg)
+		w.Raw(m.PkgName)
 		w.Raw(` declares no session type")
 	}
 `)
@@ -843,10 +898,14 @@ func (s *Server) Init(
 			w.Raw(`		nil,
 `)
 		}
-		w.Raw(`		s.httpErrIntern,
+		// With RecoverError, httpErrIntern answers a Datastar request on a stream.
+		w.Rawf(`		s.httpErrIntern,
+		%t,
 	)
-`)
+`, m.RecoverError != nil)
+		w.writeStreamConfigs(m, appPkg)
 	}
+	w.writeActionStreamConfigs(m, appPkg)
 	w.Raw(`
 	setupHandlers(s)
 `)
@@ -1405,6 +1464,15 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	w.Line(0, "}")
 }
 
+// writeNotRecovered emits the count of an error RecoverError doesn't handle.
+// Every path of the error helpers counts its error once, as recovered only
+// where RecoverError returns nil.
+func (w *Writer) writeNotRecovered(indent int) {
+	if w.prometheus {
+		w.Line(indent, "prom.InternalErrorNotRecovered()")
+	}
+}
+
 func (w *Writer) writeHTTPErrFallback() { w.writeHTTPErrFallbackAt(1) }
 
 // writeHTTPErrFallbackAt emits [httpserve.WriteErrStatus] at indent.
@@ -1468,6 +1536,7 @@ func (w *Writer) writeAppErrHelpers(m *model.App) {
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
 `)
+		w.writeNotRecovered(1)
 		w.writeHTTPErrFallback()
 		w.Raw(`}
 `)
@@ -1489,6 +1558,7 @@ func (s *Server) httpErr404(
 	}
 	s.LogErr(msg, err)
 `)
+		w.writeNotRecovered(1)
 		w.writeHTTPErrFallback()
 		w.Raw(`}
 `)
@@ -1502,13 +1572,19 @@ func (s *Server) httpErr404(
 	w.Rawf(`
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, %s,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 `, reqParam)
+	if !hasRecover {
+		w.writeNotRecovered(1)
+	}
 	if hasPage || hasRecover {
 		w.Raw(`	if !httpserve.IsDatastarRequest(r.Header) {
 `)
+		if hasRecover {
+			w.writeNotRecovered(2)
+		}
 		if hasPage {
 			w.Raw(`		if httpserve.ResponseBodyWritten(w) {
 			// An error page after a half-written one sends 2 documents.
@@ -1541,21 +1617,17 @@ func (s *Server) httpErrIntern(
 	}
 	if hasRecover {
 		w.Raw(`	if sse == nil {
-		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
-		sse = datastar.NewSSE(w, r, datastar.WithCompression())
-	}
-	errRecover := s.app.RecoverError(`)
-		for i, kind := range m.RecoverError.OrderedInputs {
-			if i > 0 {
-				w.Raw(", ")
-			}
-			if kind == model.InputKindSSE {
-				w.Raw("dpsse.New(sse)")
-			} else {
-				w.Raw("err")
-			}
+		if httpserve.ResponseBodyWritten(w) {
+`)
+		w.writeNotRecovered(3)
+		w.Raw(`			// Events after a half-written response would land in its body.
+			return
 		}
-		w.Raw(`)
+		// [httpserve.Core.OpenSSE] commits HTTP 200 before recovery runs.
+		sse = s.OpenSSE(w, r)
+		defer sse.Close()
+	}
+	errRecover := s.callRecoverError(sse, err)
 	if errRecover == nil {
 `)
 		if w.prometheus {
@@ -1565,10 +1637,7 @@ func (s *Server) httpErrIntern(
 		w.Raw(`		return
 	}
 `)
-		if w.prometheus {
-			w.Raw(`	prom.InternalErrorNotRecovered()
-`)
-		}
+		w.writeNotRecovered(1)
 		w.Raw(`	// An HTTP error here would append plain text to the open SSE stream.
 	s.Logger().Error("recovering error",
 		slog.Any("orig.msg", msg),
@@ -1576,8 +1645,7 @@ func (s *Server) httpErrIntern(
 		slog.Any("err", errRecover))
 `)
 	} else {
-		// datastar.NewSSE sent the 200 and the headers without a body byte,
-		// which ResponseBodyWritten cannot see.
+		// ResponseBodyWritten cannot see the headers sent by OpenSSE.
 		w.Raw(`	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -1586,6 +1654,54 @@ func (s *Server) httpErrIntern(
 		w.writeHTTPErrFallback()
 	}
 	w.Raw(`}
+`)
+	if hasRecover {
+		w.writeCallRecoverError(m)
+	}
+}
+
+// writeCallRecoverError emits the panic boundary around RecoverError.
+func (w *Writer) writeCallRecoverError(m *model.App) {
+	w.Raw(`
+// callRecoverError converts a RecoverError panic into an error.
+func (s *Server) callRecoverError(sse *dpsse.Stream, err error) (errRecover error) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			return
+		}
+		stack := debug.Stack()
+		s.Logger().Error("recovered panic",
+			slog.String("handler", "App.RecoverError"),
+			slog.Any("panic", v),
+			slog.String("stack", string(stack)))
+		errRecover = datapages.PanicError{Value: v, Stack: stack}
+	}()
+	return s.app.RecoverError(`)
+	for i, kind := range m.RecoverError.OrderedInputs {
+		if i > 0 {
+			w.Raw(", ")
+		}
+		if kind == model.InputKindSSE {
+			w.Raw("sse")
+		} else {
+			w.Raw("err")
+		}
+	}
+	w.Raw(`)
+}
+`)
+}
+
+// writeCallStreamConfig keeps recovery from covering later stream panics.
+func (w *Writer) writeCallStreamConfig() {
+	w.Raw(`
+func (s *Server) callStreamConfig(
+	handler string, fn func() (datapages.StreamConfig, error),
+) (conf datapages.StreamConfig, err error) {
+	defer s.recoverPanicInto(&err, handler)
+	return fn()
+}
 `)
 }
 
@@ -1606,10 +1722,12 @@ func (s *Server) httpErrFile(
 	w http.ResponseWriter, %s, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	if httpserve.ResponseBodyWritten(w) {
+`, reqParam)
+	w.writeNotRecovered(1)
+	w.Raw(`	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
-`, reqParam)
+`)
 	if has404 || has500 {
 		w.Raw(`	if httpserve.IsDocumentRequest(r) {
 		switch httpserve.ErrStatus(err) {
@@ -1661,9 +1779,9 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 	w.Linef(1, "if %s.URL != \"\" {", ref)
 	// Flush before returning from this redirect path.
 	if pageCacheViaStream(h) {
-		w.Line(2, "_ = pageCache.flush()")
+		w.Line(2, "pageCache.flush(sse)")
 	}
-	w.Linef(2, "if err := dpsse.New(sse).Redirect(%s.URL); err != nil {", ref)
+	w.Linef(2, "if err := sse.Redirect(%s.URL); err != nil {", ref)
 	w.Line(3, `s.httpErrIntern(w, r, sse, "redirecting", err)`)
 	w.Line(2, "}")
 	w.Line(2, "return")
@@ -1675,13 +1793,14 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 // the error page answer. The stack is logged whatever they do with it.
 //
 // The PageError500 GET handler registers recoverPanicFinal instead, for the
-// same reason it reports its error through httpErrFinal.
+// same reason it reports its error through httpErrFinal. StreamConfig and
+// StreamOpen register recoverPanicInto, since the stream reports their errors.
 func (w *Writer) writeRecoverPanic(m *model.App) {
 	w.Raw(`
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -1696,6 +1815,23 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 `)
+	if w.usage.streamConfig || w.usage.streamOpen {
+		w.Raw(`
+// recoverPanicInto turns a StreamConfig or StreamOpen panic into an error.
+func (s *Server) recoverPanicInto(err *error, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	*err = datapages.PanicError{Value: v, Stack: stack}
+}
+`)
+	}
 	if w.usage.files {
 		w.Raw(`
 // recoverPanicFile is recoverPanic for a handler that answers with a file.
@@ -1752,6 +1888,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
+	w.writeDeferRecover(false, p.TypeName+".GET")
 
 	h404 := p.GET.Handler
 	// No session token: the parser refuses closeSession on the 404 page,
@@ -1785,7 +1922,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	}
 
 	if h404.InputPageCache != nil {
-		w.Line(1, "pageCache := newPageCache(w, s, r, nil)")
+		w.Line(1, "pageCache := newPageCache(w, s, r)")
 	}
 
 	w.writePageConstructorStmt("p", p, appPkg)
@@ -1813,19 +1950,19 @@ func (w *Writer) writePageConstructorStmt(varName string, p *model.Page, appPkg 
 }
 
 func (w *Writer) writeEmbedInitStmt(
-	p *model.Page, ap *model.AbstractPage, appPkg string, indent int,
+	p *model.Page, se *model.StreamEmbed, appPkg string, indent int,
 	parent types.Type,
 ) {
 	for range indent {
 		w.Byte('\t')
 	}
-	w.Raw(ap.TypeName)
+	w.Raw(se.TypeName)
 	w.Raw(": ")
-	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	expr, embedded := w.embedLiteralExpr(p, se, appPkg, parent)
 	w.Raw(expr)
 	w.Raw("{\n")
 	w.Line(indent+1, "App: s.app,")
-	for _, sub := range ap.Embeds {
+	for _, sub := range se.Embeds {
 		w.writeEmbedInitStmt(p, sub, appPkg, indent+1, embedded)
 	}
 	w.Line(indent, "},")
@@ -1837,6 +1974,11 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	w.Line(0, "")
 	w.Rawf("func (s %s) %s%s(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType("App"), strings.ToUpper(h.HTTPMethod), h.Name)
+	if h.OutputFile != nil {
+		w.writeDeferRecoverFile("App." + h.Name)
+	} else {
+		w.writeDeferRecover(false, "App."+h.Name)
+	}
 
 	// [Writer.writePageActionHandler] states why each branch is enough.
 	switch {
@@ -1893,7 +2035,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.Raw("\tvar signals ")
 		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
+		w.Line(1, "if err := dpsse.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1909,9 +2051,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
-	// The request is read; claim the state for the duration of the handler.
-	// Before the SSE generator, which commits the response headers and would
-	// leave the rejection below nowhere to go.
+	// Claim state before OpenSSE commits the response.
 	if h.InputState != nil {
 		w.writeLockSlotOrReject(h)
 	}
@@ -1925,15 +2065,13 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// The stream opens after the call, see flushToNewStream.
 	viaStream := isAppLevel && pageCacheViaStream(h)
 
-	switch {
-	case isAppLevel && h.OutputFile != nil:
-		w.writeDeferRecoverFile("App." + h.Name)
-	case isAppLevel:
-		w.writeDeferRecover(false, "App."+h.Name)
+	if h.InputPageCache != nil && isAppLevel {
+		w.Line(1, "pageCache := newPageCache(w, s.Server, r)")
 	}
 
-	if h.InputPageCache != nil && isAppLevel {
-		w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
+	// A failing StreamConfig answers before the action changes anything.
+	if isAppLevel && actionStreamConfigPerRequest(h) {
+		w.writeActionStreamConfigCall("s.app", "App", h)
 	}
 
 	// Page constructor (for page actions).
@@ -1946,7 +2084,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Send queued writes after a successful handler call.
 	if viaStream {
-		w.Line(1, "_ = pageCache.flushToNewStream(w)")
+		w.Linef(1, "pageCache.flushToNewStream(w, %s)", actionCompressionExpr("App", h))
 	}
 }
 
@@ -1981,7 +2119,7 @@ func (w *Writer) writeMethodCall(
 		// Void return or only error.
 		if h.OutputErr != nil {
 			w.Raw("\tif err := ")
-			w.writeCallExpr(receiver, methodName, args)
+			w.writeCallExpr(receiver, methodName, args, 1)
 			w.Raw("; err != nil {\n")
 			w.Raw("\t\ts.httpErrIntern(w, r, " + sseRef + ", \"handling action ")
 			w.Raw(actionOwnerName(p, isAppLevel))
@@ -1991,7 +2129,7 @@ func (w *Writer) writeMethodCall(
 			w.Line(1, "}")
 		} else {
 			w.Byte('\t')
-			w.writeCallExpr(receiver, methodName, args)
+			w.writeCallExpr(receiver, methodName, args, 1)
 			w.Byte('\n')
 		}
 		return
@@ -2000,7 +2138,7 @@ func (w *Writer) writeMethodCall(
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
-	w.writeCallExpr(receiver, methodName, args)
+	w.writeCallExpr(receiver, methodName, args, 1)
 	w.Byte('\n')
 
 	if h.OutputErr != nil {
@@ -2261,12 +2399,10 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
-	w.writeDeferRecover(false, p.TypeName+".GET")
-
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
-	w.writeCallExpr("p", "GET", args)
+	w.writeCallExpr("p", "GET", args, 1)
 	w.Byte('\n')
 
 	if h.OutputErr != nil {

@@ -5,11 +5,16 @@
 // signed-in visitors carries both kinds; the anonymous one carries what is public,
 // and has to subscribe by the same signal values and
 // hold the same per-tab state as the other.
+//
+// A page whose events are all private serves a visitor with no session
+// a stream only for its per-tab state.
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/a-h/templ"
@@ -206,6 +211,73 @@ func (p PageTabs) POSTBump(
 	return ticked.Dispatch(EventTicked{N: state.Values.Count})
 }
 
+// PageInbox is /inbox
+//
+// Only a private event, and no per-tab state: a visitor with no session gets no stream.
+type PageInbox struct{ App *App }
+
+func (PageInbox) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="inbox">inbox</div>`), nil
+}
+
+func (p PageInbox) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="inbox">` + templ.EscapeString(event.Text) + `</div>`,
+	))
+}
+
+// PageThread is /threads/{thread}
+//
+// PageInbox with a path variable, which the stream path is built from.
+type PageThread struct{ App *App }
+
+func (PageThread) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Thread string `path:"thread"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="thread">thread ` +
+		templ.EscapeString(path.Values.Thread) + `</div>`), nil
+}
+
+func (p PageThread) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="thread">` + templ.EscapeString(event.Text) + `</div>`,
+	))
+}
+
+// StateNotes is the per-tab state of PageNotes.
+type StateNotes struct{ Count int }
+
+// PageNotes is /notes
+//
+// Stateful, with only a private event.
+// A visitor with no session needs a stream for the state alone.
+type PageNotes struct{ App *App }
+
+func (PageNotes) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="count">count 0</div>`), nil
+}
+
+func (p PageNotes) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="note">` + templ.EscapeString(event.Text) + `</div>`,
+	))
+}
+
+// POSTCount is /notes/count
+//
+// Writes the calling tab's state and renders it.
+func (p PageNotes) POSTCount(
+	_ *http.Request, sse datapages.SSE, state datapages.State[StateNotes],
+) error {
+	state.Values.Count++
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="count">count %d</div>`, state.Values.Count,
+	)))
+}
+
 // PagePost is /post/{slug}
 //
 // The redirect to its anonymous stream is built from the request path,
@@ -338,4 +410,44 @@ func (PagePanic) POSTFault(
 	_ *http.Request, faulted datapages.Dispatcher[EventFaulted],
 ) error {
 	return faulted.Dispatch(EventFaulted{})
+}
+
+// PageDecode is /decode
+//
+// Mixed like PageRooms, which gives it an anonymous stream.
+// StreamOpen reads a signal through PanicJSON.
+type PageDecode struct{ App *App }
+
+func (PageDecode) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="out">decode</div>`), nil
+}
+
+func (PageDecode) StreamOpen(
+	_ *http.Request,
+	_ datapages.StreamID,
+	_ datapages.Signals[struct {
+		V PanicJSON `json:"v"`
+	}],
+) error {
+	return nil
+}
+
+func (PageDecode) OnTicked(_ EventTicked, _ datapages.SSE) error { return nil }
+
+func (PageDecode) OnNoticed(_ EventNoticed, _ datapages.SSE) error { return nil }
+
+// PanicJSON panics while it decodes a string that starts with "x",
+// the way a parser of the application fails on input it does not expect.
+type PanicJSON string
+
+func (j *PanicJSON) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	if strings.HasPrefix(s, "x") {
+		panic("the JSON parser panicked")
+	}
+	*j = PanicJSON(s)
+	return nil
 }

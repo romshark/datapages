@@ -1,6 +1,7 @@
 package serverscan_test
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ const modulePath = "example.com/mod"
 func write(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
-	files["go.mod"] = "module " + modulePath + "\n\ngo 1.27.2\n"
+	files["go.mod"] = "module " + modulePath + "\n\ngo 1.27.3\n"
 	for name, content := range files {
 		p := filepath.Join(root, filepath.FromSlash(name))
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
@@ -54,6 +55,42 @@ func genPkg(header bool) string {
 		h = serverscan.GeneratedHeader + "\n\n"
 	}
 	return h + "package datapagesgen\n\ntype Server struct{}\n"
+}
+
+// TestCheckAppDir tests the report of an app package whose directory doesn't exist:
+// the default app of a module without a datapages.NewServer call, with the fix,
+// and the app package of a call, at the call.
+func TestCheckAppDir(t *testing.T) {
+	root := write(t, map[string]string{"web/web.go": "package web\n"})
+	call := serverscan.Call{
+		Pos: token.Position{Filename: "cmd/site/main.go", Line: 12, Column: 3},
+	}
+	for name, tc := range map[string]struct {
+		app  serverscan.App
+		want string
+	}{
+		"exists": {app: serverscan.App{Dir: "web"}},
+		"default": {
+			app: serverscan.App{Dir: "app"},
+			want: "app: no such directory, the default app package " +
+				"of a module without a datapages.NewServer call\n" +
+				"  fix: run datapages init",
+		},
+		"from a call": {
+			app: serverscan.App{Dir: "site", Calls: []serverscan.Call{call}},
+			want: "cmd/site/main.go:12:3: " +
+				"the app package site of datapages.NewServer does not exist",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := serverscan.CheckAppDir(root, tc.app)
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.want)
+		})
+	}
 }
 
 // TestScan tests finding the app package and the generated package from the
@@ -144,7 +181,7 @@ func main() {}
 		"nested module is skipped": {
 			files: map[string]string{
 				"app/app.go":      "package app\n",
-				"sub/go.mod":      "module example.com/other\n\ngo 1.27.2\n",
+				"sub/go.mod":      "module example.com/other\n\ngo 1.27.3\n",
 				"sub/cmd/main.go": mainGo("app", "app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server", ""),
 			},
 			appDirs:  []string{"app"},
@@ -160,7 +197,6 @@ func main() {}
 
 			a := r.Apps[0]
 			require.Equal(t, tt.appDirs[0], a.Dir)
-			require.Equal(t, filepath.Base(tt.appDirs[0]), a.Name)
 			require.Equal(t,
 				filepath.Join(tt.appDirs[0], serverscan.GenSubdir), a.GenDir)
 			require.Equal(t,
@@ -200,16 +236,24 @@ func TestScanSkipsExcludedFiles(t *testing.T) {
 	require.False(t, res.Apps[0].Prometheus)
 }
 
-// TestScanKeepsGOOSSpecificFiles tests a call in a file this host
-// excludes but another compiles. Skipping it would make what the scan reads,
-// and with it what gen writes, depend on the platform it runs on.
-func TestScanKeepsGOOSSpecificFiles(t *testing.T) {
-	for _, name := range []string{"main_windows.go", "main_linux.go", "main_js.go"} {
+// TestScanKeepsPlatformSpecificFiles tests that the scan reads a call in a file
+// that only some builds compile, by its name or its //go:build line.
+func TestScanKeepsPlatformSpecificFiles(t *testing.T) {
+	for name, tt := range map[string]struct {
+		file   string
+		header string // above the package clause
+	}{
+		"windows name": {file: "main_windows.go"},
+		"linux name":   {file: "main_linux.go"},
+		"js name":      {file: "main_js.go"},
+		"not windows":  {file: "main.go", header: "//go:build !windows\n\n"},
+		"no cgo":       {file: "main.go", header: "//go:build linux && !cgo\n\n"},
+	} {
 		t.Run(name, func(t *testing.T) {
 			root := write(t, map[string]string{
 				"app/app.go":                  "package app\n",
 				"app/datapagesgen/app_gen.go": genPkg(true),
-				"cmd/server/" + name: mainGo("app",
+				"cmd/server/" + tt.file: tt.header + mainGo("app",
 					"app.App, datapages.DisableSessions, datapages.EnablePrometheus, gen.Server",
 					""),
 			})
@@ -261,9 +305,9 @@ func TestScanMultipleApps(t *testing.T) {
 	r, err := serverscan.Scan(root, modulePath)
 	require.NoError(t, err)
 	require.False(t, r.Fallback)
-	require.Equal(t, []string{"admin", "frontend"}, r.Names())
+	require.Equal(t, []string{"app/admin", "app/frontend"}, r.Dirs())
 
-	admin, ok := r.Find("admin")
+	admin, ok := r.Find("app/admin")
 	require.True(t, ok)
 	require.Equal(t, filepath.Join("app", "admin"), admin.Dir)
 	require.False(t, admin.HasSession)
@@ -271,16 +315,39 @@ func TestScanMultipleApps(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, filepath.Join("cmd", "admin"), cmd)
 
-	// The directory addresses an app just as its name does.
 	front, ok := r.Find("app/frontend")
 	require.True(t, ok)
 	require.True(t, front.HasSession)
 	require.Equal(t, "frontend.SessionData", front.SessionData.Src)
 	require.Equal(t,
 		modulePath+"/app/frontend/datapagesgen", front.GenImport)
+}
 
-	_, ok = r.Find("nothing")
-	require.False(t, ok)
+// TestFind tests that the command line addresses an app by the directory of
+// its package, written with "./" or a trailing slash too, and never by the
+// last element of the directory, which web/app and admin/app share.
+func TestFind(t *testing.T) {
+	r := serverscan.Result{Apps: []serverscan.App{
+		{Dir: filepath.Join("admin", "app")},
+		{Dir: filepath.Join("web", "app")},
+	}}
+	for name, tc := range map[string]struct {
+		dir  string
+		want string
+	}{
+		"directory":      {dir: "web/app", want: "web/app"},
+		"dot slash":      {dir: "./web/app", want: "web/app"},
+		"trailing slash": {dir: "web/app/", want: "web/app"},
+		"last element":   {dir: "app"},
+		"unknown":        {dir: "nothing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, ok := r.Find(tc.dir)
+			require.Equal(t, tc.want != "", ok)
+			require.Equal(t, tc.want, filepath.ToSlash(a.Dir))
+		})
+	}
+	require.Equal(t, []string{"admin/app", "web/app"}, r.Dirs())
 }
 
 // TestScanErr tests what the scan refuses: a destination package datapages did not write,
@@ -445,6 +512,37 @@ func main() {}
 			},
 			msg: "the datapages package must not be dot-imported",
 		},
+		"runtime import": {
+			files: map[string]string{
+				"app/app.go": `package app
+
+import _ "github.com/romshark/datapages/runtime/httpserve"
+`,
+			},
+			msg: filepath.Join("app", "app.go") + ":3:8: application code " +
+				"must not import github.com/romshark/datapages/runtime/httpserve",
+		},
+		"runtime package itself": {
+			files: map[string]string{
+				"app/app.go": `package app
+
+import _ "github.com/romshark/datapages/runtime"
+`,
+			},
+			msg: filepath.Join("app", "app.go") + ":3:8: application code " +
+				"must not import github.com/romshark/datapages/runtime\n",
+		},
+		"runtime import in a test": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"app/app_test.go": `package app_test
+
+import _ "github.com/romshark/datapages/runtime/httpserve"
+`,
+			},
+			msg: filepath.Join("app", "app_test.go") + ":3:8: application code " +
+				"must not import github.com/romshark/datapages/runtime/httpserve",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := write(t, tt.files)
@@ -455,6 +553,22 @@ func main() {}
 			require.NotContains(t, err.Error(), root)
 		})
 	}
+}
+
+// TestScanGeneratedCodeImportsRuntime tests that generated code may import
+// a runtime package, which is what the runtime packages serve.
+func TestScanGeneratedCodeImportsRuntime(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go": "package app\n",
+		"app/datapagesgen/href/href_gen.go": serverscan.GeneratedHeader + `
+
+package href
+
+import _ "github.com/romshark/datapages/runtime/hrefcheck"
+`,
+	})
+	_, err := serverscan.Scan(root, modulePath)
+	require.NoError(t, err)
 }
 
 // TestScanStubDestination tests a destination a failed run left as stubs.
@@ -607,20 +721,22 @@ func TestScanPrometheusPerApp(t *testing.T) {
 		"app/frontend/app.go":                  "package frontend\n",
 		"app/frontend/datapagesgen/app_gen.go": genPkg(true),
 		"cmd/admin/main.go": mainGo("app/admin",
-			"admin.App, datapages.DisableSessions, datapages.EnablePrometheus, gen.Server",
+			"admin.App, datapages.DisableSessions, "+
+				"datapages.EnablePrometheus, gen.Server",
 			", datapages.WithPrometheus(datapages.PrometheusConfig{})"),
 		"cmd/frontend/main.go": mainGo("app/frontend",
-			"frontend.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server", ""),
+			"frontend.App, datapages.DisableSessions, "+
+				"datapages.DisablePrometheus, gen.Server", ""),
 	})
 	r, err := serverscan.Scan(root, modulePath)
 	require.NoError(t, err)
 
-	admin, ok := r.Find("admin")
+	admin, ok := r.Find("app/admin")
 	require.True(t, ok)
 	require.True(t, admin.Prometheus)
 	require.Equal(t, "datapages.EnablePrometheus", admin.Metrics.Src)
 
-	front, ok := r.Find("frontend")
+	front, ok := r.Find("app/frontend")
 	require.True(t, ok)
 	require.False(t, front.Prometheus)
 	require.Equal(t, "datapages.DisablePrometheus", front.Metrics.Src)

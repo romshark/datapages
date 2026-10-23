@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,9 +57,10 @@ func writeHTML(
 	return w.Body.String(), err
 }
 
-// TestWriteHTML tests the order the document parts are written in: the shared
-// head before the page head, the CSRF script after both, and the body suffix
-// inside a template element. The generated handlers rely on that order.
+// TestWriteHTML tests the order the document parts are written in: the head
+// prologue before the Datastar script, the shared head before the page head,
+// the CSRF script after both, and the body suffix inside a template element.
+// The generated handlers rely on that order.
 func TestWriteHTML(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +73,16 @@ func TestWriteHTML(t *testing.T) {
 		"empty": {
 			httpserve.HTMLDocument{},
 			c.HTMLPrefix() + "</head><body></body></html>",
+		},
+		"prologue precedes datastar": {
+			httpserve.HTMLDocument{
+				WriteHeadPrologue: func(w io.Writer) error {
+					_, err := io.WriteString(w, "<script>p</script>")
+					return err
+				},
+			},
+			c.HTMLHead() + "<script>p</script>" + c.HTMLDatastarScript() +
+				"</head><body></body></html>",
 		},
 		"head and body": {
 			httpserve.HTMLDocument{
@@ -131,11 +143,63 @@ func TestWriteHTMLError(t *testing.T) {
 		"head":         {Head: renderer{err: errRender}},
 		"body":         {Body: renderer{err: errRender}},
 		"csrf":         {CSRF: csrfScript{err: errRender}},
+		"prologue":     {WriteHeadPrologue: func(io.Writer) error { return errRender }},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			_, err := writeHTML(t, c, doc)
 			require.ErrorIs(t, err, errRender)
+		})
+	}
+}
+
+// errGone is what every write fails with once the client is gone.
+var errGone = errors.New("client gone")
+
+// hangUpWriter is the response of a client that hangs up after n writes.
+// Every later Write fails with errGone.
+type hangUpWriter struct {
+	http.ResponseWriter
+	n, writes int
+}
+
+func (w *hangUpWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes > w.n {
+		return 0, errGone
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+// TestWriteHTMLClientGone tests a client that hangs up partway through
+// the document. Whichever write it hangs up before, WriteHTML returns
+// the write error instead of nil. The prologue and the body suffix write
+// nothing. They are set for the writes WriteHTML makes around them.
+func TestWriteHTMLClientGone(t *testing.T) {
+	t.Parallel()
+
+	c := builtCore(t)
+	for name, doc := range map[string]httpserve.HTMLDocument{
+		"prologue": {
+			WriteHeadPrologue: func(io.Writer) error { return nil },
+			WriteBodySuffix:   func(http.ResponseWriter) {},
+		},
+		"no prologue": {WriteBodySuffix: func(http.ResponseWriter) {}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			complete := &hangUpWriter{
+				ResponseWriter: httptest.NewRecorder(),
+				n:              math.MaxInt,
+			}
+			require.NoError(t, c.WriteHTML(complete, r, doc))
+
+			for n := range complete.writes {
+				w := &hangUpWriter{ResponseWriter: httptest.NewRecorder(), n: n}
+				require.ErrorIs(t, c.WriteHTML(w, r, doc), errGone,
+					"hung up after %d of %d writes", n, complete.writes)
+			}
 		})
 	}
 }

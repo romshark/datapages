@@ -20,11 +20,10 @@ import (
 	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/routing/app"
 	"github.com/romshark/datapages/internal/acceptance/routing/app/datapagesgen/href"
-
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -71,7 +70,7 @@ func (s *Server) writeHTML(
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, handler string,
+	sse *dpsse.Stream, handler string,
 ) {
 	v := recover()
 	if v == nil {
@@ -96,7 +95,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -116,7 +115,7 @@ func (s *Server) Init(
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
+		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -172,9 +171,6 @@ func setupHandlers(s *Server) {
 		"GET /files/{rest...}",
 		pageFilesHandlers{s}.GET)
 	s.Mux().HandleFunc(
-		"GET /files-embedded/{rest...}",
-		pageFilesEmbeddedHandlers{s}.GET)
-	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -208,7 +204,7 @@ func setupHandlers(s *Server) {
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *dpsse.Stream, msg string, err error,
 ) {
 	s.LogErr(msg, err)
 	if sse != nil {
@@ -224,6 +220,7 @@ func (s *Server) httpErrIntern(
 type pageConflictHandlers struct{ *Server }
 
 func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageConflict.GET")
 
 	var path datapages.Path[struct {
 		Value   int32  `path:"value"`
@@ -253,8 +250,10 @@ func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageConflict{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageConflict.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageConflict.GET", err)
 		return
@@ -271,6 +270,7 @@ func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageFilesHandlers struct{ *Server }
 
 func (s pageFilesHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageFiles.GET")
 
 	var path datapages.Path[struct {
 		Rest string `path:"rest"`
@@ -280,8 +280,10 @@ func (s pageFilesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageFiles{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageFiles.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageFiles.GET", err)
 		return
@@ -295,39 +297,10 @@ func (s pageFilesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type pageFilesEmbeddedHandlers struct{ *Server }
-
-func (s pageFilesEmbeddedHandlers) GET(w http.ResponseWriter, r *http.Request) {
-
-	var path datapages.Path[struct {
-		Rest string `path:"rest"`
-	}]
-	path.Values.Rest = httpserve.WildcardPathValue(r, "rest")
-
-	p := dpapp.PageFilesEmbedded{
-		App: s.app,
-		FilesBase: dpapp.FilesBase{
-			App: s.app,
-		},
-	}
-	defer s.recoverPanic(w, r, nil, "PageFilesEmbedded.GET")
-	body, err := p.GET(r, path)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageFilesEmbedded.GET", err)
-		return
-	}
-
-	if err := s.writeHTML(
-		w, r, http.StatusOK, nil, body, nil, nil,
-	); err != nil {
-		s.LogErr("rendering PageFilesEmbedded", err)
-		return
-	}
-}
-
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -336,7 +309,6 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -354,6 +326,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageIntsHandlers struct{ *Server }
 
 func (s pageIntsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageInts.GET")
 
 	var path datapages.Path[struct {
 		I8  int8   `path:"i8"`
@@ -431,8 +404,10 @@ func (s pageIntsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageInts{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageInts.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageInts.GET", err)
 		return
@@ -449,6 +424,7 @@ func (s pageIntsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageMixedHandlers struct{ *Server }
 
 func (s pageMixedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageMixed.GET")
 
 	var query datapages.Query[struct {
 		Tab  string `query:"tab"`
@@ -484,8 +460,11 @@ func (s pageMixedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageMixed{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageMixed.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMixed.GET", err)
 		return
@@ -502,6 +481,7 @@ func (s pageMixedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pagePathHandlers struct{ *Server }
 
 func (s pagePathHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePath.GET")
 
 	var path datapages.Path[struct {
 		S string  `path:"str"`
@@ -551,8 +531,10 @@ func (s pagePathHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PagePath{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PagePath.GET")
-	body, err := p.GET(r, path)
+	body, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePath.GET", err)
 		return
@@ -569,6 +551,7 @@ func (s pagePathHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageQueryHandlers struct{ *Server }
 
 func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageQuery.GET")
 
 	var query datapages.Query[struct {
 		Term  string  `query:"term"`
@@ -644,8 +627,10 @@ func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageQuery{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageQuery.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageQuery.GET", err)
 		return
@@ -662,12 +647,12 @@ func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageReflectHandlers struct{ *Server }
 
 func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageReflect.GET")
 
 	var query datapages.Query[struct {
 		Term     string     `query:"t" reflectsignal:"term"`
 		Page     int        `query:"p" reflectsignal:"page"`
 		Slug     dpapp.Slug `query:"s" reflectsignal:"slug"`
-		Odd      string     `query:"o'\"x" reflectsignal:"odd"`
 		NewTitle string     `query:"nt" reflectsignal:"newTitle"`
 		Lang     string     `query:"lang"`
 	}]
@@ -690,15 +675,16 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	query.Values.Odd = httpread.QueryValue(r.URL.RawQuery, "o'\"x")
 	query.Values.NewTitle = httpread.QueryValue(r.URL.RawQuery, "nt")
 	query.Values.Lang = httpread.QueryValue(r.URL.RawQuery, "lang")
 
 	p := dpapp.PageReflect{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageReflect.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageReflect.GET", err)
 		return
@@ -718,10 +704,6 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WriteSignalString(w, textOf(query.Values.Slug))
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, ` data-signals:odd="'`)
-		htmlattr.WriteSignalString(w, query.Values.Odd)
-		_, _ = io.WriteString(w, `'"`)
-
 		_, _ = io.WriteString(w, ` data-signals:new-title="'`)
 		htmlattr.WriteSignalString(w, query.Values.NewTitle)
 		_, _ = io.WriteString(w, `'"`)
@@ -733,7 +715,6 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			if ($term) params.set('t', $term); else params.delete('t');
 			if ($page) params.set('p', $page); else params.delete('p');
 			if ($slug) params.set('s', $slug); else params.delete('s');
-			if ($odd) params.set('o\&#39;&#34;x', $odd); else params.delete('o\&#39;&#34;x');
 			if ($newTitle) params.set('nt', $newTitle); else params.delete('nt');
 			const query = params.toString();
 			window.history.replaceState(null, '', (query ? '/reflect?' + query : '/reflect') + location.hash);
@@ -751,6 +732,7 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageShopHandlers struct{ *Server }
 
 func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageShop.GET")
 
 	var query datapages.Query[struct {
 		Term string `query:"q" reflectsignal:"term"`
@@ -765,8 +747,11 @@ func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageShop{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageShop.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageShop.GET", err)
 		return
@@ -803,6 +788,7 @@ func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageSlugHandlers struct{ *Server }
 
 func (s pageSlugHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageSlug.GET")
 
 	var query datapages.Query[struct {
 		Tag dpapp.Slug `query:"tag"`
@@ -830,8 +816,11 @@ func (s pageSlugHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageSlug{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageSlug.GET")
-	body, err := p.GET(r, path, query)
+	body, err := p.GET(
+		r,
+		path,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSlug.GET", err)
 		return
@@ -848,6 +837,7 @@ func (s pageSlugHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageTitledHandlers struct{ *Server }
 
 func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageTitled.GET")
 
 	var path datapages.Path[dpapp.TitledPath]
 	path.Values.Name = r.PathValue("name")
@@ -855,8 +845,10 @@ func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageTitled{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageTitled.GET")
-	body, head, err := p.GET(r, path)
+	body, head, err := p.GET(
+		r,
+		path,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageTitled.GET", err)
 		return
@@ -873,6 +865,7 @@ func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageWhenHandlers struct{ *Server }
 
 func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageWhen.GET")
 
 	var query datapages.Query[struct {
 		When  time.Time `query:"when" reflectsignal:"when"`
@@ -900,8 +893,10 @@ func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageWhen{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageWhen.GET")
-	body, err := p.GET(r, query)
+	body, err := p.GET(
+		r,
+		query,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageWhen.GET", err)
 		return

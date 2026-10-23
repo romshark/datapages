@@ -20,10 +20,6 @@ func (BaseA) OnSomethingHappened(
 	return nil
 }
 
-func (BaseA) GET(r *http.Request) (body datapages.Component, err error) {
-	return nil, nil
-}
-
 type BaseB struct{ App *App }
 
 func (BaseB) OnSomethingHappened(
@@ -38,4 +34,8 @@ type PageIndex struct {
 	App *App
 	BaseA
 	BaseB
+}
+
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
 }

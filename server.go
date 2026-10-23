@@ -23,9 +23,9 @@ const templEnvVarDevMode = "TEMPL_DEV_MODE"
 // Either [EnvVarDevMode] or TEMPL_DEV_MODE turns it on.
 //
 // In dev mode the assets are read from the source tree instead of the embedded
-// FS and every asset response carries no-store. A production process that
-// inherits either variable therefore serves its assets from a directory it
-// does not have.
+// FS and every asset response carries Cache-Control: no-cache.
+// A production process that inherits either variable therefore serves
+// its assets from a directory it doesn't have.
 func IsDevMode() bool {
 	return os.Getenv(EnvVarDevMode) != "" || os.Getenv(templEnvVarDevMode) != ""
 }
@@ -99,7 +99,9 @@ type ServerInitializer[App, SessionData any] interface {
 //
 // PS is inferred from S and is never written at the call site.
 //
-// Options are applied in the order they are given.
+// Options are applied in the order they are given. NewServer then refuses
+// a [ServerConfig] field that holds a value its With option refuses,
+// as an option that sets the field itself can leave there.
 func NewServer[App, SessionData any, Metrics MetricsMode, S any, PS interface {
 	*S
 	Server
@@ -121,6 +123,9 @@ func NewServer[App, SessionData any, Metrics MetricsMode, S any, PS interface {
 		if err := opt(&cfg); err != nil {
 			return nil, fmt.Errorf("applying server option: %w", err)
 		}
+	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 	sessions, err := asSessionManager[SessionData](cfg.sessionManager)
 	if err != nil {

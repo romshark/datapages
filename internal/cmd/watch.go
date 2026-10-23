@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,27 +34,29 @@ from the "watch" section of datapages.yaml; sane defaults are used
 if the section is missing.
 
 1 dev server runs 1 application. A module that builds more than 1
-needs --app to say which, naming the app package: "datapages watch --app frontend".`,
+needs --app to say which, the directory of the app package relative to
+the module root, as in "datapages watch --app app/frontend".`,
 	}
 	host := cmd.Flags().String("host", "localhost:7331",
 		"Host address for the dev server proxy")
 	app := cmd.Flags().String("app", "",
-		"App package to run, required when the module builds more than 1")
+		"Directory of the app package to run, relative to the module root, "+
+			"required when the module builds more than 1")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		return runWatch(c.Context(), *host, *app, stderr, version)
 	}
 	return cmd
 }
 
-// selectApp picks the app the dev server runs.
-// A module building 1 needs no flag; one building more must name it.
-func selectApp(r serverscan.Result, name string) (serverscan.App, error) {
-	if name != "" {
-		a, ok := r.Find(name)
+// selectApp picks the app the dev server runs. A module building 1 needs no
+// flag, one building more the directory of the app package to run.
+func selectApp(r serverscan.Result, dir string) (serverscan.App, error) {
+	if dir != "" {
+		a, ok := r.Find(dir)
 		if !ok {
 			return serverscan.App{}, fmt.Errorf(
-				"no app package %q in this module, it builds: %s",
-				name, strings.Join(r.Names(), ", "),
+				"no app package in %q, the module builds: %s",
+				dir, strings.Join(r.Dirs(), ", "),
 			)
 		}
 		return a, nil
@@ -61,13 +65,14 @@ func selectApp(r serverscan.Result, name string) (serverscan.App, error) {
 		return r.Apps[0], nil
 	}
 	return serverscan.App{}, fmt.Errorf(
-		"this module builds %d applications (%s), name the one to run with --app",
-		len(r.Apps), strings.Join(r.Names(), ", "),
+		"this module builds %d applications (%s), "+
+			"pass the directory of the one to run with --app",
+		len(r.Apps), strings.Join(r.Dirs(), ", "),
 	)
 }
 
 func runWatch(
-	ctx context.Context, host, appName string, stderr io.Writer, version string,
+	ctx context.Context, host, appDir string, stderr io.Writer, version string,
 ) error {
 	// Start the update check immediately so it has maximum time to complete.
 	startUpdateCheck(ctx, version, stderr, http.DefaultClient)
@@ -93,7 +98,9 @@ func runWatch(
 			return err
 		}
 	}
-	if err := runGen(moduleDir, cfg, scaffold{prometheus: scaffoldPrometheus}, stderr, version); err != nil {
+	if err := runGen(
+		moduleDir, cfg, scaffold{prometheus: scaffoldPrometheus}, stderr, version,
+	); err != nil {
 		// Non-fatal: individual parse errors are already on stderr.
 		// The gen watcher will retry and surface errors in the browser on next save.
 		_, _ = fmt.Fprintln(stderr, err)
@@ -108,7 +115,7 @@ func runWatch(
 	if err != nil {
 		return err
 	}
-	app, err := selectApp(scan, appName)
+	app, err := selectApp(scan, appDir)
 	if err != nil {
 		return err
 	}
@@ -126,25 +133,14 @@ func runWatch(
 		w.AppHost = "http://localhost:8080"
 	}
 
-	appHost, err := url.Parse(w.AppHost)
+	appHost, err := parseAppHost(w.AppHost)
 	if err != nil {
-		return fmt.Errorf("parsing app-host URL: %w", err)
+		return err
 	}
 
 	dirWork := moduleDir
 	if w.DirWork != "" {
 		dirWork = filepath.Join(moduleDir, w.DirWork)
-	}
-
-	// Templier v0.11.7 stores conf.Log.Level but never applies it to its
-	// slog logger, so setting `watch.log.level: debug` in datapages.yaml
-	// has no effect on its own. Configure slog.Default() here so templier's
-	// logger.Debug calls (which tell us what the file-watcher/reload
-	// broadcaster are doing) actually render.
-	if w.Log.Level == config.LogLevelDebug {
-		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		})))
 	}
 
 	engineConf := engine.Config{
@@ -209,7 +205,9 @@ func runWatch(
 		return fmt.Errorf("setting templ watch root: %w", err)
 	}
 
-	e, err := engine.New(engineConf, engine.Options{})
+	e, err := engine.New(engineConf, engine.Options{
+		Logger: newWatchLogger(w.Log.Level, stderr),
+	})
 	if err != nil {
 		return fmt.Errorf("initializing watch engine: %w", err)
 	}
@@ -222,6 +220,33 @@ func runWatch(
 			host)
 	}
 	return err
+}
+
+// newWatchLogger returns the logger of the watch engine at the level of
+// watch.log.level, mapped as the templier CLI maps it. The engine reads no
+// level of its own and falls back to [slog.Default], which logs info.
+func newWatchLogger(level config.LogLevel, w io.Writer) *slog.Logger {
+	l := slog.LevelError
+	switch level {
+	case config.LogLevelVerbose:
+		l = slog.LevelInfo
+	case config.LogLevelDebug:
+		l = slog.LevelDebug
+	}
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: l}))
+}
+
+// parseAppHost parses watch.app-host, the URL the dev server proxies to.
+func parseAppHost(s string) (*url.URL, error) {
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, fmt.Errorf("parsing watch.app-host: %w", err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("watch.app-host %q must be an http or https URL "+
+			"with a host, such as http://localhost:8080", s)
+	}
+	return u, nil
 }
 
 // genWatcher is the custom watcher that re-runs gen on a file change.
@@ -351,11 +376,20 @@ func mapWatcherRequires(r config.WatcherRequires) engine.ActionType {
 }
 
 // watchInclude lists what a change to re-runs "datapages gen" for:
-// the Go sources of every app package of the module.
+// the Go sources of every app package of the module, and those of the packages
+// calling datapages.NewServer. gen reads the Metrics type argument of a call
+// and generates no code for a call naming the wrong session type. A fix to the
+// call has to regenerate.
 func watchInclude(r serverscan.Result) []string {
 	include := make([]string, 0, len(r.Apps)+2)
 	for _, a := range r.Apps {
 		include = append(include, filepath.ToSlash(a.Dir)+"/**/*.go")
+		for _, c := range a.Calls {
+			p := path.Join(filepath.ToSlash(c.Dir), "*.go")
+			if !slices.Contains(include, p) {
+				include = append(include, p)
+			}
+		}
 	}
 	return append(include, "datapages.yaml", "datapages.yml")
 }

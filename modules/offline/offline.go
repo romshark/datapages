@@ -42,9 +42,10 @@ type Config struct {
 	// [Config.Assets] and PageOffline only during installation.
 	//
 	// A changed same-origin asset at an unchanged URL doesn't require a new
-	// worker version. The worker serves the stored copy and then refreshes it
-	// from the network. It never refreshes a cross-origin asset: give a changed
-	// one a new URL or increase WorkerVersion.
+	// worker version. The worker serves the stored copy and, once the copy is
+	// past its max-age or has none, refreshes it from the network. It never
+	// refreshes a cross-origin asset: give a changed one a new URL or increase
+	// WorkerVersion.
 	WorkerVersion uint64
 
 	// ScriptURL is the path the worker script is served from.
@@ -143,7 +144,8 @@ func (c Config) scriptURL() string {
 // worker's minimal fallback.
 func ServiceWorkerJS(offlinePath string, conf Config) []byte {
 	payload := struct {
-		WorkerVersion           uint64   `json:"workerVersion"`
+		// A string, since JS rounds numbers above 2^53.
+		WorkerVersion           uint64   `json:"workerVersion,string"`
 		OfflineURL              string   `json:"offlineURL"`
 		Assets                  []string `json:"assets"`
 		CrossOriginDestinations []string `json:"crossOriginDestinations"`
@@ -249,12 +251,13 @@ func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
 // responses. It adds registration when [datapages.HeaderWorkerVersion] is absent or
 // lower than the configured worker version. Non-HTML responses pass through unchanged.
 //
-// So do a range response, whose Content-Range a script would contradict, and the
-// response of a [datapages.File], whose bytes are the file's whatever its type.
+// So do a range response, whose Content-Range a script would contradict,
+// and the response of a [datapages.File] or a static asset,
+// whose bytes are the file's whatever its type.
 //
-// A response that already carries a Content-Encoding passes through unchanged,
-// because an encoded body cannot be edited as bytes. Register a compressing
-// middleware before [Middleware]. The compressor then receives the rewritten HTML.
+// An encoded response passes through because [Middleware] cannot edit it.
+// Datapages response compression runs after middleware.
+// Put a custom compressor before [Middleware].
 //
 // Applications declaring PageOffline should use the generated
 // datapagesgen.WithOffline option. It supplies offlinePath from that page's route.
@@ -335,6 +338,10 @@ type injectingWriter struct {
 	status      int
 	buf         bytes.Buffer
 }
+
+// BodyWritten reports whether a page is held back, which the writer underneath
+// has seen none of. [httpserve.ResponseBodyWritten] asks it.
+func (iw *injectingWriter) BodyWritten() bool { return iw.buf.Len() > 0 }
 
 // PassThrough makes the rest of the response pass through unchanged.
 // [github.com/romshark/datapages/runtime/httpserve.ServeFile] calls it before it
@@ -441,7 +448,13 @@ func (w writeOnly) Write(p []byte) (int, error) { return w.iw.Write(p) }
 
 // Flush supports streaming responses such as Datastar SSE.
 // [Middleware] doesn't buffer them.
+//
+// Decide before forwarding the first flush. Otherwise the first write sends a
+// second status, which net/http logs as superfluous.
 func (iw *injectingWriter) Flush() {
+	if !iw.decided {
+		iw.decide(nil)
+	}
 	if iw.inject {
 		return
 	}
@@ -541,8 +554,8 @@ func indexFoldASCII(s, marker []byte) int {
 	}
 }
 
-// indexLowerASCII is [indexFoldASCII] for dense candidates. It lowercases A to
-// Z of s chunk by chunk, which keeps offsets, and searches each chunk with [bytes.Index].
+// indexLowerASCII is [indexFoldASCII] for dense candidates. It lowercases A to Z of
+// s chunk by chunk, which keeps offsets, and searches each chunk with [bytes.Index].
 func indexLowerASCII(s, marker []byte) int {
 	// BenchmarkMiddleware shows no improvement at 8 KB
 	// and a 5-15% regression at 512 bytes.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -204,6 +205,93 @@ func TestNewServerErr(t *testing.T) {
 			err := tt.exec()
 			require.Error(t, err)
 			require.Equal(t, tt.msg, err.Error())
+		})
+	}
+}
+
+// TestNewServerInvalidConfig tests that NewServer refuses a value an option
+// sets on ServerConfig itself, with the message of the field's With option,
+// and lets the zero values pass.
+func TestNewServerInvalidConfig(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		set     func(*datapages.ServerConfig)
+		wantErr string // Empty for a config that passes.
+	}{
+		"zero values": {set: func(c *datapages.ServerConfig) {
+			c.AssetsCache = &datapages.AssetsCacheConfig{}
+			c.SSECompression = &datapages.SSECompressionConfig{}
+			c.ResponseCompression = &datapages.ResponseCompressionConfig{}
+		}},
+		"middleware": {
+			set: func(c *datapages.ServerConfig) {
+				c.Middleware = []func(http.Handler) http.Handler{nil}
+			},
+			wantErr: "ServerConfig.Middleware: nil middleware at index 0",
+		},
+		"prometheus": {
+			set: func(c *datapages.ServerConfig) {
+				c.Prometheus = &datapages.PrometheusConfig{}
+			},
+			wantErr: "ServerConfig.Prometheus: " +
+				"prometheus host address must not be empty",
+		},
+		"datastar": {
+			set: func(c *datapages.ServerConfig) { c.DatastarJS = "not a url" },
+			wantErr: "ServerConfig.DatastarJS: " +
+				"URL contains ' ', which RFC 3986 does not allow",
+		},
+		"assets cache": {
+			set: func(c *datapages.ServerConfig) {
+				c.AssetsCache = &datapages.AssetsCacheConfig{MaxAge: -time.Second}
+			},
+			wantErr: "ServerConfig.AssetsCache: max age (-1s) must not be negative",
+		},
+		"cookie name": {
+			set: func(c *datapages.ServerConfig) {
+				c.Sessions.Cookie.Name = "session token"
+			},
+			wantErr: `ServerConfig.Sessions: invalid cookie name: "session token"`,
+		},
+		"SSE compression": {
+			set: func(c *datapages.ServerConfig) {
+				c.SSECompression = &datapages.SSECompressionConfig{ZstdWindow: 3}
+			},
+			wantErr: "ServerConfig.SSECompression: " +
+				"zstd window (3) must be a power of 2 from 1 KiB to 8 MiB",
+		},
+		"response compression": {
+			set: func(c *datapages.ServerConfig) {
+				c.ResponseCompression = &datapages.ResponseCompressionConfig{
+					GzipLevel: 10,
+				}
+			},
+			wantErr: "ServerConfig.ResponseCompression: " +
+				"gzip level (10) must be from 1 to 9",
+		},
+		"build ID": {
+			set:     func(c *datapages.ServerConfig) { c.BuildID = " v1" },
+			wantErr: "ServerConfig.BuildID: id contains a space at byte 0",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := datapages.NewServer[
+				testApp,
+				datapages.DisableSessions,
+				datapages.DisablePrometheus,
+				testServer,
+			](new(testApp), inmem.New(1), func(c *datapages.ServerConfig) error {
+				tc.set(c)
+				return nil
+			})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
 		})
 	}
 }

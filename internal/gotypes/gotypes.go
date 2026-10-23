@@ -3,7 +3,10 @@
 // Both the parser and the generator inspect types with it.
 package gotypes
 
-import "go/types"
+import (
+	"go/types"
+	"strings"
+)
 
 // IsString reports whether the underlying type of t is string.
 func IsString(t types.Type) bool {
@@ -269,9 +272,19 @@ func TextJSONKind(t types.Type) JSONKind {
 // AcceptsJSONKind reports whether encoding/json can decode a value of kind k
 // into t.
 //
+// A pointer accepts what its element accepts.
 // Types that implement json.Unmarshaler and interface types accept every kind.
-// Other types must match the value's kind.
+// Other types that implement encoding.TextUnmarshaler accept only strings,
+// whatever their underlying type.
+// The rest must match the value's kind.
 func AcceptsJSONKind(t types.Type, k JSONKind) bool {
+	for {
+		p, ok := types.Unalias(t).(*types.Pointer)
+		if !ok {
+			break
+		}
+		t = p.Elem()
+	}
 	if t == nil {
 		return true
 	}
@@ -281,6 +294,9 @@ func AcceptsJSONKind(t types.Type, k JSONKind) bool {
 	if _, ok := t.Underlying().(*types.Interface); ok {
 		return true
 	}
+	if ImplementsTextUnmarshaler(t) {
+		return k == JSONString
+	}
 	switch k {
 	case JSONNumber:
 		return IsInt(t) || IsFloat(t)
@@ -288,4 +304,27 @@ func AcceptsJSONKind(t types.Type, k JSONKind) bool {
 		return IsBool(t)
 	}
 	return IsString(t)
+}
+
+// DeclaredOutside reports whether t, or what t points to, is a named type
+// declared in a package outside the module at modulePath, as url.URL is for
+// any module but the standard library. A package in a module nested below
+// modulePath counts as inside. An empty modulePath counts nothing as outside.
+func DeclaredOutside(t types.Type, modulePath string) bool {
+	if modulePath == "" {
+		return false
+	}
+	for {
+		p, ok := types.Unalias(t).(*types.Pointer)
+		if !ok {
+			break
+		}
+		t = p.Elem()
+	}
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil {
+		return false
+	}
+	path := named.Obj().Pkg().Path()
+	return path != modulePath && !strings.HasPrefix(path, modulePath+"/")
 }

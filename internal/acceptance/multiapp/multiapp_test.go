@@ -8,8 +8,6 @@
 package acceptance_test
 
 import (
-	"bytes"
-	"log/slog"
 	"net/http"
 	"testing"
 
@@ -25,6 +23,7 @@ import (
 	frontendaction "github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend/datapagesgen/action"
 	serveadmin "github.com/romshark/datapages/internal/acceptance/multiapp/serve/admin"
 	servefrontend "github.com/romshark/datapages/internal/acceptance/multiapp/serve/frontend"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
@@ -109,6 +108,7 @@ func requestsTotal(t *testing.T) float64 {
 // TestAdminCarriesNoSessions tests the admin server against the option its
 // type arguments do not ask for. The generated Init rejects a session manager
 // by name, which only an app package declaring no session type is given.
+// The error uses the name the app package declares.
 func TestAdminCarriesNoSessions(t *testing.T) {
 	t.Parallel()
 	s, err := datapages.NewServer[
@@ -124,8 +124,8 @@ func TestAdminCarriesNoSessions(t *testing.T) {
 			),
 		))
 	require.Nil(t, s)
-	require.ErrorContains(t, err, "unexpected option WithSessionManager")
-	require.ErrorContains(t, err, "declares no session type")
+	require.ErrorContains(t, err, "unexpected option WithSessionManager: "+
+		"package admin declares no session type")
 }
 
 // TestAdminRequiresItsPrometheusConfig tests the admin server without the
@@ -224,17 +224,16 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 // It must not use t.Parallel(): both Init calls write the logger the action
 // package of their own application holds.
 func TestActionLoggerIsPerApplication(t *testing.T) {
-	var frontendLog, adminLog bytes.Buffer
+	var frontendLog, adminLog testlog.Buffer
 	mustNewFrontend(t, &frontendapp.App{}, broker(),
-		datapages.WithLogger(slog.New(slog.NewTextHandler(&frontendLog, nil))))
+		datapages.WithLogger(frontendLog.Logger()))
 	mustNewAdmin(t, &adminapp.App{}, broker(),
-		datapages.WithLogger(slog.New(slog.NewTextHandler(&adminLog, nil))))
+		datapages.WithLogger(adminLog.Logger()))
 
 	frontendaction.WithRetryInterval(-1)
 	adminaction.WithRetryMaxCount(-1)
 
-	require.Contains(t, frontendLog.String(), "WithRetryInterval")
-	require.NotContains(t, frontendLog.String(), "WithRetryMaxCount")
-	require.Contains(t, adminLog.String(), "WithRetryMaxCount")
-	require.NotContains(t, adminLog.String(), "WithRetryInterval")
+	const dropped = `level=WARN msg="dropping an action option with an invalid value" `
+	frontendLog.RequireLines(t, dropped+"option=WithRetryInterval value=-1")
+	adminLog.RequireLines(t, dropped+"option=WithRetryMaxCount value=-1")
 }

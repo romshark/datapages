@@ -32,30 +32,25 @@ func newGenCmd(stderr io.Writer, version string) *cobra.Command {
   - Server implementation with request handling, middleware, and sessions
   - Type-safe URL helpers (href package)
   - Type-safe action helpers (action package)
-  - Server entry point (cmd package, created only if missing)
 
-The app package and the destination are read from the type arguments of the
-datapages.NewServer call. A module without one is generated with the defaults
-(./app and ./datapagesgen) and gets a cmd/server/main.go written for it.
+The app package is read from the type arguments of the datapages.NewServer
+call, and the code is generated into datapagesgen directly below it.
+A module without a call is generated for ./app into ./app/datapagesgen and
+gets a cmd/server/main.go written for it.
 
 Prometheus is read from the Metrics type argument of the same call.
-The generated main.go names datapages.EnablePrometheus, the same as
-"datapages init". Change it to datapages.DisablePrometheus for no metrics.
 Assets are read from the embed.FS variable of the app package whose
-doc comment names the URL path they are served at.
+doc comment gives the URL path they are served at.
 
 This command does not run "templ generate". Generate the app model first,
 then run "templ generate" after changing .templ files. If generated Templ
 references a helper that does not exist yet, remove the reference,
 regenerate Templ, run "datapages gen", then restore it and regenerate Templ.
 
-Everything under datapagesgen/ and every *_gen.go file is rewritten on each run.
-Do not edit them.
-
-A failed run never replaces generated code that already exists. It keeps
-what the last successful run produced. A package that was never generated is
-written as stubs. IDEs can then resolve the import while you fix the errors.
-Errors go to stderr. The exit code is non-zero whenever parsing fails.`,
+Everything under datapagesgen/ is rewritten on each run. An app with errors
+keeps the code an earlier run generated for it. The other apps are generated.
+A package that was never generated is written as stubs. IDEs can then resolve
+the import while you fix the errors.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			moduleDir, err := findModuleDir()
 			if err != nil {
@@ -96,7 +91,9 @@ func runGen(
 		return err
 	}
 
-	if err := upgradeGoMod(moduleDir, version); err != nil {
+	// An older CLI may misread a newer module,
+	// which makes its version the first thing to check.
+	if err := checkGoModVersion(moduleDir, version); err != nil {
 		return err
 	}
 
@@ -105,24 +102,63 @@ func runGen(
 		return err
 	}
 
-	// Every app is generated, even when another one failed to parse:
-	// 1 broken model must not leave the rest of the module without code.
-	var errs []error
-	var events []subject.AppEvent
+	// A missing app package leaves nothing to generate.
+	// Checking it before the go.mod upgrade keeps the run from writing anything.
+	var missing []error
 	for _, app := range scan.Apps {
-		app.Prometheus = app.Prometheus || (scan.Fallback && sc.prometheus)
-		m, err := genApp(moduleDir, cfg, scan, app, sc.datastarJS, stderr)
-		if err != nil {
-			errs = append(errs, err)
+		if err := serverscan.CheckAppDir(moduleDir, app); err != nil {
+			missing = append(missing, err)
 		}
+	}
+	if len(missing) > 0 {
+		return errors.Join(missing...)
+	}
+
+	if err := upgradeGoMod(moduleDir, version); err != nil {
+		return err
+	}
+
+	// Every app is parsed and checked before any is generated, which keeps a
+	// failed check from replacing its code. The apps that pass are generated
+	// even when another one failed. 1 broken model must not leave the rest of
+	// the module without code.
+	apps := make([]checkedApp, len(scan.Apps))
+	var events []subject.AppEvent
+	for i, app := range scan.Apps {
+		app.Prometheus = app.Prometheus || (scan.Fallback && sc.prometheus)
+		m, err := parseApp(filepath.Join(moduleDir, app.Dir), stderr)
+		if err == nil {
+			err = serverscan.CheckSessionData(app, m.Session != nil)
+		}
+		apps[i] = checkedApp{app: app, model: m, err: err}
 		events = append(events, appEvents(app.Dir, m)...)
 	}
-	if err := subject.CheckAcrossApps(events); err != nil {
-		errs = append(errs, err)
+	conflicts := subject.Conflicts(events)
+	inConflict := make(map[string]bool, 2*len(conflicts))
+	for _, c := range conflicts {
+		inConflict[c.First.App], inConflict[c.Event.App] = true, true
+	}
+
+	var errs []error
+	for _, a := range apps {
+		if a.err != nil {
+			errs = append(errs, a.err)
+		}
+		failed := a.err != nil || inConflict[a.app.Dir]
+		if err := genApp(
+			moduleDir, cfg, scan.Fallback, a, failed, sc.datastarJS,
+		); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for _, c := range conflicts {
+		errs = append(errs, c)
 	}
 
 	// Run go mod tidy after generation so that go.sum stays in sync,
 	// especially after upgradeGoMod bumps the datapages version.
+	// It reads the imports of the generated code, which is why its failure
+	// cannot keep that code from being written.
 	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir = moduleDir
 	if out, err := tidy.CombinedOutput(); err != nil {
@@ -139,7 +175,8 @@ func runGen(
 }
 
 // appEvents is what [subject.CheckAcrossApps] takes for 1 application.
-// A model that failed to parse contributes nothing.
+// A partial model, which the parser returns with its errors, contributes the
+// events it holds. A nil model contributes nothing.
 func appEvents(appDir string, m *model.App) []subject.AppEvent {
 	if m == nil {
 		return nil
@@ -157,69 +194,74 @@ func appEvents(appDir string, m *model.App) []subject.AppEvent {
 	return events
 }
 
-// genApp parses 1 app package and generates the code for it.
-// It returns the parsed model, which is nil when the app package has no model
-// to generate from, and partial when it has errors. datastarJS goes into the
-// main.go written for a module that has none.
-func genApp(
-	moduleDir string, cfg config.Config,
-	scan serverscan.Result, app serverscan.App, datastarJS string, stderr io.Writer,
-) (*model.App, error) {
-	m, parseErr := parseApp(filepath.Join(moduleDir, app.Dir), stderr)
+// checkedApp is 1 app package of the module, parsed and checked.
+type checkedApp struct {
+	app serverscan.App
 
-	genDir := filepath.Join(moduleDir, app.GenDir)
+	// model is nil when the app package has no model to generate from,
+	// and partial when err holds its parse errors.
+	model *model.App
+
+	// err holds the parse errors, or the NewServer call naming the wrong
+	// session type.
+	err error
+}
+
+// genApp writes the code of 1 app, or only the stubs it lacks when it failed.
+// datastarJS goes into the main.go written for a module that has none.
+func genApp(
+	moduleDir string, cfg config.Config, fallback bool,
+	a checkedApp, failed bool, datastarJS string,
+) error {
+	genDir := filepath.Join(moduleDir, a.app.GenDir)
 	var assets model.Assets
-	if m != nil {
-		assets = m.Assets
+	if a.model != nil {
+		assets = a.model.Assets
 	}
 
-	if parseErr != nil {
+	if failed {
 		// Existing generated code is left alone. The parser returns a partial
-		// model for a rejected package. Code generated from it describes an
-		// application the user did not write. It would replace working code
-		// with code that does not build and hide the errors reported above.
+		// model for a rejected package, which describes an application the user
+		// didn't write. Code generated from it, or for a NewServer call naming
+		// the wrong session type, would not build, and its compiler errors would
+		// hide the errors gen reports. Code generated for 2 apps claiming
+		// 1 subject builds, and each app receives the events of the other.
 		//
 		// A package that was never generated is different. There is nothing
 		// to lose and the app package imports it.
 		// Stubs make the import resolve while the errors are fixed.
-		if err := writeStubsIfAbsent(genDir, assets.URLPrefix != ""); err != nil {
-			return m, err
-		}
-		return m, parseErr
+		return writeStubsIfAbsent(genDir, assets.URLPrefix != "")
 	}
 
 	if err := generator.Generate(
-		genDir, serverscan.GenSubdir, m, 0o644, generator.Options{
-			Prometheus:      app.Prometheus,
+		genDir, serverscan.GenSubdir, a.model, 0o644, generator.Options{
+			Prometheus:      a.app.Prometheus,
 			AssetsURLPrefix: assets.URLPrefix,
 			AssetsDir:       assets.Dir,
-			AppDir:          app.Dir,
-			GenImport:       app.GenImport,
+			AppDir:          a.app.Dir,
+			GenImport:       a.app.GenImport,
 		},
 	); err != nil {
-		return m, fmt.Errorf("generating code: %w", err)
+		return fmt.Errorf("generating code: %w", err)
 	}
 
 	// A module without a NewServer call has no entry point yet.
-	if scan.Fallback {
+	if fallback {
 		cmdDir := filepath.Join(moduleDir, cfg.Cmd)
 		cmdExists, err := checkCmdPackage(cmdDir)
 		if err != nil {
-			return m, err
+			return err
 		}
 		if !cmdExists {
 			if err := generator.GenerateCmd(
-				cmdDir, app.Import, app.GenImport, serverscan.GenSubdir,
-				app.Prometheus, datastarJS, m, 0o644,
+				cmdDir, a.app.Import, a.app.GenImport, serverscan.GenSubdir,
+				a.app.Prometheus, datastarJS, a.model, 0o644,
 			); err != nil {
-				return m, fmt.Errorf("generating cmd: %w", err)
+				return fmt.Errorf("generating cmd: %w", err)
 			}
 		}
 	}
-
-	// The calls are checked against what the app package was parsed to
-	// declare, which is why this runs last.
-	return m, serverscan.CheckSessionData(app, m.Session != nil)
+	return nil
 }
 
 // writeStubsIfAbsent writes package declaration stubs when

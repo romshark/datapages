@@ -60,6 +60,8 @@ A non-GET action may return only `error`. Other supported return types are `data
 
 Do not combine `datapages.SSE` with session changes. An `sse` parameter causes the response headers to be sent before the handler runs, so the handler cannot set or delete the session cookie. The generator rejects `newSession` or `closeSession` with `sse`. A `redirect` still works because it uses the stream. A returned `datapages.Component` is rejected with `sse` too: send it with `sse.PatchElement` instead.
 
+An action's SSE response uses `datapages.WithSSECompression`, not the page's `StreamConfig`. Configure it with a method named `StreamConfig` plus the action's method name, such as `StreamConfigPOSTSave`, on the same page or `App`; see `datapages-events`.
+
 ## Files
 
 A named GET action serves a file at its route:
@@ -105,6 +107,8 @@ Datapages template linter.
 
 Serve a file a visitor uploaded with `Disposition: datapages.FileDisposition{Download: true}`, or show inline only types from an allowlist. The type of an upload is what the uploading browser reported, and `text/html` or `image/svg+xml` runs script on the application's origin when shown. `X-Content-Type-Options: nosniff`, which Datapages always sends, does not prevent that.
 
+Datapages leaves `datapages.File` responses uncompressed to preserve `Content-Length`, ranges and `ETag`. For smaller transfers, serve a precompressed archive such as `export.csv.gz` with `Type: "application/gzip"`, or negotiate `Accept-Encoding`. A negotiated representation needs `Content-Encoding` in `Header`, its own `ETag` and `Vary: Accept-Encoding`.
+
 The zero `Cache` sends `Cache-Control: no-cache`, which makes the browser ask before every reuse. Set `MaxAge` and `Immutable` only for a URL whose bytes never change, and `Private` for a file only its visitor may see. Without `MaxAge` or `NoStore`, Datapages adds `no-cache`, also next to `Private`. `NoStore` also keeps the file out of the offline worker's cache. A handler that takes `Session` sends `Vary: Cookie`, which keeps one visitor from getting the copy a browser or CDN stored for another. Serve a file that is the same for every visitor from a handler without `Session`, which a CDN can share.
 
 ## SSE
@@ -145,10 +149,10 @@ func (*App) RecoverError(err error, sse datapages.SSE) error {
 }
 ```
 
-Only Datastar requests call this hook. It receives every handler error, including sentinels. Use `errors.Is` to identify sentinels. The response has status 200 whatever the error. For a page load, Datapages renders `PageError404` for a 404 and `PageError500` for a 500 if the app defines them. Otherwise it writes the status and its standard text if the response has not started. The hook writes an event stream, so do not use it as a page response.
+Only Datastar requests call this hook. It receives the errors of actions and `StreamOpen`, including sentinels, and the panics of `On` handlers. Datapages only logs an error that an `On` handler or `StreamClose` returns. Use `errors.Is` to identify sentinels. The response has status 200 whatever the error. For a page load, Datapages renders `PageError404` for a 404 and `PageError500` for a 500 if the app defines them. Otherwise it writes the status and its standard text if the response has not started. The hook writes an event stream, so do not use it as a page response.
 
 A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.PanicError`. It contains the panic value and stack. Use `errors.As` to inspect it. Datapages logs the stack before it calls the hook, then ends the request.
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages sha256:1f5ee0ea0d506cfc -->
+<!-- written by datapages sha256:7c690d34ffced4b7 -->

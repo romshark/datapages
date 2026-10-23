@@ -112,9 +112,10 @@ func (m *Manager[Data]) WriteCSRFToken(
 	return m.csrf.Tokens.WriteToken(w, sessionToken)
 }
 
-// csrfScriptPrefix and csrfScriptSuffix wrap the CSRF token in the module
-// script that adds it to every state-changing Datastar fetch. Datastar issues
-// those through globalThis.fetch, which is why overriding it reaches them all.
+// csrfScriptPrefix and csrfScriptSuffix wrap the CSRF token in the module script
+// that adds it to every state-changing Datastar fetch to the page's origin.
+// Datastar issues those through globalThis.fetch, which is why
+// overriding it reaches them all.
 const (
 	csrfScriptOpen = "\n\t<script type=\"module\""
 
@@ -124,7 +125,8 @@ const (
 			const isReq=i instanceof Request
 			const r=isReq ? i:new Request(i,init)
 			if (r.headers.get("Datastar-Request")!=="true" ||
-				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"||r.method=="QUERY"
+				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"||r.method=="QUERY"||
+				new URL(r.url,location.href).origin!==location.origin
 			) return isReq ? o(r,init):o(r)
 			const h=new Headers(r.headers)
 			h.set("X-CSRF-Token",'`
@@ -136,8 +138,8 @@ const (
 )
 
 // WriteCSRFScript writes the script that adds the X-CSRF-Token header to every
-// state-changing Datastar fetch of the page. It writes nothing if sessionToken
-// is empty or CSRF protection is disabled.
+// state-changing Datastar fetch of the page to its own origin.
+// It writes nothing if sessionToken is empty or CSRF protection is disabled.
 //
 // cspNonce must be HTML escaped. An empty value omits the nonce attribute.
 //

@@ -19,12 +19,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/exactpath"
 	"github.com/romshark/datapages/internal/logsample"
+	"github.com/romshark/datapages/modules/assetcompress"
 	"github.com/romshark/datapages/runtime/prom"
+	"github.com/romshark/datapages/runtime/sse"
 )
 
 const (
@@ -61,34 +65,44 @@ type Core struct {
 	// Empty when the application serves none.
 	assetsURLPrefix string
 
-	shutdownCh   chan struct{} // Closed when shutting down.
-	shutdownOnce sync.Once
+	// shutdown lets [Core.AfterShutdown] register callbacks without goroutines.
+	shutdown       context.Context
+	cancelShutdown context.CancelFunc
+	shutdownOnce   sync.Once
 	// lockRun guards runCancel against a signal goroutine
 	// calling Shutdown while ListenAndServe runs.
 	lockRun   sync.Mutex
 	runCancel context.CancelFunc
 
-	httpServer       *http.Server
-	metricsServer    *http.Server
-	mux              *http.ServeMux
-	handler          http.Handler
-	logger           *slog.Logger
-	sampledLogger    *slog.Logger
-	middleware       []func(http.Handler) http.Handler
-	outermost        func(http.Handler) http.Handler
-	assetsFS         http.FileSystem
-	assetsBrowsable  bool
-	assetsCache      *datapages.AssetsCacheConfig
-	crossOrigin      *http.CrossOriginProtection
-	datastarJSSrc    string
-	htmlPrefix       string
-	htmlHead         string
-	htmlDatastar     string
-	datastarJSSrcEsc string
-	cspNonce         func(*http.Request) string
-	bodySizeLimit    int64
-	shutdownTimeout  time.Duration
-	fileSendTimeout  time.Duration
+	httpServer          *http.Server
+	metricsServer       *http.Server
+	mux                 *http.ServeMux
+	handler             http.Handler
+	logger              *slog.Logger
+	sampledLogger       *slog.Logger
+	middleware          []func(http.Handler) http.Handler
+	outermost           func(http.Handler) http.Handler
+	assetsFS            http.FileSystem
+	assetsBrowsable     bool
+	assetsCache         *datapages.AssetsCacheConfig
+	crossOrigin         *http.CrossOriginProtection
+	datastarJSSrc       string
+	htmlPrefix          string
+	htmlHead            string
+	htmlDatastar        string
+	datastarJSSrcEsc    string
+	cspNonce            func(*http.Request) string
+	bodySizeLimit       int64
+	shutdownTimeout     time.Duration
+	fileSendTimeout     time.Duration
+	sseCompression      *sse.Compression
+	responseCompression *responseCompression // Nil when disabled.
+	// assetsCompressor is nil for the compressor of the zero [assetcompress.Config].
+	assetsCompressor datapages.AssetsCompressor
+
+	// streamCompressions shares encoders by [sse.CompressionKey].
+	lockStreamCompressions sync.Mutex
+	streamCompressions     map[string]*sse.Compression
 
 	// An empty buildID disables build checks.
 	buildID       string
@@ -108,7 +122,7 @@ type Core struct {
 	// stateLiveInstances counts the live per-page-instance states of every state type.
 	// They share the memory and the budget in
 	// [datapages.StateConfig.MaxConcurrentInstances].
-	// Each Core has its own counter. Servers in 1 process do not share it.
+	// Each Core has its own counter. Servers in 1 process don't share it.
 	stateLiveInstances atomic.Int64
 }
 
@@ -117,24 +131,38 @@ type Core struct {
 // [notBrowsableFS] unless cfg.AssetsBrowsable is set,
 // whichever option carried the file system here.
 func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
-	c := &Core{
-		assetsURLPrefix: assetsURLPrefix,
-		shutdownCh:      make(chan struct{}),
-		mux:             http.NewServeMux(),
-		middleware:      cfg.Middleware,
-		outermost:       cfg.OutermostMiddleware,
-		assetsFS:        cfg.AssetsFS,
-		assetsBrowsable: cfg.AssetsBrowsable,
-		assetsCache:     cfg.AssetsCache,
-		crossOrigin:     http.NewCrossOriginProtection(),
-		datastarJSSrc:   cfg.DatastarJS,
-		cspNonce:        cfg.CSPNonce,
-		logger:          cfg.Logger,
-		httpServer:      cfg.HTTPServer,
-		bodySizeLimit:   cfg.BodySizeLimit,
-		shutdownTimeout: cfg.ShutdownTimeout,
-		fileSendTimeout: cfg.FileSendTimeout,
+	// Direct ServerConfig values bypass option validation.
+	if conf := cfg.SSECompression; conf != nil {
+		if err := conf.Validate(); err != nil {
+			return nil, fmt.Errorf("SSE compression: %w", err)
+		}
 	}
+	if conf := cfg.ResponseCompression; conf != nil {
+		if err := conf.Validate(); err != nil {
+			return nil, fmt.Errorf("response compression: %w", err)
+		}
+	}
+	c := &Core{
+		assetsURLPrefix:     assetsURLPrefix,
+		mux:                 http.NewServeMux(),
+		middleware:          cfg.Middleware,
+		outermost:           cfg.OutermostMiddleware,
+		assetsFS:            cfg.AssetsFS,
+		assetsBrowsable:     cfg.AssetsBrowsable,
+		assetsCache:         cfg.AssetsCache,
+		crossOrigin:         http.NewCrossOriginProtection(),
+		datastarJSSrc:       cfg.DatastarJS,
+		cspNonce:            cfg.CSPNonce,
+		logger:              cfg.Logger,
+		httpServer:          cfg.HTTPServer,
+		bodySizeLimit:       cfg.BodySizeLimit,
+		shutdownTimeout:     cfg.ShutdownTimeout,
+		fileSendTimeout:     cfg.FileSendTimeout,
+		sseCompression:      sse.NewCompression(cfg.SSECompression),
+		responseCompression: newResponseCompression(cfg.ResponseCompression),
+		assetsCompressor:    cfg.AssetsCompressor,
+	}
+	c.shutdown, c.cancelShutdown = context.WithCancel(context.Background())
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
 	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
 		c.maxStateInstances = cfg.State.MaxConcurrentInstances
@@ -185,14 +213,26 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		}
 	}
 	if p := cfg.Prometheus; p != nil {
+		// An option other than [datapages.WithPrometheus] can set p without
+		// the defaults of that option.
+		reg, gatherer := p.Registerer, p.Gatherer
+		if reg == nil {
+			reg = prometheus.DefaultRegisterer
+		}
+		if gatherer == nil {
+			gatherer = prometheus.DefaultGatherer
+		}
+		if c.outermost == nil {
+			c.outermost = prom.Middleware
+		}
 		// The registering happens here rather than in [datapages.WithPrometheus]
 		// so a rejected configuration leaves the registerer as it found it.
-		if err := prom.Register(p.Registerer, p.Collectors...); err != nil {
+		if err := prom.Register(reg, p.Collectors...); err != nil {
 			return nil, fmt.Errorf("registering prometheus metrics: %w", err)
 		}
 		h := p.Handler
 		if h == nil {
-			h = promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
+			h = promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{})
 		}
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", h)
@@ -236,17 +276,35 @@ func (c *Core) Build() {
 		if !c.assetsBrowsable {
 			fsys = notBrowsableFS{fsys: fsys}
 		}
-		h := http.FileServer(fsys)
-		switch {
-		case datapages.IsDevMode():
+		compressor := c.assetsCompressor
+		if compressor == nil {
+			// New accepts the zero Config.
+			compressor, _ = assetcompress.New(assetcompress.Config{})
+		}
+		tags := new(assetTags)
+		// Compressed ETags extend the cache middleware's base tag.
+		h := compressor.Handler(
+			fsys, tags.sum, typedFonts(http.FileServer(fsys)), c.sampledLogger,
+		)
+		// c.assetsFS lists the directories that fsys hides.
+		exact := exactpath.New(c.assetsFS).Exact
+		if datapages.IsDevMode() {
 			// Dev files may change while the server runs. The browser asks
 			// before every reuse, and without Last-Modified it gets the file.
-			h = DevNoCache(http.FileServer(noModTimeFS{fsys}))
-		case c.assetsCache != nil && !c.assetsCache.Disabled:
-			h = newAssetsCache(fsys, *c.assetsCache, h)
+			h = DevNoCache(typedFonts(http.FileServer(noModTimeFS{fsys})))
+			exact = func(p string) bool { return exactpath.New(c.assetsFS).Exact(p) }
+		} else {
+			// An embed.FS has no modification time, which leaves the ETag as the
+			// only validator of its files.
+			var conf datapages.AssetsCacheConfig
+			if c.assetsCache != nil && !c.assetsCache.Disabled {
+				conf = *c.assetsCache
+			}
+			h = newAssetsCache(fsys, tags, conf, h)
 		}
+		h = exactSpellings(exact, h)
 		c.mux.Handle("GET "+c.assetsURLPrefix,
-			http.StripPrefix(c.assetsURLPrefix, limitingFileWrites(h)))
+			http.StripPrefix(c.assetsURLPrefix, servingAssets(h)))
 	}
 
 	c.handler = http.Handler(c.mux)
@@ -263,15 +321,26 @@ func (c *Core) Build() {
 	for _, h := range c.middleware {
 		c.handler = h(c.handler)
 	}
+	if c.responseCompression != nil {
+		// Application middleware reads and edits the uncompressed body.
+		assetsPrefix := c.assetsURLPrefix
+		if c.assetsFS == nil {
+			assetsPrefix = ""
+		}
+		c.handler = c.responseCompression.wrap(c.handler, assetsPrefix)
+	}
 	if c.outermost != nil {
 		c.handler = c.outermost(c.handler)
 	}
 	c.httpServer.Handler = c
 }
 
-// limitingFileWrites limits the writes of the files next sends, see [limitFileWrites].
-func limitingFileWrites(next http.Handler) http.Handler {
+// servingAssets marks the responses of next as files, as [ServeFile] does.
+// Middleware that edits bodies passes them through unchanged,
+// and [limitFileWrites] limits their writes.
+func servingAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		passFileThrough(w)
 		limitFileWrites(w)
 		next.ServeHTTP(w, r)
 	})
@@ -287,7 +356,8 @@ func (c *Core) Mux() *http.ServeMux { return c.mux }
 // Logger is the logger the server writes to.
 func (c *Core) Logger() *slog.Logger { return c.logger }
 
-// SampledLogger is the logger for a warning the framework emits on every render.
+// SampledLogger is the logger for a warning the framework emits on every render
+// or request.
 // It writes 1 record of each kind per interval and counts what it throttles,
 // which [github.com/romshark/datapages.WithLogSampling] configures.
 // Application code writes to [Core.Logger] instead.
@@ -348,7 +418,12 @@ func (c *Core) CheckSameOrigin(w http.ResponseWriter, r *http.Request) (ok bool)
 }
 
 // ShutdownCh is closed when the shutdown begins.
-func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdownCh }
+func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdown.Done() }
+
+// AfterShutdown schedules f when shutdown begins. See [context.AfterFunc].
+func (c *Core) AfterShutdown(f func()) (stop func() bool) {
+	return context.AfterFunc(c.shutdown, f)
+}
 
 // htmlDoctype and htmlHeadStart keep the prologue in pieces so
 // [Core.htmlOpening] can add a nonce without duplicating the markup.
@@ -434,7 +509,7 @@ func (c *Core) ReleaseStateInstance() {
 }
 
 // StateLiveInstances is how many per-tab state instances this server holds,
-// across all state types. It is what [datapages.StateConfig.MaxConcurrentInstances] caps.
+// across all state types. It's what [datapages.StateConfig.MaxConcurrentInstances] caps.
 //
 // A server built with Prometheus exports the same number as datapages_state_instances.
 // This reads it without one, for an application that reports its own health.
@@ -449,6 +524,50 @@ func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 // BodySizeLimit is how much of the request body of
 // an action that declares Signals is read.
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
+
+// OpenSSE starts an event stream with the server's compression settings.
+func (c *Core) OpenSSE(w http.ResponseWriter, r *http.Request) *sse.Stream {
+	return sse.Open(w, r, c.sseCompression)
+}
+
+// SSECompression returns the server's compression, or nil when disabled.
+func (c *Core) SSECompression() *sse.Compression { return c.sseCompression }
+
+// maxStreamCompressions bounds the request-configured encoder pools.
+const maxStreamCompressions = 64
+
+// StreamCompression resolves a StreamConfig result. It propagates err, uses
+// the server setting for nil Compression and rejects invalid configurations.
+func (c *Core) StreamCompression(
+	conf datapages.StreamConfig, err error,
+) (*sse.Compression, error) {
+	if err != nil {
+		return nil, err
+	}
+	if conf.Compression == nil {
+		return c.sseCompression, nil
+	}
+	if err := conf.Compression.Validate(); err != nil {
+		return nil, fmt.Errorf("compression: %w", err)
+	}
+	key := sse.CompressionKey(conf.Compression)
+	if key == "" {
+		return nil, nil
+	}
+	c.lockStreamCompressions.Lock()
+	defer c.lockStreamCompressions.Unlock()
+	if comp, ok := c.streamCompressions[key]; ok {
+		return comp, nil
+	}
+	comp := sse.NewCompression(conf.Compression)
+	if len(c.streamCompressions) < maxStreamCompressions {
+		if c.streamCompressions == nil {
+			c.streamCompressions = make(map[string]*sse.Compression)
+		}
+		c.streamCompressions[key] = comp
+	}
+	return comp, nil
+}
 
 // ShutdownTimeout returns the grace period used by [Core.ListenAndServe].
 // [Core.Shutdown] uses the deadline of its context instead.
@@ -476,7 +595,7 @@ func (c *Core) Addr() string {
 // tracked records whether any of the response body went out. A body cannot be
 // taken back: an error page appended to a half-written page is 2 documents.
 //
-// The status alone does not count. A handler that wrote one and nothing else
+// The status alone doesn't count. A handler that wrote one and nothing else
 // still has a body to write, which is what the error path writes into.
 //
 // In the response of a file, see [limitFileWrites], tracked also gives each
@@ -545,13 +664,13 @@ func (t *tracked) keepDeadline() {
 	_ = http.NewResponseController(t.ResponseWriter).SetWriteDeadline(t.deadline)
 }
 
-// ReadFrom is how http.ServeContent copies a file into the response. Without
-// it, io.Copy allocates a copy buffer per response.
+// ReadFrom is how http.ServeContent copies a file into the response.
+// Without it, io.Copy allocates a copy buffer per response.
 //
 // A source the kernel can send goes to the ReadFrom of the writer underneath,
 // where net/http sends a file with sendfile and a socket with splice.
-// Any other source is copied through Write with a pooled buffer. Over plain TCP,
-// net/http copies such a source with a new buffer per response
+// Any other source is copied through Write with a pooled buffer.
+// Over plain TCP, net/http copies such a source with a new buffer per response
 // and more allocations than Write takes.
 //
 // wroteBody is set before the copy: 0 bytes for an empty file is
@@ -576,7 +695,9 @@ const sendChunk = 64 << 10
 
 // readFromInChunks is ReadFrom for a file being sent from a source the kernel copies.
 // It hands the source to rf a chunk at a time.
-func (t *tracked) readFromInChunks(rf io.ReaderFrom, src io.Reader) (n int64, err error) {
+func (t *tracked) readFromInChunks(
+	rf io.ReaderFrom, src io.Reader,
+) (n int64, err error) {
 	lr, ok := src.(*io.LimitedReader)
 	if !ok {
 		lr = &io.LimitedReader{R: src, N: math.MaxInt64}
@@ -693,11 +814,16 @@ func unwrapWriter(w http.ResponseWriter) http.ResponseWriter {
 // ResponseBodyWritten reports whether any of the response body was written.
 // A handler that failed past this point can be logged and nothing more.
 //
+// A middleware that holds the body back from the writer underneath,
+// as offline.Middleware does with a page, reports it through a BodyWritten method.
 // Reports false when a middleware wraps the writer without an Unwrap method.
 func ResponseBodyWritten(w http.ResponseWriter) bool {
 	for {
 		if t, ok := w.(*tracked); ok {
 			return t.wroteBody
+		}
+		if b, ok := w.(interface{ BodyWritten() bool }); ok && b.BodyWritten() {
+			return true
 		}
 		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
 		if !ok {
@@ -768,7 +894,7 @@ func (c *Core) listenAndServe(
 ) error {
 	if datapages.IsDevMode() {
 		// Assets come from the source tree here,
-		// which a deployment that inherited the variable does not have.
+		// which a deployment that inherited the variable doesn't have.
 		c.logger.Warn("dev mode is on",
 			slog.String("env", datapages.EnvVarDevMode+"/TEMPL_DEV_MODE"))
 	}
@@ -789,11 +915,9 @@ func (c *Core) listenAndServe(
 	c.lockRun.Lock()
 	c.runCancel = cancel
 	c.lockRun.Unlock()
-	// Shutdown may have closed shutdownCh before runCancel existed.
-	select {
-	case <-c.shutdownCh:
+	// Shutdown may have begun before runCancel existed.
+	if c.shutdown.Err() != nil {
 		cancel()
-	default:
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -831,7 +955,7 @@ func (c *Core) listenAndServe(
 	g.Go(func() error {
 		select {
 		case <-gctx.Done():
-		case <-c.shutdownCh:
+		case <-c.shutdown.Done():
 			// Nothing cancels gctx when Shutdown ran before runCancel existed.
 		}
 
@@ -861,8 +985,8 @@ func (c *Core) Shutdown(ctx context.Context) error {
 		if cancel != nil {
 			cancel()
 		}
-		// Closed even when runCancel is nil. listenAndServe checks it.
-		close(c.shutdownCh)
+		// Canceled even when runCancel is nil. listenAndServe checks it.
+		c.cancelShutdown()
 	})
 	var errs []error
 	if c.metricsServer != nil {

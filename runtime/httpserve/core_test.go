@@ -1,7 +1,6 @@
 package httpserve_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -20,7 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/runtime/httpserve"
+	"github.com/romshark/datapages/runtime/sse"
 )
 
 // echoPath answers with the path it was routed with.
@@ -65,8 +67,8 @@ func TestServeHTTPNormalizesPath(t *testing.T) {
 	}
 }
 
-// TestServeHTTPKeepsAssetPaths tests the exception: a static file path keeps
-// the name it has on disk.
+// TestServeHTTPKeepsAssetPaths tests the exception:
+// a static file path keeps the name it has on disk.
 func TestServeHTTPKeepsAssetPaths(t *testing.T) {
 	t.Parallel()
 
@@ -131,6 +133,17 @@ func (w unwrapRW) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // opaqueRW wraps without an Unwrap method, which hides everything below it.
 type opaqueRW struct{ http.ResponseWriter }
 
+// bufferingRW holds the body back from the writer underneath, as a middleware
+// that rewrites the page does, and reports what it holds through BodyWritten.
+type bufferingRW struct {
+	http.ResponseWriter
+	buf *strings.Builder
+}
+
+func (w bufferingRW) Write(p []byte) (int, error) { return w.buf.Write(p) }
+func (w bufferingRW) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w bufferingRW) BodyWritten() bool           { return w.buf.Len() > 0 }
+
 // TestResponseBodyWrittenThroughMiddleware tests the writer a handler holds
 // when a middleware wrapped it, which is the shape prom.Middleware installs.
 func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
@@ -162,10 +175,20 @@ func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
 			},
 			want: false,
 		},
+		"buffering": {
+			wrap: func(w http.ResponseWriter) http.ResponseWriter {
+				return bufferingRW{w, new(strings.Builder)}
+			},
+			want: true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var got, before bool
 			c := mustCore(t, datapages.ServerConfig{
+				// Exclude compressor writes from wrapper attribution.
+				ResponseCompression: &datapages.ResponseCompressionConfig{
+					Disabled: true,
+				},
 				OutermostMiddleware: func(next http.Handler) http.Handler {
 					return http.HandlerFunc(
 						func(w http.ResponseWriter, r *http.Request) {
@@ -274,8 +297,8 @@ func (r *readFromRecorder) ReadFrom(src io.Reader) (int64, error) {
 }
 
 // TestReadFromThroughServeHTTP tests io.Copy from a source that is not a file
-// into the writer Core.ServeHTTP wraps every response in. It copies through
-// a pooled buffer and allocates nothing per response.
+// into the writer Core.ServeHTTP wraps every response in.
+// It copies through a pooled buffer and allocates nothing per response.
 func TestReadFromThroughServeHTTP(t *testing.T) {
 	var allocs float64
 	c := mustCore(t, datapages.ServerConfig{}, "")
@@ -360,31 +383,34 @@ func TestLimitRequestBodyClosesTheConnection(t *testing.T) {
 }
 
 // TestSampledLogger tests the logger the framework's own repeated warnings go to.
-// They are written where a page renders, so 1 bad value in the
-// application would otherwise write a line per element per request.
+// They are written where a page renders, so 1 bad value in the application
+// would otherwise write a line per element per request.
 func TestSampledLogger(t *testing.T) {
 	t.Parallel()
 
+	const a, b = "level=WARN msg=dropped value=a", "level=WARN msg=dropped value=b"
 	for name, tc := range map[string]struct {
 		conf *datapages.LogSamplingConfig
-		want int // lines for 10 warnings of one kind, then 10 of another
+		want []string // lines for 10 warnings of one kind, then 10 of another
 	}{
-		"default": {want: 2},
+		"default": {want: []string{a, b}},
 		"disabled": {
 			conf: &datapages.LogSamplingConfig{Disabled: true},
-			want: 20,
+			want: slices.Concat(
+				slices.Repeat([]string{a}, 10), slices.Repeat([]string{b}, 10),
+			),
 		},
 		"limit of 1": {
 			conf: &datapages.LogSamplingConfig{Limit: 1},
-			want: 1,
+			want: []string{a},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			var buf bytes.Buffer
+			var log testlog.Buffer
 			c := mustCore(t, datapages.ServerConfig{
-				Logger:      slog.New(slog.NewTextHandler(&buf, nil)),
+				Logger:      log.Logger(),
 				LogSampling: tc.conf,
 			}, "")
 
@@ -394,13 +420,15 @@ func TestSampledLogger(t *testing.T) {
 			for range 10 {
 				c.SampledLogger().Warn("dropped", slog.String("value", "b"))
 			}
-			require.Equal(t, tc.want, strings.Count(buf.String(), "dropped"))
+			log.RequireLines(t, tc.want...)
 
 			// What the application logs is never sampled.
 			for range 3 {
 				c.Logger().Warn("app")
 			}
-			require.Equal(t, 3, strings.Count(buf.String(), "app"))
+			log.RequireLines(t,
+				slices.Concat(tc.want,
+					slices.Repeat([]string{"level=WARN msg=app"}, 3))...)
 		})
 	}
 }
@@ -412,21 +440,22 @@ func TestSampledLoggerInterval(t *testing.T) {
 	t.Parallel()
 
 	const interval = 10 * time.Millisecond
-	var buf bytes.Buffer
+	var log testlog.Buffer
 	c := mustCore(t, datapages.ServerConfig{
-		Logger:      slog.New(slog.NewTextHandler(&buf, nil)),
+		Logger:      log.Logger(),
 		LogSampling: &datapages.LogSamplingConfig{Interval: interval},
 	}, "")
 
 	for range 5 {
 		c.SampledLogger().Warn("dropped")
 	}
-	require.Equal(t, 1, strings.Count(buf.String(), "dropped"))
+	log.RequireLines(t, "level=WARN msg=dropped")
 
 	time.Sleep(2 * interval)
 	c.SampledLogger().Warn("dropped")
-	require.Equal(t, 2, strings.Count(buf.String(), "dropped"))
-	require.Contains(t, buf.String(), "suppressed=4")
+	log.RequireLines(t,
+		"level=WARN msg=dropped",
+		"level=WARN msg=dropped suppressed=4")
 }
 
 // TestBuildDefaults tests what a core built from an empty config carries:
@@ -449,6 +478,7 @@ func TestBuildDefaults(t *testing.T) {
 // TestDatastarJSOption tests that a custom script URL replaces the
 // bundled one in the HTML prefix, which is where every page picks it up.
 // The URL is HTML-escaped there: RFC 3986 allows & and ' in it.
+// The tag is HTMLDatastarScript, which WriteHTML writes after a head prologue.
 func TestDatastarJSOption(t *testing.T) {
 	t.Parallel()
 
@@ -463,7 +493,8 @@ func TestDatastarJSOption(t *testing.T) {
 			c := mustCore(t, datapages.ServerConfig{DatastarJS: tc.src}, "")
 			c.Build()
 
-			require.Contains(t, c.HTMLPrefix(), tc.want)
+			require.Equal(t, c.HTMLPrefix(), c.HTMLHead()+c.HTMLDatastarScript())
+			require.Contains(t, c.HTMLDatastarScript(), tc.want)
 		})
 	}
 }
@@ -637,13 +668,38 @@ func TestBuildHidesAssetDirectories(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		"root hidden":     {url: "/static/", wantStatus: http.StatusNotFound},
-		"subdir hidden":   {url: "/static/sub/", wantStatus: http.StatusNotFound},
-		"no slash hidden": {url: "/static/sub", wantStatus: http.StatusNotFound},
-		"file served":     {url: "/static/hello.txt", wantStatus: http.StatusOK, wantBody: "hello"},
-		"nested served":   {url: "/static/sub/nested.txt", wantStatus: http.StatusOK, wantBody: "nested"},
-		"root listed":     {browsable: true, url: "/static/", wantStatus: http.StatusOK, wantBody: "hello.txt"},
-		"subdir listed":   {browsable: true, url: "/static/sub/", wantStatus: http.StatusOK, wantBody: "nested.txt"},
+		"root hidden": {
+			url:        "/static/",
+			wantStatus: http.StatusNotFound,
+		},
+		"subdir hidden": {
+			url:        "/static/sub/",
+			wantStatus: http.StatusNotFound,
+		},
+		"no slash hidden": {
+			url:        "/static/sub",
+			wantStatus: http.StatusNotFound,
+		},
+		"file served": {
+			url:        "/static/hello.txt",
+			wantStatus: http.StatusOK,
+			wantBody:   "hello",
+		},
+		"nested served": {
+			url:        "/static/sub/nested.txt",
+			wantStatus: http.StatusOK,
+			wantBody:   "nested",
+		},
+		"root listed": {
+			browsable: true, url: "/static/",
+			wantStatus: http.StatusOK,
+			wantBody:   "hello.txt",
+		},
+		"subdir listed": {
+			browsable: true, url: "/static/sub/",
+			wantStatus: http.StatusOK,
+			wantBody:   "nested.txt",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -852,6 +908,50 @@ func TestStateInstancesMetric(t *testing.T) {
 	require.Zero(t, gaugeValue(t, reg, metric))
 }
 
+// TestPrometheusDefaults tests that a PrometheusConfig an option sets without
+// WithPrometheus gets the defaults of that option: the default registerer and
+// gatherer, and the middleware that counts requests.
+func TestPrometheusDefaults(t *testing.T) {
+	// The metrics server binds the address it is given and reports none back.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	metricsAddr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	c := mustCore(t, datapages.ServerConfig{
+		Prometheus: &datapages.PrometheusConfig{Host: metricsAddr},
+	}, "")
+	c.Mux().HandleFunc(
+		"GET /prometheus-defaults/", func(http.ResponseWriter, *http.Request) {},
+	)
+	c.Build()
+
+	done := make(chan error, 1)
+	go func() { done <- c.ListenAndServe(t.Context(), "127.0.0.1:0") }()
+	addr := awaitAddr(t, c, done)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://" + addr + "/prometheus-defaults/")
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	var metrics string
+	require.Eventually(t, func() bool {
+		resp, err := client.Get("http://" + metricsAddr + "/metrics")
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		metrics = string(b)
+		return err == nil && resp.StatusCode == http.StatusOK
+	}, 5*time.Second, 10*time.Millisecond, "the metrics server never answered")
+	require.Contains(t, metrics, `path="GET /prometheus-defaults/"`,
+		"the request was not counted")
+
+	shutdownAndWait(t, c, done, "ListenAndServe")
+}
+
 // gaugeValue reads the value of the named gauge from g.
 func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
 	t.Helper()
@@ -866,4 +966,83 @@ func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
 	}
 	t.Fatalf("no metric named %s", name)
 	return 0
+}
+
+// TestStreamCompression tests defaults, validation, errors and pool limits.
+func TestStreamCompression(t *testing.T) {
+	t.Parallel()
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	get := func(conf *datapages.SSECompressionConfig) *sse.Compression {
+		t.Helper()
+		comp, err := c.StreamCompression(datapages.StreamConfig{Compression: conf}, nil)
+		require.NoError(t, err)
+		return comp
+	}
+
+	require.Same(t, c.SSECompression(), get(nil))
+	require.Nil(t, get(&datapages.SSECompressionConfig{Disabled: true}))
+	require.Same(t,
+		get(&datapages.SSECompressionConfig{ZstdWindow: 4 << 20}),
+		get(&datapages.SSECompressionConfig{
+			ZstdWindow: 4 << 20, ZstdLevel: datapages.DefaultSSEZstdLevel,
+		}))
+
+	errMethod := errors.New("the method failed")
+	_, err := c.StreamCompression(datapages.StreamConfig{}, errMethod)
+	require.ErrorIs(t, err, errMethod)
+
+	_, err = c.StreamCompression(datapages.StreamConfig{
+		Compression: &datapages.SSECompressionConfig{ZstdWindow: 3},
+	}, nil)
+	require.EqualError(t, err,
+		"compression: zstd window (3) must be a power of 2 from 1 KiB to 8 MiB")
+
+	// 1 configuration is shared already. 63 more fill the 64.
+	for i := range 63 {
+		get(&datapages.SSECompressionConfig{GzipLevel: 1 + i%9, ZstdLevel: 2 + i/9})
+	}
+	beyond := &datapages.SSECompressionConfig{BrotliQuality: 11}
+	require.NotSame(t, get(beyond), get(beyond))
+}
+
+// TestOpenSSECompression tests server compression negotiation.
+func TestOpenSSECompression(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		opts []datapages.ServerOption
+		want string // "" for no compression.
+	}{
+		"default": {want: "zstd"},
+		"disabled": {opts: []datapages.ServerOption{datapages.WithSSECompression(
+			datapages.SSECompressionConfig{Disabled: true},
+		)}},
+		"gzip only": {
+			opts: []datapages.ServerOption{datapages.WithSSECompression(
+				datapages.SSECompressionConfig{
+					Codings: []datapages.Coding{datapages.CodingGzip},
+				},
+			)},
+			want: "gzip",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var cfg datapages.ServerConfig
+			for _, opt := range tc.opts {
+				require.NoError(t, opt(&cfg))
+			}
+			core, err := httpserve.NewCore(cfg, "")
+			require.NoError(t, err)
+
+			r := httptest.NewRequest(http.MethodGet, "/_$/", nil)
+			r.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+			w := httptest.NewRecorder()
+			s := core.OpenSSE(w, r)
+			s.Close()
+			require.NoError(t, s.Err())
+			require.Equal(t, tc.want, w.Header().Get("Content-Encoding"))
+		})
+	}
 }

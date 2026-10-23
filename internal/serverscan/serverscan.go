@@ -1,6 +1,7 @@
 // Package serverscan finds the datapages.NewServer calls of a module and reads
 // the app package, the session data type, the metrics mode and the destination
-// package out of their type arguments.
+// package out of their type arguments. It also refuses an import of a runtime
+// package in a file datapages didn't generate.
 //
 // It works on the AST alone. A type argument list needs no type information,
 // which is what lets the scan read a main.go naming a generated package that
@@ -25,10 +26,16 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/romshark/datapages/internal/buildconstraint"
 )
 
 // DatapagesImport is the import path of the datapages package.
 const DatapagesImport = "github.com/romshark/datapages"
+
+// RuntimeImport is the import path the runtime packages sit under.
+// Only generated code may import them.
+const RuntimeImport = DatapagesImport + "/runtime"
 
 // GeneratedHeader is the comment every generated file starts with.
 // It is what marks a package as one datapages wrote.
@@ -122,12 +129,8 @@ type Call struct {
 // App is 1 app package of the module, with the calls that build a server
 // for it and the package they generate into.
 type App struct {
-	// Name is the last element of Dir, which is what names the app on the
-	// command line, for example "frontend".
-	Name string
-
 	// Dir is the app package relative to the module root,
-	// for example "app" or "app/frontend".
+	// for example "app" or "app/frontend". The command line selects an app by it.
 	Dir string
 
 	// Import is the import path of the app package.
@@ -174,6 +177,9 @@ type Result struct {
 //
 // A module without a single call is not an error: Apps holds the default app
 // package alone and Fallback is true.
+//
+// A file datapages did not generate, a test file included,
+// must not import a package under [RuntimeImport].
 func Scan(moduleDir, modulePath string) (Result, error) {
 	var errs Errors
 	calls := scanDir(moduleDir, modulePath, moduleDir, &errs)
@@ -198,7 +204,6 @@ func Scan(moduleDir, modulePath string) (Result, error) {
 		a := byImport[c.App.Import]
 		if a == nil {
 			a = &App{
-				Name:        filepath.Base(dir),
 				Dir:         dir,
 				Import:      c.App.Import,
 				GenDir:      filepath.Join(dir, GenSubdir),
@@ -232,31 +237,30 @@ func Scan(moduleDir, modulePath string) (Result, error) {
 	return res, nil
 }
 
-// Find returns the app named on the command line, matched against its name or
-// its directory. ok is false when nothing matches.
-func (r Result) Find(name string) (App, bool) {
-	name = filepath.ToSlash(name)
+// Find returns the app whose package is in dir, relative to the module root.
+// The last element of the directory alone does not tell web/app from admin/app.
+func (r Result) Find(dir string) (App, bool) {
+	dir = filepath.ToSlash(filepath.Clean(dir))
 	for _, a := range r.Apps {
-		if a.Name == name || filepath.ToSlash(a.Dir) == name {
+		if filepath.ToSlash(a.Dir) == dir {
 			return a, true
 		}
 	}
 	return App{}, false
 }
 
-// Names lists the app names, which is what an ambiguous command line is
-// answered with.
-func (r Result) Names() []string {
-	names := make([]string, len(r.Apps))
+// Dirs lists the directories of the app packages, which is what the command line takes.
+func (r Result) Dirs() []string {
+	dirs := make([]string, len(r.Apps))
 	for i, a := range r.Apps {
-		names[i] = a.Name
+		dirs[i] = filepath.ToSlash(a.Dir)
 	}
-	return names
+	return dirs
 }
 
-// Cmd returns the command package that builds this app, relative to the module
-// root. ok is false when no call to it is written in one, which is what a
-// module whose only calls are in tests looks like.
+// Cmd returns the command package that builds this app, relative to the module root.
+// ok is false when no call to it is written in one, which is what
+// a module whose only calls are in tests looks like.
 func (a App) Cmd() (dir string, ok bool) {
 	for _, c := range a.Calls {
 		if c.Main {
@@ -269,7 +273,6 @@ func (a App) Cmd() (dir string, ok bool) {
 // defaultApp is what a module with no NewServer call is generated as.
 func defaultApp(modulePath string) App {
 	return App{
-		Name:      DefaultAppDir,
 		Dir:       DefaultAppDir,
 		Import:    modulePath + "/" + DefaultAppDir,
 		GenDir:    filepath.Join(DefaultAppDir, GenSubdir),
@@ -339,6 +342,29 @@ func CheckSessionData(a App, hasSession bool) error {
 			errs.hint("fix: use datapages." + DisableSessions)
 		}
 	}
+	return errs.Err()
+}
+
+// CheckAppDir reports an app package whose directory does not exist,
+// which leaves nothing to parse or generate.
+// A caller checks it before it writes anything, stubs included.
+//
+// [Scan] doesn't report it, because init scans
+// a module before it writes the app package.
+func CheckAppDir(moduleDir string, a App) error {
+	st, err := os.Stat(filepath.Join(moduleDir, a.Dir))
+	if err == nil && st.IsDir() {
+		return nil
+	}
+	var errs Errors
+	if len(a.Calls) == 0 {
+		errs.addf(token.Position{Filename: a.Dir}, "no such directory, "+
+			"the default app package of a module without a datapages.NewServer call")
+		errs.hint("fix: run datapages init")
+		return errs.Err()
+	}
+	errs.addf(a.Calls[0].Pos,
+		"the app package %s of datapages.NewServer does not exist", a.Dir)
 	return errs.Err()
 }
 
@@ -457,7 +483,8 @@ func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 		if neverBuilt(name) {
 			continue
 		}
-		f, err := parser.ParseFile(fset, name, nil, 0)
+		// The comments hold the header [isGenerated] reads.
+		f, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
 		if err != nil {
 			// Without this a file that does not parse looks like one holding no call.
 			// Scan then reports Fallback and gen rewrites
@@ -483,6 +510,9 @@ func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 	}
 	var calls []Call
 	for _, f := range files {
+		if !isGenerated(f) {
+			checkRuntimeImports(root, fset, f, errs)
+		}
 		dp, dot := importName(f, DatapagesImport)
 		if dot != nil {
 			pos := relTo(root, fset.Position(dot.Pos()))
@@ -507,12 +537,26 @@ func scanPackage(root, modulePath, dir string, errs *Errors) []Call {
 	return calls
 }
 
-// neverBuilt reports whether the //go:build line of the file at path excludes
-// it from every configuration, which is what "ignore" says. Every other tag is
-// one some build sets.
-//
-// A file it cannot read is built: an unreadable file is reported where it is
-// parsed, not silently dropped.
+// checkRuntimeImports refuses every import of a runtime package in f,
+// which datapages didn't generate. The runtime packages serve the generated code.
+// A release may change their API, and datapages gen updates only the code it wrote.
+func checkRuntimeImports(root string, fset *token.FileSet, f *ast.File, errs *Errors) {
+	for _, spec := range f.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil ||
+			path != RuntimeImport && !strings.HasPrefix(path, RuntimeImport+"/") {
+			continue
+		}
+		errs.addf(relTo(root, fset.Position(spec.Pos())),
+			"application code must not import %s", path)
+		errs.hint("fix: use the datapages package or the generated code, " +
+			"which datapages gen updates when the runtime packages change")
+	}
+}
+
+// neverBuilt reports whether the //go:build line of the file at path
+// excludes it from every build. An unreadable file counts as built,
+// and [parser.ParseFile] reports the error.
 func neverBuilt(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -533,10 +577,10 @@ func neverBuilt(path string) bool {
 		if err != nil {
 			return false
 		}
-		return !expr.Eval(func(tag string) bool { return tag != "ignore" })
+		return buildconstraint.NeverBuilt(expr)
 	}
-	// Also the answer when sc.Err() is set: a scan that stopped early,
-	// on a read error or a line past the buffer, has seen no constraint.
+	// A failed scan has seen no constraint either.
+	_ = sc.Err()
 	return false
 }
 

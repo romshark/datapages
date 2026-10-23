@@ -104,11 +104,9 @@ func (PageError404) GET(r *http.Request) (datapages.Component, error) {
 }
 ```
 
-`PageError500` and `PageOffline` have the same form and each needs a `GET`
-method. Both render with a zero `Session`. `PageOffline` is the service worker
-fallback; see `datapages-offline`.
+`PageError500` and `PageOffline` have the same form and each needs a `GET` method. `PageOffline` is the service worker fallback; see `datapages-offline`. The worker precaches 1 copy for every visitor, so the page renders without the CSRF script and must not depend on who is signed in.
 
-Neither may return `newSession` or `closeSession` because the same `GET` serves the page route and its error path. Both may accept a session parameter, which an error page can use to render the document.
+The `GET` of `PageError404` and `PageError500` may not return `newSession` or `closeSession` because it serves both the page route and the error path. It may accept a session parameter to render the document for the visitor.
 
 ## Global head
 
@@ -122,9 +120,9 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 
 ## Sharing handlers
 
-To share a `GET`, stream hook or event handler, define it on a type without the `Page` prefix and embed that type in each page. The embedded type is not a page and has no route. It needs the same `App *App` field. Its handlers use the route of each page that embeds it.
+To share a stream hook or event handler, define it on a stream embed, a type without the `Page` prefix, and embed that type in each page. A stream embed is not a page and has no route. It needs the same `App *App` field. Its handlers run for each page that embeds it.
 
-Do not share an action by embedding it. Its doc comment defines 1 absolute route, so embedding it in a second page causes a route conflict. Put a shared action on `*App`, or define a separate action for each page.
+A stream embed cannot declare `GET` or actions. Give each page its own `GET`, which can call a shared function. Put an action that several pages call on `*App`, or define a separate action for each page.
 
 ```go
 type Base struct{ App *App }
@@ -142,4 +140,4 @@ type PageChat struct {
 
 A method declared on a page replaces the embedded method only for that page. The replacement can call `p.Base.OnMessageSent(event, sse)` to wrap the embedded method.
 
-<!-- written by datapages sha256:9c202540125b02d9 -->
+<!-- written by datapages sha256:62eed89f072f139f -->

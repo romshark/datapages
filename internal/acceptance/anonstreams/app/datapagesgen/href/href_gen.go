@@ -60,8 +60,17 @@ func PageBackgroundPost(slug string) string {
 	return b.String()
 }
 
+// PageDecode references /decode/{$}
+func PageDecode() string { return "/decode/" }
+
+// PageInbox references /inbox/{$}
+func PageInbox() string { return "/inbox/" }
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PageNotes references /notes/{$}
+func PageNotes() string { return "/notes/" }
 
 // PagePanic references /panic/{$}
 func PagePanic() string { return "/panic/" }
@@ -86,3 +95,18 @@ func PageRooms() string { return "/rooms/" }
 
 // PageTabs references /tabs/{$}
 func PageTabs() string { return "/tabs/" }
+
+// PageThread references /threads/{thread}/{$}
+func PageThread(thread string) string {
+	s_thread := url.PathEscape(thread)
+	var b strings.Builder
+	b.Grow(
+		len("/threads/") +
+			len(s_thread) +
+			len("/"),
+	)
+	b.WriteString("/threads/")
+	b.WriteString(s_thread)
+	b.WriteString("/")
+	return b.String()
+}

@@ -3,6 +3,7 @@ package httpserve_test
 import (
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -64,6 +65,22 @@ func sentFile(name string) func() datapages.File {
 	}
 }
 
+// sendBufferListener gives each connection it accepts a 64 KiB send buffer.
+//
+// Linux grows the send buffer up to the max of net.ipv4.tcp_wmem, 4 MiB by default.
+// A write blocked on a full buffer resumes once 1/3 of it has drained.
+// A client reading 64 KiB per 10ms needs 213ms or more for that,
+// of the 262ms a 300ms send timeout leaves each write.
+type sendBufferListener struct{ net.Listener }
+
+func (l sendBufferListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetWriteBuffer(64 << 10)
+	}
+	return c, err
+}
+
 // sendServer starts a core with the send timeout. It serves the File of file
 // at /file and the files of assets under /static/. finished receives the path
 // of each request whose handler returned.
@@ -94,6 +111,7 @@ func sendServer(
 	}
 	c.Build()
 	srv = httptest.NewUnstartedServer(c)
+	srv.Listener = sendBufferListener{srv.Listener}
 	srv.EnableHTTP2 = http2
 	if http2 {
 		srv.StartTLS()
