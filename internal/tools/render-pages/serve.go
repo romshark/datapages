@@ -102,17 +102,12 @@ func serve(addr, root string, e edition) error {
 // serveAssets reads the files of [versionAssets] for serve:
 // style.css unminified from this directory, the others from docsDir.
 func serveAssets(docsDir string) (map[string][]byte, error) {
-	assets := make(map[string][]byte)
-	for _, name := range versionAssets {
-		file := filepath.Join(docsDir, name)
-		if name == "style.css" {
-			file = name
-		}
-		content, err := os.ReadFile(file)
-		if err != nil {
-			return nil, err
-		}
-		assets[name] = content
+	assets, err := readAssets(docsDir)
+	if err != nil {
+		return nil, err
+	}
+	if assets["style.css"], err = os.ReadFile("style.css"); err != nil {
+		return nil, err
 	}
 	return assets, nil
 }

@@ -6,7 +6,7 @@ render-pages generates the GitHub Pages site of Datapages from the Markdown file
 
 | Command | Effect |
 | ------- | ------ |
-| `mage genDocs` | Writes the site into `docs/` and minifies `style.css` into `docs/style.css`. |
+| `mage genDocs` | Builds the Morpheus bundle into `docs/morpheus/`, minifies `style.css` into `docs/style.css` and writes the site into `docs/`. |
 | `mage watchDocs` | Serves the site on http://127.0.0.1:7340 and reloads it on changes. See [DEV.md](../../../DEV.md). |
 | `go test ./...` | Runs the tests. Run it in this directory. |
 
@@ -31,11 +31,11 @@ Each version is a directory of `docs/docs/`, named after it, with:
 - 1 HTML page and 1 Markdown copy for each page in `docPages` in [docs.go](docs.go)
 - `search.json`, the search index
 - `llms.txt` and `llms-full.txt`, which list and concatenate the Markdown copies for language models
-- copies of `style.css`, `docs.js` and `favicon.svg` of `docs/`, which keep the pages of a release on the stylesheet and script of their release
+- copies of `style.css`, `docs.js`, `favicon.svg` and `morpheus/` of `docs/`, which keep the pages of a release on the stylesheet and scripts of their release
 
 The run for main also writes `docs/index.html`, the landing page, `docs/docs/index.html`, which opens the default version, and `docs/llms.txt`, which links the `llms.txt` of each version.
 
-Git ignores these files. `docs/style.css` is committed, and `mage checkGen` fails when it is stale.
+Git ignores these files. `docs/style.css` and `docs/morpheus/` are committed, and `mage checkGen` fails when they are stale.
 
 ## Pages
 
@@ -55,7 +55,7 @@ The build splits each page into sections at the headings that its contents list 
 
 - `docs.js` runs the navigation overlay, the highlight of the current section, the search, the version menu and the Mermaid diagrams. It loads Mermaid only on pages with a diagram.
 - A script in `<head>` applies the stored theme before the first paint.
-- The sidebar, the search dialog, the copy buttons, the theme menu and the version menu are Morpheus components. The pages load Morpheus from jsDelivr at the version in `go.mod`, which matches its Go components. The landing page does not load it.
+- The sidebar, the search dialog, the copy buttons, the theme menu and the version menu are Morpheus components. `mage genDocs` bundles only these with the `morpheus bundle` command, at the version in `go.mod`, which matches its Go components, and copies the caret icon of the version menu. The bundle has no theme: `style.css` sets the theme tokens of Morpheus to the colors of the site. The landing page does not load Morpheus.
 
 ## Files
 
@@ -67,7 +67,6 @@ The build splits each page into sections at the headings that its contents list 
 | `docs.go` | `docPages`, Markdown conversion and links |
 | `highlight.go`, `blocks.go` | Code blocks, callouts and heading links |
 | `search.go`, `llms.go` | `search.json`, `llms.txt` and `llms-full.txt` |
-| `morpheus.go` | The Morpheus URL |
 | `*.templ` | The pages, the theme switch and the icons |
 | `style.css` | The stylesheet |
 | `templier.yml` | The watcher configuration |

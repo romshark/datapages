@@ -26,10 +26,10 @@ templ docsPage(v docView) {
 			<link rel="icon" href={ v.base() + "favicon.svg" } type="image/svg+xml"/>
 			<link rel="alternate" type="text/markdown" href={ v.base() + v.doc.page.markdownFile() }/>
 			@themeScript()
-			<link rel="stylesheet" href={ morpheusAssets + "morpheus.css" }/>
-			@morpheusIconBase()
+			<link rel="stylesheet" href={ v.base() + "morpheus/morpheus.min.css" }/>
+			@morpheusIconBase(v.base())
 			<link rel="stylesheet" href={ v.base() + "style.css" }/>
-			<script type="module" src={ morpheusAssets + "bundle.js" }></script>
+			<script type="module" src={ v.base() + "morpheus/morpheus.min.js" }></script>
 			<script type="module" src={ v.base() + "docs.js" }></script>
 		</head>
 		<body class="docs-page" data-site-root={ v.base() }>
@@ -118,10 +118,11 @@ templ pageLinks(v *docView) {
 	</p>
 }
 
-// morpheusIconBase points <neo-icon> at the icons of Morpheus on jsDelivr,
-// replacing /static/icons, which morpheus.css sets and the site lacks.
-templ morpheusIconBase() {
-	@templ.Raw(`<style>:root{--neo-icon-base:"` + morpheusIcons + `"}</style>`)
+// morpheusIconBase points <neo-icon> at morpheus/icons/ of the version, base
+// relative to the page, replacing the /static/icons of morpheus.min.css.
+// <neo-icon> resolves the URL against the page.
+templ morpheusIconBase(base string) {
+	@templ.Raw(`<style>:root{--neo-icon-base:"` + base + `morpheus/icons"}</style>`)
 }
 
 // skipLink is the first element of every page. It shows only while it has the

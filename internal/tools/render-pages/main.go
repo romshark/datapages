@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -45,13 +46,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "read docs: %v\n", err)
 		os.Exit(1)
 	}
-	assets := make(map[string][]byte)
-	for _, name := range versionAssets {
-		file := filepath.Join(root, "docs", name)
-		if assets[name], err = os.ReadFile(file); err != nil {
-			fmt.Fprintf(os.Stderr, "read asset: %v\n", err)
-			os.Exit(1)
-		}
+	assets, err := readAssets(filepath.Join(root, "docs"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read assets: %v\n", err)
+		os.Exit(1)
 	}
 	files, err := siteFiles(docs, e, assets)
 	if err != nil {
@@ -67,10 +65,31 @@ func main() {
 	}
 }
 
-// versionAssets are the files of docs/ that the pages of a version load from
-// their own directory, which keeps the pages of a release on the stylesheet
-// and the script that its templates were written for.
-var versionAssets = []string{"style.css", "docs.js", "favicon.svg"}
+// versionAssets are the files and directories of docs/ that the pages of a
+// version load from their own directory, which keeps the pages of a release on
+// the stylesheet and the scripts that its templates were written for.
+// morpheus/ holds the Morpheus bundle that mage genDocs builds.
+var versionAssets = []string{"style.css", "docs.js", "favicon.svg", "morpheus"}
+
+// readAssets reads the files of [versionAssets] from docsDir, those in its
+// directories included, by their path relative to docsDir.
+func readAssets(docsDir string) (map[string][]byte, error) {
+	fsys := os.DirFS(docsDir)
+	assets := make(map[string][]byte)
+	for _, name := range versionAssets {
+		err := fs.WalkDir(fsys, name, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			assets[p], err = fs.ReadFile(fsys, p)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return assets, nil
+}
 
 // siteFiles returns the files that the site generates from docs in edition e,
 // by their path relative to docs/ of the repository, the site root.

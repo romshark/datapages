@@ -514,6 +514,20 @@ func GenTempl() error {
 // Pages site. A module of its own keeps goldmark and Chroma out of the root go.mod.
 const docsModule = "internal/tools/render-pages"
 
+// morpheusModule provides the components of the docs pages: the templ wrappers
+// that docsModule renders and the "morpheus bundle" command.
+const morpheusModule = "github.com/romshark/morpheus"
+
+// morpheusComponents are the Morpheus components that the docs pages render.
+// "morpheus bundle" adds the components they require.
+var morpheusComponents = []string{
+	"button", "clipcopy", "dialog", "menu", "select", "sidebar",
+}
+
+// morpheusIcons are the icons of Morpheus that the components of the docs
+// pages load: the caret of <neo-select>.
+var morpheusIcons = []string{"chevrons-up-down"}
+
 // GenDocs generates documentation pages from the working tree, as the pages of
 // the main branch. The Pages workflow renders the pages of a release from its tag.
 func GenDocs() error {
@@ -521,6 +535,9 @@ func GenDocs() error {
 		return err
 	}
 	if err := goRun(toolTempl, "generate", "-path", docsModule); err != nil {
+		return err
+	}
+	if err := genMorpheus(); err != nil {
 		return err
 	}
 	// The pages of a version load a copy of docs/style.css, which the
@@ -531,6 +548,52 @@ func GenDocs() error {
 		return err
 	}
 	return runIn(docsModule, "go", "run", ".", "-version", "main")
+}
+
+// genMorpheus writes the Morpheus bundle of the docs pages into docs/morpheus/:
+// the components of [morpheusComponents] with those they require and the icons
+// of [morpheusIcons]. It takes the version that docsModule requires, which its
+// templ wrappers render and the bundle must match. The bundle has no theme:
+// the stylesheet of docsModule sets the theme tokens of Morpheus to the colors
+// of the site, which the dark mode of theme-default.css would replace.
+func genMorpheus() error {
+	const dir = "docs/morpheus"
+	version, err := output("go", "-C", docsModule,
+		"list", "-m", "-f", "{{.Version}}", morpheusModule)
+	if err != nil {
+		return fmt.Errorf("version of %s: %w", morpheusModule, err)
+	}
+	version = strings.TrimSpace(version)
+	// A component or icon dropped from the lists leaves no file behind.
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	fmt.Println("==> morpheus bundle", version, "->", dir)
+	if err := goRun(morpheusModule+"@"+version, "bundle",
+		"-components", strings.Join(morpheusComponents, ","),
+		"-themes", "none", "-o", dir); err != nil {
+		return err
+	}
+	moduleDir, err := output("go", "-C", docsModule,
+		"list", "-m", "-f", "{{.Dir}}", morpheusModule)
+	if err != nil {
+		return fmt.Errorf("directory of %s: %w", morpheusModule, err)
+	}
+	icons := filepath.Join(strings.TrimSpace(moduleDir), "internal/site/static/icons")
+	if err := os.MkdirAll(filepath.Join(dir, "icons"), 0o755); err != nil {
+		return err
+	}
+	for _, name := range morpheusIcons {
+		svg, err := os.ReadFile(filepath.Join(icons, name+".svg"))
+		if err != nil {
+			return err
+		}
+		err = os.WriteFile(filepath.Join(dir, "icons", name+".svg"), svg, 0o644)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // WatchDocs serves the GitHub Pages site and reloads it on changes.

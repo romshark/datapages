@@ -1,7 +1,6 @@
 package main
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -328,9 +327,10 @@ func TestGitHubLinksFollowTheRef(t *testing.T) {
 	require.Contains(t, html, `<a class="icon-link" href="`+tree+`guide/events.md">`)
 }
 
-// TestMorpheusIconBase tests that a docs page points <neo-icon> at the icons of
-// Morpheus on jsDelivr after morpheus.css, whose /static/icons it replaces.
-func TestMorpheusIconBase(t *testing.T) {
+// TestMorpheusAssets tests that a docs page loads the Morpheus bundle of its
+// version and points <neo-icon> at the icons of the version after
+// morpheus.min.css, whose /static/icons it replaces.
+func TestMorpheusAssets(t *testing.T) {
 	docs, err := convertDocs(testPages, [][]byte{
 		[]byte("# Introduction\n"),
 		[]byte("# Events\n"),
@@ -340,11 +340,15 @@ func TestMorpheusIconBase(t *testing.T) {
 	require.NoError(t, err)
 	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1"})))
 
-	base := regexp.MustCompile(`<style>:root\{--neo-icon-base:"` +
-		`https://cdn\.jsdelivr\.net/gh/romshark/morpheus@[^/"]+` +
-		`/internal/site/static/icons"\}</style>`).FindStringIndex(html)
-	require.NotNil(t, base, "no icon base")
-	css := strings.Index(html, `morpheus.css">`)
-	require.Positive(t, css)
-	require.Less(t, css, base[0])
+	for _, want := range []string{
+		`<link rel="stylesheet" href="../morpheus/morpheus.min.css">`,
+		`<script type="module" src="../morpheus/morpheus.min.js"></script>`,
+	} {
+		require.Contains(t, html, want)
+	}
+	require.NotContains(t, html, "cdn.jsdelivr.net")
+	base := strings.Index(html,
+		`<style>:root{--neo-icon-base:"../morpheus/icons"}</style>`)
+	require.Positive(t, base, "no icon base")
+	require.Less(t, strings.Index(html, `morpheus.min.css">`), base)
 }
