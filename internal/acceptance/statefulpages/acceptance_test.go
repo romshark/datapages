@@ -142,6 +142,48 @@ func TestActionWithoutInstance(t *testing.T) {
 	require.Equal(t, "reconnect", resp.Retry())
 }
 
+// TestNoTransformKeepsStatefulPageUncompressed tests a stateful page under a
+// middleware that sets Cache-Control: no-transform, as one does for a page that
+// shows a secret. The page replaces the header with no-store, which keeps its
+// instance id out of shared caches, and must keep no-transform in it.
+func TestNoTransformKeepsStatefulPageUncompressed(t *testing.T) {
+	noTransform := datapages.WithMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "private, no-transform")
+			next.ServeHTTP(w, r)
+		})
+	})
+	for name, tt := range map[string]struct {
+		opts         []datapages.ServerOption
+		encoding     string
+		cacheControl string
+	}{
+		"default": {encoding: "gzip", cacheControl: "no-store"},
+		"no-transform": {
+			opts:         []datapages.ServerOption{noTransform},
+			encoding:     "",
+			cacheControl: "no-store, no-transform",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer), tt.opts...))
+			t.Cleanup(srv.Close)
+			req, err := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+			require.NoError(t, err)
+			// Set by hand, the header leaves the body as the server sent it.
+			req.Header.Set("Accept-Encoding", "gzip")
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = resp.Body.Close() })
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(t, tt.encoding, resp.Header.Get("Content-Encoding"))
+			require.Equal(t, tt.cacheControl, resp.Header.Get("Cache-Control"))
+		})
+	}
+}
+
 // TestStateResetsOnReconnect covers a tab whose stream drops.
 // An instance lives exactly as long as its stream, which leaves the same id
 // reconnecting onto a zeroed state rather than onto what it left behind.

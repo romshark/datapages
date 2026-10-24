@@ -24,6 +24,7 @@ const (
 	toolGovulncheck = "golang.org/x/vuln/cmd/govulncheck@latest"
 	toolTempl       = "github.com/a-h/templ/cmd/templ@v0.3.1070"
 	toolMinify      = "github.com/tdewolff/minify/v2/cmd/minify@latest"
+	toolTemplier    = "github.com/romshark/templier@v0.13.2"
 )
 
 // submoduleRoots lists directories containing sub-modules (their own go.mod)
@@ -32,6 +33,7 @@ var submoduleRoots = []string{
 	"example",
 	acceptanceRoot,
 	"internal/templatingbench",
+	docsModule,
 	"internal/parser/testdata",
 	"internal/parser/internal/templcheck/testdata",
 }
@@ -63,7 +65,11 @@ func Test() error {
 	if err := Lint(); err != nil {
 		return err
 	}
-	return run("go", "test", "./...", "-cover")
+	if err := run("go", "test", "./...", "-cover"); err != nil {
+		return err
+	}
+	fmt.Println("==> go test ./... in", docsModule)
+	return runIn(docsModule, "go", "test", "./...", "-cover")
 }
 
 // Coverage reports 2 numbers. The first is how much of the generator itself
@@ -139,6 +145,10 @@ func Lint() error {
 		return err
 	}
 	if err := goRun(toolGolangCI, "run", "./..."); err != nil {
+		return err
+	}
+	fmt.Println("==> golangci-lint in", docsModule)
+	if err := runIn(docsModule, "go", "run", toolGolangCI, "run", "./..."); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
@@ -312,9 +322,14 @@ func LintDatapages() error {
 	})
 }
 
-// Vulncheck runs govulncheck on the root module and all examples.
+// Vulncheck runs govulncheck on the root module, the docs module and all
+// examples.
 func Vulncheck() error {
 	if err := goRun(toolGovulncheck, "./..."); err != nil {
+		return err
+	}
+	fmt.Println("==> govulncheck in", docsModule)
+	if err := runIn(docsModule, "go", "run", toolGovulncheck, "./..."); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
@@ -495,24 +510,136 @@ func GenTempl() error {
 	return nil
 }
 
-// GenDocs generates documentation pages.
+// docsModule holds the templates, the stylesheet and the renderer of the GitHub
+// Pages site. A module of its own keeps goldmark and Chroma out of the root go.mod.
+const docsModule = "internal/tools/render-pages"
+
+// morpheusModule provides the components of the docs pages: the templ wrappers
+// that docsModule renders and the "morpheus bundle" command.
+const morpheusModule = "github.com/romshark/morpheus"
+
+// morpheusComponents are the Morpheus components that the docs pages render.
+// "morpheus bundle" adds the components they require.
+var morpheusComponents = []string{
+	"button", "clipcopy", "dialog", "menu", "select", "sidebar",
+}
+
+// morpheusIcons are the icons of Morpheus that the components of the docs
+// pages load: the caret of <neo-select>.
+var morpheusIcons = []string{"chevrons-up-down"}
+
+// GenDocs generates documentation pages from the working tree, as the pages of
+// the main branch. The Pages workflow renders the pages of a release from its tag.
 func GenDocs() error {
 	if err := CheckWatch(); err != nil {
 		return err
 	}
-	version, err := output("git", "describe", "--tags", "--abbrev=0")
+	if err := goRun(toolTempl, "generate", "-path", docsModule); err != nil {
+		return err
+	}
+	if err := genMorpheus(); err != nil {
+		return err
+	}
+	// The pages of a version load a copy of docs/style.css, which the
+	// render takes, so the stylesheet is minified first.
+	css := filepath.Join(docsModule, "style.css")
+	fmt.Println("==> minify", css, "-> docs/style.css")
+	if err := goRun(toolMinify, "-o", "docs/style.css", css); err != nil {
+		return err
+	}
+	return runIn(docsModule, "go", "run", ".", "-version", "main")
+}
+
+// genMorpheus writes the Morpheus bundle of the docs pages into docs/morpheus/:
+// the components of [morpheusComponents] with those they require and the icons
+// of [morpheusIcons]. It takes the version that docsModule requires, which its
+// templ wrappers render and the bundle must match. The bundle has no theme:
+// the stylesheet of docsModule sets the theme tokens of Morpheus to the colors
+// of the site, which the dark mode of theme-default.css would replace.
+func genMorpheus() error {
+	const dir = "docs/morpheus"
+	version, err := output("go", "-C", docsModule,
+		"list", "-m", "-f", "{{.Version}}", morpheusModule)
 	if err != nil {
-		version = "latest"
+		return fmt.Errorf("version of %s: %w", morpheusModule, err)
 	}
 	version = strings.TrimSpace(version)
-	if err := goRun(toolTempl, "generate", "-path", "./internal/docs-src"); err != nil {
+	// A component or icon dropped from the lists leaves no file behind.
+	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
-	if err := run("go", "run", "./internal/tools/render-pages", "-version", version); err != nil {
+	fmt.Println("==> morpheus bundle", version, "->", dir)
+	if err := goRun(morpheusModule+"@"+version, "bundle",
+		"-components", strings.Join(morpheusComponents, ","),
+		"-themes", "none", "-o", dir); err != nil {
 		return err
 	}
-	fmt.Println("==> minify internal/docs-src/style.css -> docs/style.css")
-	return goRun(toolMinify, "-o", "docs/style.css", "internal/docs-src/style.css")
+	moduleDir, err := output("go", "-C", docsModule,
+		"list", "-m", "-f", "{{.Dir}}", morpheusModule)
+	if err != nil {
+		return fmt.Errorf("directory of %s: %w", morpheusModule, err)
+	}
+	icons := filepath.Join(strings.TrimSpace(moduleDir), "internal/site/static/icons")
+	if err := os.MkdirAll(filepath.Join(dir, "icons"), 0o755); err != nil {
+		return err
+	}
+	for _, name := range morpheusIcons {
+		svg, err := os.ReadFile(filepath.Join(icons, name+".svg"))
+		if err != nil {
+			return err
+		}
+		err = os.WriteFile(filepath.Join(dir, "icons", name+".svg"), svg, 0o644)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WatchDocs serves the GitHub Pages site and reloads it on changes.
+//
+// templ watch mode keeps template strings in files under TEMPL_DEV_MODE_ROOT.
+// A directory of its own keeps a templ generate, as in [GenDocs], from deleting them.
+// TEMPL_DEV_MODE_WATCH_ROOT limits those files to the docs module.
+// Without it the server also looks for them for the Morpheus components,
+// which no watch writes, and fails.
+func WatchDocs() error {
+	root, err := os.MkdirTemp("", "datapages-watchdocs-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(root) }()
+	watched, err := filepath.Abs(docsModule)
+	if err != nil {
+		return err
+	}
+	if err := os.Setenv("TEMPL_DEV_MODE_ROOT", root); err != nil {
+		return err
+	}
+	if err := os.Setenv("TEMPL_DEV_MODE_WATCH_ROOT", watched); err != nil {
+		return err
+	}
+	host, err := templierHost(filepath.Join(docsModule, "templier.yml"))
+	if err != nil {
+		return err
+	}
+	fmt.Println("==> serving the docs on http://" + host + "/")
+	return runIn(docsModule, "go", "run", toolTemplier)
+}
+
+// templierHost returns the templier-host address in config.
+// Templier logs it only at its verbose level, which also logs every rebuild.
+func templierHost(config string) (string, error) {
+	data, err := os.ReadFile(config)
+	if err != nil {
+		return "", err
+	}
+	for line := range strings.Lines(string(data)) {
+		if host, ok := strings.CutPrefix(line, "templier-host:"); ok {
+			return strings.TrimSpace(host), nil
+		}
+	}
+	return "", fmt.Errorf("%s has no templier-host", config)
 }
 
 // GenOfflineWorker minifies the service worker the offline module embeds.
