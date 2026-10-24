@@ -176,7 +176,7 @@ For other editors, templ's [IDE support](https://templ.guide/developer-tools/ide
 
 ## Next steps
 
-Continue with the [tutorial](tutorial.md), which builds on the project that `init` created.
+Continue with the [tutorial](tutorial/README.md), which builds on the project that `init` created.
 
 ## See also
 

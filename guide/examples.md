@@ -268,7 +268,7 @@ The code is in [`example/docs`](../example/docs/).
 ## See also
 
 - [Installation](installation.md): the CLI and templ, which `datapages watch` needs
-- [Tutorial](tutorial.md): a project built step by step
+- [Tutorial](tutorial/README.md): a project built step by step
 - [Application model](application-model.md): what the examples declare and what is generated for them
 - [Multiple applications](multiple-applications.md): the module layout of the counter
 - [FAQ](../FAQ.md): desktop apps, templ and NATS

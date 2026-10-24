@@ -14,7 +14,6 @@ import (
 
 // testPages are pages at paths that cover [docPage.base]: 1 for a directory,
 // 1 in it, 1 in the root of the version, and a link that leaves the site.
-// The paths of [docPages] have no directories.
 var testPages = []docPage{
 	{
 		file:  "guide/README.md",
