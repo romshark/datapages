@@ -54,17 +54,16 @@ type EventViewChanged struct {
 //
 // Shows the global toxics, or the overrides of the endpoint with the pattern
 // in the endpoint query parameter, beside the endpoints that match the search
-// in q and the kinds in kinds. Its actions are commands: they change the
-// settings or the state of the tab and dispatch an event, for which the page
-// renders again.
+// in q and the kinds in kinds. Its actions are commands: they change the settings
+// or the state of the tab and dispatch an event, for which the page renders again.
 type PageIndex struct{ App *App }
 
 // StateIndex is what 1 tab shows.
 type StateIndex struct {
 	// Endpoint is the pattern of the scope, empty for the global toxics.
 	Endpoint string
-	// Search and Kinds filter the endpoint list. Kinds lists the kinds
-	// separated by commas, empty for every kind.
+	// Search and Kinds filter the endpoint list.
+	// Kinds lists the kinds separated by commas, empty for every kind.
 	Search, Kinds string
 
 	// Notice is the outcome of a save or a reload, which the next render shows
@@ -101,9 +100,8 @@ func (p PageIndex) GET(
 	return app(p.App.view(s)), nil
 }
 
-// StreamOpen starts the state of the tab from the URL, which the signals
-// reflect, and renders the tab, which catches up on what it missed without a
-// stream.
+// StreamOpen starts the state of the tab from the URL, which the signals reflect,
+// and renders the tab, which catches up on what it missed without a stream.
 func (p PageIndex) StreamOpen(
 	_ *http.Request,
 	sse datapages.SSE,
@@ -173,8 +171,8 @@ func (p PageIndex) POSTShow(
 
 // POSTFilter is /filter
 //
-// Filters the endpoint list by the search and kinds signals. The kinds signal
-// is "none" for no kind.
+// Filters the endpoint list by the search and kinds signals.
+// The kinds signal is "none" for no kind.
 func (p PageIndex) POSTFilter(
 	_ *http.Request,
 	signals datapages.Signals[struct {
@@ -193,9 +191,8 @@ func (p PageIndex) POSTFilter(
 
 // POSTMode is /mode
 //
-// Turns the toxic of the slot on or off, or for an endpoint to inherit the
-// global one, as the mode signal says. A toxic turned on comes back with the
-// values it had.
+// Turns the toxic of the slot on or off, or for an endpoint to inherit the global one,
+// as the mode signal says. A toxic turned on comes back with the values it had.
 func (p PageIndex) POSTMode(
 	_ *http.Request,
 	query datapages.Query[struct {
@@ -259,7 +256,8 @@ func (p PageIndex) POSTValue(
 	if err != nil {
 		s.Err = slotError{slot: slot, msg: err.Error()}
 		return viewChanged.Dispatch(
-			EventViewChanged{Tab: datapages.SubjectStateID(stateID)})
+			EventViewChanged{Tab: datapages.SubjectStateID(stateID)},
+		)
 	}
 	return changed.Dispatch(EventChanged{})
 }
@@ -304,8 +302,7 @@ func (p PageIndex) POSTSave(
 
 // POSTReload is /reload
 //
-// Discards the changes made on the page for the settings of the
-// configuration file.
+// Discards the changes made on the page for the settings of the configuration file.
 func (p PageIndex) POSTReload(
 	_ *http.Request,
 	state datapages.State[StateIndex],
@@ -360,9 +357,9 @@ type NewPresetSignals struct {
 
 // POSTPresetDraft is /preset-draft
 //
-// Takes the fields of the dialog of a new preset, which the tab shows. Picking
-// a preset of Datapages fills in its name where the name is empty, and a name
-// a preset has disables creating the preset.
+// Takes the fields of the dialog of a new preset, which the tab shows.
+// Picking a preset of Datapages fills in its name where the name is empty,
+// and a name a preset has disables creating the preset.
 func (p PageIndex) POSTPresetDraft(
 	_ *http.Request,
 	signals datapages.Signals[NewPresetSignals],
@@ -378,8 +375,8 @@ func (p PageIndex) POSTPresetDraft(
 //
 // Adds a preset with the name signal and applies it. It copies the global
 // toxics and the overrides of the preset of the app or of Datapages the from
-// signal names, or the current ones for an empty one. It refuses a name a preset has, as any other name
-// it refuses, in the dialog, which a created preset closes.
+// signal names, or the current ones for an empty one. It refuses a name a preset has,
+// as any other name it refuses, in the dialog, which a created preset closes.
 func (p PageIndex) POSTCreatePreset(
 	_ *http.Request,
 	sse datapages.SSE,
@@ -401,7 +398,9 @@ func (p PageIndex) POSTCreatePreset(
 	if err != nil {
 		s.NewPreset.name, s.NewPreset.from = v.Name, v.From
 		s.NewPreset.err = createPresetError(err)
-		return viewChanged.Dispatch(EventViewChanged{Tab: datapages.SubjectStateID(stateID)})
+		return viewChanged.Dispatch(
+			EventViewChanged{Tab: datapages.SubjectStateID(stateID)},
+		)
 	}
 	s.NewPreset = presetDraft{}
 	if err := sse.ExecuteScript(presetCreated); err != nil {

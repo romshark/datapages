@@ -34,7 +34,7 @@ type proxies struct {
 
 // newProxies starts the global proxy, which forwards to upstream.
 func newProxies(upstream string) (*proxies, error) {
-	// The bandwidth toxic logs to the global zerolog logger,
+	// Toxiproxy logs the updates of toxics to the global zerolog logger,
 	// which writes JSON to stderr next to the log of watch mode.
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 
@@ -128,7 +128,8 @@ func syncToxics(x *toxiproxy.Proxy, want []active) error {
 		var err error
 		if x.Toxics.GetToxic(a.slot.Name()) != nil {
 			_, err = x.Toxics.UpdateToxicJson(
-				a.slot.Name(), bytes.NewReader(a.updateJSON()))
+				a.slot.Name(), bytes.NewReader(a.updateJSON()),
+			)
 		} else {
 			_, err = x.Toxics.AddToxicJson(bytes.NewReader(a.createJSON()))
 		}

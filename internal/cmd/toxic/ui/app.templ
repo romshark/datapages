@@ -42,8 +42,8 @@ templ app(d pageData) {
 
 // regions are the parts of the page that every render morphs in, each into
 // the element with its id. Their parent .tp-body is none of them: neo-sidebar
-// keeps its backdrop there, which a morph of .tp-body would remove. Neither is
-// the toaster, whose toasts a morph would remove.
+// keeps its backdrop there, which a morph of .tp-body would remove.
+// Neither is the toaster, whose toasts a morph would remove.
 templ regions(d pageData) {
 	@top(d)
 	@nav(d)
@@ -98,7 +98,8 @@ templ top(d pageData) {
 					Disabled: neo.Set(d.saved),
 				}, templ.Attributes{
 					"data-on:click": action.PageIndex.Save.POST(),
-					"title":         "Write the settings of this page to " + d.info.ConfigFile,
+					"title": "Write the settings of this page to " +
+						d.info.ConfigFile,
 				}) {
 					Save to config
 				}
@@ -239,7 +240,9 @@ templ navFilter(f filter) {
 
 // addressLink links url in a new tab with the address addr as its text.
 templ addressLink(url, addr string) {
-	<a href={ href.External(url) } target="_blank" rel="noopener"><code>{ addr }</code></a>
+	<a href={ href.External(url) } target="_blank" rel="noopener">
+		<code>{ addr }</code>
+	</a>
 }
 
 // routePath shows the path of a route pattern with its wildcards and its end
@@ -295,7 +298,8 @@ templ scopeHeader(d pageData) {
 					</code>
 				</h2>
 				if d.scopeOverrides > 0 {
-					@neo.ButtonAttrs(neo.ButtonOpts{Variant: neo.Set(neo.ButtonVariantGhost)},
+					@neo.ButtonAttrs(neo.ButtonOpts{
+						Variant: neo.Set(neo.ButtonVariantGhost)},
 						templ.Attributes{"data-on:click": action.PageIndex.Clear.POST()}) {
 						Clear overrides
 					}
@@ -411,7 +415,9 @@ templ segment(value, label, mode string) {
 
 // fields shows the values of the toxic x of slot. Disabled, they show the
 // global toxic an endpoint inherits, which its row cannot change.
-templ fields(d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic, disabled bool) {
+templ fields(
+	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic, disabled bool,
+) {
 	<div class="tp-fields">
 		<div class="tp-number-fields">
 			for i, f := range info.Fields {

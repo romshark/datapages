@@ -10,8 +10,7 @@ import (
 )
 
 // TemplierEventsPath is the endpoint the script the dev server injects into
-// every page connects to for reloads. The Toxiproxy front forwards it without
-// toxics.
+// every page connects to for reloads. The Toxiproxy front forwards it without toxics.
 const TemplierEventsPath = "/__templier/events"
 
 // WatchToxiproxy configures the proxy watch mode serves next to the dev server.
@@ -41,8 +40,8 @@ type WatchToxiproxy struct {
 
 	// Presets are named sets of global toxics and endpoint overrides, which the
 	// settings page applies in 1 step, between [PresetNoThrottling] and
-	// [PresetOffline], which it always has. [DefaultYAML] has the throttling
-	// presets of Chrome DevTools.
+	// [PresetOffline], which it always has.
+	// [DefaultYAML] has the throttling presets of Chrome DevTools.
 	Presets []ToxiproxyPreset `yaml:"presets"`
 }
 
@@ -178,7 +177,10 @@ func (t ToxicLatency) Validate() error {
 	)
 }
 
-// ToxicBandwidth limits the rate of the data to Rate KB/s.
+// ToxicBandwidth limits the rate of the data to Rate KB/s, which the requests
+// of 1 browser share. The requests of an endpoint that overrides it share
+// the rate of the override, apart from the others.
+// The proxy applies it, not Toxiproxy.
 type ToxicBandwidth struct {
 	ToxicBase `yaml:",inline"`
 	Rate      int64 `yaml:"rate"`
@@ -218,8 +220,7 @@ func (t ToxicTimeout) Validate() error {
 	return checkMillis("timeout", t.Timeout)
 }
 
-// ToxicResetPeer resets the connection with a TCP RST once data arrives,
-// after Timeout.
+// ToxicResetPeer resets the connection with a TCP RST once data arrives, after Timeout.
 type ToxicResetPeer struct {
 	ToxicBase `yaml:",inline"`
 	Timeout   time.Duration `yaml:"timeout"`
@@ -232,8 +233,8 @@ func (t ToxicResetPeer) Validate() error {
 	return checkMillis("timeout", t.Timeout)
 }
 
-// ToxicSlicer splits the data into chunks of AverageSize bytes, plus or minus
-// up to SizeVariation, and delays each chunk by Delay.
+// ToxicSlicer splits the data into chunks of AverageSize bytes,
+// plus or minus up to SizeVariation, and delays each chunk by Delay.
 type ToxicSlicer struct {
 	ToxicBase     `yaml:",inline"`
 	AverageSize   int64         `yaml:"average-size"`
@@ -252,12 +253,14 @@ func (t ToxicSlicer) Validate() error {
 	}
 	if t.SizeVariation < 0 || t.SizeVariation > t.AverageSize {
 		errs = append(errs, fmt.Errorf(
-			"size-variation %d must be from 0 to average-size", t.SizeVariation))
+			"size-variation %d must be from 0 to average-size", t.SizeVariation,
+		))
 	}
 	// Toxiproxy takes the slicer delay in microseconds.
 	if t.Delay < 0 || t.Delay%time.Microsecond != 0 {
 		errs = append(errs, fmt.Errorf(
-			"delay %s must be 0 or more whole microseconds", t.Delay))
+			"delay %s must be 0 or more whole microseconds", t.Delay,
+		))
 	}
 	return errors.Join(errs...)
 }

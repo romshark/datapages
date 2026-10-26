@@ -11,32 +11,46 @@ import (
 	"github.com/romshark/datapages/internal/cmd/config"
 )
 
-// Preset is a named set of global toxics and endpoint overrides, which the
-// settings page applies in 1 step.
+// Preset is a named set of global toxics and endpoint overrides,
+// which the settings page applies in 1 step.
 type Preset struct {
 	Name   string
 	Toxics Set
 
-	// Endpoints maps the route pattern of an endpoint to its overrides.
-	// It is not nil.
+	// Endpoints maps the route pattern of an endpoint to its overrides. Not nil.
 	Endpoints map[string]Set
 }
 
 // DefaultPresets returns the presets of Datapages, which [config.DefaultYAML]
 // holds and the dialog of a new preset copies from. They are the throttling
-// presets of Chrome DevTools, in the order of its throttling menu, from
-// https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/core/sdk/NetworkManager.ts
-// and front_end/panels/mobile_throttling/ThrottlingPresets.ts.
+// presets of Chrome DevTools, in the order of its throttling menu,
+// from [NetworkManager.ts] and [ThrottlingPresets.ts].
 //
 // Chrome delays each response by the latency, which the downstream latency
-// toxic does too. Toxiproxy takes whole milliseconds and whole KB/s of 1000
-// bytes, to which the values of Chrome are rounded.
+// toxic does too. Chrome shares the bandwidth among the requests of a tab,
+// the [Front] among those of a browser profile. The toxics take whole milliseconds
+// and whole KB/s of 1000 bytes, to which the values of Chrome are rounded.
+//
+// [NetworkManager.ts]: https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/core/sdk/NetworkManager.ts
+// [ThrottlingPresets.ts]: https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/panels/mobile_throttling/ThrottlingPresets.ts
 func DefaultPresets() []Preset {
 	throttled := func(name string, latency, down, up int64) Preset {
 		return Preset{Name: name, Endpoints: map[string]Set{}, Toxics: Set{
-			{Type: Latency, Stream: Downstream}:   {Toxicity: 1, Values: [MaxFields]int64{latency}},
-			{Type: Bandwidth, Stream: Downstream}: {Toxicity: 1, Values: [MaxFields]int64{down}},
-			{Type: Bandwidth, Stream: Upstream}:   {Toxicity: 1, Values: [MaxFields]int64{up}},
+			{
+				Type: Latency, Stream: Downstream,
+			}: {
+				Toxicity: 1, Values: [MaxFields]int64{latency},
+			},
+			{
+				Type: Bandwidth, Stream: Downstream,
+			}: {
+				Toxicity: 1, Values: [MaxFields]int64{down},
+			},
+			{
+				Type: Bandwidth, Stream: Upstream,
+			}: {
+				Toxicity: 1, Values: [MaxFields]int64{up},
+			},
 		}}
 	}
 	return []Preset{
@@ -56,8 +70,7 @@ func DefaultPreset(name string) (Preset, error) {
 
 // AllPresets returns the presets the settings page lists: No throttling,
 // which has no toxics, the presets of s, and Offline. Chrome DevTools lists
-// those 2 apart from its throttling presets too, and datapages.yaml cannot
-// hold them.
+// those 2 apart from its throttling presets too, and datapages.yaml cannot hold them.
 func (s Settings) AllPresets() []Preset {
 	noThrottling := Preset{
 		Name: config.PresetNoThrottling, Toxics: Set{}, Endpoints: map[string]Set{},
@@ -65,9 +78,9 @@ func (s Settings) AllPresets() []Preset {
 	return slices.Concat([]Preset{noThrottling}, s.Presets, []Preset{offline()})
 }
 
-// offline returns the preset Offline. Chrome fails every request. The upstream
-// reset ends a request before the app gets it, the downstream one an open
-// stream at its next event.
+// offline returns the preset Offline. Chrome fails every request.
+// The upstream reset ends a request before the app gets it,
+// the downstream one an open stream at its next event.
 func offline() Preset {
 	return Preset{Name: config.PresetOffline, Endpoints: map[string]Set{}, Toxics: Set{
 		{Type: ResetPeer, Stream: Upstream}:   {Toxicity: 1},
@@ -95,8 +108,8 @@ func findPreset(presets []Preset, name string) (Preset, error) {
 }
 
 // ActivePreset returns the name of the preset of [Settings.AllPresets] whose
-// toxics and overrides apply to every endpoint as those of s do, or "" for
-// none. Of several, it returns [Settings.Active], else the first.
+// toxics and overrides apply to every endpoint as those of s do, or "" for none.
+// Of several, it returns [Settings.Active], else the first.
 func (s Settings) ActivePreset() string {
 	matches := func(p Preset) bool {
 		return sameEffect(s.Global, s.Endpoints, p.Toxics, p.Endpoints)
@@ -163,7 +176,9 @@ func (s *Settings) ApplyPreset(name string) error {
 // CreatePreset adds a preset with the name, without the spaces around it,
 // and a copy of the global toxics global and the overrides endpoints after
 // the others and applies it.
-func (s *Settings) CreatePreset(name string, global Set, endpoints map[string]Set) error {
+func (s *Settings) CreatePreset(
+	name string, global Set, endpoints map[string]Set,
+) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return ErrPresetUnnamed
@@ -194,8 +209,8 @@ func (s *Settings) DeletePreset(name string) error {
 }
 
 // presetsYAML writes presets as watch.toxiproxy.presets in datapages.yaml,
-// indented by indent spaces, nothing for none. The endpoints of a preset are
-// listed as [toxicsYAML] lists them.
+// indented by indent spaces, nothing for none.
+// The endpoints of a preset are listed as [toxicsYAML] lists them.
 func presetsYAML(b *strings.Builder, indent int, presets []Preset, patterns []string) {
 	if len(presets) == 0 {
 		return

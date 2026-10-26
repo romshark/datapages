@@ -27,9 +27,15 @@ func TestDefaultPresets(t *testing.T) {
 		p := presets[i]
 		require.Equal(t, c.name, p.Name)
 		require.Equal(t, Set{
-			latencyDown:                         toxicWith(int64(math.Round(c.latency))),
-			rateDown:                            toxicWith(int64(math.Round(c.down / 1000))),
-			{Type: Bandwidth, Stream: Upstream}: toxicWith(int64(math.Round(c.up / 1000))),
+			latencyDown: toxicWith(
+				int64(math.Round(c.latency)),
+			),
+			rateDown: toxicWith(
+				int64(math.Round(c.down / 1000)),
+			),
+			{Type: Bandwidth, Stream: Upstream}: toxicWith(
+				int64(math.Round(c.up / 1000)),
+			),
 		}, p.Toxics, c.name)
 		for slot, x := range p.Toxics {
 			require.NoError(t, x.Validate(slot.Type), c.name)
@@ -37,9 +43,9 @@ func TestDefaultPresets(t *testing.T) {
 	}
 }
 
-// TestAllPresets tests that No throttling, without toxics, comes before the
-// presets of the settings and Offline, which resets every connection, after
-// them, and that only those 2 count as built in.
+// TestAllPresets tests that No throttling, without toxics, comes before the presets of
+// the settings and Offline, which resets every connection, after them,
+// and that only those 2 count as built in.
 func TestAllPresets(t *testing.T) {
 	all := Settings{Presets: []Preset{{Name: "Train", Toxics: Set{}}}}.AllPresets()
 	none := map[string]Set{}
@@ -61,7 +67,8 @@ func TestAllPresets(t *testing.T) {
 // override that changes nothing as no override, any other difference matches
 // no preset, and of several presets that match, the one applied last.
 func TestActivePreset(t *testing.T) {
-	presets := append(DefaultPresets(), Preset{Name: "Copy", Toxics: DefaultPresets()[1].Toxics})
+	presets := append(DefaultPresets(),
+		Preset{Name: "Copy", Toxics: DefaultPresets()[1].Toxics})
 	slow := presets[1].Toxics
 	off := toxicWith(100)
 	off.Disabled = true
@@ -116,9 +123,8 @@ func TestActivePreset(t *testing.T) {
 }
 
 // TestPresetCommands tests applying a preset, built in or not, which replaces
-// the global toxics and the overrides, creating one, which copies them and
-// applies it, and deleting one, which keeps the toxics. A built-in preset
-// keeps its name and stays.
+// the global toxics and the overrides, creating one, which copies them and applies it,
+// and deleting one, which keeps the toxics. A built-in preset keeps its name and stays.
 func TestPresetCommands(t *testing.T) {
 	s := Settings{
 		Global:    Set{limitDown: toxicWith(10)},
@@ -152,7 +158,9 @@ func TestPresetCommands(t *testing.T) {
 	s.Endpoints["POST /upload/{$}"][latencyUp] = toxicWith(7, 0)
 	require.Equal(t, toxicWith(10), s.Presets[3].Toxics[limitDown],
 		"the preset holds a copy")
-	require.Equal(t, toxicWith(5, 0), s.Presets[3].Endpoints["POST /upload/{$}"][latencyUp],
+	require.Equal(t,
+		toxicWith(5, 0),
+		s.Presets[3].Endpoints["POST /upload/{$}"][latencyUp],
 		"the preset holds a copy of the overrides")
 
 	require.NoError(t, s.CreatePreset("Train", DefaultPresets()[1].Toxics, nil))
@@ -185,8 +193,7 @@ func TestPresetCommands(t *testing.T) {
 
 // TestScaffoldPresets tests the datapages.yaml init writes: it has the presets
 // of Datapages and no toxics, which selects the built-in preset No throttling,
-// and it holds them as the settings page saves them, which a save leaves as
-// they are.
+// and it holds them as the settings page saves them, which a save leaves as they are.
 func TestScaffoldPresets(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, config.WriteDefault(dir))

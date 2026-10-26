@@ -162,7 +162,8 @@ func presetPicker(d pageData) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = neo.Option(neo.OptionOpts{Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = neo.Option(neo.OptionOpts{
+				Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -388,7 +389,7 @@ func presetDialogs(d pageData) templ.Component {
 							var templ_7745c5c3_Var16 string
 							templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(o.name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 108, Col: 24}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 110, Col: 24}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 							if templ_7745c5c3_Err != nil {
@@ -401,7 +402,7 @@ func presetDialogs(d pageData) templ.Component {
 							var templ_7745c5c3_Var17 string
 							templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(o.source)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 109, Col: 52}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 112, Col: 21}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 							if templ_7745c5c3_Err != nil {
@@ -413,7 +414,8 @@ func presetDialogs(d pageData) templ.Component {
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = neo.Option(neo.OptionOpts{Value: neo.Set(o.value), Label: neo.Set(o.name)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = neo.Option(neo.OptionOpts{
+							Value: neo.Set(o.value), Label: neo.Set(o.name)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -434,7 +436,7 @@ func presetDialogs(d pageData) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(d.newPreset.err)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 115, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 123, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -666,7 +668,8 @@ func presetDialogs(d pageData) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = neo.ButtonAttrs(neo.ButtonOpts{Variant: neo.Set(neo.ButtonVariantDanger)},
+				templ_7745c5c3_Err = neo.ButtonAttrs(neo.ButtonOpts{
+					Variant: neo.Set(neo.ButtonVariantDanger)},
 					withAttrs(neo.DialogClose(), templ.Attributes{
 						"data-on:click": action.PageIndex.DeletePreset.POST(),
 					})).Render(templ.WithChildren(ctx, templ_7745c5c3_Var28), templ_7745c5c3_Buffer)

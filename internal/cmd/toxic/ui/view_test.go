@@ -160,15 +160,16 @@ func TestStatusOptions(t *testing.T) {
 	require.Equal(t,
 		statusOption{value: "511", label: "511 Network Authentication Required"},
 		opts[len(opts)-1])
-	require.Contains(t, opts, statusOption{value: "503", label: "503 Service Unavailable"})
+	require.Contains(t,
+		opts, statusOption{value: "503", label: "503 Service Unavailable"})
 	unnamed := statusOption{value: "499", label: "499"}
 	require.NotContains(t, opts, unnamed)
 	require.Contains(t, statusOptions(f, 499), unnamed)
 }
 
 // TestSetField tests setting 1 field of a toxic from the text of the page:
-// a field by its key, the percentage of requests affected, an empty field
-// as 0, and the errors shown in the row of the toxic.
+// a field by its key, the percentage of requests affected, an empty field as 0,
+// and the errors shown in the row of the toxic.
 func TestSetField(t *testing.T) {
 	x := toxicWith(100, 50)
 	require.NoError(t, setField(&x, toxic.Latency, "jitter", " 20 "))

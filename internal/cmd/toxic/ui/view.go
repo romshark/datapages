@@ -37,7 +37,8 @@ func setField(x *toxic.Toxic, t toxic.Type, key, value string) error {
 		pct, err := parseInt(value)
 		if err != nil || pct < 0 || pct > 100 {
 			return errors.New(
-				"requests affected must be a whole percentage from 0 to 100")
+				"requests affected must be a whole percentage from 0 to 100",
+			)
 		}
 		x.Toxicity = float32(pct) / 100
 		return nil
@@ -83,9 +84,8 @@ func current(s toxic.Settings, scope string, slot toxic.Slot) toxic.Toxic {
 	return x
 }
 
-// setSlot applies the mode of 1 slot of scope, an endpoint pattern or empty
-// for the global scope. A toxic turned off keeps its values for when it is
-// turned on again.
+// setSlot applies the mode of 1 slot of scope, an endpoint pattern or empty for
+// the global scope. A toxic turned off keeps its values for when it's turned on again.
 func setSlot(
 	s *toxic.Settings, scope string, slot toxic.Slot, mode string, x toxic.Toxic,
 ) {
@@ -121,8 +121,7 @@ func setSlot(
 	}
 }
 
-// notice is the title and the text of a toast, failed for one that reports
-// an error.
+// notice is the title and the text of a toast, failed for one that reports an error.
 type notice struct {
 	title, text string
 	failed      bool
@@ -151,8 +150,8 @@ type pageData struct {
 
 	// scope is the selected endpoint pattern, empty for the global toxics.
 	scope string
-	// scopeEndpoint is the endpoint of scope. Its pattern is empty when scope
-	// names none of the app.
+	// scopeEndpoint is the endpoint of scope.
+	// Its pattern is empty when scope names none of the app.
 	scopeEndpoint toxic.Endpoint
 	// scopeKind is the kind of scope, as its pattern implies for one that
 	// names none of the app.
@@ -161,8 +160,8 @@ type pageData struct {
 	scopeOverrides int
 
 	filter filter
-	// endpoints and unknown list the endpoints filter shows, unknown those
-	// with overrides that name no endpoint of the app.
+	// endpoints and unknown list the endpoints filter shows,
+	// unknown those with overrides that name no endpoint of the app.
 	endpoints, unknown []navItem
 	// hidden counts the endpoints filter hides.
 	hidden int
@@ -301,7 +300,9 @@ func (a *App) view(tab StateIndex) pageData {
 
 // kinds lists the kinds of endpoints in the order of the toggles that filter
 // the endpoint list by them.
-var kinds = [...]string{toxic.KindGET, toxic.KindStream, toxic.KindAction, toxic.KindFile}
+var kinds = [...]string{
+	toxic.KindGET, toxic.KindStream, toxic.KindAction, toxic.KindFile,
+}
 
 // kindInfo describes a kind of endpoints to the endpoint list.
 type kindInfo struct {
@@ -372,8 +373,7 @@ func (f filter) pressedKinds() string {
 }
 
 // matches reports whether each space-separated term of query occurs in text
-// as a subsequence, ignoring case. "msg send" matches
-// "POST /messages/sendmessage/{$}".
+// as a subsequence, ignoring case. "msg send" matches "POST /messages/sendmessage/{$}".
 func matches(query, text string) bool {
 	text = strings.ToLower(text)
 	for _, term := range strings.Fields(strings.ToLower(query)) {
@@ -442,14 +442,14 @@ func path(pattern string) string {
 	return strings.TrimSpace(p)
 }
 
-// pathPart is a piece of the path of a route pattern, with the class that
-// colors it, empty for literal text.
+// pathPart is a piece of the path of a route pattern, with the class that colors it,
+// empty for literal text.
 type pathPart struct {
 	text, class string
 }
 
-// pathParts splits the path of a route pattern into literal text, wildcards
-// such as {slug} or {rest...}, and the end anchor {$}.
+// pathParts splits the path of a route pattern into literal text,
+// wildcards such as {slug} or {rest...}, and the end anchor {$}.
 func pathParts(path string) []pathPart {
 	var parts []pathPart
 	for path != "" {
@@ -517,12 +517,12 @@ func summary(info toxic.TypeInfo, x toxic.Toxic) string {
 }
 
 // newPresetOption is the value of the option of the preset picker that opens
-// the dialog of a new preset. A preset name has no space at either end, which
-// keeps this value apart from every name.
+// the dialog of a new preset. A preset name has no space at either end,
+// which keeps this value apart from every name.
 const newPresetOption = " new"
 
-// pickerOpts are the options of the preset picker, which selects the preset
-// active, none for an empty one.
+// pickerOpts are the options of the preset picker,
+// which selects the preset active, none for an empty one.
 func pickerOpts(active string) neo.ComboboxOpts {
 	o := neo.ComboboxOpts{
 		Placeholder:       neo.Set("Custom"),
@@ -537,8 +537,8 @@ func pickerOpts(active string) neo.ComboboxOpts {
 }
 
 // pickPreset is the action expression of the preset picker, whose selected
-// preset is active, empty for none. It applies the preset picked. For the
-// option of a new preset it selects active again and opens the dialog.
+// preset is active, empty for none. It applies the preset picked.
+// For the option of a new preset it selects active again and opens the dialog.
 func pickPreset(active string) string {
 	reselect := "null"
 	if active != "" {
@@ -550,7 +550,8 @@ func pickPreset(active string) string {
 			openDialog("tp-preset-new") + "; " +
 			// Clears why the last attempt to create a preset failed.
 			postPresetDraft() + "; return } " +
-			"$preset = evt.detail.value"))
+			"$preset = evt.detail.value",
+	))
 }
 
 // askDeletePreset is the action expression of the button that deletes the
@@ -574,10 +575,12 @@ func openDialog(id string) string {
 const readPresetFields = "$name = document.getElementById('tp-preset-name').value; " +
 	"$from = document.getElementById('tp-preset-from').value ?? ''"
 
-// createPreset is the action expression that creates the preset of the
-// dialog. before runs first and may return to post nothing.
+// createPreset is the action expression that creates the preset of the dialog.
+// before runs first and may return to post nothing.
 func createPreset(before string) string {
-	return action.PageIndex.CreatePreset.POST(action.WithBefore(before + readPresetFields))
+	return action.PageIndex.CreatePreset.POST(
+		action.WithBefore(before + readPresetFields),
+	)
 }
 
 // postPresetDraft is the action expression that posts the fields of the
@@ -608,8 +611,8 @@ const (
 	datapagesPresetPrefix = "datapages:"
 )
 
-// presetItem is 1 preset of the picker. A built-in preset has no button that
-// deletes it.
+// presetItem is 1 preset of the picker.
+// A built-in preset has no button that deletes it.
 type presetItem struct {
 	name    string
 	builtin bool

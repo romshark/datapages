@@ -67,8 +67,8 @@ func (e Endpoint) Kind() string {
 	return KindAction
 }
 
-// PatternKind guesses the kind of the endpoint of a pattern the app does not
-// register, which leaves no handler to tell from.
+// PatternKind guesses the kind of the endpoint of a pattern the app doesn't register,
+// which leaves no handler to tell from.
 func PatternKind(pattern string) string {
 	method, _, _ := strings.Cut(pattern, " ")
 	switch {

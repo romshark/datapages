@@ -255,8 +255,8 @@ func TestFrontReloadsEndpoints(t *testing.T) {
 }
 
 // TestFrontSectionHost tests that the section the settings page saves repeats
-// the addresses of watch.toxiproxy only where datapages.yaml sets them. Saving
-// must not pin a default port, which follows the port of the dev server.
+// the addresses of watch.toxiproxy only where datapages.yaml sets them.
+// Saving must not pin a default port, which follows the port of the dev server.
 func TestFrontSectionHost(t *testing.T) {
 	for name, set := range map[string]bool{"set": true, "default": false} {
 		t.Run(name, func(t *testing.T) {

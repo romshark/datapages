@@ -22,11 +22,11 @@ watch:
       include:
         - "app/static/style.css"
       requires: reload
-  # http://localhost:7332 serves the app through Toxiproxy, with its settings
-  # page at http://localhost:7333/.
+  # http://localhost:7332 serves the app through Toxiproxy,
+  # with its settings page at http://localhost:7333/.
   toxiproxy:
     toxics:
-      # Every response arrives late and at 512 KB/s.
+      # Every response arrives late, and the responses of 1 browser share 512 KB/s.
       latency:
         downstream:
           latency: 150ms

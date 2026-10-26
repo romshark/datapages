@@ -17,6 +17,7 @@ var (
 	latencyDown = Slot{Type: Latency, Stream: Downstream}
 	latencyUp   = Slot{Type: Latency, Stream: Upstream}
 	rateDown    = Slot{Type: Bandwidth, Stream: Downstream}
+	rateUp      = Slot{Type: Bandwidth, Stream: Upstream}
 	limitDown   = Slot{Type: LimitData, Stream: Downstream}
 	errorDown   = Slot{Type: HTTPError, Stream: Downstream}
 	errorUp     = Slot{Type: HTTPError, Stream: Upstream}
@@ -28,9 +29,8 @@ func toxicWith(values ...int64) Toxic {
 	return x
 }
 
-// TestSlotText tests that every slot reads back from its name, which the
-// settings page puts in the query of its actions, and that an unknown name
-// is refused.
+// TestSlotText tests that every slot reads back from its name, which the settings page
+// puts in the query of its actions, and that an unknown name is refused.
 func TestSlotText(t *testing.T) {
 	for _, s := range Slots {
 		text, err := s.MarshalText()
@@ -43,10 +43,9 @@ func TestSlotText(t *testing.T) {
 	require.Error(t, s.UnmarshalText([]byte("latency_sideways")))
 }
 
-// TestEffective tests how an endpoint's overrides combine with the global
-// toxics: an override replaces the global toxic of its slot only,
-// and a disabled toxic applies nowhere. The toxics of the front and those of
-// Toxiproxy come apart.
+// TestEffective tests how an endpoint's overrides combine with the global toxics:
+// an override replaces the global toxic of its slot only, and a disabled toxic
+// applies nowhere. The toxics of the front and those of Toxiproxy come apart.
 func TestEffective(t *testing.T) {
 	disabled := toxicWith(100)
 	disabled.Disabled = true
@@ -56,18 +55,18 @@ func TestEffective(t *testing.T) {
 		want             []active
 	}{
 		"global only": {
-			global: Set{latencyDown: toxicWith(100), rateDown: toxicWith(8)},
+			global: Set{latencyDown: toxicWith(100), limitDown: toxicWith(8)},
 			want: []active{
 				{slot: latencyDown, toxic: toxicWith(100)},
-				{slot: rateDown, toxic: toxicWith(8)},
+				{slot: limitDown, toxic: toxicWith(8)},
 			},
 		},
 		"override replaces its slot": {
-			global:   Set{latencyDown: toxicWith(100), rateDown: toxicWith(8)},
+			global:   Set{latencyDown: toxicWith(100), limitDown: toxicWith(8)},
 			override: Set{latencyDown: toxicWith(900)},
 			want: []active{
 				{slot: latencyDown, toxic: toxicWith(900)},
-				{slot: rateDown, toxic: toxicWith(8)},
+				{slot: limitDown, toxic: toxicWith(8)},
 			},
 		},
 		"override turns global off": {
@@ -82,13 +81,24 @@ func TestEffective(t *testing.T) {
 			global: Set{latencyDown: disabled},
 		},
 		"toxiproxy leaves out the front": {
-			global: Set{latencyDown: toxicWith(100), errorUp: toxicWith(500)},
-			want:   []active{{slot: latencyDown, toxic: toxicWith(100)}},
+			global: Set{
+				latencyDown: toxicWith(100),
+				rateDown:    toxicWith(8),
+				errorUp:     toxicWith(500),
+			},
+			want: []active{{slot: latencyDown, toxic: toxicWith(100)}},
 		},
 		"front leaves out toxiproxy": {
-			global: Set{latencyDown: toxicWith(100), errorUp: toxicWith(500)},
-			front:  true,
-			want:   []active{{slot: errorUp, toxic: toxicWith(500)}},
+			global: Set{
+				latencyDown: toxicWith(100),
+				rateDown:    toxicWith(8),
+				errorUp:     toxicWith(500),
+			},
+			front: true,
+			want: []active{
+				{slot: rateDown, toxic: toxicWith(8)},
+				{slot: errorUp, toxic: toxicWith(500)},
+			},
 		},
 		"front override": {
 			global:   Set{errorUp: toxicWith(500), errorDown: toxicWith(502)},
@@ -201,13 +211,19 @@ func TestSettingsFromConfig(t *testing.T) {
 		SettingsFromConfig(nil))
 
 	c.Presets = []config.ToxiproxyPreset{{Name: "Quiet"}}
-	require.Equal(t, []Preset{{Name: "Quiet", Toxics: Set{}, Endpoints: map[string]Set{}}},
+	require.Equal(t,
+		[]Preset{
+			{
+				Name:      "Quiet",
+				Toxics:    Set{},
+				Endpoints: map[string]Set{},
+			},
+		},
 		SettingsFromConfig(c).Presets)
 }
 
-// TestSettingsYAMLRoundTrip tests that the YAML the settings page shows loads
-// back into the same settings, which is what copying it into datapages.yaml
-// relies on.
+// TestSettingsYAMLRoundTrip tests that the YAML the settings page shows loads back
+// into the same settings, which is what copying it into datapages.yaml relies on.
 func TestSettingsYAMLRoundTrip(t *testing.T) {
 	disabled := toxicWith(250, 10)
 	disabled.Disabled = true
@@ -234,9 +250,11 @@ func TestSettingsYAMLRoundTrip(t *testing.T) {
 		},
 		Presets: []Preset{
 			{
-				Name:      `Train "tunnel": 2`,
-				Toxics:    Set{latencyDown: toxicWith(900, 300)},
-				Endpoints: map[string]Set{"POST /upload/{$}": {limitDown: toxicWith(64)}},
+				Name:   `Train "tunnel": 2`,
+				Toxics: Set{latencyDown: toxicWith(900, 300)},
+				Endpoints: map[string]Set{
+					"POST /upload/{$}": {limitDown: toxicWith(64)},
+				},
 			},
 			{Name: "Clean", Toxics: Set{}, Endpoints: map[string]Set{}},
 		},
@@ -257,8 +275,7 @@ func TestSettingsYAMLRoundTrip(t *testing.T) {
 		"a known endpoint comes first:\n%s", got)
 }
 
-// TestToxicValidate tests the values the settings page rejects before
-// Toxiproxy would.
+// TestToxicValidate tests the values the settings page rejects before Toxiproxy would.
 func TestToxicValidate(t *testing.T) {
 	for name, tc := range map[string]struct {
 		typ     Type
@@ -267,27 +284,34 @@ func TestToxicValidate(t *testing.T) {
 	}{
 		"latency": {typ: Latency, toxic: toxicWith(100, 10)},
 		"negative latency": {
-			typ: Latency, toxic: toxicWith(-1, 0), wantErr: "latency must be at least 0",
+			typ: Latency, toxic: toxicWith(-1, 0),
+			wantErr: "latency must be at least 0",
 		},
 		"zero rate": {
-			typ: Bandwidth, toxic: toxicWith(0), wantErr: "rate must be at least 1",
+			typ: Bandwidth, toxic: toxicWith(0),
+			wantErr: "rate must be at least 1",
 		},
 		"slicer": {typ: Slicer, toxic: toxicWith(10, 10, 0)},
 		"slicer variation": {
-			typ: Slicer, toxic: toxicWith(10, 11, 0), wantErr: "variation",
+			typ: Slicer, toxic: toxicWith(10, 11, 0),
+			wantErr: "variation",
 		},
 		"slicer zero size": {
-			typ: Slicer, toxic: toxicWith(0, 0, 0), wantErr: "average size",
+			typ: Slicer, toxic: toxicWith(0, 0, 0),
+			wantErr: "average size",
 		},
 		"status": {typ: HTTPError, toxic: toxicWith(599)},
 		"status below 400": {
-			typ: HTTPError, toxic: toxicWith(399), wantErr: "status must be at least 400",
+			typ: HTTPError, toxic: toxicWith(399),
+			wantErr: "status must be at least 400",
 		},
 		"status above 599": {
-			typ: HTTPError, toxic: toxicWith(600), wantErr: "status must be at most 599",
+			typ: HTTPError, toxic: toxicWith(600),
+			wantErr: "status must be at most 599",
 		},
 		"toxicity above one": {
-			typ: LimitData, toxic: Toxic{Toxicity: 2}, wantErr: "toxicity",
+			typ: LimitData, toxic: Toxic{Toxicity: 2},
+			wantErr: "toxicity",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -66,15 +66,15 @@ type Config struct {
 	// save the changes made on it.
 	WriteConfig func(section string) error
 
-	// GenFile is a file the generator writes on every run. A change of its
-	// modification time makes the front call LoadEndpoints.
+	// GenFile is a file the generator writes on every run.
+	// A change of its modification time makes the front call [Config.LoadEndpoints].
 	GenFile string
 
 	// LoadEndpoints returns the endpoints of the app as its source declares them.
 	LoadEndpoints func() ([]Endpoint, error)
 
 	// EndpointsChanged, when set, runs after the front took the endpoints
-	// LoadEndpoints returned.
+	// [Config.LoadEndpoints] returned.
 	EndpointsChanged func()
 
 	Logger *slog.Logger
@@ -82,13 +82,15 @@ type Config struct {
 
 // Front is the HTTP server of watch.toxiproxy.host. It passes each request
 // through the Toxiproxy proxy of its endpoint to the dev server, and applies
-// the [HTTPError] toxics itself. The settings page reads and changes its settings.
+// the [Bandwidth] and [HTTPError] toxics itself. The settings page reads and
+// changes its settings.
 type Front struct {
-	conf       Config
-	log        *slog.Logger
-	proxies    *proxies
-	routes     atomic.Pointer[routeTable]
-	httpErrors atomic.Pointer[httpErrors]
+	conf    Config
+	log     *slog.Logger
+	proxies *proxies
+	links   *links
+	routes  atomic.Pointer[routeTable]
+	toxics  atomic.Pointer[frontToxics]
 
 	lock     sync.Mutex
 	settings Settings
@@ -104,49 +106,76 @@ type Front struct {
 	transports     map[string]*http.Transport // by proxy address
 }
 
-// addrKey is the context key of the address of the Toxiproxy proxy a request
-// passes through.
+// addrKey is the context key of the address of
+// the Toxiproxy proxy a request passes through.
 type addrKey struct{}
 
-// replaceKey is the context key of the [replacement] of the response
-// to a request.
+// replaceKey is the context key of the [replacement] of the response to a request.
 type replaceKey struct{}
 
 // replacement is the status of the downstream [HTTPError] toxic that applies
-// to a request. atHead is set for the stream of a page, whose response does
-// not end.
+// to a request. atHead is set for the stream of a page, whose response doesn't end.
 type replacement struct {
 	status int
 	atHead bool
 }
 
-// httpErrors maps the route pattern of an endpoint with overrides to the
-// [HTTPError] toxics of its requests, and "" to those of every other request.
-type httpErrors map[string][]active
+// frontToxics maps the route pattern of an endpoint with overrides to the toxics
+// the [Front] applies to its requests, and "" to those of every other request.
+type frontToxics map[string][]frontToxic
 
-func newHTTPErrors(s Settings) *httpErrors {
-	h := httpErrors{"": effective(s.Global, nil, true)}
+// frontToxic is 1 toxic the [Front] applies. scope is the route pattern of
+// the endpoint that overrides it, empty for a global toxic.
+type frontToxic struct {
+	active
+	scope string
+}
+
+func newFrontToxics(s Settings) *frontToxics {
+	t := frontToxics{"": scoped("", nil, effective(s.Global, nil, true))}
 	for p, o := range s.Endpoints {
-		h[p] = effective(s.Global, o, true)
+		t[p] = scoped(p, o, effective(s.Global, o, true))
 	}
-	return &h
+	return &t
+}
+
+// scoped returns the toxics a of the endpoint with the pattern and the
+// overrides o, each with its scope.
+func scoped(pattern string, o Set, a []active) []frontToxic {
+	t := make([]frontToxic, len(a))
+	for i, x := range a {
+		t[i].active = x
+		if _, ok := o[x.slot]; ok {
+			t[i].scope = pattern
+		}
+	}
+	return t
+}
+
+// toxic returns the toxic of the slot that applies to a request of
+// the endpoint with the pattern, ok false for none.
+func (t frontToxics) toxic(pattern string, slot Slot) (_ frontToxic, ok bool) {
+	toxics, ok := t[pattern]
+	if !ok {
+		toxics = t[""]
+	}
+	for _, x := range toxics {
+		if x.slot == slot {
+			return x, true
+		}
+	}
+	return frontToxic{}, false
 }
 
 // status returns the status of the [HTTPError] toxic of stream st that applies
 // to a request of the endpoint with the pattern, by its toxicity,
 // or 0 for none.
-func (h httpErrors) status(pattern string, st Stream) int {
-	toxics, ok := h[pattern]
-	if !ok {
-		toxics = h[""]
+func (t frontToxics) status(pattern string, st Stream) int {
+	x, ok := t.toxic(pattern, Slot{Type: HTTPError, Stream: st})
+	if !ok || rand.Float32() >= x.toxic.Toxicity {
+		return 0
 	}
-	for _, a := range toxics {
-		if a.slot == (Slot{Type: HTTPError, Stream: st}) &&
-			rand.Float32() < a.toxic.Toxicity {
-			return int(a.toxic.Values[0])
-		}
-	}
-	return 0
+	return int(x.toxic.Values[0])
 }
 
 // statusError is the status of a downstream [HTTPError] toxic,
@@ -178,11 +207,12 @@ func New(conf Config) (*Front, error) {
 		conf:       conf,
 		log:        conf.Logger,
 		proxies:    p,
+		links:      newLinks(),
 		settings:   conf.Settings.Clone(),
 		transports: map[string]*http.Transport{},
 	}
 	f.routes.Store(newRouteTable(conf.Endpoints))
-	f.httpErrors.Store(newHTTPErrors(f.settings))
+	f.toxics.Store(newFrontToxics(f.settings))
 	if fi, err := os.Stat(conf.GenFile); err == nil {
 		f.genModTime = fi.ModTime()
 	}
@@ -224,10 +254,11 @@ func hostPort(u *url.URL) string {
 
 // rewrite keeps the Host header of the browser. The app sees the origin
 // the browser sees, which the cross-origin check of the generated server
-// compares the Origin header against.
+// compares the Origin header against. The app does not see the profile cookie.
 func (f *Front) rewrite(r *httputil.ProxyRequest) {
 	r.SetURL(f.conf.Upstream)
 	r.Out.Host = r.In.Host
+	removeCookie(r.Out.Header, profileCookie)
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -269,8 +300,8 @@ func (f *Front) transport(addr string) *http.Transport {
 
 // replace returns the [statusError] of the [replacement] of the response,
 // if any, for [Front.abort] to answer with. It first reads the response to its
-// end, which lets the app finish an action that flushed its head before it
-// ran. It does not wait for a stream, whose response does not end.
+// end, which lets the app finish an action that flushed its head before it ran.
+// It doesn't wait for a stream, whose response doesn't end.
 func (f *Front) replace(resp *http.Response) error {
 	rep, ok := resp.Request.Context().Value(replaceKey{}).(replacement)
 	if !ok {
@@ -306,19 +337,37 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// of the dev server and reload the page in a loop.
 		f.direct.ServeHTTP(w, r)
 	default:
+		id, set := profile(r)
+		if set {
+			http.SetCookie(w, &http.Cookie{
+				Name: profileCookie, Value: id, Path: "/",
+				HttpOnly: true, SameSite: http.SameSiteLaxMode,
+				Secure: f.conf.TLSCert != "",
+			})
+		}
 		e := f.routes.Load().match(r)
-		errs := f.httpErrors.Load()
-		if code := errs.status(e.Pattern, Upstream); code != 0 {
+		toxics := f.toxics.Load()
+		if code := toxics.status(e.Pattern, Upstream); code != 0 {
 			writeStatus(w, code)
 			return
 		}
 		ctx := context.WithValue(r.Context(), addrKey{}, f.proxies.addr(e.Pattern))
-		if code := errs.status(e.Pattern, Downstream); code != 0 {
+		if code := toxics.status(e.Pattern, Downstream); code != 0 {
 			ctx = context.WithValue(ctx, replaceKey{}, replacement{
 				status: code, atHead: e.Kind() == KindStream,
 			})
 		}
-		f.forward.ServeHTTP(w, r.WithContext(ctx))
+		pace := func(st Stream) *pacer {
+			return &pacer{
+				f: f, ctx: r.Context(), pattern: e.Pattern, profile: id,
+				stream: st, roll: rand.Float32(),
+			}
+		}
+		r = r.WithContext(ctx)
+		if r.Body != nil && r.Body != http.NoBody {
+			r.Body = &pacedBody{ReadCloser: r.Body, p: pace(Upstream)}
+		}
+		f.forward.ServeHTTP(&pacedWriter{ResponseWriter: w, p: pace(Downstream)}, r)
 	}
 }
 
@@ -527,7 +576,7 @@ func (f *Front) Update(change func(*Settings) error) error {
 		f.log.Error("toxiproxy: " + err.Error())
 	}
 	f.settings = s
-	f.httpErrors.Store(newHTTPErrors(s))
+	f.toxics.Store(newFrontToxics(s))
 	return nil
 }
 

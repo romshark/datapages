@@ -547,7 +547,7 @@ Each toxic type takes a `downstream` toxic, which acts on the data the server se
 | Type         | Fields                                                     | Effect                                                                                                         |
 | ------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `latency`    | `latency`, `jitter`: durations in whole milliseconds       | Delays the data by `latency`, plus or minus up to `jitter`.                                                    |
-| `bandwidth`  | `rate`: KB/s, at least 1                                   | Limits the rate of the data.                                                                                   |
+| `bandwidth`  | `rate`: KB/s, at least 1                                   | Limits the rate of the data, which the requests of 1 browser share.                                            |
 | `slow-close` | `delay`: duration in whole milliseconds                    | Delays closing the connection.                                                                                 |
 | `timeout`    | `timeout`: duration in whole milliseconds                  | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up. |
 | `reset-peer` | `timeout`: duration in whole milliseconds                  | Resets the connection with a TCP RST once data arrives, after `timeout`.                                       |
@@ -562,6 +562,8 @@ Every toxic also takes:
 
 The proxy applies `http-error` itself, not Toxiproxy. It answers with the status and its standard text, the answer of the generated server to an error that no `PageError500`, `PageError404` or `RecoverError` handles. The toxic therefore stands for a failure in front of the app, such as a gateway or a crashed process. To test the error handling of the app, return an error from the handler. Upstream, the proxy answers without passing the request on, which skips the other toxics. Downstream, the request passes through the other toxics, and the proxy reads the response of the app to its end before it answers, which lets an action finish. The stream of a page does not end, so the proxy answers it once its head arrives, which ends the stream. With both set, a request the upstream toxic answers never reaches the downstream one.
 
+The proxy also applies `bandwidth` itself. The requests of 1 browser share the rate, as the requests of 1 device share its network, and 2 downloads at a time take 2 times as long as 1. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets on the first response and removes from the requests it passes to the app. The tabs of a browser share their cookies, and a private window has its own, which makes 2 windows 2 users on 2 networks. A client without cookies, such as curl, gets the rate per request. The requests of an endpoint that overrides `bandwidth` share the rate of the override among themselves and leave the global rate to the other requests. Cookies do not tell ports apart, so the dev server and the app at `--host` receive the cookie too.
+
 A preset is a named set of global toxics and endpoint overrides. The preset combobox in the header of the settings page applies one, which makes the global toxics and the overrides those of the preset. It lists the built-in presets No throttling first and Offline last, and the presets of `datapages.yaml` between them. It shows the preset that gives every endpoint the toxics it gets, else "Custom". An override that changes nothing counts as none. Its last option opens a dialog that creates a preset from the current toxics and overrides or from a copy of a preset and applies it. The dialog copies the presets of `datapages.yaml`, which it marks with the name of the application, and the presets of Datapages. The button in the option of a preset of `datapages.yaml` deletes the preset after a confirmation. All of them are the network presets of Chrome DevTools, and `datapages init` writes the presets of Datapages into `presets`:
 
 | Preset        | Toxics                                                                                   |
@@ -572,7 +574,7 @@ A preset is a named set of global toxics and endpoint overrides. The preset comb
 | 3G            | Datapages. `latency` 2000ms downstream, `bandwidth` 50 KB/s downstream and upstream.     |
 | Offline       | Built in. `reset-peer` with a `timeout` of 0s downstream and upstream. A request ends before the app gets it, an open stream at its next event. |
 
-The values are those of Chrome rounded to whole milliseconds and KB/s. Chrome shares the bandwidth among the requests of a tab, while the proxy gives each request the full rate. A preset of your own lists its toxics as `toxics` does and its overrides as `endpoints` does:
+The values are those of Chrome rounded to whole milliseconds and KB/s. Chrome shares the bandwidth among the requests of a tab, the proxy among the requests of a browser. A preset of your own lists its toxics as `toxics` does and its overrides as `endpoints` does:
 
 ```yaml
 watch:

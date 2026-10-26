@@ -15,16 +15,16 @@ func endpoints(patterns ...string) []Endpoint {
 	return eps
 }
 
-// TestCheckEndpointKeys tests that an override of a route the app does not
-// have is reported, with the registered pattern of a route written without
-// its {$}.
+// TestCheckEndpointKeys tests that an override of a route the app doesn't
+// have is reported, with the registered pattern of a route written without its {$}.
 func TestCheckEndpointKeys(t *testing.T) {
 	eps := endpoints("GET /", "GET /post/{slug}/{$}")
 	const where = "watch.toxiproxy.endpoints"
 	require.NoError(t,
 		CheckEndpointKeys(where, []string{"GET /", "GET /post/{slug}/{$}"}, eps))
 
-	err := CheckEndpointKeys(where, []string{"GET /post/{slug}/", "DELETE /gone/{$}"}, eps)
+	err := CheckEndpointKeys(where,
+		[]string{"GET /post/{slug}/", "DELETE /gone/{$}"}, eps)
 	require.ErrorContains(t, err, `watch.toxiproxy.endpoints: `+
 		`no endpoint has the pattern "GET /post/{slug}/"; `+
 		`did you mean "GET /post/{slug}/{$}"?`)
@@ -67,8 +67,8 @@ func TestRouteTableMatch(t *testing.T) {
 	}
 }
 
-// TestEndpointKind tests the kind the endpoint list files each handler
-// under, which its toggles filter by.
+// TestEndpointKind tests the kind the endpoint list files each handler under,
+// which its toggles filter by.
 func TestEndpointKind(t *testing.T) {
 	for handler, want := range map[string]string{
 		"GET":           KindGET,
@@ -84,8 +84,8 @@ func TestEndpointKind(t *testing.T) {
 	}
 }
 
-// TestPatternKind tests the kind guessed for an override of a pattern the app
-// does not register.
+// TestPatternKind tests the kind guessed for an override of
+// a pattern the app doesn't register.
 func TestPatternKind(t *testing.T) {
 	for pattern, want := range map[string]string{
 		"GET /gone/{$}":         KindGET,

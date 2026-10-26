@@ -42,7 +42,8 @@ templ presetPicker(d pageData) {
 					</span>
 				}
 			}
-			@neo.Option(neo.OptionOpts{Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}) {
+			@neo.Option(neo.OptionOpts{
+				Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}) {
 				<span class="tp-preset-new">
 					@neo.IconAttrs("plus", templ.Attributes{"aria-hidden": "true"})
 					New preset…
@@ -103,16 +104,23 @@ templ presetDialogs(d pageData) {
 								Current toxics
 							}
 							for _, o := range d.copyOptions {
-								@neo.Option(neo.OptionOpts{Value: neo.Set(o.value), Label: neo.Set(o.name)}) {
+								@neo.Option(neo.OptionOpts{
+									Value: neo.Set(o.value), Label: neo.Set(o.name)}) {
 									<span class="tp-copy-option">
 										<span>{ o.name }</span>
-										<span class="tp-small tp-muted">{ o.source }</span>
+										<span class="tp-small tp-muted">
+											{ o.source }
+										</span>
 									</span>
 								}
 							}
 						}
 					</div>
-					<p id="tp-preset-new-error" class="tp-error" role="alert">{ d.newPreset.err }</p>
+					<p
+						id="tp-preset-new-error"
+						class="tp-error"
+						role="alert"
+					>{ d.newPreset.err }</p>
 				</div>
 			}
 			@neo.DialogFooter() {
@@ -139,14 +147,16 @@ templ presetDialogs(d pageData) {
 					Delete the preset?
 				}
 				@neo.DialogDescription() {
-					<strong data-text="$preset"></strong> goes away. The toxics stay as they are.
+					<strong data-text="$preset"></strong> goes away.
+					The toxics stay as they are.
 				}
 			}
 			@neo.DialogFooter() {
 				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
 					Cancel
 				}
-				@neo.ButtonAttrs(neo.ButtonOpts{Variant: neo.Set(neo.ButtonVariantDanger)},
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant: neo.Set(neo.ButtonVariantDanger)},
 					withAttrs(neo.DialogClose(), templ.Attributes{
 						"data-on:click": action.PageIndex.DeletePreset.POST(),
 					})) {

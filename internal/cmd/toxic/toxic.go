@@ -37,7 +37,7 @@ func (s Stream) String() string {
 	return "downstream"
 }
 
-// Type is 1 toxic type. Toxiproxy applies every type but [HTTPError],
+// Type is 1 toxic type. Toxiproxy applies every type but [Bandwidth] and [HTTPError],
 // which the [Front] applies.
 type Type int8
 
@@ -92,8 +92,7 @@ type Field struct {
 	Initial int64
 }
 
-// TypeInfo describes a [Type] to the settings page, to datapages.yaml and
-// to Toxiproxy.
+// TypeInfo describes a [Type] to the settings page, to datapages.yaml and to Toxiproxy.
 type TypeInfo struct {
 	Name   string // in the Toxiproxy API and in the name of a [Slot]
 	Key    string // in datapages.yaml
@@ -109,7 +108,9 @@ type TypeInfo struct {
 const MaxFields = 3
 
 // Types is indexed by [Type]. The docs of the types of Toxiproxy paraphrase
-// https://github.com/Shopify/toxiproxy#toxics for an HTTP request.
+// [the Toxiproxy toxics] for an HTTP request.
+//
+// [the Toxiproxy toxics]: https://github.com/Shopify/toxiproxy#toxics
 var Types = [...]TypeInfo{
 	Latency: {
 		Name: "latency", Key: "latency", Title: "Latency",
@@ -124,13 +125,14 @@ var Types = [...]TypeInfo{
 	},
 	Bandwidth: {
 		Name: "bandwidth", Key: "bandwidth", Title: "Bandwidth",
-		Doc: "Limits the rate of the data.",
+		Doc: "Limits the rate of the data, which the requests of 1 browser share.",
 		Fields: []Field{
 			{
-				Key: "rate", Attr: "rate", Label: "Rate",
+				Key: "rate", Label: "Rate",
 				Unit: UnitKBps, Min: 1, Initial: 64,
 			},
 		},
+		Front: true,
 	},
 	SlowClose: {
 		Name: "slow_close", Key: "slow-close", Title: "Slow close",
@@ -344,8 +346,7 @@ type active struct {
 
 // effective returns the toxics of an endpoint with the overrides o:
 // the toxic o has for a slot, else the global one. A disabled toxic is left out.
-// It returns those the [Front] applies when front is set, else those Toxiproxy
-// applies.
+// It returns those the [Front] applies when front is set, else those Toxiproxy applies.
 func effective(global, o Set, front bool) []active {
 	var a []active
 	for _, s := range Slots {
@@ -402,8 +403,8 @@ func (a active) updateJSON() []byte {
 	return b
 }
 
-// SettingsFromConfig returns the settings c configures. The presets are those
-// of c only, none without.
+// SettingsFromConfig returns the settings c configures.
+// The presets are those of c only, none without.
 func SettingsFromConfig(c *config.WatchToxiproxy) Settings {
 	s := Settings{Global: Set{}, Endpoints: map[string]Set{}}
 	if c == nil {
@@ -414,14 +415,20 @@ func SettingsFromConfig(c *config.WatchToxiproxy) Settings {
 	for _, p := range c.Presets {
 		g := setFromConfig(p.Toxics, nil)
 		s.Presets = append(s.Presets,
-			Preset{Name: p.Name, Toxics: g, Endpoints: endpointsFromConfig(p.Endpoints, g)})
+			Preset{
+				Name:      p.Name,
+				Toxics:    g,
+				Endpoints: endpointsFromConfig(p.Endpoints, g),
+			})
 	}
 	return s
 }
 
 // endpointsFromConfig returns the overrides c configures with the global
 // toxics global.
-func endpointsFromConfig(c map[config.EndpointPattern]config.Toxics, global Set) map[string]Set {
+func endpointsFromConfig(
+	c map[config.EndpointPattern]config.Toxics, global Set,
+) map[string]Set {
 	e := make(map[string]Set, len(c))
 	for p, t := range c {
 		e[string(p)] = setFromConfig(t, global)
@@ -436,7 +443,10 @@ func setFromConfig(c config.Toxics, global Set) Set {
 	s := Set{}
 	addFromConfig(s, global, Latency, c.Latency,
 		func(t config.ToxicLatency) (config.ToxicBase, []int64) {
-			return t.ToxicBase, []int64{t.Latency.Milliseconds(), t.Jitter.Milliseconds()}
+			return t.ToxicBase, []int64{
+				t.Latency.Milliseconds(),
+				t.Jitter.Milliseconds(),
+			}
 		})
 	addFromConfig(s, global, Bandwidth, c.Bandwidth,
 		func(t config.ToxicBandwidth) (config.ToxicBase, []int64) {
@@ -519,7 +529,11 @@ func (s Settings) YAML(indent int, patterns []string) string {
 // The endpoints are listed in the order of patterns, the overrides of an
 // unknown endpoint after the others.
 func toxicsYAML(
-	b *strings.Builder, indent int, global Set, endpoints map[string]Set, patterns []string,
+	b *strings.Builder,
+	indent int,
+	global Set,
+	endpoints map[string]Set,
+	patterns []string,
 ) {
 	pad := strings.Repeat(" ", indent)
 	if len(global) > 0 {

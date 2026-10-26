@@ -140,8 +140,8 @@ func doHeader(
 	return resp.StatusCode, string(b), resp.Header
 }
 
-// tab is 1 browser tab of the page: the instance its page load minted, and
-// what the stream that holds its state delivered.
+// tab is 1 browser tab of the page: the instance its page load minted,
+// and what the stream that holds its state delivered.
 type tab struct {
 	base, instance string
 
@@ -474,8 +474,12 @@ func TestPresets(t *testing.T) {
 // createButton and presetNameField match the button that creates the preset
 // of the dialog and its name field.
 var (
-	createButton    = regexp.MustCompile(`<neo-button[^>]*@post\(&#39;/create-preset/&#39;\)[^>]*>`)
-	presetNameField = regexp.MustCompile(`<neo-textinput[^>]*id="tp-preset-name"[^>]*>`)
+	createButton = regexp.MustCompile(
+		`<neo-button[^>]*@post\(&#39;/create-preset/&#39;\)[^>]*>`,
+	)
+	presetNameField = regexp.MustCompile(
+		`<neo-textinput[^>]*id="tp-preset-name"[^>]*>`,
+	)
 )
 
 // TestPresetDraft tests the dialog of a new preset as the tab renders it from
@@ -551,7 +555,9 @@ func TestPresetOverrides(t *testing.T) {
 	run("/show/?endpoint="+url.QueryEscape(limited), "{}")
 	require.NotContains(t, run("/mode/?slot=latency_downstream", `{"mode":"on"}`),
 		"value=", "Custom")
-	require.Equal(t, map[string]toxic.Set{limited: override}, s.front.Settings().Endpoints)
+	require.Equal(t,
+		map[string]toxic.Set{limited: override},
+		s.front.Settings().Endpoints)
 
 	at := tb.at()
 	code, _ := do(t, http.MethodPost, s.url+"/create-preset/",
@@ -572,7 +578,9 @@ func TestPresetOverrides(t *testing.T) {
 	require.Empty(t, s.front.Settings().Endpoints)
 	require.Contains(t, run("/apply-preset/", `{"preset":"Offline but slow"}`),
 		`value="Offline but slow"`)
-	require.Equal(t, map[string]toxic.Set{limited: override}, s.front.Settings().Endpoints)
+	require.Equal(t,
+		map[string]toxic.Set{limited: override},
+		s.front.Settings().Endpoints)
 }
 
 // TestStatusCombobox tests the status of an http-error toxic: a combobox with
@@ -674,12 +682,13 @@ func TestSave(t *testing.T) {
 }
 
 // TestInherit tests the row of a slot an endpoint inherits: a line while the
-// global toxic is off, and the fields of the global toxic, disabled, while it
-// is on.
+// global toxic is off, and the fields of the global toxic, disabled, while it's on.
 func TestInherit(t *testing.T) {
 	s := startSettings(t)
 	scoped := s.url + "/?endpoint=" + url.QueryEscape(limited)
-	row := regexp.MustCompile(`(?s)id="tp-latency_downstream".*?id="tp-latency_upstream"`)
+	row := regexp.MustCompile(
+		`(?s)id="tp-latency_downstream".*?id="tp-latency_upstream"`,
+	)
 
 	_, body := do(t, http.MethodGet, scoped, "", nil)
 	require.Contains(t, row.FindString(body), "Global: off")
@@ -691,6 +700,8 @@ func TestInherit(t *testing.T) {
 	_, body = do(t, http.MethodGet, scoped, "", nil)
 	got := row.FindString(body)
 	require.NotContains(t, got, "Global:")
-	require.Regexp(t, `<neo-textinput aria-label="Latency"[^>]* disabled[^>]* value="300"`, got)
-	require.Regexp(t, `<neo-slider[^>]* value="100"[^>]* disabled`, got)
+	require.Regexp(t,
+		`<neo-textinput aria-label="Latency"[^>]* disabled[^>]* value="300"`, got)
+	require.Regexp(t,
+		`<neo-slider[^>]* value="100"[^>]* disabled`, got)
 }
