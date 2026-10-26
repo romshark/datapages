@@ -146,7 +146,7 @@ func runWatch(
 	engineConf := engine.Config{
 		App: engine.AppConfig{
 			DirSrcRoot: moduleDir,
-			Exclude:    w.Exclude,
+			Exclude:    appExclude(w.Exclude),
 			DirCmd:     "./" + filepath.ToSlash(cmdDir) + "/",
 			DirWork:    dirWork,
 			Flags:      splitFlags(w.Flags),
@@ -205,14 +205,42 @@ func runWatch(
 		return fmt.Errorf("setting templ watch root: %w", err)
 	}
 
-	e, err := engine.New(engineConf, engine.Options{
-		Logger: newWatchLogger(w.Log.Level, stderr),
-	})
+	logger := newWatchLogger(w.Log.Level, stderr)
+	e, err := engine.New(engineConf, engine.Options{Logger: logger})
 	if err != nil {
 		return fmt.Errorf("initializing watch engine: %w", err)
 	}
 
-	err = e.Run(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var frontErr chan error
+	if tp := w.Toxiproxy; tp == nil || !tp.Disabled {
+		t, err := startToxiproxy(
+			moduleDir, app, appName(modulePath, app, len(scan.Apps)), tp,
+			host, appHost, w.TLS, logger, stderr,
+		)
+		if err != nil {
+			return err
+		}
+		if t != nil {
+			frontErr = make(chan error, 1)
+			go func() {
+				err := t.serve(runCtx)
+				if err != nil {
+					cancel()
+				}
+				frontErr <- err
+			}()
+		}
+	}
+
+	err = e.Run(runCtx)
+	cancel()
+	if frontErr != nil {
+		if ferr := <-frontErr; ferr != nil && err == nil {
+			err = fmt.Errorf("serving watch.toxiproxy: %w", ferr)
+		}
+	}
 	// Without this a second `datapages watch` would half-start
 	// (Go process alive, HTTP server not bound)
 	if err != nil && errors.Is(err, syscall.EADDRINUSE) {
@@ -380,8 +408,11 @@ func mapWatcherRequires(r config.WatcherRequires) engine.ActionType {
 // calling datapages.NewServer. gen reads the Metrics type argument of a call
 // and generates no code for a call naming the wrong session type. A fix to the
 // call has to regenerate.
+//
+// The configuration file is none of them: gen reads only cmd from it, for an
+// entry point to scaffold, which watch builds from where it started.
 func watchInclude(r serverscan.Result) []string {
-	include := make([]string, 0, len(r.Apps)+2)
+	include := make([]string, 0, len(r.Apps))
 	for _, a := range r.Apps {
 		include = append(include, filepath.ToSlash(a.Dir)+"/**/*.go")
 		for _, c := range a.Calls {
@@ -391,7 +422,15 @@ func watchInclude(r serverscan.Result) []string {
 			}
 		}
 	}
-	return append(include, "datapages.yaml", "datapages.yml")
+	return include
+}
+
+// appExclude returns exclude with the configuration file, which configures
+// the CLI, not the app, and which watch reads when it starts. A change of it,
+// as the Toxiproxy settings page saves, would restart the app for nothing,
+// which loses what the app holds in memory. Custom watchers still see it.
+func appExclude(exclude []string) []string {
+	return append(slices.Clone(exclude), config.FileNames()...)
 }
 
 // watchExclude holds the generated packages out of what triggers a run.

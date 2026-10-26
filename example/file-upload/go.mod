@@ -7,7 +7,7 @@ replace github.com/romshark/datapages => ../../
 require (
 	github.com/a-h/templ v0.3.1070
 	github.com/romshark/datapages v0.10.1
-	github.com/romshark/morpheus v0.1.0
+	github.com/romshark/morpheus v0.3.0
 	github.com/stretchr/testify v1.12.1
 )
 

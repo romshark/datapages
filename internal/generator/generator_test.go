@@ -83,6 +83,28 @@ func TestExamplesAreUpToDate(t *testing.T) {
 	}
 }
 
+// TestToxicUIIsUpToDate regenerates the settings page of the Toxiproxy front
+// of datapages watch, the Datapages application of this module, and compares
+// the result with what is committed. internal/tools/genapp writes it, with the
+// options this test passes.
+func TestToxicUIIsUpToDate(t *testing.T) {
+	const dir = "internal/cmd/toxic/ui"
+	app, errs := parser.Parse(filepath.Join("..", "..", dir))
+	require.Zero(t, errs.Len(), "unexpected parser errors:\n%s", listErrors(errs))
+
+	got := t.TempDir()
+	require.NoError(t, generator.Generate(
+		got, serverscan.GenSubdir, app, 0o644, generator.Options{
+			AssetsURLPrefix: app.Assets.URLPrefix,
+			AssetsDir:       app.Assets.Dir,
+			AppDir:          dir,
+			GenImport: "github.com/romshark/datapages/" + dir + "/" +
+				serverscan.GenSubdir,
+		},
+	))
+	compareTrees(t, got, filepath.Join("..", "..", dir, serverscan.GenSubdir))
+}
+
 func listErrors(errs parser.Errors) string {
 	var b strings.Builder
 	for _, err := range errs.All() {

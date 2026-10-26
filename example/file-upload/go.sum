@@ -22,8 +22,8 @@ github.com/prometheus/common v0.72.1 h1:ZAiQed/nk8IIcsdzb2TlJu23NEUDyDLQ9TXTN2WR
 github.com/prometheus/common v0.72.1/go.mod h1:1IoBY4IRaJnhs2ESjNzjilP1cJ/P8pimGoomq7zRXrA=
 github.com/prometheus/procfs v0.22.0 h1:6q9+/JL9IKAPbCmBrv9n5O5Ty3NKnciV5X7YGw0oics=
 github.com/prometheus/procfs v0.22.0/go.mod h1:CvmFr/GVhIjIvWJZW3tgkODBQMRIf0EyWMQLHCHab58=
-github.com/romshark/morpheus v0.1.0 h1:TrST8BfygccHkhlba141ZaFTghP7AOsZfBHAY5gXADY=
-github.com/romshark/morpheus v0.1.0/go.mod h1:ALgfPxu6p+jZX2DmMSyQt+xbHgEryy9PN1G6qpexihQ=
+github.com/romshark/morpheus v0.3.0 h1:7JF3uQbXxBRIwNAYKqVGM0KETw4tGQX0RvCqnCN4lr8=
+github.com/romshark/morpheus v0.3.0/go.mod h1:AARr+nhoUKntbuhQ3vy5gM6UERJ0+Q6CehFF+IZ/bkU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=

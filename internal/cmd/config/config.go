@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +35,9 @@ type WatchConfig struct {
 	TLS            *WatchTLS            `yaml:"tls"`
 	Compiler       *WatchCompiler       `yaml:"compiler"`
 	CustomWatchers []WatchCustomWatcher `yaml:"custom-watchers"`
+
+	// Toxiproxy enables the fault-injecting proxy when set.
+	Toxiproxy *WatchToxiproxy `yaml:"toxiproxy"`
 }
 
 // WatchTLS configures TLS for the dev server.
@@ -162,15 +166,22 @@ func (r *WatcherRequires) UnmarshalText(text []byte) error {
 // fileNames are the names [Load] reads the configuration from.
 var fileNames = [...]string{"datapages.yml", "datapages.yaml"}
 
+// FileNames returns the names [Load] reads the configuration from.
+func FileNames() []string { return slices.Clone(fileNames[:]) }
+
 // Exists reports whether moduleDir holds a configuration file under one of
 // the names [Load] reads.
-func Exists(moduleDir string) bool {
+func Exists(moduleDir string) bool { return FileName(moduleDir) != "" }
+
+// FileName returns the name of the first configuration file in moduleDir
+// among the names [Load] reads, or an empty string when there is none.
+func FileName(moduleDir string) string {
 	for _, name := range fileNames {
 		if _, err := os.Stat(filepath.Join(moduleDir, name)); err == nil {
-			return true
+			return name
 		}
 	}
-	return false
+	return ""
 }
 
 // Load reads datapages.yml or datapages.yaml from moduleDir.
@@ -216,12 +227,56 @@ func Load(moduleDir string) (c Config, found bool, _ error) {
 // What the application itself configures is not in here: the app package,
 // the destination and the Prometheus option are read from the datapages.NewServer call,
 // assets from the embed.FS variable of the app package.
+//
+// The toxiproxy section leaves out host. The default, the port after the dev
+// server, lets 2 apps of 1 module run side by side on 2 dev server ports.
+// It has no toxics, which the settings page shows as the preset No throttling,
+// and the presets in the form the settings page saves them in.
+// It ends the watch section without closing it: init appends watch keys to it.
 const DefaultYAML = `cmd: cmd/server
 watch:
   exclude:
     - ".git/**" # git internals
     - ".*"      # hidden files/directories
     - "*~"      # editor backup files
+  # The app through Toxiproxy on the port after the dev server, as
+  # http://localhost:7332, and its settings page on the port after that.
+  # The presets are the throttling presets of Chrome DevTools.
+  toxiproxy:
+    presets:
+      - name: "Fast 4G"
+        toxics:
+          latency:
+            downstream:
+              latency: 165ms
+              jitter: 0s
+          bandwidth:
+            downstream:
+              rate: 1013
+            upstream:
+              rate: 169
+      - name: "Slow 4G"
+        toxics:
+          latency:
+            downstream:
+              latency: 563ms
+              jitter: 0s
+          bandwidth:
+            downstream:
+              rate: 180
+            upstream:
+              rate: 84
+      - name: "3G"
+        toxics:
+          latency:
+            downstream:
+              latency: 2s
+              jitter: 0s
+          bandwidth:
+            downstream:
+              rate: 50
+            upstream:
+              rate: 50
 `
 
 // WriteDefault writes a default datapages.yaml to moduleDir.

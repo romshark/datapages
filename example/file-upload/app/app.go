@@ -42,7 +42,7 @@ const (
 
 // morpheusCDN serves the 3 static assets of the Morpheus UI kit.
 // Self-hosting takes the same files from the min directory of its repository.
-const morpheusCDN = "https://cdn.jsdelivr.net/gh/romshark/morpheus@v0.1.0/min"
+const morpheusCDN = "https://cdn.jsdelivr.net/gh/romshark/morpheus@v0.3.0/min"
 
 // StaticFS is /static/
 //

@@ -6,12 +6,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -372,6 +374,112 @@ func TestLintSubjectAcrossApps(t *testing.T) {
 	}
 }
 
+// TestLintToxiproxy tests that lint reports an endpoint override that names
+// no route. Watch mode runs the proxy without a watch.toxiproxy section, which
+// makes lint check without one too. The fixture serves "GET /" and
+// "GET /not-found/{$}".
+func TestLintToxiproxy(t *testing.T) {
+	for name, tc := range map[string]struct {
+		toxiproxy string // the watch.toxiproxy section, none when empty
+		wantErr   string
+	}{
+		"no section": {},
+		"hosts": {
+			toxiproxy: "    host: localhost:9090\n    ui-host: localhost:9091\n",
+		},
+		"known endpoint": {
+			toxiproxy: "    endpoints:\n" +
+				"      \"GET /not-found/{$}\":\n        latency:\n" +
+				"          downstream:\n            latency: 1s\n",
+		},
+		"unknown endpoint": {
+			toxiproxy: "    endpoints:\n" +
+				"      \"GET /not-found/\":\n        latency:\n" +
+				"          downstream:\n            latency: 1s\n",
+			wantErr: `no endpoint has the pattern "GET /not-found/"; ` +
+				`did you mean "GET /not-found/{$}"?`,
+		},
+		"unknown endpoint, disabled": {
+			toxiproxy: "    disabled: true\n    endpoints:\n" +
+				"      \"GET /not-found/\":\n        latency:\n" +
+				"          downstream:\n            latency: 1s\n",
+		},
+		"unknown endpoint of a preset": {
+			toxiproxy: "    presets:\n      - name: Edge\n        endpoints:\n" +
+				"          \"GET /gone/{$}\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+			wantErr: `watch.toxiproxy.presets["Edge"].endpoints: ` +
+				`no endpoint has the pattern "GET /gone/{$}"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := setupProject(t, "valid.go")
+			yaml := "cmd: cmd/server\n"
+			if tc.toxiproxy != "" {
+				yaml += "watch:\n  toxiproxy:\n" + tc.toxiproxy
+			}
+			writeFileAt(t, filepath.Join(dir, "datapages.yaml"), yaml)
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), []string{"datapages", "lint"},
+				nil, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+			if tc.wantErr == "" {
+				require.Zero(t, code, "lint stderr: %s", stderr.String())
+				return
+			}
+			require.Equal(t, 1, code)
+			require.Contains(t, stderr.String(), tc.wantErr)
+		})
+	}
+}
+
+// lockedBuffer collects what a command writes while the test reads it.
+type lockedBuffer struct {
+	lock sync.Mutex
+	buf  bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.String()
+}
+
+// freePorts returns the first of n consecutive free ports of the loopback
+// interface.
+func freePorts(t *testing.T, n int) int {
+	t.Helper()
+	for range 20 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		port := ln.Addr().(*net.TCPAddr).Port
+		_ = ln.Close()
+		free := true
+		for i := 1; i < n && free; i++ {
+			next, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+i))
+			if err != nil {
+				free = false
+				continue
+			}
+			_ = next.Close()
+		}
+		if free {
+			return port
+		}
+	}
+	t.Fatalf("no %d consecutive free ports", n)
+	return 0
+}
+
 // TestWatch tests the watch command over a scaffolded module: it refuses a
 // directory with no go.mod, and it shuts the engine down when its context ends.
 func TestWatch(t *testing.T) {
@@ -432,6 +540,95 @@ func TestWatch(t *testing.T) {
 		}
 
 		require.Contains(t, stderr.String(), "parsing app package")
+	})
+
+	t.Run("toxiproxy refuses to start", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			hosts, wantErr string // hosts is the watch.toxiproxy section
+		}{
+			"proxy on the port of the dev server": {
+				hosts:   "    host: localhost:7399\n",
+				wantErr: "watch.toxiproxy.host localhost:7399 uses the port of --host",
+			},
+			"settings on the port of the dev server": {
+				hosts:   "    host: localhost:0\n    ui-host: localhost:7399\n",
+				wantErr: "watch.toxiproxy.ui-host localhost:7399 uses the port of --host",
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				dir := setupProject(t, "valid.go")
+				writeFileAt(t, filepath.Join(dir, "datapages.yaml"),
+					"cmd: cmd/server\nwatch:\n  toxiproxy:\n"+tc.hosts)
+
+				var stderr bytes.Buffer
+				code := cmd.Run(
+					context.Background(),
+					[]string{"datapages", "watch", "--host", "localhost:7399"},
+					nil, io.Discard, &stderr,
+					"0.0.0", "xxxxxxx", "2026-2-23",
+				)
+				require.Equal(t, 1, code)
+				require.Contains(t, stderr.String(), tc.wantErr)
+			})
+		}
+	})
+
+	t.Run("toxiproxy by default", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			busy bool // the port after --host is taken
+			want string
+		}{
+			"starts on the next ports": {
+				want: "toxiproxy: http://localhost:%[2]d " +
+					"(settings: http://localhost:%[3]d/)",
+			},
+			"turns off on a busy port": {
+				busy: true,
+				want: "warning: toxiproxy is off: listening on watch.toxiproxy.host",
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				setupProject(t, "invalid.go")
+				port := freePorts(t, 3)
+				if tc.busy {
+					ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+1))
+					require.NoError(t, err)
+					t.Cleanup(func() { _ = ln.Close() })
+				}
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				stderr := new(lockedBuffer)
+				done := make(chan int, 1)
+				go func() {
+					done <- cmd.Run(ctx, []string{
+						"datapages", "watch", "--host", fmt.Sprintf("localhost:%d", port),
+					}, nil, io.Discard, stderr, "0.0.0", "xxxxxxx", "2026-2-23")
+				}()
+
+				want := tc.want
+				if strings.Contains(want, "%") {
+					want = fmt.Sprintf(want, port, port+1, port+2)
+				}
+				deadline := time.After(30 * time.Second)
+				for !strings.Contains(stderr.String(), want) {
+					select {
+					case code := <-done:
+						t.Fatalf("watch exited with code %d; stderr: %s", code, stderr)
+					case <-deadline:
+						t.Fatalf("stderr lacks %q: %s", want, stderr)
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
+
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(10 * time.Second):
+					t.Fatal("watch did not stop after cancel")
+				}
+			})
+		}
 	})
 
 	t.Run("writes default config", func(t *testing.T) {

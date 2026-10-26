@@ -1,0 +1,158 @@
+package ui
+
+import (
+	"github.com/romshark/morpheus/neo"
+
+	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/action"
+)
+
+// presetPicker is the combobox of the header that applies a preset to the
+// global toxics. It selects the preset they match, else it shows "Custom".
+// The button in the option of a preset asks to delete it, and the last option
+// opens the dialog of a new preset. Its options carry a label, which the
+// trigger shows in place of their rows.
+templ presetPicker(d pageData) {
+	<div class="tp-preset-picker">
+		<span class="tp-small tp-muted" aria-hidden="true">Preset</span>
+		// The id lets a morph keep the focus a closed dialog returns to it.
+		@neo.ComboboxAttrs(pickerOpts(d.activePreset), templ.Attributes{
+			"id":                          "tp-preset-combobox",
+			"data-on:neo-combobox-change": pickPreset(d.activePreset),
+		}) {
+			for _, p := range d.presets {
+				@neo.Option(neo.OptionOpts{Value: neo.Set(p.name), Label: neo.Set(p.name)}) {
+					<span class="tp-preset-option">
+						{ p.name }
+						if !p.builtin {
+							@neo.ButtonAttrs(neo.ButtonOpts{
+								Variant: neo.Set(neo.ButtonVariantGhost),
+								Size:    neo.Set("sm"),
+							}, templ.Attributes{
+								"class":         "tp-preset-delete",
+								"aria-label":    "Delete the preset " + p.name,
+								"title":         "Delete the preset",
+								"data-on:click": askDeletePreset(p.name),
+								// Enter and space on an option pick it.
+								"data-on:keydown": "if (evt.key !== 'Enter' && evt.key !== ' ') return; " +
+									"evt.preventDefault(); " + askDeletePreset(p.name),
+							}) {
+								@neo.Icon("trash-2")
+							}
+						}
+					</span>
+				}
+			}
+			@neo.Option(neo.OptionOpts{Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}) {
+				<span class="tp-preset-new">
+					@neo.IconAttrs("plus", templ.Attributes{"aria-hidden": "true"})
+					New preset…
+				</span>
+			}
+		}
+	</div>
+}
+
+// presetDialogs are the dialog of a new preset and the dialog that confirms
+// the deletion of the preset signal. Script opens them, and each has a hidden
+// trigger, which neo-dialog requires. A morph keeps a dialog open. It skips
+// the dialog of the deletion, whose name the preset signal fills in.
+//
+// The fields of the dialog of a new preset post each change, and the tab
+// renders them with why the name is refused. neo-textinput leaves its focused
+// field alone, which keeps a render from undoing typing.
+//
+// neo-dialog gives the dialog, its title and its description generated ids
+// where they have none. A morph would not find those in the new page and
+// would replace the open dialog, which loses its focus.
+templ presetDialogs(d pageData) {
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
+		"id":                 "tp-preset-new",
+		"data-preserve-attr": "open",
+	}) {
+		<span hidden { neo.DialogTrigger()... }></span>
+		<dialog id="tp-preset-new-dialog" data-preserve-attr="open">
+			@neo.DialogHeader() {
+				@neo.DialogTitleAttrs(templ.Attributes{"id": "tp-preset-new-title"}) {
+					New preset
+				}
+				@neo.DialogDescriptionAttrs(templ.Attributes{"id": "tp-preset-new-desc"}) {
+					Saves toxics under a name and applies them.
+				}
+			}
+			@neo.DialogBody() {
+				<div class="tp-dialog-fields">
+					<div class="tp-field">
+						<span class="tp-small">Name</span>
+						@neo.TextInputAttrs(neo.TextInputOpts{
+							Size:  neo.Set("sm"),
+							Value: neo.Set(d.newPreset.name),
+						}, templ.Attributes{
+							"id":                            "tp-preset-name",
+							"aria-label":                    "Name",
+							"data-on:input__debounce.150ms": postPresetDraft(),
+							"data-on:keydown":               createPreset("if (evt.key !== 'Enter') return; "),
+						})
+					</div>
+					<div class="tp-field">
+						<span class="tp-small">Copy from</span>
+						@neo.ComboboxAttrs(copyOpts(d.newPreset.from), templ.Attributes{
+							"id":                          "tp-preset-from",
+							"data-on:neo-combobox-change": postPresetDraft(),
+						}) {
+							@neo.Option(neo.OptionOpts{Value: neo.Set("")}) {
+								Current toxics
+							}
+							for _, o := range d.copyOptions {
+								@neo.Option(neo.OptionOpts{Value: neo.Set(o.value), Label: neo.Set(o.name)}) {
+									<span class="tp-copy-option">
+										<span>{ o.name }</span>
+										<span class="tp-small tp-muted">{ o.source }</span>
+									</span>
+								}
+							}
+						}
+					</div>
+					<p id="tp-preset-new-error" class="tp-error" role="alert">{ d.newPreset.err }</p>
+				</div>
+			}
+			@neo.DialogFooter() {
+				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+					Cancel
+				}
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant:  neo.Set(neo.ButtonVariantPrimary),
+					Disabled: neo.Set(d.newPreset.taken),
+				}, templ.Attributes{"data-on:click": createPreset("")}) {
+					Create
+				}
+			}
+		</dialog>
+	}
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
+		"id":                "tp-preset-delete",
+		"data-ignore-morph": true,
+	}) {
+		<span hidden { neo.DialogTrigger()... }></span>
+		<dialog>
+			@neo.DialogHeader() {
+				@neo.DialogTitle() {
+					Delete the preset?
+				}
+				@neo.DialogDescription() {
+					<strong data-text="$preset"></strong> goes away. The toxics stay as they are.
+				}
+			}
+			@neo.DialogFooter() {
+				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+					Cancel
+				}
+				@neo.ButtonAttrs(neo.ButtonOpts{Variant: neo.Set(neo.ButtonVariantDanger)},
+					withAttrs(neo.DialogClose(), templ.Attributes{
+						"data-on:click": action.PageIndex.DeletePreset.POST(),
+					})) {
+					Delete
+				}
+			}
+		</dialog>
+	}
+}
