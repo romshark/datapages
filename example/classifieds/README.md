@@ -16,7 +16,7 @@ make dev
 
 You can then access:
 - Preview: http://localhost:7331/ (the live-reload proxy of `datapages watch`; the app itself listens on http://localhost:52000/, see `.env.dev`)
-- Preview on a slow, flaky network: http://localhost:7332/ (the app through Toxiproxy; `watch.toxiproxy` in `datapages.yaml` sets the faults, and http://localhost:7332/__toxiproxy/ changes them while `make dev` runs)
+- Preview on a slow, flaky network: http://localhost:7332/ (the app through Toxiproxy; `watch.toxiproxy` in `datapages.yaml` sets the faults, and its settings page at http://localhost:7333/ changes them while `make dev` runs)
 - Grafana Dashboards: http://localhost:3000/
 - Prometheus UI: http://localhost:9091/
 
