@@ -50,8 +50,8 @@ func run(appDir string) error {
 		return fmt.Errorf("parsing %s: %d error(s)", appDir, errs.Len())
 	}
 	dir := filepath.ToSlash(filepath.Clean(appDir))
-	// Prometheus stays off: the NewServer call of the only app this module
-	// holds, the Toxiproxy settings page, passes datapages.DisablePrometheus.
+	// Prometheus stays off: the NewServer call of the only app this module holds,
+	// the Toxiproxy settings page, passes datapages.DisablePrometheus.
 	return generator.Generate(
 		filepath.Join(appDir, serverscan.GenSubdir), serverscan.GenSubdir, m, 0o644,
 		generator.Options{

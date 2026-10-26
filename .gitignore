@@ -8,6 +8,7 @@
 *.so
 *.dylib
 /datapages
+/genapp
 
 # npm
 **/node_modules/
