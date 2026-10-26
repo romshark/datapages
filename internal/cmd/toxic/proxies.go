@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -13,23 +14,44 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// proxies runs 1 Toxiproxy proxy for the global toxics and 1 for each endpoint
-// that overrides a toxic Toxiproxy applies. Toxiproxy applies toxics to a proxy,
-// not to a request, which is why an endpoint with toxics of its own needs
-// a proxy of its own.
+// proxies runs 1 Toxiproxy proxy for each endpoint of the app and 1, the
+// global one, for the requests that match none. Toxiproxy applies toxics to
+// a proxy, not to a request, which is why an endpoint with toxics of its own
+// needs a proxy of its own. Each endpoint has one from the start, which applies
+// a change of its overrides to its open connections, such as an SSE stream,
+// in place. A proxy started for the first override would miss the connections
+// open on the global proxy, and stopping it with the last would close its own.
 type proxies struct {
 	server   *toxiproxy.ApiServer
 	upstream string
 
-	lock     sync.Mutex
-	global   *toxiproxy.Proxy
-	override map[string]*toxiproxy.Proxy // by route pattern
-	nextID   int
+	lock      sync.Mutex
+	global    *proxy
+	endpoints map[string]*proxy // by route pattern
+	nextID    int
 
-	// addrs maps the route pattern of an endpoint with a proxy of its own
-	// to the address that proxy listens on. Every request reads it.
+	// addrs maps the route pattern of an endpoint to the address its proxy
+	// listens on. Every request reads it.
 	addrs      atomic.Pointer[map[string]string]
 	globalAddr string
+}
+
+// proxy is 1 Toxiproxy proxy and the toxics [proxy.sync] gave it last.
+type proxy struct {
+	*toxiproxy.Proxy
+	applied []active
+	synced  bool
+}
+
+// sync gives x the toxics want, unless it has them. Updating a toxic that
+// did not change would interrupt it on every open connection.
+func (x *proxy) sync(want []active) error {
+	if x.synced && slices.Equal(x.applied, want) {
+		return nil
+	}
+	err := syncToxics(x.Proxy, want)
+	x.applied, x.synced = want, err == nil
+	return err
 }
 
 // newProxies starts the global proxy, which forwards to upstream.
@@ -42,8 +64,8 @@ func newProxies(upstream string) (*proxies, error) {
 		server: toxiproxy.NewServer(
 			toxiproxy.NewMetricsContainer(nil), zerolog.Nop(),
 		),
-		upstream: upstream,
-		override: map[string]*toxiproxy.Proxy{},
+		upstream:  upstream,
+		endpoints: map[string]*proxy{},
 	}
 	g, err := p.start("global")
 	if err != nil {
@@ -55,12 +77,12 @@ func newProxies(upstream string) (*proxies, error) {
 }
 
 // start starts a proxy on a free port of the loopback interface.
-func (p *proxies) start(name string) (*toxiproxy.Proxy, error) {
+func (p *proxies) start(name string) (*proxy, error) {
 	x := toxiproxy.NewProxy(p.server, name, "127.0.0.1:0", p.upstream)
 	if err := p.server.Collection.Add(x, true); err != nil {
 		return nil, fmt.Errorf("starting toxiproxy proxy %s: %w", name, err)
 	}
-	return x, nil
+	return &proxy{Proxy: x}, nil
 }
 
 // addr returns the address of the proxy the requests of the endpoint
@@ -72,22 +94,20 @@ func (p *proxies) addr(pattern string) string {
 	return p.globalAddr
 }
 
-// apply makes the toxics of every proxy those of s. It starts a proxy for an
-// endpoint that gained overrides and stops that of an endpoint that lost them.
-func (p *proxies) apply(s Settings) error {
+// apply gives the global proxy and the proxy of each endpoint pattern in
+// patterns the toxics of s. It starts the proxy of a pattern new to patterns
+// and stops that of a pattern gone from it, whose endpoint the app no longer has.
+func (p *proxies) apply(s Settings, patterns []string) error {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
 	var errs []error
-	if err := syncToxics(p.global, effective(s.Global, nil, false)); err != nil {
+	if err := p.global.sync(effective(s.Global, nil, false)); err != nil {
 		errs = append(errs, fmt.Errorf("global: %w", err))
 	}
-	addrs := make(map[string]string, len(s.Endpoints))
-	for pattern, o := range s.Endpoints {
-		if !o.overridesProxy() {
-			continue
-		}
-		x, ok := p.override[pattern]
+	addrs := make(map[string]string, len(patterns))
+	for _, pattern := range patterns {
+		x, ok := p.endpoints[pattern]
 		if !ok {
 			p.nextID++
 			var err error
@@ -96,14 +116,14 @@ func (p *proxies) apply(s Settings) error {
 				errs = append(errs, err)
 				continue
 			}
-			p.override[pattern] = x
+			p.endpoints[pattern] = x
 		}
-		if err := syncToxics(x, effective(s.Global, o, false)); err != nil {
+		if err := x.sync(effective(s.Global, s.Endpoints[pattern], false)); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", pattern, err))
 		}
 		addrs[pattern] = x.Listen
 	}
-	for pattern, x := range p.override {
+	for pattern, x := range p.endpoints {
 		if _, ok := addrs[pattern]; ok {
 			continue
 		}
@@ -111,7 +131,7 @@ func (p *proxies) apply(s Settings) error {
 			errs = append(errs,
 				fmt.Errorf("stopping toxiproxy proxy %s: %w", x.Name, err))
 		}
-		delete(p.override, pattern)
+		delete(p.endpoints, pattern)
 	}
 	p.addrs.Store(&addrs)
 	return errors.Join(errs...)

@@ -154,12 +154,11 @@ func TestFrontHTTPError(t *testing.T) {
 }
 
 // TestFrontHTTPErrorScope tests that an http-error override applies to its
-// endpoint only, without a Toxiproxy proxy of its own, and that a toxicity
-// of 0 passes every request.
+// endpoint only, and that a toxicity of 0 passes every request.
 func TestFrontHTTPErrorScope(t *testing.T) {
 	never := toxicWith(500)
 	never.Toxicity = 0
-	f, base := startFront(t, Config{
+	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /", "GET /fail/{$}", "GET /never/{$}"),
 		Settings: Settings{Endpoints: map[string]Set{
 			"GET /fail/{$}":  {errorUp: toxicWith(502)},
@@ -176,7 +175,6 @@ func TestFrontHTTPErrorScope(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, path)
 		require.Len(t, body, bodySize, path)
 	}
-	require.Equal(t, f.proxies.globalAddr, f.proxies.addr("GET /fail/{$}"))
 }
 
 // TestFrontHTTPErrorStream tests that a downstream http-error toxic answers

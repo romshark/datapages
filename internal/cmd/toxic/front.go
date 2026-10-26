@@ -216,7 +216,7 @@ func New(conf Config) (*Front, error) {
 	if fi, err := os.Stat(conf.GenFile); err == nil {
 		f.genModTime = fi.ModTime()
 	}
-	if err := p.apply(f.settings); err != nil {
+	if err := p.apply(f.settings, patternsOf(conf.Endpoints)); err != nil {
 		p.close()
 		return nil, fmt.Errorf("applying watch.toxiproxy: %w", err)
 	}
@@ -443,7 +443,14 @@ func (f *Front) pollEndpoints(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// setEndpoints routes the requests by eps, each endpoint through its proxy.
+// It starts the proxies of the new endpoints before a request can match one.
 func (f *Front) setEndpoints(eps []Endpoint) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	if err := f.proxies.apply(f.settings, patternsOf(eps)); err != nil {
+		f.log.Error("toxiproxy: " + err.Error())
+	}
 	f.routes.Store(newRouteTable(eps))
 }
 
@@ -544,8 +551,10 @@ func (f *Front) section(indent int) string {
 }
 
 // patterns returns the patterns of the endpoints, in the order of the YAML.
-func (f *Front) patterns() []string {
-	eps := f.Endpoints()
+func (f *Front) patterns() []string { return patternsOf(f.Endpoints()) }
+
+// patternsOf returns the patterns of eps.
+func patternsOf(eps []Endpoint) []string {
 	patterns := make([]string, len(eps))
 	for i, e := range eps {
 		patterns[i] = e.Pattern
@@ -570,7 +579,7 @@ func (f *Front) Update(change func(*Settings) error) error {
 	if err := change(&s); err != nil {
 		return err
 	}
-	if err := f.proxies.apply(s); err != nil {
+	if err := f.proxies.apply(s, f.patterns()); err != nil {
 		// Toxiproxy validated each toxic the way Validate does,
 		// so this reports a bug rather than input. Keep what it accepted.
 		f.log.Error("toxiproxy: " + err.Error())

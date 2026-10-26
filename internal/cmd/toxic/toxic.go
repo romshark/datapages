@@ -328,16 +328,6 @@ func cloneEndpoints(e map[string]Set) map[string]Set {
 	return c
 }
 
-// overridesProxy reports whether s has a toxic of a type Toxiproxy applies.
-func (s Set) overridesProxy() bool {
-	for slot := range s {
-		if !Types[slot.Type].Front {
-			return true
-		}
-	}
-	return false
-}
-
 // active is 1 toxic that applies.
 type active struct {
 	slot  Slot
