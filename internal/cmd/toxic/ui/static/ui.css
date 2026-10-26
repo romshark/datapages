@@ -112,10 +112,6 @@ pre {
   gap: 0.5rem;
 }
 
-.tp-preset-picker neo-combobox {
-  min-width: 10rem;
-}
-
 /* An option of the preset combobox: the name of the preset and the button
    that deletes it. */
 .tp-preset-option {
@@ -171,10 +167,35 @@ neo-button.tp-menu {
 }
 
 /* The menu button opens the sidebar only where the sidebar is a panel.
-   Where the sidebar is a column, the logo of Datapages takes its place. */
-.tp-app:not(:has(neo-sidebar:state(overlay))) .tp-menu,
+   Where the sidebar is a column, the logo of Datapages takes its place.
+   neo-sidebar has no overlay state until Morpheus defines it. Until then the width
+   queries decide, at the overlay breakpoint the sidebar has in app.templ. Once defined,
+   the sidebar is a panel at every width at or below it, and its state decides. */
+@media (width > 50rem) {
+  .tp-app:not(:has(neo-sidebar:state(overlay))) .tp-menu {
+    display: none;
+  }
+}
+
+@media (width <= 50rem) {
+  .tp-logo {
+    display: none;
+  }
+}
+
 .tp-app:has(neo-sidebar:state(overlay)) .tp-logo {
   display: none;
+}
+
+/* The SVG the server renders into neo-icon is 24px tall by its height attribute until
+   the icon moves it into its shadow root, which gives it the same size. A taller SVG
+   lowers the baseline of the icon, which made each card header 4px taller until then.
+   Icons move their SVG in batches of 8 per frame,
+   some only after Morpheus defines neo-icon. */
+neo-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 neo-icon.tp-logo {
@@ -204,8 +225,7 @@ neo-icon.tp-logo {
 }
 
 /* The sidebar of the endpoint list is a column beside the editor on a wide
-   page, which scrolls with the page, and a panel over the editor on a
-   narrow one. */
+   page, which scrolls with the page, and a panel over the editor on a narrow one. */
 neo-sidebar.tp-sidebar {
   --neo-sidebar-width: min(20rem, 85vw);
   --neo-sidebar-bg: var(--page-bg);
@@ -218,35 +238,38 @@ neo-sidebar.tp-sidebar {
 /* On a wide page the header stays, and the sidebar and the editor scroll
    each on their own in the height below it. A sidebar that stuck to the top
    of a page that scrolls as a whole starts below the header, and its end stayed
-   below the screen until the page scrolled by the height of the header. */
-.tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-}
+   below the screen until the page scrolled by the height of the header.
+   An undefined neo-sidebar has no overlay state either. The width query
+   keeps it from giving a narrow page this layout, as with the menu button. */
+@media (width > 50rem) {
+  .tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
 
-.tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) > .tp-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  align-items: stretch;
-}
+  .tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) > .tp-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+  }
 
-/* The padding gives the focus outlines at its edges room inside what it
-   clips, the negative margins keep the cards in line with the header. */
-.tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) .tp-main {
-  overflow-y: auto;
-  align-content: start;
-  padding: var(--tp-main-inset);
-  margin: calc(-1 * var(--tp-main-inset));
-}
+  /* The padding gives the focus outlines at its edges room inside what it
+     clips, the negative margins keep the cards in line with the header. */
+  .tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) .tp-main {
+    overflow-y: auto;
+    align-content: start;
+    padding: var(--tp-main-inset);
+    margin: calc(-1 * var(--tp-main-inset));
+  }
 
-/* The negative margins keep the entries in line with the header and the
-   editor. */
-neo-sidebar.tp-sidebar:not(:state(overlay)) {
-  height: auto;
-  margin: calc(-1 * var(--tp-nav-inset)) 0 calc(-1 * var(--tp-nav-inset))
-    calc(-1 * var(--tp-nav-inset));
-  border: none;
+  /* The negative margins keep the entries in line with the header and the editor. */
+  neo-sidebar.tp-sidebar:not(:state(overlay)) {
+    height: auto;
+    margin: calc(-1 * var(--tp-nav-inset)) 0 calc(-1 * var(--tp-nav-inset))
+      calc(-1 * var(--tp-nav-inset));
+    border: none;
+  }
 }
 
 neo-sidebar.tp-sidebar:state(overlay) {
@@ -508,6 +531,14 @@ neo-sidebar.tp-sidebar > .tp-nav > :first-child {
   flex-direction: column;
   gap: 0.25rem;
   --neo-input-min-width: 0;
+}
+
+/* neo-slider is empty until Morpheus defines it, and the bundle has no
+   placeholder for it. This one has the height of the upgraded slider:
+   its value row at a line height of 1.2, a gap of 0.5rem and the track. */
+neo-slider:not(:defined) {
+  display: block;
+  height: calc(1.2em + 0.5rem + var(--neo-slider-track-height));
 }
 
 /* Every field head has the height of the info button, which keeps the inputs

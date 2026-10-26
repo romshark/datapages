@@ -126,10 +126,16 @@ templ editor(d pageData) {
 }
 
 // nav is the endpoint list in a sidebar: a column beside the editor on a wide
-// page, a panel the menu button slides in on a narrow one.
+// page, a panel the menu button slides in on a narrow one. neo-sidebar
+// compares the breakpoint with the width of .tp-body, the viewport less the
+// 2rem padding of .tp-app. 48rem makes it a panel up to a viewport of 50rem,
+// where Morpheus shows a sidebar it has not yet defined as a panel and where
+// ui.css lays out the page for one.
 templ nav(d pageData) {
-	@neo.SidebarAttrs(neo.SidebarOpts{AriaLabel: neo.Set("Endpoints")},
-		templ.Attributes{"id": "tp-sidebar", "class": "tp-sidebar"}) {
+	@neo.SidebarAttrs(neo.SidebarOpts{
+		AriaLabel:         neo.Set("Endpoints"),
+		OverlayBreakpoint: neo.Set("48rem"),
+	}, templ.Attributes{"id": "tp-sidebar", "class": "tp-sidebar"}) {
 		<nav class="tp-nav" aria-label="Endpoints" { neo.SidebarContent()... }>
 			@navLink(d.filter, d.scope == "", "") {
 				<span class="tp-nav-title">Global</span>
