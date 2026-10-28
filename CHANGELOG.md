@@ -90,6 +90,7 @@ Run `datapages gen` to apply these.
 
 - Teach generated AI instructions to use isolated Web Components for browser libraries or client logic too complex for Datastar expressions. The earlier instructions did not say where such JavaScript belongs. Run `datapages init` in an existing project to update them.
 - Generate a new project's templates with templ v0.3.1100 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
+- Run `templ generate` after `datapages gen` in a new project's `make gen`. It left `*_templ.go` stale after a `.templ` change.
 
 ### Removed
 
