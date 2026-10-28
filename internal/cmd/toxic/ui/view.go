@@ -563,6 +563,16 @@ func askDeletePreset(name string) string {
 		openDialog("tp-preset-delete")
 }
 
+// reloadClick is the action expression of the reload button. Where the file
+// lacks settings of the page, which a reload discards for good, it opens the
+// dialog that confirms. Else the reload discards nothing and runs at once.
+func reloadClick(saved bool) string {
+	if saved {
+		return action.PageIndex.Reload.POST()
+	}
+	return "document.getElementById('tp-reload').show()"
+}
+
 // openDialog returns a statement that opens the neo-dialog with the id in the
 // next frame. By then the picker closed and took the focus back, which the
 // dialog returns to it when it closes.

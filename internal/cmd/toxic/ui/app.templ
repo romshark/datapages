@@ -87,7 +87,7 @@ templ top(d pageData) {
 			<div class="tp-actions">
 				@presetPicker(d)
 				@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
-					"data-on:click": action.PageIndex.Reload.POST(),
+					"data-on:click": reloadClick(d.saved),
 					"title":         "Discard the changes made on this page",
 				}) {
 					Reload config
@@ -106,7 +106,43 @@ templ top(d pageData) {
 			</div>
 		</header>
 		@presetDialogs(d)
+		@reloadDialog(d.info.ConfigFile)
 	</div>
+}
+
+// reloadDialog confirms a reload that discards the settings of the page that
+// file lacks. Script opens it, and its hidden trigger is the one neo-dialog
+// requires. A morph skips it, which keeps it open.
+templ reloadDialog(file string) {
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
+		"id":                "tp-reload",
+		"data-ignore-morph": true,
+	}) {
+		<span hidden { neo.DialogTrigger()... }></span>
+		<dialog>
+			@neo.DialogHeader() {
+				@neo.DialogTitleAttrs(templ.Attributes{"class": "tp-dialog-warning"}) {
+					@neo.IconAttrs("triangle-alert", templ.Attributes{"aria-hidden": "true"})
+					Discard unsaved changes?
+				}
+				@neo.DialogDescription() {
+					Changes not saved to <code>{ file }</code> cannot be restored.
+				}
+			}
+			@neo.DialogFooter() {
+				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+					Cancel
+				}
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant: neo.Set(neo.ButtonVariantDanger)},
+					withAttrs(neo.DialogClose(), templ.Attributes{
+						"data-on:click": action.PageIndex.Reload.POST(),
+					})) {
+					Discard and reload
+				}
+			}
+		</dialog>
+	}
 }
 
 // toast shows the notice n in the toaster.

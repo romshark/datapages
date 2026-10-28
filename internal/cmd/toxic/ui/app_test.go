@@ -681,6 +681,39 @@ func TestSave(t *testing.T) {
 	require.NotContains(t, saveButton.FindString(got), "disabled")
 }
 
+var (
+	// reloadButton matches the opening tag of the reload button.
+	reloadButton = regexp.MustCompile(
+		`<neo-button[^>]*title="Discard the changes made on this page"[^>]*>`)
+	// reloadDialog matches the dialog that confirms a reload.
+	reloadDialog = regexp.MustCompile(`(?s)<neo-dialog[^>]* id="tp-reload".*?</neo-dialog>`)
+)
+
+// TestReloadConfirm tests that the reload button opens a dialog that warns of
+// the loss of the settings the configuration file lacks, whose confirmation
+// reloads, and that it reloads at once while the file holds the settings.
+func TestReloadConfirm(t *testing.T) {
+	s := startSettings(t)
+	// The front starts without toxics, the file has a latency.
+	require.False(t, s.front.Saved())
+
+	_, body := do(t, http.MethodGet, s.url+"/", "", nil)
+	button := reloadButton.FindString(body)
+	require.Contains(t, button, `document.getElementById(&#39;tp-reload&#39;).show()`)
+	require.NotContains(t, button, "/reload/")
+	dialog := reloadDialog.FindString(body)
+	require.Contains(t, dialog, "Discard unsaved changes?")
+	require.Contains(t, dialog, "lucide-triangle-alert")
+	require.Contains(t, dialog,
+		"Changes not saved to <code>datapages.yaml</code> cannot be restored.")
+	require.Regexp(t, `<neo-button[^>]*@post\(&#39;/reload/&#39;\)[^>]*>\s*Discard and reload`,
+		dialog)
+
+	require.NoError(t, s.front.Save())
+	_, body = do(t, http.MethodGet, s.url+"/", "", nil)
+	require.Contains(t, reloadButton.FindString(body), `@post(&#39;/reload/&#39;)`)
+}
+
 // TestInherit tests the row of a slot an endpoint inherits: a line while the
 // global toxic is off, and the fields of the global toxic, disabled, while it's on.
 func TestInherit(t *testing.T) {

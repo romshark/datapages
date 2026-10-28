@@ -155,6 +155,19 @@ pre {
   display: none;
 }
 
+/* The title of a dialog that confirms a loss, after a warning sign. */
+.tp-dialog-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tp-dialog-warning neo-icon {
+  --neo-icon-size: 1.25rem;
+  flex: none;
+  color: var(--danger-bg);
+}
+
 .tp-title {
   display: flex;
   align-items: center;
