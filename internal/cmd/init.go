@@ -115,9 +115,18 @@ Pass --no-ai-skills to skip all of these files.`,
 		if _, ok := c.InOrStdin().(*os.File); !ok {
 			in = c.InOrStdin()
 		}
-		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
-			*name, *module, *webComponents, *generatedCode, *ci, *prometheus,
-			!*noAISkills, version, modVersion)
+		return runInit(c.Context(), in, c.OutOrStdout(), stderr, initOptions{
+			nonInteractive: *nonInteractive,
+			dir:            *name,
+			module:         *module,
+			webComponents:  *webComponents,
+			generatedCode:  *generatedCode,
+			ci:             *ci,
+			prometheus:     *prometheus,
+			aiSkills:       !*noAISkills,
+			version:        version,
+			modVersion:     modVersion,
+		})
 	}
 	return cmd
 }
@@ -142,23 +151,39 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 	return f.Run()
 }
 
+// initOptions holds what the flags of init set. An empty webComponents,
+// generatedCode or ci leaves the choice to its prompt, or to the default with
+// nonInteractive.
+type initOptions struct {
+	nonInteractive bool
+
+	// dir is the directory --name creates outside a git repository.
+	dir    string
+	module string
+
+	webComponents, generatedCode, ci string
+
+	prometheus, aiSkills bool
+
+	// version and modVersion are as [newInitCmd] describes them.
+	version, modVersion string
+}
+
 func runInit(
-	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool,
-	dir, module, webComponents, generatedCode, ciName string, prometheus, aiSkills bool,
-	version, modVersion string,
+	ctx context.Context, in io.Reader, out, stderr io.Writer, opts initOptions,
 ) error {
-	if webComponents != "" {
-		if _, err := skeleton.ParseWebComponents(webComponents); err != nil {
+	if opts.webComponents != "" {
+		if _, err := skeleton.ParseWebComponents(opts.webComponents); err != nil {
 			return err
 		}
 	}
-	if generatedCode != "" {
-		if _, err := skeleton.ParseGeneratedCode(generatedCode); err != nil {
+	if opts.generatedCode != "" {
+		if _, err := skeleton.ParseGeneratedCode(opts.generatedCode); err != nil {
 			return err
 		}
 	}
-	if ciName != "" {
-		if _, err := skeleton.ParseCI(ciName); err != nil {
+	if opts.ci != "" {
+		if _, err := skeleton.ParseCI(opts.ci); err != nil {
 			return err
 		}
 	}
@@ -179,7 +204,7 @@ func runInit(
 	// to refresh the agent instructions of one that has none.
 	initialized := moduleRoot != "" && config.Exists(moduleRoot)
 	if !initialized && findGitDir(cwd) == "" {
-		dirName, err := resolveGitDir(in, out, nonInteractive, dir)
+		dirName, err := resolveGitDir(in, out, opts.nonInteractive, opts.dir)
 		if err != nil {
 			return err
 		}
@@ -204,7 +229,9 @@ func runInit(
 
 	goModPath := filepath.Join(projectDir, "go.mod")
 	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
-		modulePath, err := resolveModulePath(in, out, projectDir, nonInteractive, module)
+		modulePath, err := resolveModulePath(
+			in, out, projectDir, opts.nonInteractive, opts.module,
+		)
 		if err != nil {
 			return err
 		}
@@ -233,7 +260,9 @@ func runInit(
 	if scan.Fallback &&
 		!fileExists(filepath.Join(projectDir, "app", "app.go")) &&
 		!fileExists(filepath.Join(projectDir, "app", "app.templ")) {
-		components, err = resolveWebComponents(in, out, nonInteractive, webComponents)
+		components, err = resolveWebComponents(
+			in, out, opts.nonInteractive, opts.webComponents,
+		)
 		if err != nil {
 			return err
 		}
@@ -243,7 +272,7 @@ func runInit(
 				return err
 			}
 		}
-	} else if webComponents != "" {
+	} else if opts.webComponents != "" {
 		_, _ = fmt.Fprintln(out,
 			"Ignored --web-components: init writes no app package here.")
 	}
@@ -256,20 +285,22 @@ func runInit(
 	ci := skeleton.CIGitHubActions
 	if created || !config.Exists(projectDir) ||
 		(scan.Fallback && !fileExists(filepath.Join(projectDir, "app", "app.go"))) {
-		generated, err = resolveGeneratedCode(in, out, nonInteractive, generatedCode)
+		generated, err = resolveGeneratedCode(
+			in, out, opts.nonInteractive, opts.generatedCode,
+		)
 		if err != nil {
 			return err
 		}
-		ci, err = resolveCI(in, out, nonInteractive, ciName)
+		ci, err = resolveCI(in, out, opts.nonInteractive, opts.ci)
 		if err != nil {
 			return err
 		}
 	} else {
-		if generatedCode != "" {
+		if opts.generatedCode != "" {
 			_, _ = fmt.Fprintln(out,
 				"Ignored --generated-code: the project is already initialized.")
 		}
-		if ciName != "" {
+		if opts.ci != "" {
 			_, _ = fmt.Fprintln(out,
 				"Ignored --ci: the project is already initialized.")
 		}
@@ -292,8 +323,8 @@ func runInit(
 	}
 
 	// Refresh agent instructions even when init creates no project files.
-	if aiSkills {
-		if err := writeAgentDocs(projectDir, out, version); err != nil {
+	if opts.aiSkills {
+		if err := writeAgentDocs(projectDir, out, opts.version); err != nil {
 			return err
 		}
 	}
@@ -340,7 +371,7 @@ func runInit(
 	if ci == skeleton.CIGitHubActions {
 		// CI must install the version [pinDatapages] writes to go.mod.
 		// Source builds use a pseudo-version instead of a release.
-		ciWorkflow, err := skeleton.CIWorkflow(modVersion, generated)
+		ciWorkflow, err := skeleton.CIWorkflow(opts.modVersion, generated)
 		if err != nil {
 			return err
 		}
@@ -357,7 +388,7 @@ func runInit(
 	}
 
 	// Pin Datapages before go mod tidy can select another version.
-	if err := pinDatapages(ctx, projectDir, modVersion, out, stderr); err != nil {
+	if err := pinDatapages(ctx, projectDir, opts.modVersion, out, stderr); err != nil {
 		return err
 	}
 
@@ -386,7 +417,7 @@ func runInit(
 	if err != nil {
 		return err
 	}
-	sc := scaffold{prometheus: prometheus}
+	sc := scaffold{prometheus: opts.prometheus}
 	if components == skeleton.WebComponentsRocket {
 		sc.datastarJS = skeleton.RocketJS
 	}
@@ -394,8 +425,7 @@ func runInit(
 		return err
 	}
 
-	// The head refers to the components through the assets package,
-	// which exists now.
+	// The head refers to the components through the assets package, which exists now.
 	if components != skeleton.WebComponentsNone {
 		templ, err := skeleton.AppTempl(components, scan.Apps[0].GenImport+"/assets")
 		if err != nil {
@@ -417,7 +447,7 @@ func runInit(
 
 	_, _ = fmt.Fprintln(out, "Project initialized successfully.")
 
-	if !nonInteractive {
+	if !opts.nonInteractive {
 		runNow := true
 		if err := runField(
 			huh.NewConfirm().
