@@ -62,16 +62,31 @@ func TestCIWorkflowChecksOutBeforeSetupGo(t *testing.T) {
 // TestGeneratedCode tests that the scaffolded workflow generates the code
 // either way and checks it against the commit only when it is committed,
 // and that the Makefile generates it before build only when it is hidden.
+// make gen runs both generators either way. For committed code it runs
+// datapages gen first, because templates may use the helpers it writes.
+// For hidden code it runs templ first, because datapages gen cannot load the app
+// of a clone without *_templ.go.
 func TestGeneratedCode(t *testing.T) {
 	t.Parallel()
 
-	const check = "git diff --exit-code"
+	const (
+		check = "git diff --exit-code"
+		templ = "\tgo run " + skeleton.TemplCmd + " generate\n"
+		gen   = "\tdatapages gen\n"
+	)
 	for name, tc := range map[string]struct {
 		generated               skeleton.GeneratedCode
 		wantCheck, wantBuildGen bool
+		wantGen                 string
 	}{
-		"committed": {generated: skeleton.GeneratedCodeCommitted, wantCheck: true},
-		"hidden":    {generated: skeleton.GeneratedCodeHidden, wantBuildGen: true},
+		"committed": {
+			generated: skeleton.GeneratedCodeCommitted, wantCheck: true,
+			wantGen: "gen:\n" + gen + templ,
+		},
+		"hidden": {
+			generated: skeleton.GeneratedCodeHidden, wantBuildGen: true,
+			wantGen: "gen:\n" + templ + gen,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -87,9 +102,8 @@ func TestGeneratedCode(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.wantBuildGen, strings.Contains(makefile, "build: gen\n"),
 				makefile)
-			require.Equal(t, tc.wantBuildGen,
-				strings.Contains(makefile, "\tgo run "+skeleton.TemplCmd+" generate\n"),
-				makefile)
+			require.Contains(t, makefile, tc.wantGen)
+			require.Contains(t, makefile, "\n\n# ", "a blank line before the comment")
 		})
 	}
 }

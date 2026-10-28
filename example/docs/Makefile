@@ -16,7 +16,7 @@ build: bundle
 	go build -o $(SERVER_BIN) ./cmd/server/
 
 gen: bundle
-	go run github.com/a-h/templ/cmd/templ@v0.3.1070 generate
+	go run github.com/a-h/templ/cmd/templ@v0.3.1100 generate
 	datapages gen
 
 # Fail if generated files are out of date.

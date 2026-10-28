@@ -6,16 +6,11 @@ Frequently asked questions about Datapages.
 
 **Yes.** More specifically - the best way to write local-first Datapages apps is to make them a hybrid web app.
 
-Datapages optimizes for the thin client architecture, where the served HTML/CSS/JS is just a thin presentation and intent capturing layer, because this reduces the complexity and amount of code, as well as overall performance characteristics by avoiding a lot of JavaScript. Frameworks like [Wails v3](https://v3.wails.io/) can then be used to run the Go server on the `localhost` loopback and display this thin shell in a webview (the system's native browser without the browser window shell). 
+Datapages optimizes for the thin client architecture, where the served HTML/CSS/JS is just a thin presentation and intent capturing layer, because this reduces the complexity and amount of code, as well as overall performance characteristics by avoiding a lot of JavaScript. Frameworks like [Wails](https://wails.io/) can then be used to run the Go server on the `localhost` loopback and display this thin shell in a webview (the system's native browser without the browser window shell). 
 
 [example/calculator](https://github.com/romshark/datapages/tree/main/example/calculator) shows how this can be achieved.
 
 Since this will not require you to ship a whole Chromium (like Electron; 100-150 MB compressed, typically ~200-300+ MB installed) or a whole JavaScript runtime (like `deno compile`; 60-70 MB) in the installer - the distributable and its installation size will be rather small. The [Calculator](https://github.com/romshark/datapages/tree/main/example/calculator) example is just ~22 MB on `darwin/arm64`.
-
-This approach is more efficient, and overall better than the [Wails v2](https://wails.io/) architecture, where JavaScript still plays a big role.
-
-P.S.
-Even though [Wails v3](https://v3.wails.io/) is still in Beta - it is already successfully used in production. Due to technical limitations, [Wails v2](https://wails.io/) cannot be used with Datastar and Datapages.
 
 ## When to do a JavaScript SPA instead?
 

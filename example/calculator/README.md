@@ -10,7 +10,7 @@ The calculator evaluates expressions on the server. It uses [`shopspring/decimal
 
 The server stores no calculator state between requests. Each tab sends its own signals. The QUERY response uses `datapages.SSE`, but the page has no persistent SSE stream or event handler. See [the todo list](../todolist) for server-side per-tab state and events.
 
-Both the HTTP server and the [Wails v3](https://v3.wails.io/) desktop app run the same `app` package. `NewServer` requires a message broker. Both use an in-memory broker even though the calculator dispatches no events. The app's inline JavaScript handles keyboard shortcuts and clipboard input.
+Both the HTTP server and the [Wails v3](https://wails.io/) desktop app run the same `app` package. `NewServer` requires a message broker. Both use an in-memory broker even though the calculator dispatches no events. The app's inline JavaScript handles keyboard shortcuts and clipboard input.
 
 ## Requirements
 
