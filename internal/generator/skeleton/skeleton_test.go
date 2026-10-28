@@ -31,7 +31,9 @@ func TestCIWorkflowInstallsPinnedTools(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got, err := skeleton.CIWorkflow(tc.modVersion)
+			got, err := skeleton.CIWorkflow(
+				tc.modVersion, skeleton.GeneratedCodeCommitted,
+			)
 			require.NoError(t, err)
 			require.Contains(t, got, "go install "+
 				"github.com/romshark/datapages/cmd/"+tc.want)
@@ -48,7 +50,7 @@ func TestCIWorkflowInstallsPinnedTools(t *testing.T) {
 func TestCIWorkflowChecksOutBeforeSetupGo(t *testing.T) {
 	t.Parallel()
 
-	got, err := skeleton.CIWorkflow("v1.2.3")
+	got, err := skeleton.CIWorkflow("v1.2.3", skeleton.GeneratedCodeCommitted)
 	require.NoError(t, err)
 	checkout := strings.Index(got, "uses: actions/checkout@")
 	setupGo := strings.Index(got, "uses: actions/setup-go@")
@@ -57,9 +59,59 @@ func TestCIWorkflowChecksOutBeforeSetupGo(t *testing.T) {
 	require.Less(t, checkout, setupGo, "checkout must come before setup-go")
 }
 
+// TestGeneratedCode tests that the scaffolded workflow generates the code
+// either way and checks it against the commit only when it is committed,
+// and that the Makefile generates it before build only when it is hidden.
+func TestGeneratedCode(t *testing.T) {
+	t.Parallel()
+
+	const check = "git diff --exit-code"
+	for name, tc := range map[string]struct {
+		generated               skeleton.GeneratedCode
+		wantCheck, wantBuildGen bool
+	}{
+		"committed": {generated: skeleton.GeneratedCodeCommitted, wantCheck: true},
+		"hidden":    {generated: skeleton.GeneratedCodeHidden, wantBuildGen: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ci, err := skeleton.CIWorkflow("v1.2.3", tc.generated)
+			require.NoError(t, err)
+			require.Contains(t, ci, "run: templ generate\n")
+			require.Contains(t, ci, "run: datapages gen\n")
+			require.Equal(t, tc.wantCheck, strings.Contains(ci, check), ci)
+			require.Less(t, strings.Index(ci, "run: datapages gen"),
+				strings.Index(ci, "run: go test"), "generate before the tests")
+
+			makefile, err := skeleton.Makefile(skeleton.WebComponentsNone, tc.generated)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantBuildGen, strings.Contains(makefile, "build: gen\n"),
+				makefile)
+			require.Equal(t, tc.wantBuildGen,
+				strings.Contains(makefile, "\tgo run "+skeleton.TemplCmd+" generate\n"),
+				makefile)
+		})
+	}
+}
+
+// TestParseGeneratedCode tests that every choice init offers parses and an
+// unknown one is refused with the choices listed.
+func TestParseGeneratedCode(t *testing.T) {
+	t.Parallel()
+
+	for _, g := range skeleton.GeneratedCodeChoices {
+		got, err := skeleton.ParseGeneratedCode(string(g))
+		require.NoError(t, err)
+		require.Equal(t, g, got)
+	}
+	_, err := skeleton.ParseGeneratedCode("vendored")
+	require.EqualError(t, err,
+		`unknown generated code setting "vendored", want one of committed, hidden`)
+}
+
 // TestMainGoAppImportAlias tests the identifier the scaffolded main.go refers
-// to the app package by. It keeps the declared name, which is what a developer
-// reads, unless one of the imports already binds it: unaliased, an app package
+// to the app package by. It keeps the declared name, which is what a developer reads,
+// unless one of the imports already binds it: unaliased, an app package
 // named "sessions" or "http" would bind 1 identifier to 2 packages and the
 // file the scaffold just wrote would not compile.
 func TestMainGoAppImportAlias(t *testing.T) {
@@ -157,9 +209,9 @@ func TestMainGoImportsAreKnown(t *testing.T) {
 }
 
 // TestMainGoShutsDownOnSIGTERM tests that the scaffolded main.go cancels the
-// context it passes to ListenAndServe on SIGTERM as well as SIGINT. Docker,
-// Kubernetes and systemd stop a process with SIGTERM, whose default action ends
-// the process without a graceful shutdown.
+// context it passes to ListenAndServe on SIGTERM as well as SIGINT.
+// Docker, Kubernetes and systemd stop a process with SIGTERM,
+// whose default action ends the process without a graceful shutdown.
 func TestMainGoShutsDownOnSIGTERM(t *testing.T) {
 	t.Parallel()
 

@@ -22,6 +22,8 @@ jobs:
       - name: Install datapages
         run: go install {{.DatapagesCmd}}
 
+{{- if .Committed}}
+
       # Ensure templ generate was run before commit
       - name: Run templ generate
         run: templ generate
@@ -37,6 +39,14 @@ jobs:
         run: |
           git diff --exit-code || \
             (echo "datapages gen produced uncommitted changes. Please run datapages gen and commit the results." && exit 1)
+{{- else}}
+
+      # A clone lacks the generated code, which .gitignore lists
+      - name: Run templ generate
+        run: templ generate
+      - name: Run datapages gen
+        run: datapages gen
+{{- end}}
 
       - name: Run tests
         run: go test ./...

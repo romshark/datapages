@@ -53,14 +53,18 @@ const datapagesModule = "github.com/romshark/datapages/cmd/datapages"
 //
 // modVersion is the version in the scaffolded go.mod, including the leading
 // "v". An empty value selects latest. The workflow installs the same generator
-// version because it checks committed datapagesgen output.
+// version because the generated code must match the runtime in go.mod,
+// and committed datapagesgen output must match what that version writes.
 // Source builds use a pseudo-version.
-func CIWorkflow(modVersion string) (string, error) {
+func CIWorkflow(modVersion string, g GeneratedCode) (string, error) {
 	datapagesCmd := datapagesModule + "@latest"
 	if modVersion != "" {
 		datapagesCmd = datapagesModule + "@" + modVersion
 	}
-	data := struct{ TemplCmd, DatapagesCmd string }{TemplCmd, datapagesCmd}
+	data := struct {
+		TemplCmd, DatapagesCmd string
+		Committed              bool
+	}{TemplCmd, datapagesCmd, g == GeneratedCodeCommitted}
 	var buf bytes.Buffer
 	if err := ciWorkflow.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("executing ci.yml template: %w", err)
@@ -138,9 +142,13 @@ func AppTempl(w WebComponents, assetsImport string) ([]byte, error) {
 
 // Makefile renders the Makefile skeleton. For [WebComponentsTypeScript] it
 // installs the npm packages and bundles the components before dev and build.
-func Makefile(w WebComponents) (string, error) {
+// For [GeneratedCodeHidden] it generates the code before build, which a clone lacks.
+func Makefile(w WebComponents, g GeneratedCode) (string, error) {
 	var buf bytes.Buffer
-	data := struct{ TypeScript bool }{w == WebComponentsTypeScript}
+	data := struct {
+		TypeScript, Hidden bool
+		TemplCmd           string
+	}{w == WebComponentsTypeScript, g == GeneratedCodeHidden, TemplCmd}
 	if err := makefile.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("executing Makefile template: %w", err)
 	}
