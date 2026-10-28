@@ -546,7 +546,7 @@ Each preset takes:
 
 | Key         | Value                                                                                                                                                  |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `name`      | The name the settings page lists. No throttling and Offline are built in and reserved.                                                                 |
+| `name`      | The name the settings page lists. No throttling and Unreachable are built in and reserved.                                                             |
 | `toxics`    | The toxics of every endpoint.                                                                                                                          |
 | `endpoints` | The toxics of 1 endpoint, keyed by its route pattern. Each replaces the global toxic of the same type and stream. The other global toxics still apply. |
 
@@ -572,7 +572,7 @@ The proxy applies `http-error` itself. It answers with the status and its standa
 
 The proxy also applies `bandwidth` itself. The requests of 1 browser share the rate, as the requests of 1 device share its network. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets and removes from the requests the app gets. The tabs of a browser share the rate, and a private window gets its own. A client without cookies, such as curl, gets the rate per request. An endpoint that overrides `bandwidth` shares its own rate among its requests. Cookies ignore ports, which sends the cookie to `--host` too.
 
-The preset combobox in the header of the settings page applies a preset. It lists No throttling first, Offline last and the presets of `datapages.yaml` between them. Watch mode starts with No throttling, and picking a preset changes nothing to save. A change of the toxics goes into the preset of `datapages.yaml` in effect, which Save writes. A change of No throttling or Offline leaves toxics no preset holds, which the combobox shows as "Unsaved". Save asks for a name for them, and picking a preset asks before it discards them. The last option creates a preset from the current toxics and overrides or from a copy of a preset of `datapages.yaml` or of Datapages. A preset of `datapages.yaml` has a button that deletes it after a confirmation, and No throttling replaces it while it is in effect. The presets mirror the network presets of Chrome DevTools, and `datapages init` writes those of Datapages into `presets`:
+The preset combobox in the header of the settings page applies a preset. It lists No throttling first, Unreachable last and the presets of `datapages.yaml` between them. Watch mode starts with No throttling, and picking a preset changes nothing to save. A change of the toxics goes into the preset of `datapages.yaml` in effect, which Save writes. A change of No throttling or Unreachable leaves toxics no preset holds, which the combobox shows as "Unsaved". Save asks for a name for them, and picking a preset asks before it discards them. The last option creates a preset from the current toxics and overrides or from a copy of a preset of `datapages.yaml` or of Datapages. A preset of `datapages.yaml` has a button that deletes it after a confirmation, and No throttling replaces it while it is in effect. Fast 4G, Slow 4G and 3G mirror the network presets of Chrome DevTools, and `datapages init` writes them into `presets`:
 
 | Preset        | Toxics                                                                                                                                          |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -580,9 +580,11 @@ The preset combobox in the header of the settings page applies a preset. It list
 | Fast 4G       | Datapages. `latency` 165ms downstream, `bandwidth` 1013 KB/s downstream and 169 KB/s upstream.                                                  |
 | Slow 4G       | Datapages. `latency` 563ms downstream, `bandwidth` 180 KB/s downstream and 84 KB/s upstream.                                                    |
 | 3G            | Datapages. `latency` 2000ms downstream, `bandwidth` 50 KB/s downstream and upstream.                                                            |
-| Offline       | Built in. `reset-peer` with a `timeout` of 0s downstream and upstream. A request ends before the app gets it, an open stream at its next event. |
+| Unreachable   | Built in. `reset-peer` with a `timeout` of 0s downstream and upstream. A request ends before the app gets it, an open stream at its next event. |
 
 The values are those of Chrome, rounded to whole milliseconds and KB/s. Chrome shares the bandwidth per tab, the proxy per browser.
+
+Unreachable is not the Offline of Chrome. The browser stays online, with `navigator.onLine` true and no `offline` event, while no request reaches the server, as when the server is down or a network passes no traffic. An app that relies on `navigator.onLine`, such as through the `is-offline` class of the offline module, sees no change. Test the browser offline with the Offline throttling of its developer tools.
 
 An endpoint key is the [`net/http.ServeMux`](https://pkg.go.dev/net/http#ServeMux) pattern the generated server registers, method included:
 

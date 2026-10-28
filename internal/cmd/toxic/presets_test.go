@@ -44,20 +44,21 @@ func TestDefaultPresets(t *testing.T) {
 }
 
 // TestAllPresets tests that No throttling comes before the presets of the
-// settings, Offline after them, and that only those 2 are built in.
+// settings, Unreachable after them, and that only those 2 are built in.
 func TestAllPresets(t *testing.T) {
 	all := Settings{Presets: []Preset{{Name: "Train", Toxics: Set{}}}}.AllPresets()
 	none := map[string]Set{}
 	require.Equal(t, []Preset{
 		{Name: "No throttling", Toxics: Set{}, Endpoints: none},
 		{Name: "Train", Toxics: Set{}},
-		{Name: "Offline", Endpoints: none, Toxics: Set{
+		{Name: "Unreachable", Endpoints: none, Toxics: Set{
 			{Type: ResetPeer, Stream: Upstream}:   toxicWith(0),
 			{Type: ResetPeer, Stream: Downstream}: toxicWith(0),
 		}},
 	}, all)
 	require.True(t, IsBuiltinPreset("No throttling"))
-	require.True(t, IsBuiltinPreset("Offline"))
+	require.True(t, IsBuiltinPreset("Unreachable"))
+	require.False(t, IsBuiltinPreset("Offline"))
 	require.False(t, IsBuiltinPreset("Train"))
 }
 
@@ -78,7 +79,7 @@ func TestRecord(t *testing.T) {
 		"app preset":               {active: "Slow 4G", global: changed, want: "Slow 4G", wantPreset: changed},
 		"no throttling changed":    {active: "No throttling", global: changed},
 		"no throttling, toxic off": {active: "No throttling", global: Set{latencyDown: off}, want: "No throttling"},
-		"offline changed":          {active: "Offline", global: Set{}},
+		"unreachable changed":      {active: "Unreachable", global: Set{}},
 		"unsaved":                  {global: changed},
 		"deleted preset":           {active: "Train", global: changed},
 	} {
@@ -111,7 +112,7 @@ func TestPresetCommands(t *testing.T) {
 	require.Equal(t, "3G", s.Active)
 	require.Equal(t, map[string]Set{}, s.Endpoints, "3G has no overrides")
 	require.ErrorIs(t, s.ApplyPreset("5G"), ErrNoPreset)
-	for _, name := range []string{"Offline", "No throttling"} {
+	for _, name := range []string{"Unreachable", "No throttling"} {
 		require.NoError(t, s.ApplyPreset(name))
 		p, err := s.Preset(name)
 		require.NoError(t, err)
@@ -149,7 +150,7 @@ func TestPresetCommands(t *testing.T) {
 	require.NoError(t, s.ApplyPreset("Train"))
 
 	require.ErrorIs(t, s.CreatePreset("Fast 4G", Set{}, nil), ErrPresetExists)
-	require.ErrorIs(t, s.CreatePreset("Offline", Set{}, nil), ErrPresetExists)
+	require.ErrorIs(t, s.CreatePreset("Unreachable", Set{}, nil), ErrPresetExists)
 	require.ErrorIs(t, s.CreatePreset(" ", Set{}, nil), ErrPresetUnnamed)
 	require.Len(t, s.Presets, 5)
 
@@ -160,12 +161,12 @@ func TestPresetCommands(t *testing.T) {
 	require.Equal(t, "Slow 4G", s.Presets[0].Name)
 	require.ErrorIs(t, s.DeletePreset("Fast 4G"), ErrNoPreset)
 	require.ErrorIs(t, s.DeletePreset("No throttling"), ErrPresetBuiltin)
-	require.ErrorIs(t, s.DeletePreset("Offline"), ErrPresetBuiltin)
+	require.ErrorIs(t, s.DeletePreset("Unreachable"), ErrPresetBuiltin)
 
 	p, err := DefaultPreset("3G")
 	require.NoError(t, err)
 	require.Equal(t, DefaultPresets()[2], p)
-	_, err = DefaultPreset("Offline")
+	_, err = DefaultPreset("Unreachable")
 	require.ErrorIs(t, err, ErrNoPreset)
 }
 

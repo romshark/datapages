@@ -64,10 +64,10 @@ func DefaultPreset(name string) (Preset, error) {
 	return findPreset(DefaultPresets(), name)
 }
 
-// AllPresets returns No throttling, the presets of s and Offline.
+// AllPresets returns No throttling, the presets of s and Unreachable.
 // datapages.yaml cannot hold the 2 built-in presets.
 func (s Settings) AllPresets() []Preset {
-	return slices.Concat([]Preset{noThrottling()}, s.Presets, []Preset{offline()})
+	return slices.Concat([]Preset{noThrottling()}, s.Presets, []Preset{unreachable()})
 }
 
 // noThrottling returns the preset No throttling, which has no toxics.
@@ -77,11 +77,11 @@ func noThrottling() Preset {
 	}
 }
 
-// offline returns the preset Offline, which fails every request as Chrome
-// does. The upstream reset ends a request before the app gets it, the
-// downstream one ends an open stream at its next event.
-func offline() Preset {
-	return Preset{Name: config.PresetOffline, Endpoints: map[string]Set{}, Toxics: Set{
+// unreachable returns the preset Unreachable, which resets every connection
+// while the browser stays online. The upstream reset ends a request before the
+// app gets it, the downstream one ends an open stream at its next event.
+func unreachable() Preset {
+	return Preset{Name: config.PresetUnreachable, Endpoints: map[string]Set{}, Toxics: Set{
 		{Type: ResetPeer, Stream: Upstream}:   {Toxicity: 1},
 		{Type: ResetPeer, Stream: Downstream}: {Toxicity: 1},
 	}}
@@ -89,7 +89,7 @@ func offline() Preset {
 
 // IsBuiltinPreset reports whether [Settings.AllPresets] adds the preset name.
 func IsBuiltinPreset(name string) bool {
-	return name == config.PresetNoThrottling || name == config.PresetOffline
+	return name == config.PresetNoThrottling || name == config.PresetUnreachable
 }
 
 // Preset returns the preset of [Settings.AllPresets] with the name.

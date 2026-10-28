@@ -454,10 +454,10 @@ func TestPresets(t *testing.T) {
 	// The label of the picker is the text addon of its input group.
 	require.Regexp(t, `<neo-input-group[^>]*><span aria-hidden="true">Preset</span>`+
 		`\s*<neo-combobox [^>]*aria-label="Preset"`, body)
-	// No throttling and Offline have icons of their own. The presets of the app share 1.
+	// No throttling and Unreachable have icons of their own. The presets of the app share 1.
 	for name, icon := range map[string]string{
 		"No throttling": "gauge",
-		"Offline":       "wifi-off",
+		"Unreachable":   "server-off",
 		"Slow 4G":       "sliders-horizontal",
 		"3G":            "sliders-horizontal",
 	} {
@@ -466,11 +466,11 @@ func TestPresets(t *testing.T) {
 	}
 	// The built-in presets have no delete button and no copy option.
 	require.Contains(t, body, `value="No throttling"`)
-	require.Contains(t, body, `value="Offline"`)
+	require.Contains(t, body, `value="Unreachable"`)
 	require.NotContains(t, body, `aria-label="Delete the preset No throttling"`)
-	require.NotContains(t, body, `aria-label="Delete the preset Offline"`)
-	require.NotContains(t, body, `value="app:Offline"`)
-	require.NotContains(t, body, `value="datapages:Offline"`)
+	require.NotContains(t, body, `aria-label="Delete the preset Unreachable"`)
+	require.NotContains(t, body, `value="app:Unreachable"`)
+	require.NotContains(t, body, `value="datapages:Unreachable"`)
 	require.NotContains(t, body, `value="datapages:No throttling"`)
 	// The copy combobox lists each preset of the app, then each of Datapages.
 	require.Regexp(t, `value="app:3G"[^>]*><neo-layout[^>]*><span>3G</span> `+
@@ -485,9 +485,9 @@ func TestPresets(t *testing.T) {
 	require.Equal(t, toxic.DefaultPresets()[1].Toxics, s.front.Settings().Global)
 
 	at = tb.at()
-	code = tb.command(t, "/apply-preset/", `{"preset":"Offline"}`)
+	code = tb.command(t, "/apply-preset/", `{"preset":"Unreachable"}`)
 	require.Equal(t, http.StatusOK, code)
-	tb.waitFrom(t, at, `<neo-combobox value="Offline"`)
+	tb.waitFrom(t, at, `<neo-combobox value="Unreachable"`)
 
 	at = tb.at()
 	require.Contains(t, create(`{"name":" Train ","from":""}`),
@@ -507,7 +507,7 @@ func TestPresets(t *testing.T) {
 
 	for signals, want := range map[string]string{
 		`{"name":"3G","from":""}`:              "A preset with this name exists.",
-		`{"name":"Offline","from":""}`:         "A preset with this name exists.",
+		`{"name":"Unreachable","from":""}`:     "A preset with this name exists.",
 		`{"name":"  ","from":""}`:              "Type a name for the preset.",
 		`{"name":"Van","from":"app:5G"}`:       "The preset to copy no longer exists.",
 		`{"name":"Van","from":"datapages:5G"}`: "The preset to copy no longer exists.",
@@ -530,7 +530,7 @@ func TestPresets(t *testing.T) {
 	require.Equal(t,
 		http.StatusBadRequest, tb.command(t, "/apply-preset/", `{"preset":"Train"}`))
 	require.Equal(t,
-		http.StatusBadRequest, tb.command(t, "/delete-preset/", `{"preset":"Offline"}`))
+		http.StatusBadRequest, tb.command(t, "/delete-preset/", `{"preset":"Unreachable"}`))
 
 	at = tb.at()
 	require.Equal(t, http.StatusOK, tb.command(t, "/save/", "{}"))
@@ -538,7 +538,7 @@ func TestPresets(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(s.dir, "datapages.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(b), "    presets:\n      - name: \"Fast 4G\"\n")
-	require.NotContains(t, string(b), "Offline")
+	require.NotContains(t, string(b), "Unreachable")
 	require.True(t, s.front.Saved())
 }
 

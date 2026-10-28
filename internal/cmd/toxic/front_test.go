@@ -201,10 +201,10 @@ func TestFrontHTTPErrorStream(t *testing.T) {
 	}
 }
 
-// TestFrontOffline tests that Offline fails the requests of every endpoint,
+// TestFrontUnreachable tests that Unreachable fails the requests of every endpoint,
 // overrides included, and that the preset applied after it brings its
 // overrides back.
-func TestFrontOffline(t *testing.T) {
+func TestFrontUnreachable(t *testing.T) {
 	limited := map[string]Set{"GET /limited/{$}": {limitDown: toxicWith(100)}}
 	f, base := startFront(t, Config{
 		Endpoints: endpoints("GET /", "GET /limited/{$}"),
@@ -216,7 +216,7 @@ func TestFrontOffline(t *testing.T) {
 		t.Helper()
 		require.NoError(t, f.Update(func(s *Settings) error { return s.ApplyPreset(name) }))
 	}
-	apply(config.PresetOffline)
+	apply(config.PresetUnreachable)
 	for _, path := range []string{"/", "/limited/"} {
 		_, _, err := get(t, base+path, "")
 		require.Error(t, err, path)

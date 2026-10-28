@@ -123,8 +123,8 @@ func TestLoadToxiproxy(t *testing.T) {
 		},
 		"preset built in": {
 			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +
-				"      - name: Offline\n",
-			wantErr: `the preset "Offline" is built in`,
+				"      - name: Unreachable\n",
+			wantErr: `the preset "Unreachable" is built in`,
 		},
 		"presets of 1 name": {
 			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +

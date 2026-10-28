@@ -29,14 +29,14 @@ type WatchToxiproxy struct {
 
 	// Presets are named sets of toxics and endpoint overrides the settings
 	// page applies in 1 step. It lists them between the built-in
-	// [PresetNoThrottling], which watch starts with, and [PresetOffline].
+	// [PresetNoThrottling], which watch starts with, and [PresetUnreachable].
 	Presets []ToxiproxyPreset `yaml:"presets"`
 }
 
 // Built-in presets. [WatchToxiproxy.Presets] cannot use their names.
 const (
 	PresetNoThrottling = "No throttling"
-	PresetOffline      = "Offline"
+	PresetUnreachable  = "Unreachable"
 )
 
 // ToxiproxyPreset is a named set of toxics and endpoint overrides.
@@ -58,7 +58,7 @@ func (w *WatchToxiproxy) Validate() error {
 		if strings.TrimSpace(p.Name) == "" {
 			return errors.New("a preset has no name")
 		}
-		if p.Name == PresetNoThrottling || p.Name == PresetOffline {
+		if p.Name == PresetNoThrottling || p.Name == PresetUnreachable {
 			return fmt.Errorf("the preset %q is built in", p.Name)
 		}
 		if names[p.Name] {

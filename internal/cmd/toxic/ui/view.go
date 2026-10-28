@@ -616,8 +616,8 @@ func presetIcon(name string) string {
 	switch name {
 	case config.PresetNoThrottling:
 		return "gauge"
-	case config.PresetOffline:
-		return "wifi-off"
+	case config.PresetUnreachable:
+		return "server-off"
 	}
 	return "sliders-horizontal"
 }
@@ -628,7 +628,7 @@ type copyOption struct {
 }
 
 // copyOptions lists the presets of s, of the app with the name, then those of Datapages.
-// The built-in No throttling and Offline are not offered.
+// The built-in No throttling and Unreachable are not offered.
 func copyOptions(s toxic.Settings, app string) []copyOption {
 	var o []copyOption
 	for _, p := range s.Presets {
