@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"sync"
@@ -13,6 +14,20 @@ import (
 	toxiproxy "github.com/Shopify/toxiproxy/v2"
 	"github.com/rs/zerolog"
 )
+
+// toxiproxyVersion is the version of the Toxiproxy module in the build.
+// [toxiproxy.Version] is "git" unless the linker sets it, which the build of
+// Datapages does not.
+var toxiproxyVersion = sync.OnceValue(func() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, dep := range info.Deps {
+			if dep.Path == "github.com/Shopify/toxiproxy/v2" {
+				return dep.Version
+			}
+		}
+	}
+	return toxiproxy.Version
+})
 
 // proxies runs 1 Toxiproxy proxy per endpoint of the app and a global one for
 // requests that match none, because Toxiproxy applies toxics per proxy. Each

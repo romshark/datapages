@@ -276,23 +276,24 @@ func (p PageIndex) POSTClear(
 
 // POSTSave is /save
 //
-// Writes the settings into the configuration file.
+// Writes the presets into the configuration file.
 func (p PageIndex) POSTSave(
 	_ *http.Request,
 	state datapages.State[StateIndex],
 	changed datapages.Dispatcher[EventChanged],
 ) error {
 	s := state.Values
-	file := p.App.Front.Info().ConfigFile
-	s.Notice = notice{
-		title: "Saved config",
-		text:  "Wrote the settings to " + file + ".",
-	}
-	if err := p.App.Front.Save(); err != nil {
-		s.Notice = notice{title: "Saving config failed", text: err.Error(), failed: true}
-	}
-	s.Err = slotError{}
+	s.Notice, s.Err = p.save(), slotError{}
 	return changed.Dispatch(EventChanged{})
+}
+
+// save writes the presets into the configuration file and returns the notice.
+func (p PageIndex) save() notice {
+	if err := p.App.Front.Save(); err != nil {
+		return notice{title: "Saving config failed", text: err.Error(), failed: true}
+	}
+	file := p.App.Front.Info().ConfigFile
+	return notice{title: "Saved config", text: "Wrote the presets to " + file + "."}
 }
 
 // POSTReload is /reload
@@ -325,7 +326,7 @@ type PresetSignals struct {
 
 // POSTApplyPreset is /apply-preset
 //
-// Replaces the global toxics and the overrides with those of the preset signal.
+// Replaces the toxics in effect with those of the preset signal.
 func (p PageIndex) POSTApplyPreset(
 	_ *http.Request,
 	signals datapages.Signals[PresetSignals],
@@ -342,10 +343,12 @@ func (p PageIndex) POSTApplyPreset(
 	return changed.Dispatch(EventChanged{})
 }
 
-// NewPresetSignals are the name field and the copy combobox of the new preset dialog.
+// NewPresetSignals are the name field and the copy combobox of the new preset
+// dialog. Save is set when the save button opened it for toxics no preset holds.
 type NewPresetSignals struct {
 	Name string `json:"name"`
 	From string `json:"from"`
+	Save bool   `json:"save"`
 }
 
 // POSTPresetDraft is /preset-draft
@@ -367,7 +370,8 @@ func (p PageIndex) POSTPresetDraft(
 //
 // Adds a preset named by the name signal and applies it. It copies the preset
 // of the app or of Datapages the from signal names, or the current toxics for
-// an empty from. A refused name shows in the dialog. Success closes it.
+// an empty from. A refused name shows in the dialog. Success closes it and,
+// with the save signal, writes the presets into the configuration file.
 func (p PageIndex) POSTCreatePreset(
 	_ *http.Request,
 	sse datapages.SSE,
@@ -397,12 +401,16 @@ func (p PageIndex) POSTCreatePreset(
 	if err := sse.ExecuteScript(presetCreated); err != nil {
 		return err
 	}
+	if v.Save {
+		s.Notice = p.save()
+	}
 	return changed.Dispatch(EventChanged{})
 }
 
 // POSTDeletePreset is /delete-preset
 //
-// Removes the preset the preset signal names. The toxics stay.
+// Removes the preset the preset signal names. When it is in effect,
+// No throttling replaces it.
 func (p PageIndex) POSTDeletePreset(
 	_ *http.Request,
 	signals datapages.Signals[PresetSignals],

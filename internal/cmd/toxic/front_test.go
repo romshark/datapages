@@ -201,6 +201,35 @@ func TestFrontHTTPErrorStream(t *testing.T) {
 	}
 }
 
+// TestFrontOffline tests that Offline fails the requests of every endpoint,
+// overrides included, and that the preset applied after it brings its
+// overrides back.
+func TestFrontOffline(t *testing.T) {
+	limited := map[string]Set{"GET /limited/{$}": {limitDown: toxicWith(100)}}
+	f, base := startFront(t, Config{
+		Endpoints: endpoints("GET /", "GET /limited/{$}"),
+		Settings: Settings{Presets: []Preset{
+			{Name: "Limited", Toxics: Set{}, Endpoints: limited},
+		}},
+	})
+	apply := func(name string) {
+		t.Helper()
+		require.NoError(t, f.Update(func(s *Settings) error { return s.ApplyPreset(name) }))
+	}
+	apply(config.PresetOffline)
+	for _, path := range []string{"/", "/limited/"} {
+		_, _, err := get(t, base+path, "")
+		require.Error(t, err, path)
+	}
+
+	apply("Limited")
+	_, body, err := get(t, base+"/", "")
+	require.NoError(t, err)
+	require.Len(t, body, bodySize)
+	_, body, err = get(t, base+"/limited/", "")
+	require.Error(t, err, "the response was cut after %d bytes", len(body))
+}
+
 // TestFrontPassesDevServerEvents tests that the reload connection of the dev
 // server skips the toxics.
 func TestFrontPassesDevServerEvents(t *testing.T) {

@@ -502,7 +502,7 @@ toxiproxy: http://localhost:7332 (settings: http://localhost:7333/)
 browser -> watch.toxiproxy.host -> Toxiproxy -> --host (dev server) -> watch.app-host (application)
 ```
 
-The settings page sets the toxics of every endpoint and overrides them per endpoint. A change applies to the next request and to open connections, such as an SSE stream, until watch mode stops. Save writes the settings into the `watch.toxiproxy` section of `datapages.yaml`, keeps the rest of the file and drops comments inside the section. Reload reads `toxics`, `endpoints` and `presets` again, after a confirmation when it discards unsaved changes. A change of `host` or `ui-host` applies when watch mode restarts.
+The settings page applies a preset and changes its toxics, for every endpoint and per endpoint. A change applies to the next request and to open connections, such as an SSE stream, until watch mode stops. Save writes the presets into the `watch.toxiproxy` section of `datapages.yaml`, keeps the rest of the file and drops comments inside the section. Reload reads `presets` again, after a confirmation when it discards unsaved changes. A change of `host` or `ui-host` applies when watch mode restarts.
 
 `watch.toxiproxy` in `datapages.yaml` configures the proxy. Every key is optional:
 
@@ -510,37 +510,45 @@ The settings page sets the toxics of every endpoint and overrides them per endpo
 watch:
   toxiproxy:
     host: localhost:9090
-    toxics:
-      latency:
-        downstream:
-          latency: 300ms
-          jitter: 100ms
-      bandwidth:
-        downstream:
-          rate: 256
-    endpoints:
-      "POST /upload/{$}":
-        bandwidth:
-          upstream:
-            rate: 16
-        latency:
-          downstream:
-            disabled: true
-      "POST /post/{slug}/like/{$}":
-        http-error:
-          downstream:
-            status: 500
-            toxicity: 0.5
+    presets:
+      - name: Flaky
+        toxics:
+          latency:
+            downstream:
+              latency: 300ms
+              jitter: 100ms
+          bandwidth:
+            downstream:
+              rate: 256
+        endpoints:
+          "POST /upload/{$}":
+            bandwidth:
+              upstream:
+                rate: 16
+            latency:
+              downstream:
+                disabled: true
+          "POST /post/{slug}/like/{$}":
+            http-error:
+              downstream:
+                status: 500
+                toxicity: 0.5
 ```
+
+| Key        | Value                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------ |
+| `disabled` | `true` turns the proxy off.                                                                            |
+| `host`     | The address of the proxy. Defaults to the host of `--host` with the next port, `localhost:7332`.       |
+| `ui-host`  | The address of the settings page. Defaults to the host of `host` with the next port, `localhost:7333`. |
+| `presets`  | The named sets of toxics the settings page applies.                                                    |
+
+Each preset takes:
 
 | Key         | Value                                                                                                                                                  |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `disabled`  | `true` turns the proxy off.                                                                                                                            |
-| `host`      | The address of the proxy. Defaults to the host of `--host` with the next port, `localhost:7332`.                                                       |
-| `ui-host`   | The address of the settings page. Defaults to the host of `host` with the next port, `localhost:7333`.                                                 |
+| `name`      | The name the settings page lists. No throttling and Offline are built in and reserved.                                                                 |
 | `toxics`    | The toxics of every endpoint.                                                                                                                          |
 | `endpoints` | The toxics of 1 endpoint, keyed by its route pattern. Each replaces the global toxic of the same type and stream. The other global toxics still apply. |
-| `presets`   | Named `toxics` and `endpoints` the settings page applies. No throttling and Offline are built in and reserved as names.                                |
 
 Each toxic type takes a `downstream` toxic for the data the server sends and an `upstream` toxic for the data the browser sends:
 
@@ -564,7 +572,7 @@ The proxy applies `http-error` itself. It answers with the status and its standa
 
 The proxy also applies `bandwidth` itself. The requests of 1 browser share the rate, as the requests of 1 device share its network. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets and removes from the requests the app gets. The tabs of a browser share the rate, and a private window gets its own. A client without cookies, such as curl, gets the rate per request. An endpoint that overrides `bandwidth` shares its own rate among its requests. Cookies ignore ports, which sends the cookie to `--host` too.
 
-The preset combobox in the header of the settings page applies a preset, which replaces the global toxics and the overrides. It lists No throttling first, Offline last and the presets of `datapages.yaml` between them. It selects the preset the current toxics match, else "Custom". Its last option creates a preset from the current toxics and overrides or from a copy of a preset of `datapages.yaml` or of Datapages. A preset of `datapages.yaml` has a button that deletes it after a confirmation. The presets mirror the network presets of Chrome DevTools, and `datapages init` writes those of Datapages into `presets`:
+The preset combobox in the header of the settings page applies a preset. It lists No throttling first, Offline last and the presets of `datapages.yaml` between them. Watch mode starts with No throttling, and picking a preset changes nothing to save. A change of the toxics goes into the preset of `datapages.yaml` in effect, which Save writes. A change of No throttling or Offline leaves toxics no preset holds, which the combobox shows as "Unsaved". Save asks for a name for them, and picking a preset asks before it discards them. The last option creates a preset from the current toxics and overrides or from a copy of a preset of `datapages.yaml` or of Datapages. A preset of `datapages.yaml` has a button that deletes it after a confirmation, and No throttling replaces it while it is in effect. The presets mirror the network presets of Chrome DevTools, and `datapages init` writes those of Datapages into `presets`:
 
 | Preset        | Toxics                                                                                                                                          |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -574,24 +582,7 @@ The preset combobox in the header of the settings page applies a preset, which r
 | 3G            | Datapages. `latency` 2000ms downstream, `bandwidth` 50 KB/s downstream and upstream.                                                            |
 | Offline       | Built in. `reset-peer` with a `timeout` of 0s downstream and upstream. A request ends before the app gets it, an open stream at its next event. |
 
-The values are those of Chrome, rounded to whole milliseconds and KB/s. Chrome shares the bandwidth per tab, the proxy per browser. A preset of your own takes `toxics` and `endpoints` as `watch.toxiproxy` does:
-
-```yaml
-watch:
-  toxiproxy:
-    presets:
-      - name: Train
-        toxics:
-          latency:
-            downstream:
-              latency: 900ms
-              jitter: 300ms
-        endpoints:
-          "POST /upload/{$}":
-            bandwidth:
-              upstream:
-                rate: 16
-```
+The values are those of Chrome, rounded to whole milliseconds and KB/s. Chrome shares the bandwidth per tab, the proxy per browser.
 
 An endpoint key is the [`net/http.ServeMux`](https://pkg.go.dev/net/http#ServeMux) pattern the generated server registers, method included:
 
@@ -603,7 +594,7 @@ An endpoint key is the [`net/http.ServeMux`](https://pkg.go.dev/net/http#ServeMu
 | Its action `POSTLike`   | `POST /post/{slug}/like/{$}` |
 | Assets under `/static/` | `GET /static/`               |
 
-The settings page lists the patterns of the application. The proxy matches a request to an endpoint as the generated server does and reads the endpoints again after every `datapages gen`. A request that matches none gets the global toxics. Unless `watch.toxiproxy.disabled` is set, `datapages lint` reports an endpoint key, also one of a preset, that names no route of any application of the module, and `datapages watch` warns about it.
+The settings page lists the patterns of the application. The proxy matches a request to an endpoint as the generated server does and reads the endpoints again after every `datapages gen`. A request that matches none gets the global toxics. Unless `watch.toxiproxy.disabled` is set, `datapages lint` reports an endpoint key of a preset that names no route of any application of the module, and `datapages watch` warns about it.
 
 Each request reaches the development server on a connection of its own, which applies `toxicity` and the toxics that end a connection per request. The proxy keeps the `Host` header of the browser. A toxic that ends the connection to the development server ends the connection to the browser without a response. `/__templier/events`, which reloads the page after a rebuild, bypasses the toxics. With `watch.tls`, the proxy serves HTTPS with the same certificate.
 

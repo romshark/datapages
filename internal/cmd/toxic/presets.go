@@ -64,13 +64,17 @@ func DefaultPreset(name string) (Preset, error) {
 	return findPreset(DefaultPresets(), name)
 }
 
-// AllPresets returns No throttling, which has no toxics, the presets of s and
-// Offline. datapages.yaml cannot hold the 2 built-in presets.
+// AllPresets returns No throttling, the presets of s and Offline.
+// datapages.yaml cannot hold the 2 built-in presets.
 func (s Settings) AllPresets() []Preset {
-	noThrottling := Preset{
+	return slices.Concat([]Preset{noThrottling()}, s.Presets, []Preset{offline()})
+}
+
+// noThrottling returns the preset No throttling, which has no toxics.
+func noThrottling() Preset {
+	return Preset{
 		Name: config.PresetNoThrottling, Toxics: Set{}, Endpoints: map[string]Set{},
 	}
-	return slices.Concat([]Preset{noThrottling}, s.Presets, []Preset{offline()})
 }
 
 // offline returns the preset Offline, which fails every request as Chrome
@@ -101,21 +105,27 @@ func findPreset(presets []Preset, name string) (Preset, error) {
 	return presets[i], nil
 }
 
-// ActivePreset returns the name of the preset of [Settings.AllPresets] that
-// has the effect of s on every endpoint, or "" for none. Of several, it
-// returns [Settings.Active], else the first.
-func (s Settings) ActivePreset() string {
-	matches := func(p Preset) bool {
-		return sameEffect(s.Global, s.Endpoints, p.Toxics, p.Endpoints)
+// record keeps a change of the toxics in effect. A preset of the app takes
+// it. A built-in preset ends when its effect changes, which leaves toxics no
+// preset holds.
+func (s *Settings) record() {
+	if s.Active == "" {
+		return
 	}
-	all := s.AllPresets()
-	if p, err := findPreset(all, s.Active); err == nil && matches(p) {
-		return p.Name
+	if IsBuiltinPreset(s.Active) {
+		p, _ := s.Preset(s.Active)
+		if !sameEffect(s.Global, s.Endpoints, p.Toxics, p.Endpoints) {
+			s.Active = ""
+		}
+		return
 	}
-	if i := slices.IndexFunc(all, matches); i >= 0 {
-		return all[i].Name
+	i := slices.IndexFunc(s.Presets, func(p Preset) bool { return p.Name == s.Active })
+	if i < 0 {
+		s.Active = ""
+		return
 	}
-	return ""
+	s.Presets[i].Toxics = maps.Clone(s.Global)
+	s.Presets[i].Endpoints = cloneEndpoints(s.Endpoints)
 }
 
 // sameEffect reports whether the global toxics g1 with the overrides e1 apply
@@ -152,15 +162,17 @@ var (
 	ErrPresetBuiltin = errors.New("the preset is built in")
 )
 
-// ApplyPreset replaces the global toxics and the overrides with those of the
-// preset with the name and makes it [Settings.Active].
+// ApplyPreset replaces the toxics in effect with those of the preset with the
+// name and makes it [Settings.Active].
 func (s *Settings) ApplyPreset(name string) error {
 	p, err := s.Preset(name)
 	if err != nil {
 		return err
 	}
-	s.Global = Set{}
-	maps.Copy(s.Global, p.Toxics)
+	s.Global = maps.Clone(p.Toxics)
+	if s.Global == nil {
+		s.Global = Set{}
+	}
 	s.Endpoints = cloneEndpoints(p.Endpoints)
 	s.Active = name
 	return nil
@@ -184,7 +196,8 @@ func (s *Settings) CreatePreset(
 	return s.ApplyPreset(name)
 }
 
-// DeletePreset removes the preset with the name. The global toxics stay.
+// DeletePreset removes the preset with the name. When it is in effect,
+// No throttling replaces it.
 func (s *Settings) DeletePreset(name string) error {
 	if IsBuiltinPreset(name) {
 		return fmt.Errorf("%w %q", ErrPresetBuiltin, name)
@@ -195,7 +208,7 @@ func (s *Settings) DeletePreset(name string) error {
 	}
 	s.Presets = slices.Delete(s.Presets, i, i+1)
 	if s.Active == name {
-		s.Active = ""
+		return s.ApplyPreset(config.PresetNoThrottling)
 	}
 	return nil
 }

@@ -281,8 +281,9 @@ func (x Toxic) Validate(t Type) error {
 // scope has no toxic. A slot missing on an endpoint inherits the global toxic.
 type Set map[Slot]Toxic
 
-// Settings holds the toxics of every scope and the presets.
+// Settings holds the presets and the toxics in effect.
 type Settings struct {
+	// Global holds the toxics in effect, those of the preset Active.
 	Global Set
 
 	// Endpoints maps the route pattern of an endpoint to its overrides.
@@ -291,8 +292,9 @@ type Settings struct {
 	// Presets are in the order the settings page lists them.
 	Presets []Preset
 
-	// Active is the name of the preset applied last, which
-	// [Settings.ActivePreset] prefers. datapages.yaml does not hold it.
+	// Active is the name of the preset of [Settings.AllPresets] in effect.
+	// Empty means a changed built-in preset, which no preset holds yet.
+	// datapages.yaml does not hold it, and watch starts with No throttling.
 	Active string
 }
 
@@ -390,15 +392,15 @@ func (a active) updateJSON() []byte {
 	return b
 }
 
-// SettingsFromConfig returns the settings c configures.
+// SettingsFromConfig returns the presets c configures with No throttling in effect.
 // It adds no [DefaultPresets] to those of c.
 func SettingsFromConfig(c *config.WatchToxiproxy) Settings {
-	s := Settings{Global: Set{}, Endpoints: map[string]Set{}}
+	s := Settings{
+		Global: Set{}, Endpoints: map[string]Set{}, Active: config.PresetNoThrottling,
+	}
 	if c == nil {
 		return s
 	}
-	s.Global = setFromConfig(c.Toxics, nil)
-	s.Endpoints = endpointsFromConfig(c.Endpoints, s.Global)
 	for _, p := range c.Presets {
 		g := setFromConfig(p.Toxics, nil)
 		s.Presets = append(s.Presets,
@@ -499,17 +501,16 @@ func addFromConfig[T any](
 	}
 }
 
-// YAML returns s as the toxics, endpoints and presets keys of watch.toxiproxy,
+// YAML returns the presets of s as the presets key of watch.toxiproxy,
 // indented by indent spaces. Endpoints follow the order of patterns, unknown
 // ones come last.
 func (s Settings) YAML(indent int, patterns []string) string {
 	var b strings.Builder
-	toxicsYAML(&b, indent, s.Global, s.Endpoints, patterns)
 	presetsYAML(&b, indent, s.Presets, patterns)
 	return b.String()
 }
 
-// toxicsYAML writes the toxics and endpoints keys of [Settings.YAML].
+// toxicsYAML writes the toxics and endpoints keys of a preset.
 func toxicsYAML(
 	b *strings.Builder,
 	indent int,

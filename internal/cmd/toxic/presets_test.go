@@ -61,60 +61,39 @@ func TestAllPresets(t *testing.T) {
 	require.False(t, IsBuiltinPreset("Train"))
 }
 
-// TestActivePreset tests which preset, built-in ones included, the global
-// toxics and the overrides match.
-func TestActivePreset(t *testing.T) {
-	presets := append(DefaultPresets(),
-		Preset{Name: "Copy", Toxics: DefaultPresets()[1].Toxics})
-	slow := presets[1].Toxics
+// TestRecord tests that a change of the toxics goes into the active preset of
+// the app, and that a change of the effect of a built-in preset leaves toxics
+// no preset holds.
+func TestRecord(t *testing.T) {
+	slow := DefaultPresets()[1]
 	off := toxicWith(100)
 	off.Disabled = true
-	partial := slow[latencyDown]
-	partial.Toxicity = 0.5
-	withSlow := func(slot Slot, x Toxic) Set {
-		s := Set{slot: x}
-		for k, v := range slow {
-			if k != slot {
-				s[k] = v
-			}
-		}
-		return s
-	}
-	const ep = "GET /{$}"
+	changed := Set{latencyDown: toxicWith(1, 0)}
 	for name, tc := range map[string]struct {
-		global    Set
-		endpoints map[string]Set
-		active    string
-		want      string
+		active     string
+		global     Set
+		want       string
+		wantPreset Set
 	}{
-		"none on":      {global: Set{}, want: "No throttling"},
-		"only off":     {global: Set{latencyDown: off}, want: "No throttling"},
-		"slow 4G":      {global: withSlow(limitDown, off), want: "Slow 4G"},
-		"applied copy": {global: slow, active: "Copy", want: "Copy"},
-		"changed copy": {global: Set{}, active: "Copy", want: "No throttling"},
-		"offline":      {global: offline().Toxics, want: "Offline"},
-		"offline, override": {
-			global:    offline().Toxics,
-			endpoints: map[string]Set{ep: {latencyUp: toxicWith(5, 0)}},
-		},
-		"override as global": {
-			global:    slow,
-			endpoints: map[string]Set{ep: {latencyDown: slow[latencyDown]}},
-			want:      "Slow 4G",
-		},
-		"override turns off": {
-			global:    slow,
-			endpoints: map[string]Set{ep: {latencyDown: off}},
-		},
-		"other toxicity": {global: withSlow(latencyDown, partial)},
-		"extra toxic":    {global: withSlow(limitDown, toxicWith(10))},
+		"app preset":               {active: "Slow 4G", global: changed, want: "Slow 4G", wantPreset: changed},
+		"no throttling changed":    {active: "No throttling", global: changed},
+		"no throttling, toxic off": {active: "No throttling", global: Set{latencyDown: off}, want: "No throttling"},
+		"offline changed":          {active: "Offline", global: Set{}},
+		"unsaved":                  {global: changed},
+		"deleted preset":           {active: "Train", global: changed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := Settings{
-				Global: tc.global, Endpoints: tc.endpoints,
-				Presets: presets, Active: tc.active,
+				Global: tc.global, Endpoints: map[string]Set{},
+				Presets: []Preset{slow}, Active: tc.active,
 			}
-			require.Equal(t, tc.want, s.ActivePreset())
+			s.record()
+			require.Equal(t, tc.want, s.Active)
+			want := slow.Toxics
+			if tc.wantPreset != nil {
+				want = tc.wantPreset
+			}
+			require.Equal(t, want, s.Presets[0].Toxics)
 		})
 	}
 }
@@ -132,10 +111,13 @@ func TestPresetCommands(t *testing.T) {
 	require.Equal(t, "3G", s.Active)
 	require.Equal(t, map[string]Set{}, s.Endpoints, "3G has no overrides")
 	require.ErrorIs(t, s.ApplyPreset("5G"), ErrNoPreset)
-	require.NoError(t, s.ApplyPreset("Offline"))
-	require.Equal(t, offline().Toxics, s.Global)
-	require.NoError(t, s.ApplyPreset("No throttling"))
-	require.Empty(t, s.Global)
+	for _, name := range []string{"Offline", "No throttling"} {
+		require.NoError(t, s.ApplyPreset(name))
+		p, err := s.Preset(name)
+		require.NoError(t, err)
+		require.Equal(t, p.Toxics, s.Global)
+		require.Equal(t, name, s.Active)
+	}
 
 	tiny := Set{limitDown: toxicWith(10)}
 	upload := map[string]Set{"POST /upload/{$}": {latencyUp: toxicWith(5, 0)}}
@@ -160,7 +142,7 @@ func TestPresetCommands(t *testing.T) {
 		"the preset holds a copy of the overrides")
 
 	require.NoError(t, s.CreatePreset("Train", DefaultPresets()[1].Toxics, nil))
-	require.Equal(t, "Train", s.ActivePreset(), "the copy, not Slow 4G")
+	require.Equal(t, "Train", s.Active, "the copy, not Slow 4G")
 	require.NoError(t, s.ApplyPreset("Tiny"))
 	require.Equal(t,
 		map[string]Set{"POST /upload/{$}": {latencyUp: toxicWith(5, 0)}}, s.Endpoints)
@@ -172,8 +154,8 @@ func TestPresetCommands(t *testing.T) {
 	require.Len(t, s.Presets, 5)
 
 	require.NoError(t, s.DeletePreset("Train"))
-	require.Empty(t, s.Active)
-	require.Equal(t, DefaultPresets()[1].Toxics, s.Global)
+	require.Equal(t, "No throttling", s.Active, "No throttling replaces the deleted preset")
+	require.Empty(t, s.Global)
 	require.NoError(t, s.DeletePreset("Fast 4G"))
 	require.Equal(t, "Slow 4G", s.Presets[0].Name)
 	require.ErrorIs(t, s.DeletePreset("Fast 4G"), ErrNoPreset)
@@ -188,7 +170,8 @@ func TestPresetCommands(t *testing.T) {
 }
 
 // TestScaffoldPresets tests that the datapages.yaml of init holds
-// [DefaultPresets] and no toxics, in the form the settings page saves.
+// [DefaultPresets] in the form the settings page saves, and that watch starts
+// with No throttling.
 func TestScaffoldPresets(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, config.WriteDefault(dir))
@@ -197,7 +180,7 @@ func TestScaffoldPresets(t *testing.T) {
 	s := SettingsFromConfig(c.Watch.Toxiproxy)
 	require.Equal(t, DefaultPresets(), s.Presets)
 	require.Empty(t, s.Global)
-	require.Equal(t, "No throttling", s.ActivePreset())
+	require.Equal(t, "No throttling", s.Active)
 	require.True(t, strings.HasSuffix(config.DefaultYAML, "  toxiproxy:\n"+s.YAML(4, nil)),
 		"the settings page writes:\n%s", s.YAML(4, nil))
 }

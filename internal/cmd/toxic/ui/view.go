@@ -15,6 +15,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/romshark/morpheus/neo"
 
+	"github.com/romshark/datapages/internal/cmd/config"
 	"github.com/romshark/datapages/internal/cmd/toxic"
 	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/action"
 )
@@ -163,7 +164,7 @@ type pageData struct {
 	hidden int
 
 	presets []presetItem
-	// activePreset is the preset the toxics and overrides match, empty for none.
+	// activePreset is the preset in effect, empty for toxics no preset holds.
 	activePreset string
 	// copyOptions are the presets the new preset dialog copies from.
 	copyOptions []copyOption
@@ -248,10 +249,12 @@ func (a *App) view(tab StateIndex) pageData {
 
 	for _, p := range s.AllPresets() {
 		d.presets = append(d.presets, presetItem{
-			name: p.Name, builtin: toxic.IsBuiltinPreset(p.Name),
+			name:    p.Name,
+			icon:    presetIcon(p.Name),
+			builtin: toxic.IsBuiltinPreset(p.Name),
 		})
 	}
-	d.activePreset = s.ActivePreset()
+	d.activePreset = s.Active
 	d.copyOptions = copyOptions(s, d.info.AppName)
 	d.newPreset = newPreset(s, tab.NewPreset)
 
@@ -496,7 +499,7 @@ const newPresetOption = " new"
 // pickerOpts returns the preset picker options with active selected, none if empty.
 func pickerOpts(active string) neo.ComboboxOpts {
 	o := neo.ComboboxOpts{
-		Placeholder:       neo.Set("Custom"),
+		Placeholder:       neo.Set("Unsaved"),
 		SearchPlaceholder: neo.Set("Search presets"),
 		AriaLabel:         neo.Set("Preset"),
 		PopoverFitContent: neo.Set(true),
@@ -509,20 +512,33 @@ func pickerOpts(active string) neo.ComboboxOpts {
 
 // pickPreset returns the action expression of the preset picker,
 // which applies the picked preset. For [newPresetOption] it reselects active,
-// empty for none, and opens the new preset dialog.
+// empty for none, and opens the new preset dialog. With toxics no preset holds,
+// it reselects none and asks before it discards them.
 func pickPreset(active string) string {
 	reselect := "null"
 	if active != "" {
 		reselect = jsString(active)
 	}
-	return action.PageIndex.ApplyPreset.POST(action.WithBefore(
-		"if (evt.detail.value === " + jsString(newPresetOption) + ") { " +
-			"el.value = " + reselect + "; " +
-			openDialog("tp-preset-new") + "; " +
-			// Clears the error of the last create attempt.
-			postPresetDraft() + "; return } " +
-			"$preset = evt.detail.value",
-	))
+	before := "if (evt.detail.value === " + jsString(newPresetOption) + ") { " +
+		"el.value = " + reselect + "; $save = false; " +
+		openDialog("tp-preset-new") + "; " +
+		// Clears the error of the last create attempt.
+		postPresetDraft() + "; return } " +
+		"$preset = evt.detail.value"
+	if active == "" {
+		before += "; el.value = null; " + openDialog("tp-discard") + "; return"
+	}
+	return action.PageIndex.ApplyPreset.POST(action.WithBefore(before))
+}
+
+// saveClick returns the action expression of the save button. For toxics no
+// preset holds, active is empty, and it opens the new preset dialog to name them first.
+func saveClick(active string) string {
+	if active != "" {
+		return action.PageIndex.Save.POST()
+	}
+	return "$save = true; document.getElementById('tp-preset-from').value = null; " +
+		openDialog("tp-preset-new") + "; " + postPresetDraft()
 }
 
 // askDeletePreset returns the action expression of the delete button in the
@@ -590,8 +606,20 @@ const (
 
 // presetItem is 1 preset of the picker. A built-in preset has no delete button.
 type presetItem struct {
-	name    string
-	builtin bool
+	name, icon string
+	builtin    bool
+}
+
+// presetIcon returns the icon of the preset with the name.
+// The presets of the app share 1.
+func presetIcon(name string) string {
+	switch name {
+	case config.PresetNoThrottling:
+		return "gauge"
+	case config.PresetOffline:
+		return "wifi-off"
+	}
+	return "sliders-horizontal"
 }
 
 // copyOption is 1 preset of the copy combobox with a source such as "Datapages preset".
@@ -692,6 +720,14 @@ func createPresetError(err error) string {
 		return "The preset to copy no longer exists."
 	}
 	return err.Error()
+}
+
+// orUnknown returns version, or "unknown" for a build that does not record it.
+func orUnknown(version string) string {
+	if version == "" {
+		return "unknown"
+	}
+	return version
 }
 
 // jsString returns s as a JavaScript string literal. templ escapes it for the attribute.

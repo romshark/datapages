@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,52 +17,55 @@ func TestLoadToxiproxy(t *testing.T) {
   toxiproxy:
     host: localhost:9090
     ui-host: localhost:9091
-    toxics:
-      latency:
-        downstream:
-          latency: 300ms
-          jitter: 50ms
-          toxicity: 0.5
-      slicer:
-        upstream:
-          average-size: 64
-          size-variation: 32
-          delay: 1500us
-    endpoints:
-      "POST /upload/{$}":
-        bandwidth:
-          upstream:
-            rate: 8
-        latency:
-          downstream:
-            disabled: true
-        slicer:
-          downstream:
-            disabled: true
-        http-error:
-          upstream:
-            status: 503
-            toxicity: 0.5
-          downstream:
-            disabled: true
     presets:
-      - name: Edge
+      - name: Upload
         toxics:
           latency:
             downstream:
-              latency: 900ms
+              latency: 300ms
+              jitter: 50ms
+              toxicity: 0.5
+          slicer:
+            upstream:
+              average-size: 64
+              size-variation: 32
+              delay: 1500us
         endpoints:
           "POST /upload/{$}":
             bandwidth:
               upstream:
-                rate: 4
+                rate: 8
+            latency:
+              downstream:
+                disabled: true
+            slicer:
+              downstream:
+                disabled: true
+            http-error:
+              upstream:
+                status: 503
+                toxicity: 0.5
+              downstream:
+                disabled: true
       - name: Clean
 `
+	// inPreset returns the YAML of a preset whose key holds body, which is
+	// indented as directly under watch.toxiproxy.
+	inPreset := func(key, body string) string {
+		return "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +
+			"      - name: P\n        " + key + ":\n" +
+			"    " + strings.ReplaceAll(strings.TrimSuffix(body, "\n"), "\n", "\n    ") + "\n"
+	}
 	for name, tc := range map[string]struct {
 		yaml    string
 		wantErr string
 	}{
 		"valid": {yaml: valid},
+		"toxics outside a preset": {
+			yaml: "watch:\n  toxiproxy:\n    toxics:\n" +
+				"      latency:\n        downstream:\n          latency: 1s\n",
+			wantErr: "toxics",
+		},
 		"host without port": {
 			yaml:    "watch:\n  toxiproxy:\n    host: localhost\n",
 			wantErr: `invalid host "localhost"`,
@@ -75,50 +79,41 @@ func TestLoadToxiproxy(t *testing.T) {
 			wantErr: `host and ui-host are both ":9090"`,
 		},
 		"toxicity above 1": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      latency:\n        downstream:\n          toxicity: 1.5\n",
+			yaml:    inPreset("toxics", "      latency:\n        downstream:\n          toxicity: 1.5\n"),
 			wantErr: "toxicity 1.5 must be from 0 to 1",
 		},
 		"latency below a millisecond": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      latency:\n        downstream:\n          latency: 1500us\n",
+			yaml:    inPreset("toxics", "      latency:\n        downstream:\n          latency: 1500us\n"),
 			wantErr: "whole milliseconds",
 		},
 		"negative timeout": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      timeout:\n        upstream:\n          timeout: -1s\n",
+			yaml:    inPreset("toxics", "      timeout:\n        upstream:\n          timeout: -1s\n"),
 			wantErr: "whole milliseconds",
 		},
 		"zero rate": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      bandwidth:\n        downstream:\n          rate: 0\n",
+			yaml:    inPreset("toxics", "      bandwidth:\n        downstream:\n          rate: 0\n"),
 			wantErr: "rate 0 must be at least 1 KB/s",
 		},
 		"slicer variation above average": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      slicer:\n        downstream:\n" +
-				"          average-size: 8\n          size-variation: 9\n",
+			yaml: inPreset("toxics", "      slicer:\n        downstream:\n"+
+				"          average-size: 8\n          size-variation: 9\n"),
 			wantErr: "size-variation 9 must be from 0 to average-size",
 		},
 		"slicer delay below a microsecond": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      slicer:\n        downstream:\n" +
-				"          average-size: 8\n          delay: 1500ns\n",
+			yaml: inPreset("toxics", "      slicer:\n        downstream:\n"+
+				"          average-size: 8\n          delay: 1500ns\n"),
 			wantErr: "whole microseconds",
 		},
 		"negative limit": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      limit-data:\n        downstream:\n          bytes: -1\n",
+			yaml:    inPreset("toxics", "      limit-data:\n        downstream:\n          bytes: -1\n"),
 			wantErr: "bytes -1 must be 0 or more",
 		},
 		"status below 400": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      http-error:\n        upstream:\n          status: 302\n",
+			yaml:    inPreset("toxics", "      http-error:\n        upstream:\n          status: 302\n"),
 			wantErr: "status 302 must be from 400 to 599",
 		},
 		"status above 599": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      http-error:\n        downstream:\n          status: 600\n",
+			yaml:    inPreset("toxics", "      http-error:\n        downstream:\n          status: 600\n"),
 			wantErr: "status 600 must be from 400 to 599",
 		},
 		"preset without name": {
@@ -137,26 +132,17 @@ func TestLoadToxiproxy(t *testing.T) {
 			wantErr: `2 presets are named "Slow"`,
 		},
 		"endpoint without method": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    endpoints:\n" +
-				"      \"/upload/\":\n        latency:\n" +
-				"          downstream:\n            latency: 1s\n",
+			yaml: inPreset("endpoints", "      \"/upload/\":\n        latency:\n"+
+				"          downstream:\n            latency: 1s\n"),
 			wantErr: "must start with a method",
 		},
 		"endpoint pattern invalid": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    endpoints:\n" +
-				"      \"GET /{a\":\n        latency:\n" +
-				"          downstream:\n            latency: 1s\n",
+			yaml: inPreset("endpoints", "      \"GET /{a\":\n        latency:\n"+
+				"          downstream:\n            latency: 1s\n"),
 			wantErr: "invalid route pattern",
 		},
-		"preset endpoint without method": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +
-				"      - name: Edge\n        endpoints:\n          \"/upload/\":\n" +
-				"            latency:\n              downstream:\n                latency: 1s\n",
-			wantErr: "must start with a method",
-		},
 		"unknown toxic": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    toxics:\n" +
-				"      packet-loss:\n        downstream:\n          rate: 1\n",
+			yaml:    inPreset("toxics", "      packet-loss:\n        downstream:\n          rate: 1\n"),
 			wantErr: "packet-loss",
 		},
 	} {
@@ -174,11 +160,14 @@ func TestLoadToxiproxy(t *testing.T) {
 			tp := c.Watch.Toxiproxy
 			require.Equal(t, "localhost:9090", tp.Host)
 			require.Equal(t, "localhost:9091", tp.UIHost)
-			require.Equal(t, 300*time.Millisecond, tp.Toxics.Latency.Downstream.Latency)
-			require.Equal(t, float32(0.5), *tp.Toxics.Latency.Downstream.Toxicity)
-			require.Nil(t, tp.Toxics.Latency.Upstream)
-			require.Equal(t, 1500*time.Microsecond, tp.Toxics.Slicer.Upstream.Delay)
-			ep := tp.Endpoints["POST /upload/{$}"]
+			require.Len(t, tp.Presets, 2)
+			p := tp.Presets[0]
+			require.Equal(t, "Upload", p.Name)
+			require.Equal(t, 300*time.Millisecond, p.Toxics.Latency.Downstream.Latency)
+			require.Equal(t, float32(0.5), *p.Toxics.Latency.Downstream.Toxicity)
+			require.Nil(t, p.Toxics.Latency.Upstream)
+			require.Equal(t, 1500*time.Microsecond, p.Toxics.Slicer.Upstream.Delay)
+			ep := p.Endpoints["POST /upload/{$}"]
 			require.Equal(t, int64(8), ep.Bandwidth.Upstream.Rate)
 			require.True(t, ep.Latency.Downstream.Disabled)
 			// A disabled toxic needs no other values.
@@ -187,12 +176,6 @@ func TestLoadToxiproxy(t *testing.T) {
 			require.Equal(t, int64(503), ep.HTTPError.Upstream.Status)
 			require.True(t, ep.HTTPError.Downstream.Disabled)
 			require.Zero(t, ep.HTTPError.Downstream.Status)
-			require.Len(t, tp.Presets, 2)
-			require.Equal(t, "Edge", tp.Presets[0].Name)
-			require.Equal(t, 900*time.Millisecond,
-				tp.Presets[0].Toxics.Latency.Downstream.Latency)
-			require.Equal(t, int64(4),
-				tp.Presets[0].Endpoints["POST /upload/{$}"].Bandwidth.Upstream.Rate)
 			require.Equal(t, ToxiproxyPreset{Name: "Clean"}, tp.Presets[1])
 		})
 	}

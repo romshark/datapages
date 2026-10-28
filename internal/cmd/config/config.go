@@ -230,10 +230,9 @@ func Load(moduleDir string) (c Config, found bool, _ error) {
 // assets from the embed.FS variable of the app package.
 //
 // The toxiproxy section has no host, which defaults to the port after the dev
-// server and lets 2 apps of 1 module run side by side. It has no toxics, which
-// selects the preset No throttling, and holds the presets as the settings page
-// saves them. It ends inside the watch section, because init appends watch
-// keys.
+// server and lets 2 apps of 1 module run side by side. It holds the presets
+// as the settings page saves them. It ends inside the watch section, because
+// init appends watch keys.
 const DefaultYAML = `cmd: cmd/server
 watch:
   exclude:

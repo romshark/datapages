@@ -7,11 +7,11 @@ import (
 )
 
 // presetPicker is the header combobox that applies a preset. It selects the
-// preset the settings match, else it shows "Custom". The trigger shows the
-// label of an option in place of its row.
+// preset in effect, else it shows "Unsaved". The trigger shows the label of
+// an option in place of its row.
 templ presetPicker(d pageData) {
-	<div class="tp-preset-picker">
-		<span class="tp-small tp-muted" aria-hidden="true">Preset</span>
+	@neo.InputGroupAttrs(templ.Attributes{"class": "tp-preset-picker"}) {
+		<span aria-hidden="true">Preset</span>
 		// The id lets a morph keep the element a closed dialog returns the focus to.
 		@neo.ComboboxAttrs(pickerOpts(d.activePreset), templ.Attributes{
 			"id":                          "tp-preset-combobox",
@@ -19,8 +19,14 @@ templ presetPicker(d pageData) {
 		}) {
 			for _, p := range d.presets {
 				@neo.Option(neo.OptionOpts{Value: neo.Set(p.name), Label: neo.Set(p.name)}) {
-					<span class="tp-preset-option">
-						{ p.name }
+					@neo.LayoutAttrs(neo.LayoutOpts{
+						AlignItems:     neo.Set(neo.AlignItemsCenter),
+						JustifyContent: neo.Set(neo.JustifyContentSpaceBetween),
+						Gap:            neo.Set(neo.GapMd),
+					}, neo.Item(neo.ItemOpts{Width: neo.Set(neo.ItemSizeFull)})) {
+						@iconLabel(p.icon) {
+							{ p.name }
+						}
 						if !p.builtin {
 							@neo.ButtonAttrs(neo.ButtonOpts{
 								Variant: neo.Set(neo.ButtonVariantGhost),
@@ -37,18 +43,28 @@ templ presetPicker(d pageData) {
 								@neo.Icon("trash-2")
 							}
 						}
-					</span>
+					}
 				}
 			}
 			@neo.Option(neo.OptionOpts{
 				Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}) {
-				<span class="tp-preset-new">
-					@neo.IconAttrs("plus", templ.Attributes{"aria-hidden": "true"})
+				@iconLabel("plus") {
 					New preset…
-				</span>
+				}
 			}
 		}
-	</div>
+	}
+}
+
+// iconLabel is a label after a decorative icon.
+templ iconLabel(icon string) {
+	@neo.Layout(neo.LayoutOpts{
+		AlignItems: neo.Set(neo.AlignItemsCenter),
+		Gap:        neo.Set(neo.GapSm),
+	}) {
+		@neo.IconAttrs(icon, templ.Attributes{"aria-hidden": "true"})
+		{ children... }
+	}
 }
 
 // presetDialogs are the new preset dialog and the delete confirm dialog.
@@ -63,22 +79,35 @@ templ presetPicker(d pageData) {
 // the new page. It would replace the open dialog and lose its focus.
 templ presetDialogs(d pageData) {
 	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
-		"id":                 "tp-preset-new",
-		"data-preserve-attr": "open",
+		"id":                           "tp-preset-new",
+		"data-preserve-attr":           "open",
+		"data-signals:save__ifmissing": "false",
 	}) {
 		<span hidden { neo.DialogTrigger()... }></span>
 		<dialog id="tp-preset-new-dialog" data-preserve-attr="open">
 			@neo.DialogHeader() {
-				@neo.DialogTitleAttrs(templ.Attributes{"id": "tp-preset-new-title"}) {
+				@neo.DialogTitleAttrs(templ.Attributes{
+					"id":        "tp-preset-new-title",
+					"data-text": "$save ? 'Save as preset' : 'New preset'",
+				}) {
 					New preset
 				}
-				@neo.DialogDescriptionAttrs(templ.Attributes{"id": "tp-preset-new-desc"}) {
+				@neo.DialogDescriptionAttrs(templ.Attributes{
+					"id": "tp-preset-new-desc",
+					"data-text": "$save ? " +
+						jsString("Names the toxics and writes the presets to "+
+							d.info.ConfigFile+".") +
+						" : 'Saves toxics under a name and applies them.'",
+				}) {
 					Saves toxics under a name and applies them.
 				}
 			}
 			@neo.DialogBody() {
-				<div class="tp-dialog-fields">
-					<div class="tp-field">
+				@neo.LayoutAttrs(neo.LayoutOpts{
+					Direction: neo.Set(neo.Column),
+					Gap:       neo.Set(neo.GapMd),
+				}, templ.Attributes{"class": "tp-dialog-fields"}) {
+					@field(templ.Attributes{"class": "tp-field"}) {
 						<span class="tp-small">Name</span>
 						@neo.TextInputAttrs(neo.TextInputOpts{
 							Size:  neo.Set("sm"),
@@ -89,8 +118,8 @@ templ presetDialogs(d pageData) {
 							"data-on:input__debounce.150ms": postPresetDraft(),
 							"data-on:keydown":               createPreset("if (evt.key !== 'Enter') return; "),
 						})
-					</div>
-					<div class="tp-field">
+					}
+					@field(templ.Attributes{"class": "tp-field", "data-show": "!$save"}) {
 						<span class="tp-small">Copy from</span>
 						@neo.ComboboxAttrs(copyOpts(d.newPreset.from), templ.Attributes{
 							"id":                          "tp-preset-from",
@@ -102,22 +131,22 @@ templ presetDialogs(d pageData) {
 							for _, o := range d.copyOptions {
 								@neo.Option(neo.OptionOpts{
 									Value: neo.Set(o.value), Label: neo.Set(o.name)}) {
-									<span class="tp-copy-option">
+									@neo.Layout(neo.LayoutOpts{Direction: neo.Set(neo.Column)}) {
 										<span>{ o.name }</span>
 										<span class="tp-small tp-muted">
 											{ o.source }
 										</span>
-									</span>
+									}
 								}
 							}
 						}
-					</div>
+					}
 					<p
 						id="tp-preset-new-error"
 						class="tp-error"
 						role="alert"
 					>{ d.newPreset.err }</p>
-				</div>
+				}
 			}
 			@neo.DialogFooter() {
 				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
@@ -126,7 +155,10 @@ templ presetDialogs(d pageData) {
 				@neo.ButtonAttrs(neo.ButtonOpts{
 					Variant:  neo.Set(neo.ButtonVariantPrimary),
 					Disabled: neo.Set(d.newPreset.taken),
-				}, templ.Attributes{"data-on:click": createPreset("")}) {
+				}, templ.Attributes{
+					"data-on:click": createPreset(""),
+					"data-text":     "$save ? 'Save' : 'Create'",
+				}) {
 					Create
 				}
 			}
@@ -144,7 +176,7 @@ templ presetDialogs(d pageData) {
 				}
 				@neo.DialogDescription() {
 					<strong data-text="$preset"></strong> goes away.
-					The toxics stay as they are.
+					If it is in effect, No throttling replaces it.
 				}
 			}
 			@neo.DialogFooter() {

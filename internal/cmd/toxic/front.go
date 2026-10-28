@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,6 +44,9 @@ type Config struct {
 	// AppName is what the settings page calls the app, as in "todolist".
 	AppName string
 
+	// Version is the version of Datapages the settings page shows.
+	Version string
+
 	// TLSCert and TLSKey make the front serve HTTPS with the certificate of
 	// the dev server.
 	TLSCert, TLSKey string
@@ -53,9 +57,9 @@ type Config struct {
 	// Endpoints are the endpoints of the app the front starts with.
 	Endpoints []Endpoint
 
-	// ConfigFile is the name of the configuration file the settings page
-	// shows. Empty means "datapages.yaml".
-	ConfigFile string
+	// ConfigPath is the absolute path of the configuration file the settings
+	// page shows. Empty means "datapages.yaml" in an unknown directory.
+	ConfigPath string
 
 	// ReloadSettings reads the settings from the configuration file.
 	ReloadSettings func() (Settings, error)
@@ -456,15 +460,19 @@ type Info struct {
 	// URL and UpstreamURL are the URLs of the front and of the dev server.
 	URL, UpstreamURL string
 
-	// ConfigFile is the name of the configuration file.
-	ConfigFile string
+	// ConfigFile is the name of the configuration file, and ConfigPath its
+	// absolute path or empty when unknown.
+	ConfigFile, ConfigPath string
+
+	// Version and ToxiproxyVersion are the versions of Datapages and Toxiproxy.
+	Version, ToxiproxyVersion string
 }
 
 // Info returns what the settings page shows about f.
 func (f *Front) Info() Info {
-	file := f.conf.ConfigFile
-	if file == "" {
-		file = "datapages.yaml"
+	file := "datapages.yaml"
+	if f.conf.ConfigPath != "" {
+		file = filepath.Base(f.conf.ConfigPath)
 	}
 	up := f.conf.Upstream
 	return Info{
@@ -477,10 +485,15 @@ func (f *Front) Info() Info {
 		URL:         (&url.URL{Scheme: up.Scheme, Host: f.conf.Host}).String(),
 		UpstreamURL: (&url.URL{Scheme: up.Scheme, Host: up.Host}).String(),
 		ConfigFile:  file,
+		ConfigPath:  f.conf.ConfigPath,
+
+		Version:          f.conf.Version,
+		ToxiproxyVersion: toxiproxyVersion(),
 	}
 }
 
-// Reload replaces the settings with those of the configuration file.
+// Reload replaces the presets with those of the configuration file and
+// applies the active preset again, or No throttling when the file lacks it.
 func (f *Front) Reload() error {
 	if f.conf.ReloadSettings == nil {
 		return errors.New("no configuration to reload")
@@ -490,21 +503,31 @@ func (f *Front) Reload() error {
 		return err
 	}
 	return f.Update(func(dst *Settings) error {
+		active := dst.Active
 		*dst = s.Clone()
+		if dst.ApplyPreset(active) != nil {
+			return dst.ApplyPreset(config.PresetNoThrottling)
+		}
 		return nil
 	})
 }
 
-// Save writes the settings into the configuration file.
+// ErrUnnamed reports toxics no preset holds, which the config file can't hold either.
+var ErrUnnamed = errors.New("no preset holds the toxics; create one to save them")
+
+// Save writes the presets into the configuration file.
 func (f *Front) Save() error {
 	if f.conf.WriteConfig == nil {
 		return errors.New("no configuration to save to")
 	}
+	if f.Settings().Active == "" {
+		return ErrUnnamed
+	}
 	return f.conf.WriteConfig(f.section(0))
 }
 
-// Saved reports whether the configuration file holds the settings. It reads
-// the file, which the user may also have changed.
+// Saved reports whether the configuration file holds the presets and a
+// preset the toxics in effect. It reads the file, which the user may also have changed.
 func (f *Front) Saved() bool {
 	if f.conf.ReloadSettings == nil {
 		return false
@@ -513,8 +536,8 @@ func (f *Front) Saved() bool {
 	if err != nil {
 		return false
 	}
-	patterns := f.patterns()
-	return s.YAML(0, patterns) == f.Settings().YAML(0, patterns)
+	cur, patterns := f.Settings(), f.patterns()
+	return cur.Active != "" && s.YAML(0, patterns) == cur.YAML(0, patterns)
 }
 
 // section returns the keys of watch.toxiproxy indented by indent spaces, the
@@ -551,8 +574,9 @@ func yamlString(s string) string {
 	return s
 }
 
-// Update applies change to a copy of the settings, and the copy to the proxies
-// unless change returns an error.
+// Update applies change to a copy of the settings, records it in the active
+// preset with [Settings.record], and applies the copy to the proxies unless
+// change returns an error.
 func (f *Front) Update(change func(*Settings) error) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -560,6 +584,7 @@ func (f *Front) Update(change func(*Settings) error) error {
 	if err := change(&s); err != nil {
 		return err
 	}
+	s.record()
 	if err := f.proxies.apply(s, f.patterns()); err != nil {
 		// [Toxic.Validate] matches the checks of Toxiproxy, which makes this
 		// error a bug. Keep the toxics Toxiproxy accepted.

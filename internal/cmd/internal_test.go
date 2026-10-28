@@ -807,7 +807,7 @@ func TestStartToxiproxy(t *testing.T) {
 			}
 
 			var stderr strings.Builder
-			tox, err := startToxiproxy(moduleDir, app, "app", tp, ports(tc.host),
+			tox, err := startToxiproxy(moduleDir, app, "app", "", tp, ports(tc.host),
 				appHost, nil, slog.New(slog.DiscardHandler), &stderr)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, ports(tc.wantErr))
@@ -868,7 +868,7 @@ func freePorts(t *testing.T, n int) int {
 }
 
 // TestWriteDefaultConfig tests that the datapages.yaml init writes loads for
-// every Web Components setup, with presets and no toxics for the Toxiproxy front.
+// every Web Components setup, with the presets of the Toxiproxy front.
 func TestWriteDefaultConfig(t *testing.T) {
 	for _, wc := range skeleton.WebComponentsChoices {
 		t.Run(string(wc), func(t *testing.T) {
@@ -883,7 +883,6 @@ func TestWriteDefaultConfig(t *testing.T) {
 			tp := c.Watch.Toxiproxy
 			require.NotNil(t, tp)
 			require.Empty(t, tp.Host, "the port follows --host")
-			require.Equal(t, config.Toxics{}, tp.Toxics)
 			require.Len(t, tp.Presets, 3)
 			require.Equal(t,
 				wc == skeleton.WebComponentsTypeScript, len(c.Watch.CustomWatchers) == 1)

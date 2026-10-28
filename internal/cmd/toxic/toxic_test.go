@@ -135,12 +135,13 @@ func TestCreateJSON(t *testing.T) {
 	}, got)
 }
 
-// TestSettingsFromConfig tests the conversion of datapages.yaml into the units
-// of Toxiproxy, the default toxicity of 1 and the values a disabled toxic with
-// invalid ones takes.
+// TestSettingsFromConfig tests the conversion of the presets of datapages.yaml
+// into the units of Toxiproxy, the default toxicity of 1, the values a disabled
+// toxic with invalid ones takes, and that No throttling is in effect.
 func TestSettingsFromConfig(t *testing.T) {
 	half := float32(0.5)
-	c := &config.WatchToxiproxy{
+	c := &config.WatchToxiproxy{Presets: []config.ToxiproxyPreset{{
+		Name: "Slow",
 		Toxics: config.Toxics{
 			Latency: &config.ToxicStreams[config.ToxicLatency]{
 				Downstream: &config.ToxicLatency{
@@ -184,14 +185,21 @@ func TestSettingsFromConfig(t *testing.T) {
 				},
 			},
 		},
-	}
+	}}}
 	slicer := toxicWith(10, 2, 3000)
 	slicer.Toxicity = 0.5
 	httpError := toxicWith(500)
 	httpError.Toxicity = 0.5
 	off := func(x Toxic) Toxic { x.Disabled = true; return x }
-	require.Equal(t, Settings{
-		Global: Set{
+	none := Settings{
+		Global:    Set{},
+		Endpoints: map[string]Set{},
+		Active:    config.PresetNoThrottling,
+	}
+	want := none
+	want.Presets = []Preset{{
+		Name: "Slow",
+		Toxics: Set{
 			latencyDown:                      toxicWith(2000, 5),
 			{Type: Slicer, Stream: Upstream}: slicer,
 			errorDown:                        httpError,
@@ -203,20 +211,9 @@ func TestSettingsFromConfig(t *testing.T) {
 			errorUp:                          toxicWith(503),
 			errorDown:                        off(toxicWith(500)),
 		}},
-	}, SettingsFromConfig(c))
-	require.Equal(t, Settings{Global: Set{}, Endpoints: map[string]Set{}},
-		SettingsFromConfig(nil))
-
-	c.Presets = []config.ToxiproxyPreset{{Name: "Quiet"}}
-	require.Equal(t,
-		[]Preset{
-			{
-				Name:      "Quiet",
-				Toxics:    Set{},
-				Endpoints: map[string]Set{},
-			},
-		},
-		SettingsFromConfig(c).Presets)
+	}}
+	require.Equal(t, want, SettingsFromConfig(c))
+	require.Equal(t, none, SettingsFromConfig(nil))
 }
 
 // TestSettingsYAMLRoundTrip tests that [Settings.YAML] loads back into the same
@@ -229,23 +226,27 @@ func TestSettingsYAMLRoundTrip(t *testing.T) {
 	httpError := toxicWith(500)
 	httpError.Toxicity = 0.5
 	s := Settings{
-		Global: Set{
-			latencyDown:                        toxicWith(1500, 0),
-			rateDown:                           partial,
-			{Type: Slicer, Stream: Downstream}: toxicWith(64, 8, 1500),
-			{Type: Timeout, Stream: Upstream}:  toxicWith(0),
-			errorUp:                            httpError,
-		},
-		Endpoints: map[string]Set{
-			"POST /upload/{$}": {
-				latencyDown: disabled,
-				limitDown:   toxicWith(1024),
-				errorDown:   toxicWith(503),
-			},
-			"GET /gone/{$}":      {latencyUp: toxicWith(7, 0)},
-			"GET /post/{id}/{$}": {},
-		},
+		Global: Set{}, Endpoints: map[string]Set{}, Active: config.PresetNoThrottling,
 		Presets: []Preset{
+			{
+				Name: "Upload",
+				Toxics: Set{
+					latencyDown:                        toxicWith(1500, 0),
+					rateDown:                           partial,
+					{Type: Slicer, Stream: Downstream}: toxicWith(64, 8, 1500),
+					{Type: Timeout, Stream: Upstream}:  toxicWith(0),
+					errorUp:                            httpError,
+				},
+				Endpoints: map[string]Set{
+					"POST /upload/{$}": {
+						latencyDown: disabled,
+						limitDown:   toxicWith(1024),
+						errorDown:   toxicWith(503),
+					},
+					"GET /gone/{$}":      {latencyUp: toxicWith(7, 0)},
+					"GET /post/{id}/{$}": {},
+				},
+			},
 			{
 				Name:   `Train "tunnel": 2`,
 				Toxics: Set{latencyDown: toxicWith(900, 300)},
@@ -264,7 +265,8 @@ func TestSettingsYAMLRoundTrip(t *testing.T) {
 	require.NoError(t, err, "YAML:\n%s", got)
 
 	want := s.Clone()
-	delete(want.Endpoints, "GET /post/{id}/{$}") // without overrides it writes nothing
+	// Without overrides it writes nothing.
+	delete(want.Presets[0].Endpoints, "GET /post/{id}/{$}")
 	require.Equal(t, want, SettingsFromConfig(c.Watch.Toxiproxy))
 	known := strings.Index(got, `"POST /upload/{$}"`)
 	unknown := strings.Index(got, `"GET /gone/{$}"`)

@@ -23,7 +23,9 @@ import (
 	"github.com/romshark/datapages/internal/serverscan"
 )
 
-func newWatchCmd(stderr io.Writer, version string) *cobra.Command {
+// newWatchCmd checks for updates of release and shows version on the
+// settings page of Toxiproxy.
+func newWatchCmd(stderr io.Writer, release, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Args:  cobra.NoArgs,
@@ -43,7 +45,7 @@ the module root, as in "datapages watch --app app/frontend".`,
 		"Directory of the app package to run, relative to the module root, "+
 			"required when the module builds more than 1")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		return runWatch(c.Context(), *host, *app, stderr, version)
+		return runWatch(c.Context(), *host, *app, stderr, release, version)
 	}
 	return cmd
 }
@@ -72,10 +74,10 @@ func selectApp(r serverscan.Result, dir string) (serverscan.App, error) {
 }
 
 func runWatch(
-	ctx context.Context, host, appDir string, stderr io.Writer, version string,
+	ctx context.Context, host, appDir string, stderr io.Writer, release, version string,
 ) error {
 	// Start the update check immediately so it has maximum time to complete.
-	startUpdateCheck(ctx, version, stderr, http.DefaultClient)
+	startUpdateCheck(ctx, release, stderr, http.DefaultClient)
 
 	moduleDir, err := findModuleDir()
 	if err != nil {
@@ -99,7 +101,7 @@ func runWatch(
 		}
 	}
 	if err := runGen(
-		moduleDir, cfg, scaffold{prometheus: scaffoldPrometheus}, stderr, version,
+		moduleDir, cfg, scaffold{prometheus: scaffoldPrometheus}, stderr, release,
 	); err != nil {
 		// Non-fatal: individual parse errors are already on stderr.
 		// The gen watcher will retry and surface errors in the browser on next save.
@@ -216,7 +218,7 @@ func runWatch(
 	var frontErr chan error
 	if tp := w.Toxiproxy; tp == nil || !tp.Disabled {
 		t, err := startToxiproxy(
-			moduleDir, app, appName(modulePath, app, len(scan.Apps)), tp,
+			moduleDir, app, appName(modulePath, app, len(scan.Apps)), version, tp,
 			host, appHost, w.TLS, logger, stderr,
 		)
 		if err != nil {

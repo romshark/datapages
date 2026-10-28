@@ -79,15 +79,16 @@ func serveUntil(
 }
 
 // startToxiproxy binds the Toxiproxy front of the dev server at host and its
-// settings page, which shows the app as name. tp is watch.toxiproxy, nil
-// without the section.
+// settings page, which shows the app as name and Datapages as version.
+// tp is watch.toxiproxy, nil without the section.
 //
 // With the section, a problem fails the start. Without it, a problem turns
 // the proxy off with a warning and startToxiproxy returns nil, nil.
 // An override of an endpoint the app lacks is a warning, because the app may
 // be mid-edit.
 func startToxiproxy(
-	moduleDir string, app serverscan.App, name string, tp *config.WatchToxiproxy,
+	moduleDir string, app serverscan.App, name, version string,
+	tp *config.WatchToxiproxy,
 	host string, appHost *url.URL, tlsConf *config.WatchTLS,
 	logger *slog.Logger, stderr io.Writer,
 ) (*toxiproxy, error) {
@@ -178,6 +179,10 @@ func startToxiproxy(
 		_ = uiLn.Close()
 	}
 
+	var configPath string
+	if name := config.FileName(moduleDir); name != "" {
+		configPath = filepath.Join(moduleDir, name)
+	}
 	broker := inmem.New(messaging.DefaultBrokerChanBuffer)
 	conf := toxic.Config{
 		Host:       boundAddr(proxyHost, frontLn),
@@ -185,7 +190,8 @@ func startToxiproxy(
 		UIHost:     boundAddr(uiHost, uiLn),
 		UIHostSet:  tp.UIHost != "",
 		AppName:    name,
-		ConfigFile: config.FileName(moduleDir),
+		Version:    version,
+		ConfigPath: configPath,
 		Upstream:   upstream,
 		TLSCert:    t.tlsCert,
 		TLSKey:     t.tlsKey,
@@ -313,15 +319,14 @@ func nextPort(host string) (string, error) {
 	return net.JoinHostPort(h, strconv.FormatUint(n+1, 10)), nil
 }
 
-// checkEndpointKeys reports the override keys of tp and of its presets that
-// name no endpoint in eps.
+// checkEndpointKeys reports the override keys of the presets of tp that name
+// no endpoint in eps.
 func checkEndpointKeys(tp *config.WatchToxiproxy, eps []toxic.Endpoint) error {
-	errs := []error{
-		toxic.CheckEndpointKeys("watch.toxiproxy.endpoints", endpointKeys(tp.Endpoints), eps),
-	}
+	var errs []error
 	for _, p := range tp.Presets {
 		where := fmt.Sprintf("watch.toxiproxy.presets[%q].endpoints", p.Name)
-		errs = append(errs, toxic.CheckEndpointKeys(where, endpointKeys(p.Endpoints), eps))
+		errs = append(errs,
+			toxic.CheckEndpointKeys(where, endpointKeys(p.Endpoints), eps))
 	}
 	return errors.Join(errs...)
 }

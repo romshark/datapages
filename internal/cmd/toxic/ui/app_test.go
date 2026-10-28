@@ -43,7 +43,7 @@ const (
 	limitedPath = `<code class="tp-path">/limited/` +
 		`<span class="tp-route-end">{$}</span></code>`
 	limitedHeading = `<code><span class="tp-route-method">GET</span> ` +
-		`/limited/<span class="tp-route-end">{$}</span></code></h2>`
+		`/limited/<span class="tp-route-end">{$}</span></code>`
 )
 
 // settings is the page at url of a front with the endpoints "GET /" and [limited],
@@ -55,9 +55,11 @@ type settings struct {
 	dir    string
 }
 
-// configFile is the datapages.yaml of startSettings, which sets a latency.
-const configFile = "cmd: cmd/server\nwatch:\n  toxiproxy:\n    toxics:\n" +
-	"      latency:\n        downstream:\n          latency: 100ms\n"
+// configFile is the datapages.yaml of startSettings, which has the preset
+// Slow. The front starts without it, which leaves its presets unsaved.
+const configFile = "cmd: cmd/server\nwatch:\n  toxiproxy:\n    presets:\n" +
+	"      - name: Slow\n        toxics:\n          latency:\n" +
+	"            downstream:\n              latency: 100ms\n"
 
 func startSettings(t *testing.T) *settings {
 	t.Helper()
@@ -70,10 +72,13 @@ func startSettings(t *testing.T) *settings {
 	require.NoError(t, os.WriteFile(file, []byte(configFile), 0o644))
 
 	front, err := toxic.New(toxic.Config{
-		Host:     "localhost:7332",
-		UIHost:   "localhost:7333",
-		Upstream: u,
-		AppName:  "shop",
+		Host:       "localhost:7332",
+		UIHost:     "localhost:7333",
+		Upstream:   u,
+		AppName:    "shop",
+		Version:    "v1.2.3",
+		ConfigPath: file,
+		Settings:   toxic.SettingsFromConfig(nil),
 		Endpoints: []toxic.Endpoint{
 			{Pattern: "GET /", Owner: "PageIndex", Handler: "GET"},
 			{Pattern: limited, Owner: "PageLimited", Handler: "GET"},
@@ -224,28 +229,77 @@ func (tb *tab) waitFrom(t *testing.T, from int, want string) string {
 	}
 }
 
-// TestPage tests loading the global scope, an endpoint scope and a filtered
-// endpoint list, and the static files the head loads.
+var (
+	// pageTitle matches the h1 of the header.
+	pageTitle = regexp.MustCompile(`(?s)<h1>.*?</h1>`)
+	// aboutDialog matches the dialog the title opens.
+	aboutDialog = regexp.MustCompile(`(?s)<neo-dialog[^>]* id="tp-about".*?</neo-dialog>`)
+)
+
+// TestPage tests loading the global scope with the about dialog of the title,
+// an endpoint scope and a filtered endpoint list, and the static files the
+// head loads.
 func TestPage(t *testing.T) {
-	base := startSettings(t).url
+	s := startSettings(t)
+	base := s.url
 
 	code, body := do(t, http.MethodGet, base+"/", "", nil)
 	require.Equal(t, http.StatusOK, code)
 	require.Contains(t, body, "<title>shop - Toxiproxy</title>")
-	require.Contains(t, body, "<h1>shop</h1>")
+	// The title is a button named by the logo and the app, which opens the about dialog.
+	title := pageTitle.FindString(body)
+	require.Contains(t, title, `aria-haspopup="dialog"`)
+	require.Contains(t, title, `aria-controls="tp-about"`)
+	require.Regexp(t, `<neo-icon [^>]*aria-label="Datapages"`, title)
+	require.Regexp(t, `</neo-icon> shop</neo-button></h1>$`, title)
+	about := aboutDialog.FindString(body)
+	require.Contains(t, about, `>shop - Toxiproxy</h2>`)
+	require.Regexp(t,
+		`<dt>Toxic</dt><dd><neo-layout[^>]*><a [^>]*href="http://localhost:7332"[^>]*>`+
+			`<code>localhost:7332</code>`, about)
+	require.Regexp(t,
+		`<dt>Non-toxic</dt><dd><neo-layout[^>]*><a [^>]*href="http://127\.0\.0\.1:\d+"`,
+		about)
+	require.Contains(t, about, `aria-label="What the toxic address is"`)
+	require.Contains(t, about, `aria-label="What the non-toxic address is"`)
+	require.Regexp(t,
+		`<dt>Config</dt><dd><neo-layout[^>]*><code>datapages.yaml</code>`,
+		about)
+	// The copy button copies the absolute path of the file.
+	copyConfig := regexp.MustCompile(
+		`(?s)<neo-clipcopy [^>]*>\s*<neo-button [^>]*aria-label="Copy the path of datapages.yaml"`,
+	).FindString(about)
+	require.Contains(t, copyConfig,
+		`value="`+filepath.Join(s.dir, "datapages.yaml")+`"`)
+	require.Contains(t, about, `<dt>Datapages</dt><dd>v1.2.3</dd>`)
+	require.Regexp(t, `<dt>Toxiproxy</dt><dd><neo-layout[^>]*>v2\.\d+\.\d+<a `, about)
+	repo := regexp.MustCompile(
+		`<a [^>]*aria-label="Toxiproxy on GitHub"[^>]*>`,
+	).FindString(about)
+	require.Contains(t, repo, `href="https://github.com/Shopify/toxiproxy"`)
+	require.Regexp(t, `<a [^>]*href="http://localhost:7332"[^>]*>`+
+		`toxic <code>localhost:7332</code>`, body)
+	require.Regexp(t, `<a [^>]*href="http://127\.0\.0\.1:\d+"[^>]*>`+
+		`non-toxic <code>127\.0\.0\.1:\d+</code>`, body)
 	require.Contains(t, body, "<h2>Global toxics</h2>")
 	require.Contains(t, body, rootPath)
 	require.Contains(t, body, limitedPath)
 	require.Contains(t, body, `src="/static/datastar-1.0.4.js"`)
-	require.Contains(t, body, `With toxics: <a href="http://localhost:7332" `+
-		`target="_blank" rel="noopener"><code>localhost:7332</code></a></span> · `+
-		`<span class="tp-address">Without toxics: `)
 	// The kind icon of "GET /", inlined from static/icons.
-	require.Contains(t, body, `aria-label="Page"`)
-	require.Contains(t, body, `class="lucide lucide-app-window"`)
-	// The stream direction arrows.
-	require.Contains(t, body, `<neo-icon name="arrow-down"`)
-	require.Contains(t, body, `<neo-icon name="arrow-up"`)
+	icon := regexp.MustCompile(
+		`<neo-icon [^>]*aria-label="Page"[^>]*><svg`,
+	).FindString(body)
+	require.Contains(t, icon, `role="img"`)
+	require.Contains(t, body, "Response (downstream)")
+	require.Contains(t, body, "Request (upstream)")
+	// The scope description is only in the popover of its info button.
+	require.Contains(t, body, `aria-label="About these toxics"`)
+	require.Equal(t,
+		1,
+		strings.Count(body, "Each request opens a connection of its own."))
+	// The header and the scope have a menu button. ui.css shows the one of the
+	// scope while the scope sticks.
+	require.Equal(t, 2, strings.Count(body, `aria-controls="tp-sidebar"`))
 
 	scoped := base + "/?endpoint=" + url.QueryEscape(limited) + "&q=lim"
 	code, body = do(t, http.MethodGet, scoped, "", nil)
@@ -253,7 +307,10 @@ func TestPage(t *testing.T) {
 	require.Contains(t, body, limitedHeading)
 	require.Contains(t, body, `data-signals:search="'lim'"`)
 	// The kind icon leads the heading.
-	require.Contains(t, body, `<h2 class="tp-scope-title"><neo-icon name="app-window"`)
+	require.Regexp(t, `<h2[^>]*><neo-layout[^>]*><neo-icon [^>]*aria-label="Page"`, body)
+	require.Equal(t,
+		1,
+		strings.Count(body, "<p>Served by <code>PageLimited.GET</code>.</p>"))
 	require.Contains(t, body, limitedPath)
 	require.NotContains(t, body, rootPath)
 
@@ -338,7 +395,7 @@ func TestCommands(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.NotContains(t, s.front.Settings().Endpoints, limited)
 	// The other tab sees the endpoint lose its badge, never the refused value.
-	got = other.waitFrom(t, otherAt, limitedPath+" </span>")
+	got = other.waitFrom(t, otherAt, limitedPath+" </neo-layout>")
 	require.NotContains(t, got, "rate must be at least 1")
 
 	at = tb.at()
@@ -349,7 +406,11 @@ func TestCommands(t *testing.T) {
 	require.Contains(t, got, "data: selector #tp-toaster\n")
 	require.Contains(t, got, "data: mode append\n")
 	require.Contains(t, got, `<span slot="title">Reloaded config</span>`)
-	require.Len(t, s.front.Settings().Global, 1)
+	// The changed No throttling became toxics no preset holds, which a reload
+	// replaces with No throttling.
+	st := s.front.Settings()
+	require.Equal(t, "No throttling", st.Active)
+	require.Len(t, st.Presets, 1)
 }
 
 // TestPresets tests that the preset picker selects the matching preset,
@@ -390,6 +451,19 @@ func TestPresets(t *testing.T) {
 	require.NotContains(t, body, "563 ms")
 	require.Contains(t, body, `aria-label="Delete the preset Slow 4G"`)
 	require.Contains(t, body, `value=" new"`)
+	// The label of the picker is the text addon of its input group.
+	require.Regexp(t, `<neo-input-group[^>]*><span aria-hidden="true">Preset</span>`+
+		`\s*<neo-combobox [^>]*aria-label="Preset"`, body)
+	// No throttling and Offline have icons of their own. The presets of the app share 1.
+	for name, icon := range map[string]string{
+		"No throttling": "gauge",
+		"Offline":       "wifi-off",
+		"Slow 4G":       "sliders-horizontal",
+		"3G":            "sliders-horizontal",
+	} {
+		require.Regexp(t, `<neo-option [^>]*value="`+name+`"[^>]*>`+
+			`<neo-layout[^>]*><neo-layout[^>]*><neo-icon name="`+icon+`"`, body, name)
+	}
 	// The built-in presets have no delete button and no copy option.
 	require.Contains(t, body, `value="No throttling"`)
 	require.Contains(t, body, `value="Offline"`)
@@ -399,10 +473,9 @@ func TestPresets(t *testing.T) {
 	require.NotContains(t, body, `value="datapages:Offline"`)
 	require.NotContains(t, body, `value="datapages:No throttling"`)
 	// The copy combobox lists each preset of the app, then each of Datapages.
-	require.Regexp(t, `value="app:3G"[^>]*><span class="tp-copy-option"><span>3G</span> `+
+	require.Regexp(t, `value="app:3G"[^>]*><neo-layout[^>]*><span>3G</span> `+
 		`<span class="tp-small tp-muted">shop preset</span>`, body)
-	require.Regexp(t, `value="datapages:3G"[^>]*>`+
-		`<span class="tp-copy-option"><span>3G</span> `+
+	require.Regexp(t, `value="datapages:3G"[^>]*><neo-layout[^>]*><span>3G</span> `+
 		`<span class="tp-small tp-muted">Datapages preset</span>`, body)
 
 	at := tb.at()
@@ -461,7 +534,7 @@ func TestPresets(t *testing.T) {
 
 	at = tb.at()
 	require.Equal(t, http.StatusOK, tb.command(t, "/save/", "{}"))
-	tb.waitFrom(t, at, "Wrote the settings to datapages.yaml.")
+	tb.waitFrom(t, at, "Wrote the presets to datapages.yaml.")
 	b, err := os.ReadFile(filepath.Join(s.dir, "datapages.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(b), "    presets:\n      - name: \"Fast 4G\"\n")
@@ -532,10 +605,14 @@ func TestPresetDraft(t *testing.T) {
 var presetPicker = regexp.MustCompile(`<neo-combobox[^>]*id="tp-preset-combobox"[^>]*>`)
 
 // TestPresetOverrides tests that presets include endpoint overrides.
-// An override after Offline matches no preset, a preset created from
-// the current toxics holds it, and applying a preset replaces the overrides.
+// An override matches no preset, a preset created from the current toxics
+// holds it, and applying a preset replaces the overrides.
 func TestPresetOverrides(t *testing.T) {
 	s := startSettings(t)
+	require.NoError(t, s.front.Update(func(st *toxic.Settings) error {
+		st.Presets = toxic.DefaultPresets()
+		return nil
+	}))
 	tb := openTab(t, s.url)
 	// run sends a command and returns the preset combobox of its render.
 	run := func(target, signals string) string {
@@ -546,33 +623,32 @@ func TestPresetOverrides(t *testing.T) {
 	}
 	override := toxic.Set{latencyDown: toxic.NewToxic(toxic.Latency)}
 
-	require.Contains(t, run("/apply-preset/", `{"preset":"Offline"}`), `value="Offline"`)
-	run("/show/?endpoint="+url.QueryEscape(limited), "{}")
+	require.Contains(t, run("/show/?endpoint="+url.QueryEscape(limited), "{}"),
+		`value="No throttling"`)
 	require.NotContains(t, run("/mode/?slot=latency_downstream", `{"mode":"on"}`),
-		"value=", "Custom")
+		"value=", "Unsaved")
 	require.Equal(t,
 		map[string]toxic.Set{limited: override},
 		s.front.Settings().Endpoints)
 
 	at := tb.at()
 	code, _ := do(t, http.MethodPost, s.url+"/create-preset/",
-		`{"name":"Offline but slow","from":""}`, http.Header{
+		`{"name":"Slow page","from":""}`, http.Header{
 			"Datastar-Request":   {"true"},
 			"Datapages-Instance": {tb.instance},
 		})
 	require.Equal(t, http.StatusOK, code)
 	require.Contains(t,
 		presetPicker.FindString(tb.waitFrom(t, at, `id="tp-preset-combobox"`)),
-		`value="Offline but slow"`)
-	p, err := s.front.Settings().Preset("Offline but slow")
+		`value="Slow page"`)
+	p, err := s.front.Settings().Preset("Slow page")
 	require.NoError(t, err)
 	require.Equal(t, map[string]toxic.Set{limited: override}, p.Endpoints)
 
-	require.Contains(t, run("/apply-preset/", `{"preset":"No throttling"}`),
-		`value="No throttling"`)
+	require.Contains(t, run("/apply-preset/", `{"preset":"3G"}`), `value="3G"`)
 	require.Empty(t, s.front.Settings().Endpoints)
-	require.Contains(t, run("/apply-preset/", `{"preset":"Offline but slow"}`),
-		`value="Offline but slow"`)
+	require.Contains(t, run("/apply-preset/", `{"preset":"Slow page"}`),
+		`value="Slow page"`)
 	require.Equal(t,
 		map[string]toxic.Set{limited: override},
 		s.front.Settings().Endpoints)
@@ -630,37 +706,67 @@ func TestChangedFromOutside(t *testing.T) {
 }
 
 // saveButton matches the opening tag of the save button.
-var saveButton = regexp.MustCompile(`<neo-button[^>]*@post\(&#39;/save/&#39;\)[^>]*>`)
+var saveButton = regexp.MustCompile(
+	`<neo-button[^>]*title="Write the presets of this page to datapages.yaml"[^>]*>`,
+)
 
 // TestSave tests that a save keeps the file outside watch.toxiproxy and
-// disables the save button until the settings or the file change.
+// disables the save button until the presets or the file change. Toxics no
+// preset holds take a name first, and a change of a preset of the app saves
+// without one.
 func TestSave(t *testing.T) {
 	s := startSettings(t)
 	tb := openTab(t, s.url)
 	file := filepath.Join(s.dir, "datapages.yaml")
-	// The front starts without toxics, the file has a latency.
+	// The front has no presets, the file has 1.
 	require.False(t, s.front.Saved())
+	// save sends a command and returns the render with its notice.
+	save := func(target, signals, notice string) string {
+		t.Helper()
+		at := tb.at()
+		require.Equal(t, http.StatusOK, tb.command(t, target, signals))
+		return tb.waitFrom(t, at, notice)
+	}
 
-	at := tb.at()
-	require.Equal(t, http.StatusOK, tb.command(t, "/save/", "{}"))
-	got := tb.waitFrom(t, at, "Wrote the settings to datapages.yaml.")
+	got := save("/save/", "{}", "Wrote the presets to datapages.yaml.")
 	require.Contains(t, saveButton.FindString(got), `aria-disabled="true"`)
 	b, err := os.ReadFile(file)
 	require.NoError(t, err)
 	require.Equal(t, "cmd: cmd/server\nwatch:\n  toxiproxy: {}\n", string(b))
 	require.True(t, s.front.Saved())
 
-	at = tb.at()
+	// A change of No throttling leaves toxics no preset holds.
+	at := tb.at()
 	code := tb.command(t, "/mode/?slot=latency_downstream", `{"mode":"on"}`)
 	require.Equal(t, http.StatusOK, code)
 	got = tb.waitFrom(t, at, `aria-label="Latency"`)
-	require.NotContains(t, saveButton.FindString(got), "disabled")
+	require.NotContains(t, presetPicker.FindString(got), "value=", "Unsaved")
+	button := saveButton.FindString(got)
+	require.NotContains(t, button, "disabled")
+	require.Contains(t, button, "$save = true")
+	require.NotContains(t, button, "/save/")
 	// The toast of the save shows once.
 	require.NotContains(t, got, "Saved config")
+	save("/save/", "{}", "Saving config failed")
+	require.False(t, s.front.Saved())
 
+	save("/create-preset/", `{"name":"Mine","from":"","save":true}`,
+		"Wrote the presets to datapages.yaml.")
+	require.True(t, s.front.Saved())
+	b, err = os.ReadFile(file)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `- name: "Mine"`)
+
+	// A change of Mine goes into Mine, which saves without a name.
 	at = tb.at()
-	require.Equal(t, http.StatusOK, tb.command(t, "/save/", "{}"))
-	tb.waitFrom(t, at, "Wrote the settings to datapages.yaml.")
+	code = tb.command(t,
+		"/value/?slot=latency_downstream&field=latency", `{"value":"20"}`)
+	require.Equal(t, http.StatusOK, code)
+	got = tb.waitFrom(t, at, `value="20"`)
+	require.Contains(t, presetPicker.FindString(got), `value="Mine"`)
+	require.Contains(t, saveButton.FindString(got), "@post(&#39;/save/&#39;)")
+	require.False(t, s.front.Saved())
+	save("/save/", "{}", "Wrote the presets to datapages.yaml.")
 	require.True(t, s.front.Saved())
 
 	// Change the file by hand.
@@ -670,6 +776,31 @@ func TestSave(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.command(t, "/show/", "{}"))
 	got = tb.waitFrom(t, at, `id="tp-main"`)
 	require.NotContains(t, saveButton.FindString(got), "disabled")
+}
+
+// discardDialog matches the dialog that confirms discarding unsaved toxics.
+var discardDialog = regexp.MustCompile(
+	`(?s)<neo-dialog[^>]* id="tp-discard".*?</neo-dialog>`,
+)
+
+// TestDiscardConfirm tests that the picker asks before a preset replaces
+// toxics no preset holds, and applies at once otherwise.
+func TestDiscardConfirm(t *testing.T) {
+	s := startSettings(t)
+	_, body := do(t, http.MethodGet, s.url+"/", "", nil)
+	require.NotContains(t, presetPicker.FindString(body), "tp-discard")
+
+	require.NoError(t, s.front.Update(func(st *toxic.Settings) error {
+		st.Global[latencyDown] = toxic.NewToxic(toxic.Latency)
+		return nil
+	}))
+	_, body = do(t, http.MethodGet, s.url+"/", "", nil)
+	require.Contains(t, presetPicker.FindString(body),
+		"document.getElementById(&#39;tp-discard&#39;).show()")
+	dialog := discardDialog.FindString(body)
+	require.Contains(t, dialog, "Discard unsaved toxics?")
+	require.Regexp(t,
+		`<neo-button[^>]*@post\(&#39;/apply-preset/&#39;\)[^>]*>\s*Discard`, dialog)
 }
 
 var (
@@ -687,7 +818,7 @@ var (
 // settings are unsaved and reloads at once after a save.
 func TestReloadConfirm(t *testing.T) {
 	s := startSettings(t)
-	// The front starts without toxics, the file has a latency.
+	// The front has no presets, the file has 1.
 	require.False(t, s.front.Saved())
 
 	_, body := do(t, http.MethodGet, s.url+"/", "", nil)
@@ -699,12 +830,42 @@ func TestReloadConfirm(t *testing.T) {
 	require.Contains(t, dialog, "lucide-triangle-alert")
 	require.Contains(t, dialog,
 		"Changes not saved to <code>datapages.yaml</code> cannot be restored.")
-	require.Regexp(t, `<neo-button[^>]*@post\(&#39;/reload/&#39;\)[^>]*>\s*Discard and reload`,
+	require.Regexp(t,
+		`<neo-button[^>]*@post\(&#39;/reload/&#39;\)[^>]*>\s*Discard and reload`,
 		dialog)
 
 	require.NoError(t, s.front.Save())
 	_, body = do(t, http.MethodGet, s.url+"/", "", nil)
 	require.Contains(t, reloadButton.FindString(body), `@post(&#39;/reload/&#39;)`)
+}
+
+// clearDialog matches the dialog that confirms clearing the overrides.
+var clearDialog = regexp.MustCompile(`(?s)<neo-dialog[^>]* id="tp-clear".*?</neo-dialog>`)
+
+// TestClearConfirm tests that the Clear overrides button opens a confirm dialog,
+// whose confirm button clears them.
+func TestClearConfirm(t *testing.T) {
+	s := startSettings(t)
+	require.NoError(t, s.front.Update(func(st *toxic.Settings) error {
+		st.Endpoints[limited] = toxic.Set{latencyDown: toxic.NewToxic(toxic.Latency)}
+		return nil
+	}))
+
+	_, body := do(t,
+		http.MethodGet,
+		s.url+"/?endpoint="+url.QueryEscape(limited),
+		"",
+		nil)
+	require.Regexp(t,
+		`<neo-button[^>]*document.getElementById\(&#39;tp-clear&#39;\).show\(\)[^>]*>`+
+			`\s*Clear overrides`, body)
+	dialog := clearDialog.FindString(body)
+	require.Contains(t, dialog, "Clear overrides?")
+	require.Contains(t, dialog,
+		"Overrides not saved to <code>datapages.yaml</code> cannot be restored.")
+	require.Regexp(t,
+		`<neo-button[^>]*@post\(&#39;/clear/&#39;\)[^>]*>\s*Clear overrides`,
+		dialog)
 }
 
 // TestInherit tests an inherited slot row. It shows a summary while the

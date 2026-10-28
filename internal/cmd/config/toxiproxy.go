@@ -24,21 +24,12 @@ type WatchToxiproxy struct {
 	// the port after the dev server, "localhost:7332" by default.
 	Host string `yaml:"host"`
 
-	// UIHost is the address of the settings page. Empty means the port after
-	// Host.
+	// UIHost is the address of the settings page. Empty means the port after Host.
 	UIHost string `yaml:"ui-host"`
-
-	// Toxics apply to every endpoint that does not override them.
-	Toxics Toxics `yaml:"toxics"`
-
-	// Endpoints maps the route pattern the generated server registers, as in
-	// "GET /post/{slug}/{$}", to toxics that replace the global ones of the
-	// same type and stream.
-	Endpoints map[EndpointPattern]Toxics `yaml:"endpoints"`
 
 	// Presets are named sets of toxics and endpoint overrides the settings
 	// page applies in 1 step. It lists them between the built-in
-	// [PresetNoThrottling] and [PresetOffline].
+	// [PresetNoThrottling], which watch starts with, and [PresetOffline].
 	Presets []ToxiproxyPreset `yaml:"presets"`
 }
 
@@ -48,11 +39,16 @@ const (
 	PresetOffline      = "Offline"
 )
 
-// ToxiproxyPreset is a named set of toxics and endpoint overrides. Applying it
-// replaces Toxics and Endpoints of [WatchToxiproxy].
+// ToxiproxyPreset is a named set of toxics and endpoint overrides.
 type ToxiproxyPreset struct {
-	Name      string                     `yaml:"name"`
-	Toxics    Toxics                     `yaml:"toxics"`
+	Name string `yaml:"name"`
+
+	// Toxics apply to every endpoint that does not override them.
+	Toxics Toxics `yaml:"toxics"`
+
+	// Endpoints maps the route pattern the generated server registers, as in
+	// "GET /post/{slug}/{$}", to toxics that replace the global ones of the
+	// same type and stream.
 	Endpoints map[EndpointPattern]Toxics `yaml:"endpoints"`
 }
 

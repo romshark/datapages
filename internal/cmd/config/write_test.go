@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const section = "toxics:\n  latency:\n    downstream:\n      latency: 5ms\n"
+const section = "presets:\n  - name: Slow\n    toxics:\n" +
+	"      latency:\n        downstream:\n          latency: 5ms\n"
 
 // TestSetToxiproxy tests that setToxiproxy replaces or adds the
 // watch.toxiproxy section and keeps the rest of the file.
@@ -29,10 +30,12 @@ watch:
   # http://localhost:7332, and its settings page on the port after that.
   # The presets are the throttling presets of Chrome DevTools.
   toxiproxy:
-    toxics:
-      latency:
-        downstream:
-          latency: 5ms
+    presets:
+      - name: Slow
+        toxics:
+          latency:
+            downstream:
+              latency: 5ms
   # after
   debounce: 1s
 `,
@@ -47,8 +50,9 @@ watch:
 		"replaces a section at the end without a line break": {
 			src:     "watch:\n  toxiproxy:\n    disabled: false",
 			section: section,
-			want: "watch:\n  toxiproxy:\n    toxics:\n      latency:\n" +
-				"        downstream:\n          latency: 5ms\n",
+			want: "watch:\n  toxiproxy:\n    presets:\n      - name: Slow\n" +
+				"        toxics:\n          latency:\n" +
+				"            downstream:\n              latency: 5ms\n",
 		},
 		"adds the section after the last key of watch": {
 			src:     "watch:\n  debounce: 1s\ncmd: cmd/server\n",
@@ -92,7 +96,7 @@ func TestSetToxiproxyFile(t *testing.T) {
 	c, found, err := Load(dir)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.NotNil(t, c.Watch.Toxiproxy.Toxics.Latency)
+	require.NotNil(t, c.Watch.Toxiproxy.Presets[0].Toxics.Latency)
 
 	dir = t.TempDir()
 	yml := filepath.Join(dir, "datapages.yml")

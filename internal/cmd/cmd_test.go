@@ -375,10 +375,11 @@ func TestLintSubjectAcrossApps(t *testing.T) {
 	}
 }
 
-// TestLintToxiproxy tests that lint reports an endpoint override that names
-// no route unless the proxy is disabled.
+// TestLintToxiproxy tests that lint reports an endpoint override of a preset
+// that names no route unless the proxy is disabled.
 // The fixture serves "GET /" and "GET /not-found/{$}".
 func TestLintToxiproxy(t *testing.T) {
+	const edge = "    presets:\n      - name: Edge\n        endpoints:\n"
 	for name, tc := range map[string]struct {
 		toxiproxy string // the watch.toxiproxy section, none when empty
 		wantErr   string
@@ -388,28 +389,22 @@ func TestLintToxiproxy(t *testing.T) {
 			toxiproxy: "    host: localhost:9090\n    ui-host: localhost:9091\n",
 		},
 		"known endpoint": {
-			toxiproxy: "    endpoints:\n" +
-				"      \"GET /not-found/{$}\":\n        latency:\n" +
-				"          downstream:\n            latency: 1s\n",
+			toxiproxy: edge +
+				"          \"GET /not-found/{$}\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
 		},
 		"unknown endpoint": {
-			toxiproxy: "    endpoints:\n" +
-				"      \"GET /not-found/\":\n        latency:\n" +
-				"          downstream:\n            latency: 1s\n",
-			wantErr: `no endpoint has the pattern "GET /not-found/"; ` +
+			toxiproxy: edge +
+				"          \"GET /not-found/\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+			wantErr: `watch.toxiproxy.presets["Edge"].endpoints: ` +
+				`no endpoint has the pattern "GET /not-found/"; ` +
 				`did you mean "GET /not-found/{$}"?`,
 		},
 		"unknown endpoint, disabled": {
-			toxiproxy: "    disabled: true\n    endpoints:\n" +
-				"      \"GET /not-found/\":\n        latency:\n" +
-				"          downstream:\n            latency: 1s\n",
-		},
-		"unknown endpoint of a preset": {
-			toxiproxy: "    presets:\n      - name: Edge\n        endpoints:\n" +
-				"          \"GET /gone/{$}\":\n            latency:\n" +
+			toxiproxy: "    disabled: true\n" + edge +
+				"          \"GET /not-found/\":\n            latency:\n" +
 				"              downstream:\n                latency: 1s\n",
-			wantErr: `watch.toxiproxy.presets["Edge"].endpoints: ` +
-				`no endpoint has the pattern "GET /gone/{$}"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

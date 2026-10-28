@@ -70,10 +70,9 @@ func Test() error {
 // the test suite runs. The second is how much of the code the generator writes
 // the acceptance cases run.
 //
-// The second number is collected inside the case modules under
-// internal/acceptance, where the generated packages live. The profile of the
-// cases also covers the datapages packages generated code imports, which the
-// second number leaves out.
+// The second number is collected inside the case modules under internal/acceptance,
+// where the generated packages live. The profile of the cases also covers
+// the datapages packages generated code imports, which the second number leaves out.
 func Coverage() error {
 	dir, err := os.MkdirTemp("", "datapages-coverage")
 	if err != nil {
@@ -519,7 +518,9 @@ func GenDocs() error {
 	if err := goRun(toolTempl, "generate", "-path", "./internal/docs-src"); err != nil {
 		return err
 	}
-	if err := run("go", "run", "./internal/tools/render-pages", "-version", version); err != nil {
+	if err := run(
+		"go", "run", "./internal/tools/render-pages", "-version", version,
+	); err != nil {
 		return err
 	}
 	fmt.Println("==> minify internal/docs-src/style.css -> docs/style.css")
@@ -542,8 +543,25 @@ const toxicUIDir = "internal/cmd/toxic/ui"
 
 // morpheusComponents lists the Morpheus components the settings page renders.
 // The bundler adds their dependencies.
-const morpheusComponents = "badge,button,buttongroup,card,combobox,dialog,icon," +
-	"input-group,popover,sidebar,slider,switch,textinput,toaster,toggle-group"
+var morpheusComponents = []string{
+	"badge",
+	"button",
+	"buttongroup",
+	"card",
+	"clipcopy",
+	"combobox",
+	"dialog",
+	"icon",
+	"input-group",
+	"layout",
+	"popover",
+	"sidebar",
+	"slider",
+	"switch",
+	"textinput",
+	"toaster",
+	"toggle-group",
+}
 
 // GenMorpheus builds the Morpheus bundle the Toxiproxy settings page embeds,
 // at the version go.mod requires, which matches the templ wrappers it renders.
@@ -558,7 +576,7 @@ func GenMorpheus() error {
 	dst := toxicUIDir + "/static/morpheus"
 	fmt.Println("==> morpheus bundle ->", dst)
 	return goRun("github.com/romshark/morpheus@"+strings.TrimSpace(version),
-		"bundle", "-components", morpheusComponents, "-o", dst)
+		"bundle", "-components", strings.Join(morpheusComponents, ","), "-o", dst)
 }
 
 // All runs test, vulncheck, fmt, mod-tidy, gen-templ, and gen-docs.

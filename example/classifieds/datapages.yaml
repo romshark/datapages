@@ -23,31 +23,33 @@ watch:
         - "app/static/style.css"
       requires: reload
   # http://localhost:7332 serves the app through Toxiproxy,
-  # with its settings page at http://localhost:7333/.
+  # with its settings page at http://localhost:7333/, which applies the presets.
   toxiproxy:
-    toxics:
-      # Every response arrives late, and the responses of 1 browser share 512 KB/s.
-      latency:
-        downstream:
-          latency: 150ms
-          jitter: 50ms
-      bandwidth:
-        downstream:
-          rate: 512
-    endpoints:
-      # A sent message reaches the server 1s late.
-      "POST /messages/sendmessage/{$}":
-        latency:
-          upstream:
-            latency: 1s
-      # The stream of the messages page resets 60s after its first event,
-      # and Datastar reconnects it.
-      "GET /messages/_$/{$}":
-        reset-peer:
-          downstream:
-            timeout: 60s
-      # Static files load without the bandwidth limit.
-      "GET /static/":
-        bandwidth:
-          downstream:
-            disabled: true
+    presets:
+      - name: Flaky network
+        toxics:
+          # Every response arrives late, and the responses of 1 browser share 512 KB/s.
+          latency:
+            downstream:
+              latency: 150ms
+              jitter: 50ms
+          bandwidth:
+            downstream:
+              rate: 512
+        endpoints:
+          # A sent message reaches the server 1s late.
+          "POST /messages/sendmessage/{$}":
+            latency:
+              upstream:
+                latency: 1s
+          # The stream of the messages page resets 60s after its first event,
+          # and Datastar reconnects it.
+          "GET /messages/_$/{$}":
+            reset-peer:
+              downstream:
+                timeout: 60s
+          # Static files load without the bandwidth limit.
+          "GET /static/":
+            bandwidth:
+              downstream:
+                disabled: true

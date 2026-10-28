@@ -27,7 +27,7 @@ After a change to a `.templ` file, run `mage genTempl`, never while `datapages w
 
 Before using another Morpheus component, add it to `morpheusComponents` in `magefiles/mage.go` and run `mage genMorpheus`.
 
-Copy a new icon from `lucide-static`, at the version in the license comment of the others, into `static/icons/`. `datapages.svg` is a copy of [`docs/logo.svg`](../../../../docs/logo.svg).
+Copy a new icon from `lucide-static`, at the version in the license comment of the others, into `static/icons/`. `datapages.svg` is a copy of [`docs/logo.svg`](../../../../docs/logo.svg). `github.svg` is the GitHub mark of `simple-icons`, since Lucide has no brand icons.
 
 ## Try it
 
