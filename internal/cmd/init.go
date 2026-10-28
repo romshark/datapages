@@ -46,8 +46,9 @@ dependencies. Init never deletes any files.
 
 Init writes these only when they are missing and never touches them
 again: datapages.yaml, app/app.go, app/app.templ, cmd/server/main.go, .env,
-compose.yaml, Makefile, .vscode/extensions.json and
-.github/workflows/ci.yml. It also adds .env to .gitignore.
+compose.yaml, Makefile, .vscode/extensions.json, .vscode/settings.json for
+hidden generated code and .github/workflows/ci.yml. It also adds .env, and
+the hidden generated code, to .gitignore.
 
 When init writes app/app.go, it asks how to set up Web Components, for
 JavaScript that would be impractical in Datastar attributes. Pass
@@ -62,6 +63,26 @@ JavaScript that would be impractical in Datastar attributes. Pass
   none        No Web Components, the default with -n.
 
 Each setup comes with an example component on the welcome page.
+
+When init writes the project files, it asks whether git keeps the generated
+code, datapagesgen/ and *_templ.go. Pass --generated-code to answer without
+the prompt:
+
+  committed  Checked into git, the default with -n. A clone builds as it
+             is, and so does go install of the module. Diffs and merges
+             include the generated files, and CI fails when they are stale.
+  hidden     Listed in .gitignore and hidden in VS Code. Diffs and merges
+             hold only source, and nothing can go stale. A clone builds only
+             after templ generate and datapages gen, which make build and CI
+             run, and go install of the module fails. datapages gen fails on
+             a clone while the app uses the href, action or assets packages,
+             because the app does not compile without them.
+
+It also asks for the CI system to write a workflow for. Pass --ci to answer
+without the prompt:
+
+  github-actions  .github/workflows/ci.yml, the default with -n.
+  none            No CI workflow.
 
 Init rewrites these on every run: AGENTS.md, CLAUDE.md, GEMINI.md,
 .github/copilot-instructions.md, .cursor/rules/datapages.mdc and the
@@ -81,8 +102,12 @@ Pass --no-ai-skills to skip all of these files.`,
 		"Enable Prometheus metrics in the generated entry point")
 	noAISkills := cmd.Flags().Bool("no-ai-skills", false,
 		"Skip agent instructions and skills")
+	ci := cmd.Flags().String("ci", "",
+		"CI system to write a workflow for: github-actions or none")
 	webComponents := cmd.Flags().String("web-components", "",
 		"Web Component setup: rocket, typescript, javascript or none")
+	generatedCode := cmd.Flags().String("generated-code", "",
+		"Whether git keeps the generated code: committed or hidden")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		// Non-file input uses huh's line-based accessible mode.
 		// Leave in nil for Cobra's *os.File stdin so huh selects the TUI.
@@ -91,7 +116,8 @@ Pass --no-ai-skills to skip all of these files.`,
 			in = c.InOrStdin()
 		}
 		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
-			*name, *module, *webComponents, *prometheus, !*noAISkills, version, modVersion)
+			*name, *module, *webComponents, *generatedCode, *ci, *prometheus,
+			!*noAISkills, version, modVersion)
 	}
 	return cmd
 }
@@ -118,10 +144,21 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 
 func runInit(
 	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool,
-	dir, module, webComponents string, prometheus, aiSkills bool, version, modVersion string,
+	dir, module, webComponents, generatedCode, ciName string, prometheus, aiSkills bool,
+	version, modVersion string,
 ) error {
 	if webComponents != "" {
 		if _, err := skeleton.ParseWebComponents(webComponents); err != nil {
+			return err
+		}
+	}
+	if generatedCode != "" {
+		if _, err := skeleton.ParseGeneratedCode(generatedCode); err != nil {
+			return err
+		}
+	}
+	if ciName != "" {
+		if _, err := skeleton.ParseCI(ciName); err != nil {
 			return err
 		}
 	}
@@ -207,10 +244,40 @@ func runInit(
 			}
 		}
 	} else if webComponents != "" {
-		_, _ = fmt.Fprintln(out, "Ignored --web-components: init writes no app package here.")
+		_, _ = fmt.Fprintln(out,
+			"Ignored --web-components: init writes no app package here.")
 	}
 
-	if wrote, err := writeDefaultConfigIfMissing(projectDir, out, components); err != nil {
+	// These choices shape the files init writes only when it sets created.
+	// The condition holds when 1 of the writes below will set it.
+	// Asked after them, an aborted prompt leaves a project that
+	// a second run reports as initialized and never writes those files for.
+	generated := skeleton.GeneratedCodeCommitted
+	ci := skeleton.CIGitHubActions
+	if created || !config.Exists(projectDir) ||
+		(scan.Fallback && !fileExists(filepath.Join(projectDir, "app", "app.go"))) {
+		generated, err = resolveGeneratedCode(in, out, nonInteractive, generatedCode)
+		if err != nil {
+			return err
+		}
+		ci, err = resolveCI(in, out, nonInteractive, ciName)
+		if err != nil {
+			return err
+		}
+	} else {
+		if generatedCode != "" {
+			_, _ = fmt.Fprintln(out,
+				"Ignored --generated-code: the project is already initialized.")
+		}
+		if ciName != "" {
+			_, _ = fmt.Fprintln(out,
+				"Ignored --ci: the project is already initialized.")
+		}
+	}
+
+	if wrote, err := writeDefaultConfigIfMissing(
+		projectDir, out, components,
+	); err != nil {
 		return err
 	} else if wrote {
 		created = true
@@ -235,6 +302,9 @@ func runInit(
 	if components == skeleton.WebComponentsTypeScript {
 		ignore = append(ignore, "web/node_modules/")
 	}
+	if generated == skeleton.GeneratedCodeHidden {
+		ignore = append(ignore, skeleton.GeneratedCodeIgnore...)
+	}
 	if err := gitignore(projectDir, ignore...); err != nil {
 		return err
 	}
@@ -248,13 +318,7 @@ func runInit(
 		return err
 	}
 
-	// CI must install the version [pinDatapages] writes to go.mod.
-	// Source builds use a pseudo-version instead of a release.
-	ciWorkflow, err := skeleton.CIWorkflow(modVersion)
-	if err != nil {
-		return err
-	}
-	makefile, err := skeleton.Makefile(components)
+	makefile, err := skeleton.Makefile(components, generated)
 	if err != nil {
 		return err
 	}
@@ -266,11 +330,28 @@ func runInit(
 		{"compose.yaml", skeleton.ComposeYAML},
 		{"Makefile", makefile},
 		{".vscode/extensions.json", skeleton.VSCodeExtensions},
-		{".github/workflows/ci.yml", ciWorkflow},
 	} {
 		if _, err := writeIfMissing(
 			projectDir, f.rel, []byte(f.content), out,
 		); err != nil {
+			return err
+		}
+	}
+	if ci == skeleton.CIGitHubActions {
+		// CI must install the version [pinDatapages] writes to go.mod.
+		// Source builds use a pseudo-version instead of a release.
+		ciWorkflow, err := skeleton.CIWorkflow(modVersion, generated)
+		if err != nil {
+			return err
+		}
+		if _, err := writeIfMissing(projectDir, ".github/workflows/ci.yml",
+			[]byte(ciWorkflow), out); err != nil {
+			return err
+		}
+	}
+	if generated == skeleton.GeneratedCodeHidden {
+		if _, err := writeIfMissing(projectDir, ".vscode/settings.json",
+			[]byte(skeleton.VSCodeSettingsHidden), out); err != nil {
 			return err
 		}
 	}
@@ -533,8 +614,8 @@ func goModTidy(dir string) error {
 	return runIn(dir, "go mod tidy", "go", "mod", "tidy")
 }
 
-// writeDefaultConfigIfMissing writes the default datapages.yaml. For TypeScript
-// components it adds the watcher that bundles them.
+// writeDefaultConfigIfMissing writes the default datapages.yaml.
+// For TypeScript components it adds the watcher that bundles them.
 func writeDefaultConfigIfMissing(
 	projectDir string, w io.Writer, components skeleton.WebComponents,
 ) (bool, error) {
@@ -547,7 +628,11 @@ func writeDefaultConfigIfMissing(
 	if components == skeleton.WebComponentsTypeScript {
 		content += skeleton.TypeScriptWatchYAML
 	}
-	err := os.WriteFile(filepath.Join(projectDir, "datapages.yaml"), []byte(content), 0o644)
+	err := os.WriteFile(
+		filepath.Join(projectDir, "datapages.yaml"),
+		[]byte(content),
+		0o644,
+	)
 	if err != nil {
 		return false, err
 	}
@@ -555,8 +640,8 @@ func writeDefaultConfigIfMissing(
 	return true, nil
 }
 
-// resolveWebComponents returns the setup the flag names. Without the flag it
-// asks, or picks none in non-interactive mode.
+// resolveWebComponents returns the setup the flag names.
+// Without the flag it asks, or picks none in non-interactive mode.
 func resolveWebComponents(
 	in io.Reader, out io.Writer, nonInteractive bool, flag string,
 ) (skeleton.WebComponents, error) {
@@ -572,7 +657,9 @@ func resolveWebComponents(
 		skeleton.WebComponentsJavaScript: "JavaScript modules",
 		skeleton.WebComponentsNone:       "None",
 	}
-	options := make([]huh.Option[skeleton.WebComponents], len(skeleton.WebComponentsChoices))
+	options := make(
+		[]huh.Option[skeleton.WebComponents], len(skeleton.WebComponentsChoices),
+	)
 	for i, c := range skeleton.WebComponentsChoices {
 		options[i] = huh.NewOption(labels[c], c)
 	}
@@ -580,9 +667,72 @@ func resolveWebComponents(
 	err := runField(
 		huh.NewSelect[skeleton.WebComponents]().
 			Title("Set up Web Components?").
-			Description("For JavaScript that would be impractical in Datastar attributes, "+
-				"such as a map or a rich text editor.").
+			Description("For JavaScript that would be impractical in "+
+				"Datastar attributes, such as a map or a rich text editor.").
 			Options(options...).
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
+}
+
+// resolveGeneratedCode returns the choice the flag names.
+// Without the flag it asks, or picks committed in non-interactive mode.
+func resolveGeneratedCode(
+	in io.Reader, out io.Writer, nonInteractive bool, flag string,
+) (skeleton.GeneratedCode, error) {
+	if flag != "" {
+		return skeleton.ParseGeneratedCode(flag)
+	}
+	if nonInteractive {
+		return skeleton.GeneratedCodeCommitted, nil
+	}
+	choice := skeleton.GeneratedCodeCommitted
+	err := runField(
+		huh.NewSelect[skeleton.GeneratedCode]().
+			Title("Commit generated files?").
+			Description("datapagesgen/ and *_templ.go are generated.\n").
+			// huh options have no description field. The 2nd line of a label
+			// serves as one. Trailing newlines separate the options.
+			Options(
+				huh.NewOption("Commit to Git\n"+
+					"Clones build immediately. "+
+					"CI checks that generated files are current.\n",
+					skeleton.GeneratedCodeCommitted),
+				huh.NewOption("Ignore and hide\n"+
+					"Keeps generated files out of diffs. "+
+					"Clones must generate before building,\n"+
+					"which can fail when the app imports generated packages.",
+					skeleton.GeneratedCodeHidden),
+			).
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
+}
+
+// resolveCI returns the CI system the flag names.
+// Without the flag it asks, or picks GitHub Actions in non-interactive mode.
+func resolveCI(
+	in io.Reader, out io.Writer, nonInteractive bool, flag string,
+) (skeleton.CI, error) {
+	if flag != "" {
+		return skeleton.ParseCI(flag)
+	}
+	if nonInteractive {
+		return skeleton.CIGitHubActions, nil
+	}
+	choice := skeleton.CIGitHubActions
+	err := runField(
+		huh.NewSelect[skeleton.CI]().
+			Title("Set up CI?").
+			Description(
+				"Runs the tests and builds the server on every push and pull request.",
+			).
+			Options(
+				huh.NewOption("GitHub Actions", skeleton.CIGitHubActions),
+				huh.NewOption("None", skeleton.CINone),
+			).
 			Value(&choice),
 		in, out,
 	)
@@ -686,7 +836,8 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 	}
 	for _, rel := range res.Kept {
 		_, _ = fmt.Fprintf(w,
-			"Left %s alone: it has no datapages stamp. Delete it to have init write it.\n",
+			"Left %s alone: it has no datapages stamp. "+
+				"Delete it to have init write it.\n",
 			rel)
 	}
 	return nil

@@ -34,6 +34,7 @@ Then open http://localhost:7331/.
 - All application state is managed by the server and stored on the server (see [State in the Right Place](https://data-star.dev/guide/the_tao_of_datastar#state-in-the-right-place)).
 - For simplicity reasons, an in-memory message broker is used since this example doesn't require a multi-instance setup.
 - Filter and sort state is synced to the URL via `reflectsignal` query parameters, so reloading the page preserves the current view.
+- The server does not send an edited form back to the tab that made the edit. This keeps the re-render from overwriting input typed while the edit was in flight. Other tabs get the full re-render.
 
 ### Interaction flow
 
@@ -60,8 +61,8 @@ sequenceDiagram
     Note over SS: kept alive<br/>until disconnect
     SS->>N: Subscribe to EventTodoUpdated
 
-    loop Every toggle / edit
-    B->>S: PUT /{id}?toggle=true
+    loop Every toggle
+    B->>S: PUT /toggle/{id}
     activate S
     S->>S: Toggle todo done state
     S->>N: Publish EventTodoUpdated

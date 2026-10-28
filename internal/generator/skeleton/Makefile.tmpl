@@ -9,10 +9,13 @@ up:
 down:
 	docker compose down
 
-build:{{if .TypeScript}} bundle{{end}}
+build:{{if .Hidden}} gen{{end}}{{if .TypeScript}} bundle{{end}}
 	go build -o ./cmd/server/server ./cmd/server/
 
 gen:
+{{- if .Hidden}}
+	go run {{.TemplCmd}} generate
+{{- end}}
 	datapages gen
 
 lint:
