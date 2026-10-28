@@ -144,8 +144,10 @@ func startToxiproxy(
 			{name: "watch.app-host", port: appHost.Port()},
 		} {
 			if port != "0" && port == other.port {
-				return fail(fmt.Errorf("%s %s uses the port of %s; set it to a free port",
-					h.name, h.addr, other.name))
+				return fail(fmt.Errorf(
+					"%s %s uses the port of %s; set it to a free port",
+					h.name, h.addr, other.name,
+				))
 			}
 		}
 	}
@@ -219,8 +221,7 @@ func startToxiproxy(
 			}
 			return toxic.Endpoints(m), nil
 		},
-		// The settings page renders again on the event its own actions
-		// dispatch.
+		// The settings page renders again on the event its own actions dispatch.
 		EndpointsChanged: func() {
 			err := broker.Publish(context.Background(), messaging.NoopMetrics{},
 				datapagesgen.EvSubjChanged, []byte("{}"))
@@ -249,8 +250,8 @@ func startToxiproxy(
 }
 
 // appName returns the name the settings page shows for app, the last element
-// of the module path without a major version, as in "todolist". With more
-// than 1 app it adds the app directory, as in "counter/app/simple".
+// of the module path without a major version, as in "todolist".
+// With more than 1 app it adds the app directory, as in "counter/app/simple".
 func appName(modulePath string, app serverscan.App, apps int) string {
 	prefix, _, _ := module.SplitPathVersion(modulePath)
 	name := path.Base(prefix)
@@ -276,9 +277,9 @@ func newSettingsServer(
 	](
 		a,
 		broker,
-		// Not WithAssets, which reads from the source tree in dev mode. The
-		// user's shell can turn dev mode on for this process, and an
-		// installed CLI has no source tree.
+		// Not WithAssets, which reads from the source tree in dev mode.
+		// The user's shell can turn dev mode on for this process,
+		// and an installed CLI has no source tree.
 		datapages.WithAssetsFS(http.FS(static), false),
 		datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 		datapages.WithLogger(logger),
@@ -296,8 +297,8 @@ func boundAddr(addr string, ln net.Listener) string {
 	return addr
 }
 
-// defaultUIHost returns proxyHost with the next port, or with port 0 when
-// proxyHost has port 0.
+// defaultUIHost returns proxyHost with the next port,
+// or with port 0 when proxyHost has port 0.
 func defaultUIHost(proxyHost string) (string, error) {
 	if h, port, err := net.SplitHostPort(proxyHost); err == nil && port == "0" {
 		return net.JoinHostPort(h, "0"), nil
@@ -305,8 +306,8 @@ func defaultUIHost(proxyHost string) (string, error) {
 	return nextPort(proxyHost)
 }
 
-// nextPort returns host with the port after its own, as in "localhost:7332"
-// for "localhost:7331".
+// nextPort returns host with the port after its own,
+// as in "localhost:7332" for "localhost:7331".
 func nextPort(host string) (string, error) {
 	h, port, err := net.SplitHostPort(host)
 	if err != nil {
@@ -319,8 +320,8 @@ func nextPort(host string) (string, error) {
 	return net.JoinHostPort(h, strconv.FormatUint(n+1, 10)), nil
 }
 
-// checkEndpointKeys reports the override keys of the presets of tp that name
-// no endpoint in eps.
+// checkEndpointKeys reports the override keys of
+// the presets of tp that name no endpoint in eps.
 func checkEndpointKeys(tp *config.WatchToxiproxy, eps []toxic.Endpoint) error {
 	var errs []error
 	for _, p := range tp.Presets {
