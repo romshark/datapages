@@ -110,6 +110,15 @@ func checkMuxPattern(pattern string) (err error) {
 	return nil
 }
 
+// MaxToxicDuration is the longest duration of a toxic. Toxiproxy adds the
+// jitter to the latency and converts the sum to a [time.Duration],
+// which overflows above 292 years.
+const MaxToxicDuration = 24 * time.Hour
+
+// MaxBandwidthRate is the highest [ToxicBandwidth.Rate], 10 GB/s. The proxy paces
+// the data in chunks of the rate times 20ms, which overflow int64 above 4.6e17 KB/s.
+const MaxBandwidthRate = 10_000_000
+
 // Toxics are the toxics of the global scope or of 1 endpoint. Each type has
 // its own downstream (response) and upstream (request) toxic.
 type Toxics struct {
@@ -177,8 +186,8 @@ type ToxicBandwidth struct {
 }
 
 func (t ToxicBandwidth) Validate() error {
-	if !t.Disabled && t.Rate < 1 {
-		return fmt.Errorf("rate %d must be at least 1 KB/s", t.Rate)
+	if !t.Disabled && (t.Rate < 1 || t.Rate > MaxBandwidthRate) {
+		return fmt.Errorf("rate %d must be from 1 to %d KB/s", t.Rate, MaxBandwidthRate)
 	}
 	return nil
 }
@@ -247,9 +256,9 @@ func (t ToxicSlicer) Validate() error {
 		))
 	}
 	// Toxiproxy takes the slicer delay in microseconds.
-	if t.Delay < 0 || t.Delay%time.Microsecond != 0 {
+	if t.Delay < 0 || t.Delay > MaxToxicDuration || t.Delay%time.Microsecond != 0 {
 		errs = append(errs, fmt.Errorf(
-			"delay %s must be 0 or more whole microseconds", t.Delay,
+			"delay %s must be whole microseconds from 0 to %s", t.Delay, MaxToxicDuration,
 		))
 	}
 	return errors.Join(errs...)
@@ -283,11 +292,12 @@ func (t ToxicHTTPError) Validate() error {
 	return nil
 }
 
-// checkMillis reports a duration other than 0 or more whole milliseconds,
-// which Toxiproxy requires.
+// checkMillis reports a duration other than whole milliseconds,
+// which Toxiproxy requires, from 0 to [MaxToxicDuration].
 func checkMillis(name string, d time.Duration) error {
-	if d < 0 || d%time.Millisecond != 0 {
-		return fmt.Errorf("%s %s must be 0 or more whole milliseconds", name, d)
+	if d < 0 || d > MaxToxicDuration || d%time.Millisecond != 0 {
+		return fmt.Errorf("%s %s must be whole milliseconds from 0 to %s",
+			name, d, MaxToxicDuration)
 	}
 	return nil
 }

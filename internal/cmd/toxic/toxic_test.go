@@ -286,11 +286,37 @@ func TestToxicValidate(t *testing.T) {
 			typ: Latency, toxic: toxicWith(-1, 0),
 			wantErr: "latency must be at least 0",
 		},
+		"latency of 24h": {typ: Latency, toxic: toxicWith(86_400_000, 86_400_000)},
+		"latency above 24h": {
+			typ: Latency, toxic: toxicWith(86_400_001, 0),
+			wantErr: "latency must be at most 86400000",
+		},
+		"latency overflowing time.Duration": {
+			typ: Latency, toxic: toxicWith(10_000_000_000_000, 0),
+			wantErr: "latency must be at most 86400000",
+		},
+		"jitter above 24h": {
+			typ: Latency, toxic: toxicWith(0, 86_400_001),
+			wantErr: "jitter must be at most 86400000",
+		},
+		"timeout above 24h": {
+			typ: Timeout, toxic: toxicWith(86_400_001),
+			wantErr: "timeout must be at most 86400000",
+		},
 		"zero rate": {
 			typ: Bandwidth, toxic: toxicWith(0),
 			wantErr: "rate must be at least 1",
 		},
+		"rate of 10 GB/s": {typ: Bandwidth, toxic: toxicWith(10_000_000)},
+		"rate above 10 GB/s": {
+			typ: Bandwidth, toxic: toxicWith(10_000_001),
+			wantErr: "rate must be at most 10000000",
+		},
 		"slicer": {typ: Slicer, toxic: toxicWith(10, 10, 0)},
+		"slicer delay above 24h": {
+			typ: Slicer, toxic: toxicWith(10, 0, 86_400_000_001),
+			wantErr: "delay must be at most 86400000000",
+		},
 		"slicer variation": {
 			typ: Slicer, toxic: toxicWith(10, 11, 0),
 			wantErr: "variation",

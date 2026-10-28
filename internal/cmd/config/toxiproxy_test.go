@@ -49,12 +49,29 @@ func TestLoadToxiproxy(t *testing.T) {
                 disabled: true
       - name: Clean
 `
-	// inPreset returns the YAML of a preset whose key holds body, which is
-	// indented as directly under watch.toxiproxy.
-	inPreset := func(key, body string) string {
-		return "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +
-			"      - name: P\n        " + key + ":\n" +
-			"    " + strings.ReplaceAll(strings.TrimSuffix(body, "\n"), "\n", "\n    ") + "\n"
+	// indent returns the lines, each prefixed with pad and ended with a newline.
+	indent := func(pad string, lines []string) string {
+		var b strings.Builder
+		for _, l := range lines {
+			b.WriteString(pad)
+			b.WriteString(l)
+			b.WriteByte('\n')
+		}
+		return b.String()
+	}
+	// toxiproxy returns datapages.yaml with the lines in watch.toxiproxy.
+	toxiproxy := func(lines ...string) string {
+		return "watch:\n  toxiproxy:\n" + indent("    ", lines)
+	}
+	// preset returns datapages.yaml with the lines in the preset P.
+	preset := func(lines ...string) string {
+		return toxiproxy("presets:", "  - name: P") + indent("        ", lines)
+	}
+	// toxic returns datapages.yaml with the preset P and 1 toxic of typ on
+	// stream with the fields.
+	toxic := func(typ, stream string, fields ...string) string {
+		return preset("toxics:", "  "+typ+":", "    "+stream+":") +
+			indent("              ", fields)
 	}
 	for name, tc := range map[string]struct {
 		yaml    string
@@ -62,87 +79,114 @@ func TestLoadToxiproxy(t *testing.T) {
 	}{
 		"valid": {yaml: valid},
 		"toxics outside a preset": {
-			yaml: "watch:\n  toxiproxy:\n    toxics:\n" +
-				"      latency:\n        downstream:\n          latency: 1s\n",
+			yaml: toxiproxy(
+				"toxics:",
+				"  latency:",
+				"    downstream:",
+				"      latency: 1s",
+			),
 			wantErr: "toxics",
 		},
 		"host without port": {
-			yaml:    "watch:\n  toxiproxy:\n    host: localhost\n",
+			yaml:    toxiproxy("host: localhost"),
 			wantErr: `invalid host "localhost"`,
 		},
 		"ui-host without port": {
-			yaml:    "watch:\n  toxiproxy:\n    ui-host: localhost\n",
+			yaml:    toxiproxy("ui-host: localhost"),
 			wantErr: `invalid ui-host "localhost"`,
 		},
 		"ui-host on host": {
-			yaml:    "watch:\n  toxiproxy:\n    host: :9090\n    ui-host: :9090\n",
+			yaml:    toxiproxy("host: :9090", "ui-host: :9090"),
 			wantErr: `host and ui-host are both ":9090"`,
 		},
 		"toxicity above 1": {
-			yaml:    inPreset("toxics", "      latency:\n        downstream:\n          toxicity: 1.5\n"),
+			yaml:    toxic("latency", "downstream", "toxicity: 1.5"),
 			wantErr: "toxicity 1.5 must be from 0 to 1",
 		},
 		"latency below a millisecond": {
-			yaml:    inPreset("toxics", "      latency:\n        downstream:\n          latency: 1500us\n"),
+			yaml:    toxic("latency", "downstream", "latency: 1500us"),
 			wantErr: "whole milliseconds",
 		},
 		"negative timeout": {
-			yaml:    inPreset("toxics", "      timeout:\n        upstream:\n          timeout: -1s\n"),
+			yaml:    toxic("timeout", "upstream", "timeout: -1s"),
 			wantErr: "whole milliseconds",
 		},
+		"latency above 24h": {
+			yaml:    toxic("latency", "downstream", "latency: 24h1ms"),
+			wantErr: "latency 24h0m0.001s must be whole milliseconds from 0 to 24h0m0s",
+		},
+		"jitter above 24h": {
+			yaml:    toxic("latency", "downstream", "jitter: 25h"),
+			wantErr: "jitter 25h0m0s must be whole milliseconds from 0 to 24h0m0s",
+		},
 		"zero rate": {
-			yaml:    inPreset("toxics", "      bandwidth:\n        downstream:\n          rate: 0\n"),
-			wantErr: "rate 0 must be at least 1 KB/s",
+			yaml:    toxic("bandwidth", "downstream", "rate: 0"),
+			wantErr: "rate 0 must be from 1 to 10000000 KB/s",
+		},
+		"rate above 10 GB/s": {
+			yaml:    toxic("bandwidth", "downstream", "rate: 10000001"),
+			wantErr: "rate 10000001 must be from 1 to 10000000 KB/s",
 		},
 		"slicer variation above average": {
-			yaml: inPreset("toxics", "      slicer:\n        downstream:\n"+
-				"          average-size: 8\n          size-variation: 9\n"),
+			yaml: toxic(
+				"slicer", "downstream", "average-size: 8", "size-variation: 9",
+			),
 			wantErr: "size-variation 9 must be from 0 to average-size",
 		},
 		"slicer delay below a microsecond": {
-			yaml: inPreset("toxics", "      slicer:\n        downstream:\n"+
-				"          average-size: 8\n          delay: 1500ns\n"),
+			yaml:    toxic("slicer", "downstream", "average-size: 8", "delay: 1500ns"),
 			wantErr: "whole microseconds",
 		},
+		"slicer delay above 24h": {
+			yaml:    toxic("slicer", "downstream", "average-size: 8", "delay: 25h"),
+			wantErr: "delay 25h0m0s must be whole microseconds from 0 to 24h0m0s",
+		},
 		"negative limit": {
-			yaml:    inPreset("toxics", "      limit-data:\n        downstream:\n          bytes: -1\n"),
+			yaml:    toxic("limit-data", "downstream", "bytes: -1"),
 			wantErr: "bytes -1 must be 0 or more",
 		},
 		"status below 400": {
-			yaml:    inPreset("toxics", "      http-error:\n        upstream:\n          status: 302\n"),
+			yaml:    toxic("http-error", "upstream", "status: 302"),
 			wantErr: "status 302 must be from 400 to 599",
 		},
 		"status above 599": {
-			yaml:    inPreset("toxics", "      http-error:\n        downstream:\n          status: 600\n"),
+			yaml:    toxic("http-error", "downstream", "status: 600"),
 			wantErr: "status 600 must be from 400 to 599",
 		},
 		"preset without name": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +
-				"      - name: \" \"\n",
+			yaml:    toxiproxy("presets:", `  - name: " "`),
 			wantErr: "a preset has no name",
 		},
 		"preset built in": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +
-				"      - name: Unreachable\n",
+			yaml:    toxiproxy("presets:", "  - name: Unreachable"),
 			wantErr: `the preset "Unreachable" is built in`,
 		},
 		"presets of 1 name": {
-			yaml: "watch:\n  toxiproxy:\n    host: :9090\n    presets:\n" +
-				"      - name: Slow\n      - name: Slow\n",
+			yaml:    toxiproxy("presets:", "  - name: Slow", "  - name: Slow"),
 			wantErr: `2 presets are named "Slow"`,
 		},
 		"endpoint without method": {
-			yaml: inPreset("endpoints", "      \"/upload/\":\n        latency:\n"+
-				"          downstream:\n            latency: 1s\n"),
+			yaml: preset(
+				"endpoints:",
+				`  "/upload/":`,
+				"    latency:",
+				"      downstream:",
+				"        latency: 1s",
+			),
 			wantErr: "must start with a method",
 		},
 		"endpoint pattern invalid": {
-			yaml: inPreset("endpoints", "      \"GET /{a\":\n        latency:\n"+
-				"          downstream:\n            latency: 1s\n"),
+			yaml: preset(
+				"endpoints:",
+				`  "GET /{a":`,
+				"    latency:",
+				"      downstream:",
+				"        latency: 1s",
+			),
 			wantErr: "invalid route pattern",
 		},
 		"unknown toxic": {
-			yaml:    inPreset("toxics", "      packet-loss:\n        downstream:\n          rate: 1\n"),
+			yaml:    toxic("packet-loss", "downstream", "rate: 1"),
 			wantErr: "packet-loss",
 		},
 	} {
@@ -181,8 +225,7 @@ func TestLoadToxiproxy(t *testing.T) {
 	}
 }
 
-// TestLoadToxiproxyDefaults tests that every setting of watch.toxiproxy is
-// optional.
+// TestLoadToxiproxyDefaults tests that every setting of watch.toxiproxy is optional.
 func TestLoadToxiproxyDefaults(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "datapages.yaml"),

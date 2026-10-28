@@ -106,6 +106,12 @@ type TypeInfo struct {
 // MaxFields is the most fields a toxic type has, the 3 of [Slicer].
 const MaxFields = 3
 
+// [config.MaxToxicDuration] in the units of the duration fields.
+const (
+	maxMillis = int64(config.MaxToxicDuration / time.Millisecond)
+	maxMicros = int64(config.MaxToxicDuration / time.Microsecond)
+)
+
 // Types is indexed by [Type]. The Doc of a Toxiproxy type paraphrases
 // [the Toxiproxy toxics] for an HTTP request.
 //
@@ -117,9 +123,12 @@ var Types = [...]TypeInfo{
 		Fields: []Field{
 			{
 				Key: "latency", Attr: "latency", Label: "Latency",
-				Unit: UnitMillis, Initial: 300,
+				Unit: UnitMillis, Max: maxMillis, Initial: 300,
 			},
-			{Key: "jitter", Attr: "jitter", Label: "Jitter", Unit: UnitMillis},
+			{
+				Key: "jitter", Attr: "jitter", Label: "Jitter",
+				Unit: UnitMillis, Max: maxMillis,
+			},
 		},
 	},
 	Bandwidth: {
@@ -128,7 +137,7 @@ var Types = [...]TypeInfo{
 		Fields: []Field{
 			{
 				Key: "rate", Label: "Rate",
-				Unit: UnitKBps, Min: 1, Initial: 64,
+				Unit: UnitKBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 64,
 			},
 		},
 		Front: true,
@@ -139,7 +148,7 @@ var Types = [...]TypeInfo{
 		Fields: []Field{
 			{
 				Key: "delay", Attr: "delay", Label: "Delay",
-				Unit: UnitMillis, Initial: 1000,
+				Unit: UnitMillis, Max: maxMillis, Initial: 1000,
 			},
 		},
 	},
@@ -150,7 +159,7 @@ var Types = [...]TypeInfo{
 		Fields: []Field{
 			{
 				Key: "timeout", Attr: "timeout", Label: "Timeout",
-				Unit: UnitMillis, Initial: 5000,
+				Unit: UnitMillis, Max: maxMillis, Initial: 5000,
 			},
 		},
 	},
@@ -158,7 +167,10 @@ var Types = [...]TypeInfo{
 		Name: "reset_peer", Key: "reset-peer", Title: "Reset peer",
 		Doc: "Resets the connection once data arrives, after the timeout.",
 		Fields: []Field{
-			{Key: "timeout", Attr: "timeout", Label: "Timeout", Unit: UnitMillis},
+			{
+				Key: "timeout", Attr: "timeout", Label: "Timeout",
+				Unit: UnitMillis, Max: maxMillis,
+			},
 		},
 	},
 	Slicer: {
@@ -176,7 +188,7 @@ var Types = [...]TypeInfo{
 			},
 			{
 				Key: "delay", Attr: "delay", Label: "Delay",
-				Unit: UnitMicros, Initial: 10000,
+				Unit: UnitMicros, Max: maxMicros, Initial: 10000,
 			},
 		},
 	},

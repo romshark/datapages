@@ -552,16 +552,16 @@ Each preset takes:
 
 Each toxic type takes a `downstream` toxic for the data the server sends and an `upstream` toxic for the data the browser sends:
 
-| Type         | Fields                                                               | Effect                                                                                                                                    |
-| ------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `latency`    | `latency`, `jitter`: whole milliseconds                              | Delays the data by `latency`, plus or minus up to `jitter`.                                                                               |
-| `bandwidth`  | `rate`: KB/s, at least 1                                             | Limits the rate, which the requests of 1 browser share.                                                                                   |
-| `slow-close` | `delay`: whole milliseconds                                          | Delays closing the connection.                                                                                                            |
-| `timeout`    | `timeout`: whole milliseconds                                        | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up.                           |
-| `reset-peer` | `timeout`: whole milliseconds                                        | Resets the connection with a TCP RST once data arrives, after `timeout`.                                                                  |
-| `slicer`     | `average-size`, `size-variation`: bytes; `delay`: whole microseconds | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each by `delay`.                    |
-| `limit-data` | `bytes`: bytes                                                       | Closes the connection after `bytes` bytes.                                                                                                |
-| `http-error` | `status`: 400 to 599                                                 | Answers with `status`. Upstream, the app never gets the request. Downstream, the browser gets `status` in place of the answer of the app. |
+| Type         | Fields                                                                          | Effect                                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `latency`    | `latency`, `jitter`: whole milliseconds, up to 24h                              | Delays the data by `latency`, plus or minus up to `jitter`.                                                                               |
+| `bandwidth`  | `rate`: KB/s, from 1 to 10000000                                                | Limits the rate, which the requests of 1 browser share.                                                                                   |
+| `slow-close` | `delay`: whole milliseconds, up to 24h                                          | Delays closing the connection.                                                                                                            |
+| `timeout`    | `timeout`: whole milliseconds, up to 24h                                        | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up.                           |
+| `reset-peer` | `timeout`: whole milliseconds, up to 24h                                        | Resets the connection with a TCP RST once data arrives, after `timeout`.                                                                  |
+| `slicer`     | `average-size`, `size-variation`: bytes; `delay`: whole microseconds, up to 24h | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each by `delay`.                    |
+| `limit-data` | `bytes`: bytes                                                                  | Closes the connection after `bytes` bytes.                                                                                                |
+| `http-error` | `status`: 400 to 599                                                            | Answers with `status`. Upstream, the app never gets the request. Downstream, the browser gets `status` in place of the answer of the app. |
 
 Every toxic also takes:
 
