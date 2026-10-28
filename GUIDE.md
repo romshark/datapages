@@ -4,13 +4,13 @@ This tutorial creates a Datapages project, adds an action, and introduces the fe
 
 ## Requirements
 
-Install the latest [Go toolchain](https://go.dev/dl/) and [templ](https://templ.guide) `v0.3.1070`. The generated project also uses [Docker](https://www.docker.com/) for NATS. You can replace NATS with the in-memory modules for a single-process application.
+Install the latest [Go toolchain](https://go.dev/dl/) and [templ](https://templ.guide) `v0.3.1100`. The generated project also uses [Docker](https://www.docker.com/) for NATS. You can replace NATS with the in-memory modules for a single-process application.
 
 Install the CLI and templ:
 
 ```sh
 go install github.com/romshark/datapages/cmd/datapages@latest
-go install github.com/a-h/templ/cmd/templ@v0.3.1070
+go install github.com/a-h/templ/cmd/templ@v0.3.1100
 ```
 
 ## Create and run a project

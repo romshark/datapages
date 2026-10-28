@@ -68,6 +68,7 @@ Run `datapages gen` to apply these.
 #### Runtime and modules
 
 - Require Go 1.27.3 instead of 1.27.1. `go get` raises the `go` line of the application's `go.mod` to 1.27.3. Where `GOTOOLCHAIN=local` is set, install Go 1.27.3 or later first.
+- Require templ v0.3.1100. `*_templ.go` files written by an earlier templ fail to compile. Install templ v0.3.1100 and run `templ generate`.
 - Label requests with the `QUERY` method as `QUERY` in the `method` label of the HTTP metrics. They were counted as `<other>`.
 - Refuse a URL passed to `datapages.WithDatastarJS` that is invalid according to RFC 3986, such as one with `|` or a non-ASCII character. `datapages.NewServer` returns the error. Percent-encode the character it reports, as `%7C` for `|`.
 - Answer 404 to an asset path spelled differently from its file name, such as `/static/App.js` for `app.js`, on every system and in dev mode. Windows and macOS served such paths, unlike Linux and an `embed.FS`, and `datapages.WithAssetsCache` kept an `ETag` per spelling until exit. Spell asset links exactly like their files.
@@ -88,7 +89,7 @@ Run `datapages gen` to apply these.
 #### `datapages init`
 
 - Teach generated AI instructions to use isolated Web Components for browser libraries or client logic too complex for Datastar expressions. The earlier instructions did not say where such JavaScript belongs. Run `datapages init` in an existing project to update them.
-- Generate a new project's templates with templ v0.3.1070 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
+- Generate a new project's templates with templ v0.3.1100 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
 
 ### Removed
 
