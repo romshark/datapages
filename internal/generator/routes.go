@@ -7,23 +7,24 @@ import (
 	"github.com/romshark/datapages/internal/routepattern"
 )
 
-// Route is 1 handler the generated setupHandlers registers on the mux of the server.
+// Route is a handler the generated setupHandlers registers on the server mux.
 type Route struct {
 	// Pattern is the [net/http.ServeMux] pattern, method included,
 	// as in "GET /post/{slug}/{$}".
 	Pattern string
 
-	// Owner is the type the handler belongs to: a page type,
-	// or "App" for an app-level action.
+	// Owner is the page type of the handler, or "App" for an app-level action.
 	Owner string
 
-	// Handler is the method of the generated handlers type that serves the route:
-	// GET, GETStream, GETStreamAnon, or the method and name of an action, as in POSTLike.
+	// Handler is the method of the generated handlers type that serves the route.
+	// It is GET, GETStream, GETStreamAnon or the HTTP method and name
+	// of an action, as in POSTLike.
 	Handler string
 }
 
-// Routes lists the routes setupHandlers registers for m, in registration order.
-// The assets route is not among them, [httpserve.Core.Build] registers it.
+// Routes returns the routes setupHandlers registers for m, in registration order.
+// It omits the assets route, which
+// [github.com/romshark/datapages/runtime/httpserve.Core.Build] registers.
 func Routes(m *model.App) []Route {
 	eventByName := make(map[string]*model.Event, len(m.Events))
 	for _, e := range m.Events {
@@ -41,9 +42,8 @@ func Routes(m *model.App) []Route {
 		case p.PageSpecialization == model.PageTypeIndex:
 			pattern = "GET /"
 		case routepattern.EndsInWildcard(p.Route):
-			// A {name...} wildcard runs to the end of the path already.
-			// Marking the end after it puts the wildcard in the middle,
-			// which is a pattern net/http will not parse.
+			// A {name...} wildcard already matches to the end of the path, and
+			// net/http rejects a {$} after it.
 			pattern = "GET " + p.Route
 		default:
 			pattern = "GET " + routepattern.WithTrailingSlash(p.Route) + "{$}"

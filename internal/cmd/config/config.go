@@ -36,7 +36,8 @@ type WatchConfig struct {
 	Compiler       *WatchCompiler       `yaml:"compiler"`
 	CustomWatchers []WatchCustomWatcher `yaml:"custom-watchers"`
 
-	// Toxiproxy enables the fault-injecting proxy when set.
+	// Toxiproxy configures the fault-injecting proxy, which watch mode also
+	// runs without the section.
 	Toxiproxy *WatchToxiproxy `yaml:"toxiproxy"`
 }
 
@@ -173,8 +174,8 @@ func FileNames() []string { return slices.Clone(fileNames[:]) }
 // the names [Load] reads.
 func Exists(moduleDir string) bool { return FileName(moduleDir) != "" }
 
-// FileName returns the name of the first configuration file in moduleDir
-// among the names [Load] reads, or an empty string when there is none.
+// FileName returns the first of [FileNames] present in moduleDir, or "" when
+// none is.
 func FileName(moduleDir string) string {
 	for _, name := range fileNames {
 		if _, err := os.Stat(filepath.Join(moduleDir, name)); err == nil {
@@ -228,11 +229,11 @@ func Load(moduleDir string) (c Config, found bool, _ error) {
 // the destination and the Prometheus option are read from the datapages.NewServer call,
 // assets from the embed.FS variable of the app package.
 //
-// The toxiproxy section leaves out host. The default, the port after the dev
-// server, lets 2 apps of 1 module run side by side on 2 dev server ports.
-// It has no toxics, which the settings page shows as the preset No throttling,
-// and the presets in the form the settings page saves them in.
-// It ends the watch section without closing it: init appends watch keys to it.
+// The toxiproxy section has no host, which defaults to the port after the dev
+// server and lets 2 apps of 1 module run side by side. It has no toxics, which
+// selects the preset No throttling, and holds the presets as the settings page
+// saves them. It ends inside the watch section, because init appends watch
+// keys.
 const DefaultYAML = `cmd: cmd/server
 watch:
   exclude:

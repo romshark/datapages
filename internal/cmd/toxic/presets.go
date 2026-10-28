@@ -11,8 +11,7 @@ import (
 	"github.com/romshark/datapages/internal/cmd/config"
 )
 
-// Preset is a named set of global toxics and endpoint overrides,
-// which the settings page applies in 1 step.
+// Preset is a named set of global toxics and endpoint overrides.
 type Preset struct {
 	Name   string
 	Toxics Set
@@ -21,15 +20,12 @@ type Preset struct {
 	Endpoints map[string]Set
 }
 
-// DefaultPresets returns the presets of Datapages, which [config.DefaultYAML]
-// holds and the dialog of a new preset copies from. They are the throttling
-// presets of Chrome DevTools, in the order of its throttling menu,
-// from [NetworkManager.ts] and [ThrottlingPresets.ts].
-//
-// Chrome delays each response by the latency, which the downstream latency
-// toxic does too. Chrome shares the bandwidth among the requests of a tab,
-// the [Front] among those of a browser profile. The toxics take whole milliseconds
-// and whole KB/s of 1000 bytes, to which the values of Chrome are rounded.
+// DefaultPresets returns the presets of [config.DefaultYAML]. They are the
+// throttling presets of Chrome DevTools in the order of its menu, from
+// [NetworkManager.ts] and [ThrottlingPresets.ts], rounded to whole ms and
+// KB/s of 1000 bytes. Chrome delays each response by the latency, as the
+// downstream latency toxic does. Chrome shares the bandwidth among the
+// requests of a tab, the [Front] among those of a browser profile.
 //
 // [NetworkManager.ts]: https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/core/sdk/NetworkManager.ts
 // [ThrottlingPresets.ts]: https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/panels/mobile_throttling/ThrottlingPresets.ts
@@ -68,9 +64,8 @@ func DefaultPreset(name string) (Preset, error) {
 	return findPreset(DefaultPresets(), name)
 }
 
-// AllPresets returns the presets the settings page lists: No throttling,
-// which has no toxics, the presets of s, and Offline. Chrome DevTools lists
-// those 2 apart from its throttling presets too, and datapages.yaml cannot hold them.
+// AllPresets returns No throttling, which has no toxics, the presets of s and
+// Offline. datapages.yaml cannot hold the 2 built-in presets.
 func (s Settings) AllPresets() []Preset {
 	noThrottling := Preset{
 		Name: config.PresetNoThrottling, Toxics: Set{}, Endpoints: map[string]Set{},
@@ -78,9 +73,9 @@ func (s Settings) AllPresets() []Preset {
 	return slices.Concat([]Preset{noThrottling}, s.Presets, []Preset{offline()})
 }
 
-// offline returns the preset Offline. Chrome fails every request.
-// The upstream reset ends a request before the app gets it,
-// the downstream one an open stream at its next event.
+// offline returns the preset Offline, which fails every request as Chrome
+// does. The upstream reset ends a request before the app gets it, the
+// downstream one ends an open stream at its next event.
 func offline() Preset {
 	return Preset{Name: config.PresetOffline, Endpoints: map[string]Set{}, Toxics: Set{
 		{Type: ResetPeer, Stream: Upstream}:   {Toxicity: 1},
@@ -88,8 +83,7 @@ func offline() Preset {
 	}}
 }
 
-// IsBuiltinPreset reports whether the preset with the name is one that
-// [Settings.AllPresets] adds.
+// IsBuiltinPreset reports whether [Settings.AllPresets] adds the preset name.
 func IsBuiltinPreset(name string) bool {
 	return name == config.PresetNoThrottling || name == config.PresetOffline
 }
@@ -107,9 +101,9 @@ func findPreset(presets []Preset, name string) (Preset, error) {
 	return presets[i], nil
 }
 
-// ActivePreset returns the name of the preset of [Settings.AllPresets] whose
-// toxics and overrides apply to every endpoint as those of s do, or "" for none.
-// Of several, it returns [Settings.Active], else the first.
+// ActivePreset returns the name of the preset of [Settings.AllPresets] that
+// has the effect of s on every endpoint, or "" for none. Of several, it
+// returns [Settings.Active], else the first.
 func (s Settings) ActivePreset() string {
 	matches := func(p Preset) bool {
 		return sameEffect(s.Global, s.Endpoints, p.Toxics, p.Endpoints)
@@ -125,8 +119,8 @@ func (s Settings) ActivePreset() string {
 }
 
 // sameEffect reports whether the global toxics g1 with the overrides e1 apply
-// the same toxics to every endpoint as g2 with e2. A toxic turned off applies
-// as none, and an override that changes nothing as no override.
+// the same toxics to every endpoint as g2 with e2. A disabled toxic counts as
+// none, and an override that changes nothing as no override.
 func sameEffect(g1 Set, e1 map[string]Set, g2 Set, e2 map[string]Set) bool {
 	if !slices.Equal(applied(g1, nil), applied(g2, nil)) {
 		return false
@@ -142,25 +136,24 @@ func sameEffect(g1 Set, e1 map[string]Set, g2 Set, e2 map[string]Set) bool {
 }
 
 // applied returns the toxics that apply to an endpoint with the overrides o,
-// those Toxiproxy applies first.
+// those of Toxiproxy first.
 func applied(global, o Set) []active {
 	return append(effective(global, o, false), effective(global, o, true)...)
 }
 
 var (
-	// ErrNoPreset is a preset name that no preset has.
+	// ErrNoPreset reports a name no preset has.
 	ErrNoPreset = errors.New("no preset has the name")
-	// ErrPresetExists is the name of a new preset that a preset has.
+	// ErrPresetExists reports a new preset name that a preset has.
 	ErrPresetExists = errors.New("a preset has the name")
-	// ErrPresetUnnamed is a new preset without a name.
+	// ErrPresetUnnamed reports a new preset without a name.
 	ErrPresetUnnamed = errors.New("the preset has no name")
-	// ErrPresetBuiltin is the name of a preset [Settings.AllPresets] adds,
-	// which cannot be deleted.
+	// ErrPresetBuiltin reports a built-in preset, which cannot be deleted.
 	ErrPresetBuiltin = errors.New("the preset is built in")
 )
 
-// ApplyPreset makes the global toxics and the overrides those of the preset
-// of [Settings.AllPresets] with the name, and the preset [Settings.Active].
+// ApplyPreset replaces the global toxics and the overrides with those of the
+// preset with the name and makes it [Settings.Active].
 func (s *Settings) ApplyPreset(name string) error {
 	p, err := s.Preset(name)
 	if err != nil {
@@ -173,9 +166,8 @@ func (s *Settings) ApplyPreset(name string) error {
 	return nil
 }
 
-// CreatePreset adds a preset with the name, without the spaces around it,
-// and a copy of the global toxics global and the overrides endpoints after
-// the others and applies it.
+// CreatePreset appends a preset with the trimmed name and copies of global
+// and endpoints, and applies it.
 func (s *Settings) CreatePreset(
 	name string, global Set, endpoints map[string]Set,
 ) error {
@@ -208,9 +200,7 @@ func (s *Settings) DeletePreset(name string) error {
 	return nil
 }
 
-// presetsYAML writes presets as watch.toxiproxy.presets in datapages.yaml,
-// indented by indent spaces, nothing for none.
-// The endpoints of a preset are listed as [toxicsYAML] lists them.
+// presetsYAML writes the presets key of [Settings.YAML].
 func presetsYAML(b *strings.Builder, indent int, presets []Preset, patterns []string) {
 	if len(presets) == 0 {
 		return

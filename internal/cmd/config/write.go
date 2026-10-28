@@ -13,11 +13,10 @@ import (
 )
 
 // SetToxiproxy replaces the watch.toxiproxy section of the configuration file
-// in moduleDir with section, its keys as YAML without indentation, empty for
-// none. The rest of the file stays as it is, comments included. It adds the
-// section, and the watch section, where the file has none, and writes
-// datapages.yaml where moduleDir has no configuration file. A result that
-// does not load leaves the file as it was.
+// in moduleDir with section, unindented YAML keys or empty. It keeps the rest
+// of the file, comments included, adds the watch and toxiproxy keys where
+// missing and creates datapages.yaml when moduleDir has no configuration file.
+// It writes nothing when the result would not load.
 func SetToxiproxy(moduleDir, section string) error {
 	name := FileName(moduleDir)
 	if name == "" {
@@ -45,7 +44,7 @@ func setToxiproxy(src []byte, section string) ([]byte, error) {
 	if err := yaml.Unmarshal(src, &doc); err != nil {
 		return nil, err
 	}
-	// SplitAfter keeps the line breaks, which Join puts back unchanged.
+	// Joined, the lines reproduce src exactly.
 	lines := strings.SplitAfter(string(src), "\n")
 	var root *yaml.Node
 	if len(doc.Content) > 0 {
@@ -74,14 +73,14 @@ func setToxiproxy(src []byte, section string) ([]byte, error) {
 		return []byte(strings.Join(lines[:start], "") + block +
 			strings.Join(lines[end:], "")), nil
 	}
-	// After the last key of watch, at its indentation.
+	// Add toxiproxy after the last key of watch, at the indentation of its keys.
 	end := blockEnd(lines, watchKey.Line-1, watchKey.Column-1)
 	return []byte(appendLines(lines, end, toxiproxyBlock(watch.Content[0].Column-1, section))), nil
 }
 
-// toxiproxyBlock returns the toxiproxy key at indent spaces with section,
-// indented below it. An empty section is an empty mapping, which keeps the
-// section: a toxiproxy key without a value configures nothing.
+// toxiproxyBlock returns the toxiproxy key at indent spaces with section
+// indented below it. An empty section becomes "{}", because a key without a
+// value counts as no section.
 func toxiproxyBlock(indent int, section string) string {
 	pad := strings.Repeat(" ", indent)
 	if section == "" {
@@ -104,8 +103,8 @@ func toxiproxyBlock(indent int, section string) string {
 }
 
 // blockEnd returns the index of the line after the block of the key on line
-// start at indent spaces: the next line that holds anything at that
-// indentation or less. The blank lines before it stay outside the block.
+// start at indent spaces. The block ends before the next line with content at
+// indent spaces or less and excludes the blank lines before that line.
 func blockEnd(lines []string, start, indent int) int {
 	end := len(lines)
 	for i := start + 1; i < len(lines); i++ {
@@ -121,8 +120,8 @@ func blockEnd(lines []string, start, indent int) int {
 	return end
 }
 
-// appendLines returns lines with text inserted before line at, after a line
-// break the line before it may lack.
+// appendLines returns lines with text inserted before line at, adding the line
+// break the previous line lacks.
 func appendLines(lines []string, at int, text string) string {
 	before := strings.Join(lines[:at], "")
 	if before != "" && !strings.HasSuffix(before, "\n") {

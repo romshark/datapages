@@ -23,9 +23,9 @@ templ head(info toxic.Info) {
 	<script type="module" src={ assets.Path("morpheus/morpheus.min.js") }></script>
 }
 
-// app is the page. The mode and value signals carry the change to 1 toxic.
-// The preset signal names the preset to apply or delete, the name and from
-// signals the name of a new preset and the preset it copies.
+// app is the page. The mode and value signals carry a change to 1 toxic.
+// preset names the preset to apply or delete. name and from are the name of a
+// new preset and the preset it copies.
 templ app(d pageData) {
 	<div
 		class="tp-app"
@@ -40,10 +40,9 @@ templ app(d pageData) {
 	</div>
 }
 
-// regions are the parts of the page that every render morphs in, each into
-// the element with its id. Their parent .tp-body is none of them: neo-sidebar
-// keeps its backdrop there, which a morph of .tp-body would remove.
-// Neither is the toaster, whose toasts a morph would remove.
+// regions are the parts of the page each render morphs by id. They leave out
+// .tp-body, where neo-sidebar keeps its backdrop, and the toaster. A morph
+// would remove the backdrop and the toasts.
 templ regions(d pageData) {
 	@top(d)
 	@nav(d)
@@ -92,7 +91,7 @@ templ top(d pageData) {
 				}) {
 					Reload config
 				}
-				// Disabled where the file holds the settings already.
+				// Disabled while the file holds the settings.
 				@neo.ButtonAttrs(neo.ButtonOpts{
 					Variant:  neo.Set(neo.ButtonVariantPrimary),
 					Disabled: neo.Set(d.saved),
@@ -110,9 +109,8 @@ templ top(d pageData) {
 	</div>
 }
 
-// reloadDialog confirms a reload that discards the settings of the page that
-// file lacks. Script opens it, and its hidden trigger is the one neo-dialog
-// requires. A morph skips it, which keeps it open.
+// reloadDialog confirms a reload that discards unsaved settings. Script opens it.
+// neo-dialog requires the hidden trigger. Morphs skip it, which keeps it open.
 templ reloadDialog(file string) {
 	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
 		"id":                "tp-reload",
@@ -145,7 +143,6 @@ templ reloadDialog(file string) {
 	}
 }
 
-// toast shows the notice n in the toaster.
 templ toast(n notice) {
 	@neo.Toast(toastOpts(n)) {
 		<span slot="title">{ n.title }</span>
@@ -162,12 +159,10 @@ templ editor(d pageData) {
 	</main>
 }
 
-// nav is the endpoint list in a sidebar: a column beside the editor on a wide
-// page, a panel the menu button slides in on a narrow one. neo-sidebar
-// compares the breakpoint with the width of .tp-body, the viewport less the
-// 2rem padding of .tp-app. 48rem makes it a panel up to a viewport of 50rem,
-// where Morpheus shows a sidebar it has not yet defined as a panel and where
-// ui.css lays out the page for one.
+// nav is the endpoint list in a sidebar, a column on a wide page and a panel
+// on a narrow one. neo-sidebar compares the breakpoint with the width of .tp-body,
+// 2rem less than the viewport. 48rem matches the 50rem viewport at
+// which Morpheus and ui.css lay out an undefined sidebar as a panel.
 templ nav(d pageData) {
 	@neo.SidebarAttrs(neo.SidebarOpts{
 		AriaLabel:         neo.Set("Endpoints"),
@@ -203,11 +198,9 @@ templ nav(d pageData) {
 	}
 }
 
-// navLink links the scope of the endpoint with the pattern, the global one
-// when empty, with the filter f of the list. A plain click shows the scope in
-// place through POSTShow, which keeps the search field as it is, and closes
-// the sidebar where it is a panel over the editor. A click that opens a tab or
-// a window, or one of the other mouse buttons, follows the link.
+// navLink links the scope of pattern, empty for global, with the filter f.
+// A plain click shows the scope through POSTShow, which keeps the search field,
+// and closes the sidebar panel. Other clicks follow the link.
 templ navLink(f filter, selected bool, pattern string) {
 	<a
 		href={ href.PageIndex(href.QueryPageIndex{
@@ -230,9 +223,9 @@ templ navLink(f filter, selected bool, pattern string) {
 	</a>
 }
 
-// navFilter is the sticky head of the endpoint list: a fuzzy search and a
-// toggle for each kind of endpoint, which POSTFilter applies. A morph leaves
-// the text of a focused search field alone.
+// navFilter is the sticky head of the endpoint list with a fuzzy search and a
+// toggle per kind, which POSTFilter applies. neo-textinput ignores a new
+// value while it has focus, which keeps a render from undoing typing.
 templ navFilter(f filter) {
 	<div class="tp-nav-filter">
 		<h2 class="tp-nav-heading">Endpoints</h2>
@@ -244,7 +237,8 @@ templ navFilter(f filter) {
 				Size:        neo.Set("sm"),
 				Value:       neo.Set(f.search),
 			}, templ.Attributes{
-				// Not data-bind: Datastar runs before Morpheus defines the element.
+				// Not data-bind, because Datastar runs before
+				// Morpheus defines the element.
 				"data-on:input__debounce.150ms": action.PageIndex.Filter.POST(
 					action.WithBefore("$search = el.value")),
 				"aria-label": "Search the endpoints",
@@ -254,13 +248,13 @@ templ navFilter(f filter) {
 			Value:     neo.Set(f.pressedKinds()),
 			AriaLabel: neo.Set("Kinds of endpoints to show"),
 		}, templ.Attributes{
-			// An empty kinds signal is every kind, so none needs a name.
+			// An empty kinds signal is every kind, which leaves 'none' for no kind.
 			"data-on:neo-toggle-group-change": action.PageIndex.Filter.POST(
 				action.WithBefore("$kinds = evt.detail.value || 'none'")),
 		}) {
 			for _, k := range kinds {
-				// Primary, because the default variant tells pressed from not
-				// pressed by an 18% tint, at 1.5:1.
+				// Primary, because the default variant marks pressed with an
+				// 18% tint at 1.5:1.
 				@neo.ToggleAttrs(neo.ToggleOpts{
 					Pressed: neo.Set(f.showsKind(k)),
 					Size:    neo.Set("sm"),
@@ -274,15 +268,13 @@ templ navFilter(f filter) {
 	</div>
 }
 
-// addressLink links url in a new tab with the address addr as its text.
 templ addressLink(url, addr string) {
 	<a href={ href.External(url) } target="_blank" rel="noopener">
 		<code>{ addr }</code>
 	</a>
 }
 
-// routePath shows the path of a route pattern with its wildcards and its end
-// anchor {$} in colors of their own.
+// routePath shows a route path with its wildcards and {$} colored.
 templ routePath(path string) {
 	for _, p := range pathParts(path) {
 		if p.class == "" {
@@ -356,7 +348,7 @@ templ typeCard(d pageData, t typeView) {
 	@neo.CardAttrs(neo.CardOpts{Variant: neo.Set(neo.CardVariant("outline"))},
 		templ.Attributes{"class": "tp-card"}) {
 		@neo.CardHeader() {
-			// Beside the title, not in it: the popover is no phrasing content.
+			// Outside the title, an h3, which allows only phrasing content.
 			<div class="tp-card-title">
 				@neo.CardTitle() {
 					{ t.info.Title }
@@ -374,8 +366,7 @@ templ typeCard(d pageData, t typeView) {
 	}
 }
 
-// row shows the toxic of 1 slot. The switch and the button group post its
-// mode, a field its value.
+// row shows the toxic of 1 slot.
 templ row(d pageData, info toxic.TypeInfo, r rowView) {
 	<div class="tp-row" id={ "tp-" + r.slot.Name() }>
 		<div class="tp-row-head">
@@ -415,9 +406,7 @@ templ row(d pageData, info toxic.TypeInfo, r rowView) {
 				@fields(d, info, r.slot, r.toxic, false)
 			case modeInherit:
 				if r.global.Disabled {
-					<p class="tp-muted tp-small">
-						Global: { summary(info, r.global) }
-					</p>
+					<p class="tp-muted tp-small">Global: off</p>
 				} else {
 					@fields(d, info, r.slot, r.global, true)
 				}
@@ -428,11 +417,10 @@ templ row(d pageData, info toxic.TypeInfo, r rowView) {
 	</div>
 }
 
-// segment is 1 button of the mode group, rendered with the radio state the
-// group writes once it upgrades. neo-buttongroup does not re-apply that state
-// when a morph strips it without changing its value, which happens to the
-// group the user just clicked. neo.ButtonAttrs writes role="button" and a
-// tabindex of its own, which an HTML parser would keep over a second one.
+// segment is 1 button of the mode group with the radio state the group sets
+// on upgrade. neo-buttongroup does not set it again after a morph strips it
+// without a value change, as on the group the user just clicked. It avoids
+// [neo.ButtonAttrs], whose role="button" and tabindex come first and win.
 templ segment(value, label, mode string) {
 	<neo-button
 		role="radio"
@@ -449,8 +437,7 @@ templ segment(value, label, mode string) {
 	</neo-button>
 }
 
-// fields shows the values of the toxic x of slot. Disabled, they show the
-// global toxic an endpoint inherits, which its row cannot change.
+// fields shows the values of x, disabled for the global toxic an endpoint inherits.
 templ fields(
 	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic, disabled bool,
 ) {
@@ -470,10 +457,9 @@ templ fields(
 	</div>
 }
 
-// numberField is a number input with its label and unit, which runs the
-// action expression change when its value changes. info, when not nil,
-// renders next to the label. The label is not a <label> element: a click on
-// a <label> around the info button would also focus the input.
+// numberField is a number input with its label and unit that runs change on change.
+// A non-nil info renders next to the label. The label is a <span>
+// because a click on the info button inside a <label> would focus the input.
 templ numberField(
 	label, change, value, unit string, min int64, info templ.Component, disabled bool,
 ) {
@@ -502,9 +488,8 @@ templ numberField(
 	</div>
 }
 
-// statusField is a combobox of the HTTP statuses of the field f of the toxic
-// of slot, with the status value selected, which posts the status the user
-// picks.
+// statusField is a combobox of the HTTP statuses of f with value selected.
+// It posts the picked status.
 templ statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) {
 	<div class="tp-field">
 		<span class="tp-field-head">
@@ -530,9 +515,9 @@ templ statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) {
 	</div>
 }
 
-// toxicityField is the share of requests the toxic x of slot applies to, a
-// slider in steps of 1%, which posts the share when the user lets go of it.
-// Its own label stays off: the label of the field carries the info button.
+// toxicityField is a slider of the share of requests x applies to, in steps of 1%.
+// It posts on release. The slider shows no label of its own because
+// the field head carries the info button.
 templ toxicityField(slot toxic.Slot, x toxic.Toxic, configFile string, disabled bool) {
 	<div class="tp-field">
 		<span class="tp-field-head">
@@ -556,9 +541,9 @@ templ toxicityField(slot toxic.Slot, x toxic.Toxic, configFile string, disabled 
 	</div>
 }
 
-// infoButton is an icon button whose popover shows the children.
-// Ghost, because the other button variants carry a transform, which makes the
-// button the containing block of the fixed panel and traps it in the row.
+// infoButton is an icon button whose popover shows the children. It's ghost
+// because the other variants set a transform, which makes the button the
+// containing block of the fixed popover.
 templ infoButton(ariaLabel string) {
 	@neo.Popover(neo.PopoverOpts{Placement: neo.Set(neo.PlacementTop)}) {
 		@neo.ButtonAttrs(neo.ButtonOpts{
@@ -601,7 +586,6 @@ templ jitterInfo() {
 	}
 }
 
-// kindIcon shows the kind of an endpoint.
 templ kindIcon(kind string) {
 	@neo.IconAttrs(kindInfos[kind].icon, templ.Attributes{
 		"role":       "img",

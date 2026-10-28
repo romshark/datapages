@@ -292,7 +292,8 @@ func (PageIndex) OnPing(event EventPing, sse datapages.SSE) error { return nil }
 		name := multiappNames[i]
 		writeFileAt(t, filepath.Join(dir, "app", name, "app.go"),
 			appSrc(name, subj, fields[i]))
-		writeFileAt(t, filepath.Join(dir, "app", name, "datapagesgen", "app_gen.go"), stub)
+		writeFileAt(t,
+			filepath.Join(dir, "app", name, "datapagesgen", "app_gen.go"), stub)
 		_, _ = fmt.Fprintf(&imports, "\t%q\n\t%sgen %q\n",
 			"testproject/app/"+name, name, "testproject/app/"+name+"/datapagesgen")
 		_, _ = fmt.Fprintf(&funcs, `
@@ -375,9 +376,8 @@ func TestLintSubjectAcrossApps(t *testing.T) {
 }
 
 // TestLintToxiproxy tests that lint reports an endpoint override that names
-// no route. Watch mode runs the proxy without a watch.toxiproxy section, which
-// makes lint check without one too. The fixture serves "GET /" and
-// "GET /not-found/{$}".
+// no route unless the proxy is disabled.
+// The fixture serves "GET /" and "GET /not-found/{$}".
 func TestLintToxiproxy(t *testing.T) {
 	for name, tc := range map[string]struct {
 		toxiproxy string // the watch.toxiproxy section, none when empty
@@ -1637,9 +1637,12 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			projectDir: "myproject",
-			args:       []string{"datapages", "init", "--name", "myproject"},
-			stdin:      "y\nmymod\n\nn\n",
-			wantCode:   0,
+			args: []string{
+				"datapages", "init",
+				"--name", "myproject",
+			},
+			stdin:    "y\nmymod\n\nn\n",
+			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
 				require.DirExists(t, filepath.Join(projectDir, ".git"))
@@ -1656,7 +1659,10 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err, "git init: %s", out)
 				return dir
 			},
-			args:     []string{"datapages", "init", "--module", "example.com/flagmod"},
+			args: []string{
+				"datapages", "init",
+				"--module", "example.com/flagmod",
+			},
 			stdin:    "\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1670,7 +1676,9 @@ func TestInit(t *testing.T) {
 			setup:      func(t *testing.T) string { return t.TempDir() },
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "rocket",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1692,14 +1700,18 @@ func TestInit(t *testing.T) {
 			setup:      func(t *testing.T) string { return t.TempDir() },
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "javascript",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
 				dir := filepath.Join(startDir, "myapp")
 				main, err := os.ReadFile(filepath.Join(dir, "cmd", "server", "main.go"))
 				require.NoError(t, err)
-				require.Contains(t, string(main), "datapages.WithAssets(app.StaticFS, false)")
+				require.Contains(t,
+					string(main),
+					"datapages.WithAssets(app.StaticFS, false)")
 				require.NotContains(t, string(main), "WithDatastarJS")
 				require.FileExists(t, filepath.Join(dir, "app", "static", "components", "index.js"))
 				requireFileContains(t, filepath.Join(dir, "AGENTS.md"),
@@ -1726,7 +1738,9 @@ func TestInit(t *testing.T) {
 			},
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "typescript",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1759,7 +1773,10 @@ func TestInit(t *testing.T) {
 				t.Setenv("PATH", t.TempDir())
 				return dir
 			},
-			args:     []string{"datapages", "init", "-n", "--web-components", "typescript"},
+			args: []string{
+				"datapages", "init", "-n",
+				"--web-components", "typescript",
+			},
 			wantCode: 1,
 			wantErr:  "TypeScript Web Components need npm",
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1768,8 +1785,12 @@ func TestInit(t *testing.T) {
 			},
 		},
 		"web components unknown": {
-			setup:    func(t *testing.T) string { return t.TempDir() },
-			args:     []string{"datapages", "init", "-n", "--name", "x", "--web-components", "vue"},
+			setup: func(t *testing.T) string { return t.TempDir() },
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "x",
+				"--web-components", "vue",
+			},
 			wantCode: 1,
 			wantErr:  `unknown Web Components setup "vue"`,
 		},
@@ -1817,8 +1838,8 @@ func requireFileContains(t *testing.T, path string, want ...string) {
 }
 
 // TestInitInInitializedProject tests that init in a project that is already
-// set up succeeds, writes the agent instructions it was asked for, keeps what
-// it replaces and leaves an AGENTS.md of the project alone.
+// set up succeeds, writes the agent instructions it was asked for,
+// keeps what it replaces and leaves an AGENTS.md of the project alone.
 func TestInitInInitializedProject(t *testing.T) {
 	t.Setenv("GOFLAGS", "-e")
 	repoRoot := repoRootDir(t)
@@ -2001,8 +2022,8 @@ func TestInitReplacesWithTheLocalCheckout(t *testing.T) {
 // Every release up to v0.9.4 carries package main at the module root:
 // the CLI lived there before it moved to cmd/datapages. Without the report
 // every error that follows names the user's own app package and none names
-// the version that cannot be imported. This test writes no workspace, which
-// is what a real project has.
+// the version that cannot be imported. This test writes no workspace,
+// which is what a real project has.
 func TestInitReportsAnUnimportableRoot(t *testing.T) {
 	t.Setenv("GOFLAGS", "-e")
 

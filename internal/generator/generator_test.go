@@ -83,10 +83,9 @@ func TestExamplesAreUpToDate(t *testing.T) {
 	}
 }
 
-// TestToxicUIIsUpToDate regenerates the settings page of the Toxiproxy front
-// of datapages watch, the Datapages application of this module, and compares
-// the result with what is committed. internal/tools/genapp writes it, with the
-// options this test passes.
+// TestToxicUIIsUpToDate tests that the committed datapagesgen package of the
+// Toxiproxy settings page matches a regeneration with the options
+// internal/tools/genapp uses.
 func TestToxicUIIsUpToDate(t *testing.T) {
 	const dir = "internal/cmd/toxic/ui"
 	app, errs := parser.Parse(filepath.Join("..", "..", dir))

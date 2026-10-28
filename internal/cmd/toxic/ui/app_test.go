@@ -36,8 +36,8 @@ var (
 	rateDown    = toxic.Slot{Type: toxic.Bandwidth, Stream: toxic.Downstream}
 )
 
-// rootPath and limitedPath are the links of the 2 endpoints in the list,
-// limitedHeading the heading of the second.
+// rootPath and limitedPath match the 2 entries of the endpoint list,
+// limitedHeading the scope heading of the second.
 const (
 	rootPath    = `<code class="tp-path">/</code>`
 	limitedPath = `<code class="tp-path">/limited/` +
@@ -46,8 +46,8 @@ const (
 		`/limited/<span class="tp-route-end">{$}</span></code></h2>`
 )
 
-// settings is the settings page of a front with the endpoints "GET /" and
-// "GET /limited/{$}", served at url, of the module in dir.
+// settings is the page at url of a front with the endpoints "GET /" and [limited],
+// for the module in dir.
 type settings struct {
 	front  *toxic.Front
 	broker messaging.Broker
@@ -113,7 +113,7 @@ func startSettings(t *testing.T) *settings {
 	return &settings{front: front, broker: broker, url: ts.URL, dir: dir}
 }
 
-// do sends a request and returns the status and the body of its response.
+// do sends a request and returns the response status and body.
 func do(
 	t *testing.T, method, target, body string, header http.Header,
 ) (int, string) {
@@ -122,7 +122,7 @@ func do(
 	return code, b
 }
 
-// doHeader is do that also returns the header of the response.
+// doHeader is [do] that also returns the response header.
 func doHeader(
 	t *testing.T, method, target, body string, header http.Header,
 ) (int, string, http.Header) {
@@ -140,8 +140,7 @@ func doHeader(
 	return resp.StatusCode, string(b), resp.Header
 }
 
-// tab is 1 browser tab of the page: the instance its page load minted,
-// and what the stream that holds its state delivered.
+// tab is 1 browser tab with the instance of its page load and the output of its stream.
 type tab struct {
 	base, instance string
 
@@ -196,15 +195,15 @@ func (tb *tab) command(t *testing.T, target, signals string) int {
 	return code
 }
 
-// at is how much the stream delivered so far.
+// at returns the length of the stream output so far.
 func (tb *tab) at() int {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 	return tb.stream.Len()
 }
 
-// waitFrom returns what the stream delivered after from, through the end of
-// the event that contains want, once it arrived.
+// waitFrom waits for want in the stream output after from and returns that
+// output through the end of the event with want.
 func (tb *tab) waitFrom(t *testing.T, from int, want string) string {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -225,9 +224,8 @@ func (tb *tab) waitFrom(t *testing.T, from int, want string) string {
 	}
 }
 
-// TestPage tests the page load: the global scope, an endpoint scope and the
-// filter of the endpoint list from the query parameters, the files the head
-// loads, and the Datastar script served from the embedded files.
+// TestPage tests loading the global scope, an endpoint scope and a filtered
+// endpoint list, and the static files the head loads.
 func TestPage(t *testing.T) {
 	base := startSettings(t).url
 
@@ -242,10 +240,10 @@ func TestPage(t *testing.T) {
 	require.Contains(t, body, `With toxics: <a href="http://localhost:7332" `+
 		`target="_blank" rel="noopener"><code>localhost:7332</code></a></span> · `+
 		`<span class="tp-address">Without toxics: `)
-	// The icon of the kind of "GET /", inlined from static/icons.
+	// The kind icon of "GET /", inlined from static/icons.
 	require.Contains(t, body, `aria-label="Page"`)
 	require.Contains(t, body, `class="lucide lucide-app-window"`)
-	// The arrows of the directions of the streams of a toxic.
+	// The stream direction arrows.
 	require.Contains(t, body, `<neo-icon name="arrow-down"`)
 	require.Contains(t, body, `<neo-icon name="arrow-up"`)
 
@@ -254,7 +252,7 @@ func TestPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.Contains(t, body, limitedHeading)
 	require.Contains(t, body, `data-signals:search="'lim'"`)
-	// The icon of the kind of the endpoint leads its heading.
+	// The kind icon leads the heading.
 	require.Contains(t, body, `<h2 class="tp-scope-title"><neo-icon name="app-window"`)
 	require.Contains(t, body, limitedPath)
 	require.NotContains(t, body, rootPath)
@@ -272,11 +270,10 @@ func TestPage(t *testing.T) {
 	}
 }
 
-// TestCommands tests the commands of the page and the renders its streams
-// deliver: showing a scope and filtering the endpoint list in 1 tab, a change
-// of the settings in every tab, each with its own view, a value Toxiproxy
-// would reject shown only to the tab that sent it, refused input, clearing the
-// overrides of an endpoint and reloading the configuration file.
+// TestCommands tests the commands and the renders they cause.
+// Show and filter render 1 tab, a settings change every tab in its own view.
+// A rejected value shows only in the tab that sent it. It also covers bad requests,
+// a cross-site request, clearing overrides and reloading the file.
 func TestCommands(t *testing.T) {
 	s := startSettings(t)
 	tb, other := openTab(t, s.url), openTab(t, s.url)
@@ -340,8 +337,7 @@ func TestCommands(t *testing.T) {
 	code = tb.command(t, "/clear/", "{}")
 	require.Equal(t, http.StatusOK, code)
 	require.NotContains(t, s.front.Settings().Endpoints, limited)
-	// The other tab saw the change of the settings, the endpoint without its
-	// badge, and never the refused value.
+	// The other tab sees the endpoint lose its badge, never the refused value.
 	got = other.waitFrom(t, otherAt, limitedPath+" </span>")
 	require.NotContains(t, got, "rate must be at least 1")
 
@@ -356,14 +352,12 @@ func TestCommands(t *testing.T) {
 	require.Len(t, s.front.Settings().Global, 1)
 }
 
-// TestPresets tests the preset picker of the header: the preset the global
-// toxics match selected, applying one, creating one from the global toxics
-// and from a copy of a preset, which applies it and closes the dialog, the
-// names the dialog refuses, deleting one, and writing the presets into the
-// configuration file once they differ from those of Chrome DevTools.
+// TestPresets tests that the preset picker selects the matching preset,
+// applies one, creates one from the current toxics or a copy, refuses bad names,
+// deletes one, and that a save writes the presets without the built-in ones.
 func TestPresets(t *testing.T) {
 	s := startSettings(t)
-	// The presets of the datapages.yaml init writes.
+	// The presets of the datapages.yaml that init writes.
 	require.NoError(t, s.front.Update(func(st *toxic.Settings) error {
 		st.Presets = toxic.DefaultPresets()
 		return nil
@@ -378,10 +372,14 @@ func TestPresets(t *testing.T) {
 	}
 	create := func(signals string) string {
 		t.Helper()
-		code, body := do(t, http.MethodPost, s.url+"/create-preset/", signals, http.Header{
-			"Datastar-Request":   {"true"},
-			"Datapages-Instance": {tb.instance},
-		})
+		code, body := do(t,
+			http.MethodPost,
+			s.url+"/create-preset/",
+			signals,
+			http.Header{
+				"Datastar-Request":   {"true"},
+				"Datapages-Instance": {tb.instance},
+			})
 		require.Equal(t, http.StatusOK, code)
 		return body
 	}
@@ -392,8 +390,7 @@ func TestPresets(t *testing.T) {
 	require.NotContains(t, body, "563 ms")
 	require.Contains(t, body, `aria-label="Delete the preset Slow 4G"`)
 	require.Contains(t, body, `value=" new"`)
-	// The built-in presets have no button that deletes them, and the copy
-	// combobox lists neither.
+	// The built-in presets have no delete button and no copy option.
 	require.Contains(t, body, `value="No throttling"`)
 	require.Contains(t, body, `value="Offline"`)
 	require.NotContains(t, body, `aria-label="Delete the preset No throttling"`)
@@ -404,7 +401,8 @@ func TestPresets(t *testing.T) {
 	// The copy combobox lists each preset of the app, then each of Datapages.
 	require.Regexp(t, `value="app:3G"[^>]*><span class="tp-copy-option"><span>3G</span> `+
 		`<span class="tp-small tp-muted">shop preset</span>`, body)
-	require.Regexp(t, `value="datapages:3G"[^>]*><span class="tp-copy-option"><span>3G</span> `+
+	require.Regexp(t, `value="datapages:3G"[^>]*>`+
+		`<span class="tp-copy-option"><span>3G</span> `+
 		`<span class="tp-small tp-muted">Datapages preset</span>`, body)
 
 	at := tb.at()
@@ -471,8 +469,8 @@ func TestPresets(t *testing.T) {
 	require.True(t, s.front.Saved())
 }
 
-// createButton and presetNameField match the button that creates the preset
-// of the dialog and its name field.
+// createButton and presetNameField match the Create button and the name field
+// of the new preset dialog.
 var (
 	createButton = regexp.MustCompile(
 		`<neo-button[^>]*@post\(&#39;/create-preset/&#39;\)[^>]*>`,
@@ -482,11 +480,10 @@ var (
 	)
 )
 
-// TestPresetDraft tests the dialog of a new preset as the tab renders it from
-// the fields it posts: a preset of Datapages fills in its name where the name
-// is empty, the name follows the copy combobox until the user changes it,
-// and a name a preset has shows an error and disables the create button.
-// The action refuses that name all the same.
+// TestPresetDraft tests the new preset dialog as rendered from its posted fields.
+// A Datapages preset fills in an empty name, which follows the copy combobox
+// until edited. A taken name shows an error and disables Create,
+// and the action refuses it.
 func TestPresetDraft(t *testing.T) {
 	s := startSettings(t)
 	require.NoError(t, s.front.Update(func(st *toxic.Settings) error {
@@ -534,15 +531,13 @@ func TestPresetDraft(t *testing.T) {
 // presetPicker matches the preset combobox of the header.
 var presetPicker = regexp.MustCompile(`<neo-combobox[^>]*id="tp-preset-combobox"[^>]*>`)
 
-// TestPresetOverrides tests that the overrides of the endpoints are part of
-// a preset: an override set after applying Offline leaves no preset matching,
-// a preset created from the current toxics holds the override, and applying
-// a preset replaces the overrides with its own.
+// TestPresetOverrides tests that presets include endpoint overrides.
+// An override after Offline matches no preset, a preset created from
+// the current toxics holds it, and applying a preset replaces the overrides.
 func TestPresetOverrides(t *testing.T) {
 	s := startSettings(t)
 	tb := openTab(t, s.url)
-	// run sends a command of the tab and returns the preset combobox of the
-	// render it causes, which the stream delivers after those of earlier ones.
+	// run sends a command and returns the preset combobox of its render.
 	run := func(target, signals string) string {
 		t.Helper()
 		at := tb.at()
@@ -583,9 +578,8 @@ func TestPresetOverrides(t *testing.T) {
 		s.front.Settings().Endpoints)
 }
 
-// TestStatusCombobox tests the status of an http-error toxic: a combobox with
-// the status selected, the value action taking the status picked in it, and
-// a status out of range refused in the row.
+// TestStatusCombobox tests the status combobox of the http-error toxic,
+// picking a status and refusing one out of range.
 func TestStatusCombobox(t *testing.T) {
 	s := startSettings(t)
 	tb := openTab(t, s.url)
@@ -617,9 +611,8 @@ func TestStatusCombobox(t *testing.T) {
 	require.Equal(t, int64(503), status())
 }
 
-// TestChangedFromOutside tests that EventChanged published by the process that
-// serves the page renders the tabs, which datapages watch publishes when the
-// endpoints of the app change.
+// TestChangedFromOutside tests that an EventChanged published on the broker,
+// as datapages watch does when the endpoints change, renders the tabs.
 func TestChangedFromOutside(t *testing.T) {
 	s := startSettings(t)
 	tb := openTab(t, s.url)
@@ -639,10 +632,8 @@ func TestChangedFromOutside(t *testing.T) {
 // saveButton matches the opening tag of the save button.
 var saveButton = regexp.MustCompile(`<neo-button[^>]*@post\(&#39;/save/&#39;\)[^>]*>`)
 
-// TestSave tests saving the settings into the configuration file: the file
-// keeps what is outside watch.toxiproxy, the save button is disabled while
-// the file holds the settings, and a change of the settings or of the file
-// enables it again.
+// TestSave tests that a save keeps the file outside watch.toxiproxy and
+// disables the save button until the settings or the file change.
 func TestSave(t *testing.T) {
 	s := startSettings(t)
 	tb := openTab(t, s.url)
@@ -672,7 +663,7 @@ func TestSave(t *testing.T) {
 	tb.waitFrom(t, at, "Wrote the settings to datapages.yaml.")
 	require.True(t, s.front.Saved())
 
-	// The file changed by hand holds other settings.
+	// Change the file by hand.
 	require.NoError(t, os.WriteFile(file, []byte(configFile), 0o644))
 	require.False(t, s.front.Saved())
 	at = tb.at()
@@ -684,14 +675,16 @@ func TestSave(t *testing.T) {
 var (
 	// reloadButton matches the opening tag of the reload button.
 	reloadButton = regexp.MustCompile(
-		`<neo-button[^>]*title="Discard the changes made on this page"[^>]*>`)
+		`<neo-button[^>]*title="Discard the changes made on this page"[^>]*>`,
+	)
 	// reloadDialog matches the dialog that confirms a reload.
-	reloadDialog = regexp.MustCompile(`(?s)<neo-dialog[^>]* id="tp-reload".*?</neo-dialog>`)
+	reloadDialog = regexp.MustCompile(
+		`(?s)<neo-dialog[^>]* id="tp-reload".*?</neo-dialog>`,
+	)
 )
 
-// TestReloadConfirm tests that the reload button opens a dialog that warns of
-// the loss of the settings the configuration file lacks, whose confirmation
-// reloads, and that it reloads at once while the file holds the settings.
+// TestReloadConfirm tests that the reload button opens a confirm dialog while
+// settings are unsaved and reloads at once after a save.
 func TestReloadConfirm(t *testing.T) {
 	s := startSettings(t)
 	// The front starts without toxics, the file has a latency.
@@ -714,8 +707,8 @@ func TestReloadConfirm(t *testing.T) {
 	require.Contains(t, reloadButton.FindString(body), `@post(&#39;/reload/&#39;)`)
 }
 
-// TestInherit tests the row of a slot an endpoint inherits: a line while the
-// global toxic is off, and the fields of the global toxic, disabled, while it's on.
+// TestInherit tests an inherited slot row. It shows a summary while the
+// global toxic is off and its disabled fields while it is on.
 func TestInherit(t *testing.T) {
 	s := startSettings(t)
 	scoped := s.url + "/?endpoint=" + url.QueryEscape(limited)

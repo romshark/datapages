@@ -1,11 +1,7 @@
 // Command genapp writes the datapagesgen package of an app package of the
-// datapages module itself, as "datapages gen" does for the app packages of
-// an application module.
-//
-// "datapages gen" scans the whole module for datapages.NewServer calls and
-// refuses every import of a runtime package outside generated code.
-// This module holds the runtime packages, which import each other,
-// and the tests of NewServer, which call it.
+// datapages module, as "datapages gen" does in an application module.
+// "datapages gen" refuses this module because its runtime packages import
+// each other and its tests call datapages.NewServer.
 //
 // Usage, from the module root:
 //
@@ -50,8 +46,8 @@ func run(appDir string) error {
 		return fmt.Errorf("parsing %s: %d error(s)", appDir, errs.Len())
 	}
 	dir := filepath.ToSlash(filepath.Clean(appDir))
-	// Prometheus stays off: the NewServer call of the only app this module holds,
-	// the Toxiproxy settings page, passes datapages.DisablePrometheus.
+	// Prometheus stays off, matching the datapages.DisablePrometheus the
+	// settings page, the only app of this module, passes to NewServer.
 	return generator.Generate(
 		filepath.Join(appDir, serverscan.GenSubdir), serverscan.GenSubdir, m, 0o644,
 		generator.Options{

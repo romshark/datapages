@@ -367,7 +367,7 @@ func TestCheckCmdPackage(t *testing.T) {
 
 // TestUpgradeGoMod tests raising the datapages requirement in a user's go.mod to
 // the version of the CLI doing the generating. A generator and a runtime that
-// disagree produce code that does not compile.
+// disagree produce code that doesn't compile.
 func TestUpgradeGoMod(t *testing.T) {
 	const goModTemplate = `module example.com/myapp
 
@@ -669,8 +669,8 @@ func TestWatchLockHeld(t *testing.T) {
 	require.False(t, watchLockHeld(), "file that is no lock")
 }
 
-// TestAppExclude tests that a change of the configuration file restarts no
-// app, and that the exclusions of the user stay as they are.
+// TestAppExclude tests that appExclude adds the configuration file names
+// without modifying the list of the user.
 func TestAppExclude(t *testing.T) {
 	user := []string{".git/**"}
 	require.Equal(t, []string{".git/**", "datapages.yml", "datapages.yaml"},
@@ -678,9 +678,8 @@ func TestAppExclude(t *testing.T) {
 	require.Equal(t, []string{".git/**"}, user)
 }
 
-// TestAppName tests the name the settings page gives an app: the last element
-// of the module path without a major version, and the directory of the app
-// package when the module has more than 1 app.
+// TestAppName tests the name the settings page shows for an app, with and
+// without a major version in the module path and with 2 apps in 1 module.
 func TestAppName(t *testing.T) {
 	for _, tc := range []struct {
 		module, dir string
@@ -703,8 +702,7 @@ func TestAppName(t *testing.T) {
 	}
 }
 
-// TestNextPort tests the default address of the Toxiproxy front,
-// the port after that of the dev server.
+// TestNextPort tests nextPort, including hosts that have no next port.
 func TestNextPort(t *testing.T) {
 	for host, want := range map[string]string{
 		"localhost:7331":  "localhost:7332",
@@ -725,10 +723,9 @@ func TestNextPort(t *testing.T) {
 }
 
 // TestStartToxiproxy tests when watch mode starts the Toxiproxy front and its
-// settings page. Without a watch.toxiproxy section they are not something the
-// user asked for: they start on the 2 ports after the dev server, and a problem
-// turns them off with a warning. With the section, a problem fails the start.
-// It reads the todolist example.
+// settings page. Without a watch.toxiproxy section they use the 2 ports after
+// the dev server and a problem turns them off with a warning. With the section,
+// a problem fails the start. It parses the todolist example.
 func TestStartToxiproxy(t *testing.T) {
 	moduleDir, err := filepath.Abs(filepath.Join("..", "..", "example", "todolist"))
 	require.NoError(t, err)
@@ -740,7 +737,7 @@ func TestStartToxiproxy(t *testing.T) {
 	for name, tc := range map[string]struct {
 		tp       *config.WatchToxiproxy
 		host     string
-		busy     int // the port after the dev server that is taken, 0 for none
+		busy     int // offset of a taken port from the dev server port, 0 for none
 		wantErr  string
 		wantOff  string // the warning that turns the front off
 		wantLine string
@@ -845,8 +842,7 @@ func TestStartToxiproxy(t *testing.T) {
 	}
 }
 
-// freePorts returns the first of n consecutive free ports of the loopback
-// interface.
+// freePorts returns the first of n consecutive free ports of the loopback interface.
 func freePorts(t *testing.T, n int) int {
 	t.Helper()
 	for range 20 {
@@ -872,9 +868,7 @@ func freePorts(t *testing.T, n int) int {
 }
 
 // TestWriteDefaultConfig tests that the datapages.yaml init writes loads for
-// every Web Components setup, the TypeScript one appending to its watch
-// section, and that it configures the Toxiproxy front with presets and no
-// toxics.
+// every Web Components setup, with presets and no toxics for the Toxiproxy front.
 func TestWriteDefaultConfig(t *testing.T) {
 	for _, wc := range skeleton.WebComponentsChoices {
 		t.Run(string(wc), func(t *testing.T) {

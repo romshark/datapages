@@ -488,11 +488,11 @@ watch:
       # Slow 4G and 3G follow.
 ```
 
-`cmd` identifies the main package until the project contains a `datapages.NewServer` call. `toxiproxy` configures the second address of the next section. Add `watch` settings for the proxy, TLS, compiler flags, or custom file watchers. Run `datapages watch --help` for command-line overrides.
+`cmd` identifies the main package until the project contains a `datapages.NewServer` call. `toxiproxy` configures [the proxy of the next section](#test-on-a-slow-or-failing-network). Add `watch` settings for the proxy, TLS, compiler flags, or custom file watchers. Run `datapages watch --help` for command-line overrides.
 
 ## Test on a slow or failing network
 
-`datapages watch` also serves the application through [Toxiproxy](https://github.com/Shopify/toxiproxy), which injects network faults, called toxics, into the connection of each request. The address of `--host` keeps serving without toxics. Watch mode prints the address of the proxy and of its settings page:
+`datapages watch` also serves the application through [Toxiproxy](https://github.com/Shopify/toxiproxy), which injects network faults, called toxics, into each request. `--host` keeps serving without toxics. Watch mode prints the address of the proxy and of its settings page:
 
 ```
 toxiproxy: http://localhost:7332 (settings: http://localhost:7333/)
@@ -502,7 +502,7 @@ toxiproxy: http://localhost:7332 (settings: http://localhost:7333/)
 browser -> watch.toxiproxy.host -> Toxiproxy -> --host (dev server) -> watch.app-host (application)
 ```
 
-The scaffold writes the presets of Datapages and no toxics, which the settings page shows as the preset No throttling. The settings page sets the toxics of every endpoint and overrides them for 1 endpoint, such as a slow upload action or a stream that resets. A change applies to the next request and to open connections, such as an SSE stream, and lasts until watch mode stops. The save button writes the settings into the `watch.toxiproxy` section of `datapages.yaml` and leaves the rest of the file as it is. It drops comments inside the section, and it is disabled while the file holds the settings. The reload button discards the changes and reads `toxics`, `endpoints` and `presets` again. While the file lacks settings of the page, it first asks for a confirmation, because the discarded changes cannot be restored. A change of `host` or `ui-host` applies when watch mode restarts.
+The settings page sets the toxics of every endpoint and overrides them per endpoint. A change applies to the next request and to open connections, such as an SSE stream, until watch mode stops. Save writes the settings into the `watch.toxiproxy` section of `datapages.yaml`, keeps the rest of the file and drops comments inside the section. Reload reads `toxics`, `endpoints` and `presets` again, after a confirmation when it discards unsaved changes. A change of `host` or `ui-host` applies when watch mode restarts.
 
 `watch.toxiproxy` in `datapages.yaml` configures the proxy. Every key is optional:
 
@@ -533,48 +533,48 @@ watch:
             toxicity: 0.5
 ```
 
-| Key         | Value                                                                                                                                                                                                               |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `disabled`  | `true` turns the proxy off.                                                                                                                                                                                         |
-| `host`      | The address the proxy listens on. Default: the host of `--host` with the next port, `localhost:7332` for the default `--host`.                                                                                     |
-| `ui-host`   | The address the settings page listens on. Default: the host of `host` with the next port, `localhost:7333` for the default `host`.                                                                                  |
-| `toxics`    | The toxics of every endpoint.                                                                                                                                                                                       |
-| `endpoints` | The toxics of 1 endpoint, keyed by its route pattern. A toxic of an endpoint replaces the global toxic of the same type and stream for that endpoint. The other global toxics apply to it.                          |
-| `presets`   | Named sets of global toxics and endpoint overrides, each a `name`, its `toxics` and its `endpoints`, which the settings page applies. None without the key. No throttling and Offline are built in, which no preset can be named. |
+| Key         | Value                                                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `disabled`  | `true` turns the proxy off.                                                                                                                            |
+| `host`      | The address of the proxy. Defaults to the host of `--host` with the next port, `localhost:7332`.                                                       |
+| `ui-host`   | The address of the settings page. Defaults to the host of `host` with the next port, `localhost:7333`.                                                 |
+| `toxics`    | The toxics of every endpoint.                                                                                                                          |
+| `endpoints` | The toxics of 1 endpoint, keyed by its route pattern. Each replaces the global toxic of the same type and stream. The other global toxics still apply. |
+| `presets`   | Named `toxics` and `endpoints` the settings page applies. No throttling and Offline are built in and reserved as names.                                |
 
-Each toxic type takes a `downstream` toxic, which acts on the data the server sends, and an `upstream` toxic, which acts on the data the browser sends:
+Each toxic type takes a `downstream` toxic for the data the server sends and an `upstream` toxic for the data the browser sends:
 
-| Type         | Fields                                                     | Effect                                                                                                         |
-| ------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `latency`    | `latency`, `jitter`: durations in whole milliseconds       | Delays the data by `latency`, plus or minus up to `jitter`.                                                    |
-| `bandwidth`  | `rate`: KB/s, at least 1                                   | Limits the rate of the data, which the requests of 1 browser share.                                            |
-| `slow-close` | `delay`: duration in whole milliseconds                    | Delays closing the connection.                                                                                 |
-| `timeout`    | `timeout`: duration in whole milliseconds                  | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up. |
-| `reset-peer` | `timeout`: duration in whole milliseconds                  | Resets the connection with a TCP RST once data arrives, after `timeout`.                                       |
-| `slicer`     | `average-size`, `size-variation`: bytes; `delay`: duration in whole microseconds | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each chunk by `delay`. |
-| `limit-data` | `bytes`: bytes                                             | Closes the connection after `bytes` bytes.                                                                     |
-| `http-error` | `status`: HTTP status from 400 to 599                      | Answers with `status`. Upstream, the app never gets the request. Downstream, the app answers it and the browser gets `status` instead. |
+| Type         | Fields                                                               | Effect                                                                                                                                    |
+| ------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `latency`    | `latency`, `jitter`: whole milliseconds                              | Delays the data by `latency`, plus or minus up to `jitter`.                                                                               |
+| `bandwidth`  | `rate`: KB/s, at least 1                                             | Limits the rate, which the requests of 1 browser share.                                                                                   |
+| `slow-close` | `delay`: whole milliseconds                                          | Delays closing the connection.                                                                                                            |
+| `timeout`    | `timeout`: whole milliseconds                                        | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up.                           |
+| `reset-peer` | `timeout`: whole milliseconds                                        | Resets the connection with a TCP RST once data arrives, after `timeout`.                                                                  |
+| `slicer`     | `average-size`, `size-variation`: bytes; `delay`: whole microseconds | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each by `delay`.                    |
+| `limit-data` | `bytes`: bytes                                                       | Closes the connection after `bytes` bytes.                                                                                                |
+| `http-error` | `status`: 400 to 599                                                 | Answers with `status`. Upstream, the app never gets the request. Downstream, the browser gets `status` in place of the answer of the app. |
 
 Every toxic also takes:
 
-- `toxicity`: the probability, from 0 to 1, that the toxic applies to a connection. Default 1. Each request opens a connection of its own, which makes it the share of requests the toxic applies to. The settings page shows it as "Requests affected", in percent.
-- `disabled`: `true` turns the toxic off and keeps its other settings, which it may leave out. On an endpoint it turns off the global toxic of the same type and stream.
+- `toxicity`: the share of requests the toxic applies to, from 0 to 1. Default 1. The settings page shows it in percent as "Requests affected".
+- `disabled`: `true` turns the toxic off. Its other fields may then be left out. On an endpoint, it turns off the global toxic of the same type and stream.
 
-The proxy applies `http-error` itself, not Toxiproxy. It answers with the status and its standard text, the answer of the generated server to an error that no `PageError500`, `PageError404` or `RecoverError` handles. The toxic therefore stands for a failure in front of the app, such as a gateway or a crashed process. To test the error handling of the app, return an error from the handler. Upstream, the proxy answers without passing the request on, which skips the other toxics. Downstream, the request passes through the other toxics, and the proxy reads the response of the app to its end before it answers, which lets an action finish. The stream of a page does not end, so the proxy answers it once its head arrives, which ends the stream. With both set, a request the upstream toxic answers never reaches the downstream one.
+The proxy applies `http-error` itself. It answers with the status and its standard text, as the generated server answers an error that no `PageError500`, `PageError404` or `RecoverError` handles. The toxic stands for a failure in front of the app, such as a gateway or a crashed process. To test the error handling of the app, return an error from the handler. Upstream, the proxy answers at once and skips the other toxics. Downstream, the request passes the other toxics, and the app finishes its response before the proxy replaces it. A page stream gets the status when its head arrives, which ends the stream. With both set, a request the upstream toxic answers never reaches the downstream one.
 
-The proxy also applies `bandwidth` itself. The requests of 1 browser share the rate, as the requests of 1 device share its network, and 2 downloads at a time take 2 times as long as 1. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets on the first response and removes from the requests it passes to the app. The tabs of a browser share their cookies, and a private window has its own, which makes 2 windows 2 users on 2 networks. A client without cookies, such as curl, gets the rate per request. The requests of an endpoint that overrides `bandwidth` share the rate of the override among themselves and leave the global rate to the other requests. Cookies do not tell ports apart, so the dev server and the app at `--host` receive the cookie too.
+The proxy also applies `bandwidth` itself. The requests of 1 browser share the rate, as the requests of 1 device share its network. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets and removes from the requests the app gets. The tabs of a browser share the rate, and a private window gets its own. A client without cookies, such as curl, gets the rate per request. An endpoint that overrides `bandwidth` shares its own rate among its requests. Cookies ignore ports, which sends the cookie to `--host` too.
 
-A preset is a named set of global toxics and endpoint overrides. The preset combobox in the header of the settings page applies one, which makes the global toxics and the overrides those of the preset. It lists the built-in presets No throttling first and Offline last, and the presets of `datapages.yaml` between them. It shows the preset that gives every endpoint the toxics it gets, else "Custom". An override that changes nothing counts as none. Its last option opens a dialog that creates a preset from the current toxics and overrides or from a copy of a preset and applies it. The dialog copies the presets of `datapages.yaml`, which it marks with the name of the application, and the presets of Datapages. The button in the option of a preset of `datapages.yaml` deletes the preset after a confirmation. All of them are the network presets of Chrome DevTools, and `datapages init` writes the presets of Datapages into `presets`:
+The preset combobox in the header of the settings page applies a preset, which replaces the global toxics and the overrides. It lists No throttling first, Offline last and the presets of `datapages.yaml` between them. It selects the preset the current toxics match, else "Custom". Its last option creates a preset from the current toxics and overrides or from a copy of a preset of `datapages.yaml` or of Datapages. A preset of `datapages.yaml` has a button that deletes it after a confirmation. The presets mirror the network presets of Chrome DevTools, and `datapages init` writes those of Datapages into `presets`:
 
-| Preset        | Toxics                                                                                   |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| No throttling | Built in. None.                                                                          |
-| Fast 4G       | Datapages. `latency` 165ms downstream, `bandwidth` 1013 KB/s downstream and 169 KB/s upstream. |
-| Slow 4G       | Datapages. `latency` 563ms downstream, `bandwidth` 180 KB/s downstream and 84 KB/s upstream. |
-| 3G            | Datapages. `latency` 2000ms downstream, `bandwidth` 50 KB/s downstream and upstream.     |
+| Preset        | Toxics                                                                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| No throttling | Built in. None.                                                                                                                                 |
+| Fast 4G       | Datapages. `latency` 165ms downstream, `bandwidth` 1013 KB/s downstream and 169 KB/s upstream.                                                  |
+| Slow 4G       | Datapages. `latency` 563ms downstream, `bandwidth` 180 KB/s downstream and 84 KB/s upstream.                                                    |
+| 3G            | Datapages. `latency` 2000ms downstream, `bandwidth` 50 KB/s downstream and upstream.                                                            |
 | Offline       | Built in. `reset-peer` with a `timeout` of 0s downstream and upstream. A request ends before the app gets it, an open stream at its next event. |
 
-The values are those of Chrome rounded to whole milliseconds and KB/s. Chrome shares the bandwidth among the requests of a tab, the proxy among the requests of a browser. A preset of your own lists its toxics as `toxics` does and its overrides as `endpoints` does:
+The values are those of Chrome, rounded to whole milliseconds and KB/s. Chrome shares the bandwidth per tab, the proxy per browser. A preset of your own takes `toxics` and `endpoints` as `watch.toxiproxy` does:
 
 ```yaml
 watch:
@@ -595,19 +595,19 @@ watch:
 
 An endpoint key is the [`net/http.ServeMux`](https://pkg.go.dev/net/http#ServeMux) pattern the generated server registers, method included:
 
-| Endpoint                   | Pattern                      |
-| -------------------------- | ---------------------------- |
-| Index page                 | `GET /`                      |
-| Page `/post/{slug}/`       | `GET /post/{slug}/{$}`       |
-| Its stream                 | `GET /post/{slug}/_$/{$}`    |
-| Its action `POSTLike`      | `POST /post/{slug}/like/{$}` |
-| Assets under `/static/`    | `GET /static/`               |
+| Endpoint                | Pattern                      |
+| ----------------------- | ---------------------------- |
+| Index page              | `GET /`                      |
+| Page `/post/{slug}/`    | `GET /post/{slug}/{$}`       |
+| Its stream              | `GET /post/{slug}/_$/{$}`    |
+| Its action `POSTLike`   | `POST /post/{slug}/like/{$}` |
+| Assets under `/static/` | `GET /static/`               |
 
-The settings page lists the patterns of the application. The proxy finds the endpoint of a request the way the generated server does, and reads the endpoints again after every `datapages gen`. A request that matches no endpoint gets the global toxics. `datapages lint` reports an endpoint key of `endpoints` or of a preset that names no route of any application of the module, unless `disabled` is set, and `datapages watch` warns about one.
+The settings page lists the patterns of the application. The proxy matches a request to an endpoint as the generated server does and reads the endpoints again after every `datapages gen`. A request that matches none gets the global toxics. Unless `watch.toxiproxy.disabled` is set, `datapages lint` reports an endpoint key, also one of a preset, that names no route of any application of the module, and `datapages watch` warns about it.
 
-The proxy passes each request to the development server on a connection of its own, which applies `toxicity` and the toxics that end a connection per request. It keeps the `Host` header of the browser. A toxic that ends the connection to the development server ends the connection to the browser without a response. `/__templier/events`, which reloads the page after a rebuild, passes without toxics. With `watch.tls`, the proxy serves HTTPS with the same certificate.
+Each request reaches the development server on a connection of its own, which applies `toxicity` and the toxics that end a connection per request. The proxy keeps the `Host` header of the browser. A toxic that ends the connection to the development server ends the connection to the browser without a response. `/__templier/events`, which reloads the page after a rebuild, bypasses the toxics. With `watch.tls`, the proxy serves HTTPS with the same certificate.
 
-The proxy connects to `--host`, which needs a fixed port. `host` and `ui-host` need ports other than those of `--host` and `watch.app-host`. With a `watch.toxiproxy` section, a problem that keeps the proxy from starting, such as a port in use, fails `datapages watch`. Without the section, `datapages watch` prints a warning and runs without the proxy. A `--host` with port 0 turns the proxy off, with a warning when `datapages.yaml` configures it.
+The proxy connects to `--host`, and a `--host` with port 0 turns it off, with a warning when `datapages.yaml` configures it. `host` and `ui-host` need ports other than those of `--host` and `watch.app-host`. When the proxy cannot start, as on a port in use, `datapages watch` fails if `datapages.yaml` has a `watch.toxiproxy` section and otherwise warns and runs without the proxy.
 
 ## Use the generated agent instructions
 

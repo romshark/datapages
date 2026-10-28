@@ -6,15 +6,13 @@ import (
 	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/action"
 )
 
-// presetPicker is the combobox of the header that applies a preset to the
-// global toxics. It selects the preset they match, else it shows "Custom".
-// The button in the option of a preset asks to delete it, and the last option
-// opens the dialog of a new preset. Its options carry a label, which the
-// trigger shows in place of their rows.
+// presetPicker is the header combobox that applies a preset. It selects the
+// preset the settings match, else it shows "Custom". The trigger shows the
+// label of an option in place of its row.
 templ presetPicker(d pageData) {
 	<div class="tp-preset-picker">
 		<span class="tp-small tp-muted" aria-hidden="true">Preset</span>
-		// The id lets a morph keep the focus a closed dialog returns to it.
+		// The id lets a morph keep the element a closed dialog returns the focus to.
 		@neo.ComboboxAttrs(pickerOpts(d.activePreset), templ.Attributes{
 			"id":                          "tp-preset-combobox",
 			"data-on:neo-combobox-change": pickPreset(d.activePreset),
@@ -32,7 +30,7 @@ templ presetPicker(d pageData) {
 								"aria-label":    "Delete the preset " + p.name,
 								"title":         "Delete the preset",
 								"data-on:click": askDeletePreset(p.name),
-								// Enter and space on an option pick it.
+								// Enter and space would also pick the option.
 								"data-on:keydown": "if (evt.key !== 'Enter' && evt.key !== ' ') return; " +
 									"evt.preventDefault(); " + askDeletePreset(p.name),
 							}) {
@@ -53,18 +51,16 @@ templ presetPicker(d pageData) {
 	</div>
 }
 
-// presetDialogs are the dialog of a new preset and the dialog that confirms
-// the deletion of the preset signal. Script opens them, and each has a hidden
-// trigger, which neo-dialog requires. A morph keeps a dialog open. It skips
-// the dialog of the deletion, whose name the preset signal fills in.
+// presetDialogs are the new preset dialog and the delete confirm dialog.
+// Script opens them. neo-dialog requires the hidden triggers. Morphs keep the
+// new preset dialog open and skip the delete dialog, whose name the preset
+// signal fills in.
 //
-// The fields of the dialog of a new preset post each change, and the tab
-// renders them with why the name is refused. neo-textinput leaves its focused
-// field alone, which keeps a render from undoing typing.
+// The new preset fields post each change, and the render shows why a name is refused.
+// neo-textinput ignores a new value while it has focus.
 //
-// neo-dialog gives the dialog, its title and its description generated ids
-// where they have none. A morph would not find those in the new page and
-// would replace the open dialog, which loses its focus.
+// Without fixed ids neo-dialog generates ids, which a morph does not find in
+// the new page. It would replace the open dialog and lose its focus.
 templ presetDialogs(d pageData) {
 	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
 		"id":                 "tp-preset-new",

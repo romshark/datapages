@@ -15,8 +15,8 @@ func endpoints(patterns ...string) []Endpoint {
 	return eps
 }
 
-// TestCheckEndpointKeys tests that an override of a route the app doesn't
-// have is reported, with the registered pattern of a route written without its {$}.
+// TestCheckEndpointKeys tests the error for an override of an unknown route,
+// which suggests the pattern with {$}.
 func TestCheckEndpointKeys(t *testing.T) {
 	eps := endpoints("GET /", "GET /post/{slug}/{$}")
 	const where = "watch.toxiproxy.endpoints"
@@ -31,8 +31,8 @@ func TestCheckEndpointKeys(t *testing.T) {
 	require.ErrorContains(t, err, `no endpoint has the pattern "DELETE /gone/{$}"`)
 }
 
-// TestRouteTableMatch tests that a request finds the endpoint the mux of the
-// generated server would serve it with, and none for a redirect.
+// TestRouteTableMatch tests that a request matches the endpoint the generated
+// server would serve it with, and none for a redirect.
 func TestRouteTableMatch(t *testing.T) {
 	table := newRouteTable(endpoints(
 		"GET /",
@@ -67,8 +67,7 @@ func TestRouteTableMatch(t *testing.T) {
 	}
 }
 
-// TestEndpointKind tests the kind the endpoint list files each handler under,
-// which its toggles filter by.
+// TestEndpointKind tests the kind of each handler.
 func TestEndpointKind(t *testing.T) {
 	for handler, want := range map[string]string{
 		"GET":           KindGET,
@@ -84,8 +83,7 @@ func TestEndpointKind(t *testing.T) {
 	}
 }
 
-// TestPatternKind tests the kind guessed for an override of
-// a pattern the app doesn't register.
+// TestPatternKind tests the kind guessed for a pattern the app does not register.
 func TestPatternKind(t *testing.T) {
 	for pattern, want := range map[string]string{
 		"GET /gone/{$}":         KindGET,

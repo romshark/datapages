@@ -10,9 +10,8 @@ import (
 
 const section = "toxics:\n  latency:\n    downstream:\n      latency: 5ms\n"
 
-// TestSetToxiproxy tests that the settings page replaces the watch.toxiproxy
-// section of the configuration file and leaves the rest of the file as it is,
-// and adds the section where the file has none.
+// TestSetToxiproxy tests that setToxiproxy replaces or adds the
+// watch.toxiproxy section and keeps the rest of the file.
 func TestSetToxiproxy(t *testing.T) {
 	for name, tc := range map[string]struct {
 		src, section, want string
@@ -84,8 +83,9 @@ watch:
 	}
 }
 
-// TestSetToxiproxyFile tests the file SetToxiproxy writes: the one the module
-// has, datapages.yaml without one, and none when the result would not load.
+// TestSetToxiproxyFile tests that SetToxiproxy writes the existing
+// configuration file, datapages.yaml when there is none, and nothing when the
+// result would not load.
 func TestSetToxiproxyFile(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, SetToxiproxy(dir, section))

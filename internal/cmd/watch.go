@@ -409,8 +409,8 @@ func mapWatcherRequires(r config.WatcherRequires) engine.ActionType {
 // and generates no code for a call naming the wrong session type. A fix to the
 // call has to regenerate.
 //
-// The configuration file is none of them: gen reads only cmd from it, for an
-// entry point to scaffold, which watch builds from where it started.
+// It omits the configuration file. gen reads only cmd from it, to scaffold an
+// entry point, and watch keeps the cmd it started with.
 func watchInclude(r serverscan.Result) []string {
 	include := make([]string, 0, len(r.Apps))
 	for _, a := range r.Apps {
@@ -425,10 +425,10 @@ func watchInclude(r serverscan.Result) []string {
 	return include
 }
 
-// appExclude returns exclude with the configuration file, which configures
-// the CLI, not the app, and which watch reads when it starts. A change of it,
-// as the Toxiproxy settings page saves, would restart the app for nothing,
-// which loses what the app holds in memory. Custom watchers still see it.
+// appExclude returns exclude plus the configuration file names. The file
+// configures the CLI, not the app, and a save of the Toxiproxy settings page
+// must not restart the app and lose what it holds in memory. Custom watchers
+// still see the file.
 func appExclude(exclude []string) []string {
 	return append(slices.Clone(exclude), config.FileNames()...)
 }

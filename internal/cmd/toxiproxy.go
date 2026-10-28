@@ -78,16 +78,14 @@ func serveUntil(
 	return err
 }
 
-// startToxiproxy binds the Toxiproxy front in front of the dev server at host
-// and its settings page, which calls the app name. tp is watch.toxiproxy,
-// nil without the section.
+// startToxiproxy binds the Toxiproxy front of the dev server at host and its
+// settings page, which shows the app as name. tp is watch.toxiproxy, nil
+// without the section.
 //
-// With the section, a problem fails the start. Without it, the proxy is
-// something the user did not ask for: a problem turns it off with a warning,
-// and startToxiproxy returns nil.
-//
-// An endpoint the overrides name that the app does not have is a warning:
-// the app may be mid-edit.
+// With the section, a problem fails the start. Without it, a problem turns
+// the proxy off with a warning and startToxiproxy returns nil, nil.
+// An override of an endpoint the app lacks is a warning, because the app may
+// be mid-edit.
 func startToxiproxy(
 	moduleDir string, app serverscan.App, name string, tp *config.WatchToxiproxy,
 	host string, appHost *url.URL, tlsConf *config.WatchTLS,
@@ -110,9 +108,9 @@ func startToxiproxy(
 		upstream.Scheme = "https"
 	}
 	if upstream.Port() == "0" {
-		// Tests pick the port of the dev server at random, which leaves no port
-		// to proxy to. The default datapages.yaml configures the proxy, which
-		// must not keep such a test from running.
+		// Tests run the dev server on a random port, which the proxy cannot
+		// know. The default datapages.yaml has the section, which must not
+		// fail such a test.
 		if configured {
 			_, _ = fmt.Fprintf(stderr, "warning: toxiproxy is off: it needs the port "+
 				"of --host %s, which is picked at random\n", host)
@@ -133,8 +131,8 @@ func startToxiproxy(
 			return fail(fmt.Errorf("%w; set watch.toxiproxy.ui-host", err))
 		}
 	}
-	// The proxy binds first. On a port of its own, the dev server or the app
-	// would fail to start and report another watch as the cause.
+	// The proxy binds before the dev server and the app. On 1 of their ports it
+	// makes them fail with an error that names another watch as the cause.
 	for _, h := range []struct{ name, addr string }{
 		{name: "watch.toxiproxy.host", addr: proxyHost},
 		{name: "watch.toxiproxy.ui-host", addr: uiHost},
@@ -215,8 +213,8 @@ func startToxiproxy(
 			}
 			return toxic.Endpoints(m), nil
 		},
-		// The settings page renders the endpoints again, as for an event its
-		// own actions dispatch.
+		// The settings page renders again on the event its own actions
+		// dispatch.
 		EndpointsChanged: func() {
 			err := broker.Publish(context.Background(), messaging.NoopMetrics{},
 				datapagesgen.EvSubjChanged, []byte("{}"))
@@ -239,16 +237,14 @@ func startToxiproxy(
 
 	base := url.URL{Scheme: upstream.Scheme, Host: conf.Host}
 	settings := url.URL{Scheme: upstream.Scheme, Host: conf.UIHost, Path: "/"}
-	// The engine logs its own address only above the default log level.
-	// The proxy and its settings page are addresses a user could not find otherwise.
+	// Printed at every log level, because these addresses appear nowhere else.
 	_, _ = fmt.Fprintf(stderr, "toxiproxy: %s (settings: %s)\n", &base, &settings)
 	return t, nil
 }
 
-// appName is what the settings page calls app: the last element of the module
-// path without a major version, as in "todolist", followed by the directory of
-// the app package when the module has more than 1 app, as in
-// "counter/app/simple".
+// appName returns the name the settings page shows for app, the last element
+// of the module path without a major version, as in "todolist". With more
+// than 1 app it adds the app directory, as in "counter/app/simple".
 func appName(modulePath string, app serverscan.App, apps int) string {
 	prefix, _, _ := module.SplitPathVersion(modulePath)
 	name := path.Base(prefix)
@@ -274,20 +270,19 @@ func newSettingsServer(
 	](
 		a,
 		broker,
-		// The files as they are, also in dev mode, which a shell of the user
-		// can turn on for this process. Dev mode reads WithAssets files from
-		// the source tree, which is not next to an installed CLI.
+		// Not WithAssets, which reads from the source tree in dev mode. The
+		// user's shell can turn dev mode on for this process, and an
+		// installed CLI has no source tree.
 		datapages.WithAssetsFS(http.FS(static), false),
 		datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
 		datapages.WithLogger(logger),
-		// The page serves the browser of the developer, on the same machine.
+		// The browser runs on the same machine, where compression saves nothing.
 		datapages.WithNoResponseCompression(),
 		datapages.WithNoAssetsCompression(),
 	)
 }
 
-// boundAddr returns addr, or the address ln bound when addr asks for a port
-// at random.
+// boundAddr returns addr, or the address of ln when addr has port 0.
 func boundAddr(addr string, ln net.Listener) string {
 	if _, port, _ := net.SplitHostPort(addr); port == "0" {
 		return ln.Addr().String()
@@ -295,9 +290,8 @@ func boundAddr(addr string, ln net.Listener) string {
 	return addr
 }
 
-// defaultUIHost returns the address of the settings page of the front at
-// proxyHost: the port after that of the front, or a port at random when
-// the front has one.
+// defaultUIHost returns proxyHost with the next port, or with port 0 when
+// proxyHost has port 0.
 func defaultUIHost(proxyHost string) (string, error) {
 	if h, port, err := net.SplitHostPort(proxyHost); err == nil && port == "0" {
 		return net.JoinHostPort(h, "0"), nil
@@ -319,8 +313,8 @@ func nextPort(host string) (string, error) {
 	return net.JoinHostPort(h, strconv.FormatUint(n+1, 10)), nil
 }
 
-// checkEndpointKeys reports the keys of watch.toxiproxy.endpoints and of the
-// endpoints of its presets that name no endpoint in eps.
+// checkEndpointKeys reports the override keys of tp and of its presets that
+// name no endpoint in eps.
 func checkEndpointKeys(tp *config.WatchToxiproxy, eps []toxic.Endpoint) error {
 	errs := []error{
 		toxic.CheckEndpointKeys("watch.toxiproxy.endpoints", endpointKeys(tp.Endpoints), eps),
@@ -332,7 +326,7 @@ func checkEndpointKeys(tp *config.WatchToxiproxy, eps []toxic.Endpoint) error {
 	return errors.Join(errs...)
 }
 
-// endpointKeys returns the route patterns of the overrides e, sorted.
+// endpointKeys returns the keys of e, sorted.
 func endpointKeys(e map[config.EndpointPattern]config.Toxics) []string {
 	keys := make([]string, 0, len(e))
 	for k := range e {

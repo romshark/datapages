@@ -27,9 +27,9 @@ type Config struct {
 	// Host is the address the front listens on.
 	Host string
 
-	// HostSet reports whether watch.toxiproxy.host sets Host. The YAML the
-	// settings page shows repeats it only then, which keeps the default port,
-	// the one after the dev server, following the dev server.
+	// HostSet reports whether watch.toxiproxy.host sets Host. Only then does
+	// the settings page save Host, which keeps the default port following the
+	// port of the dev server.
 	HostSet bool
 
 	// UIHost is the address the settings page listens on,
@@ -43,8 +43,8 @@ type Config struct {
 	// AppName is what the settings page calls the app, as in "todolist".
 	AppName string
 
-	// TLSCert and TLSKey, when set, make the front serve HTTPS with the
-	// certificate the dev server serves.
+	// TLSCert and TLSKey make the front serve HTTPS with the certificate of
+	// the dev server.
 	TLSCert, TLSKey string
 
 	// Settings are the toxics the front starts with.
@@ -53,37 +53,33 @@ type Config struct {
 	// Endpoints are the endpoints of the app the front starts with.
 	Endpoints []Endpoint
 
-	// ConfigFile is the name of the configuration file, which the settings
-	// page shows. Empty means "datapages.yaml".
+	// ConfigFile is the name of the configuration file the settings page
+	// shows. Empty means "datapages.yaml".
 	ConfigFile string
 
-	// ReloadSettings returns the settings of the configuration file.
-	// The settings page calls it to discard the changes made on it.
+	// ReloadSettings reads the settings from the configuration file.
 	ReloadSettings func() (Settings, error)
 
-	// WriteConfig writes section, the keys of watch.toxiproxy as YAML without
-	// indentation, into the configuration file. The settings page calls it to
-	// save the changes made on it.
+	// WriteConfig writes section, the unindented YAML of the keys of
+	// watch.toxiproxy, into the configuration file.
 	WriteConfig func(section string) error
 
-	// GenFile is a file the generator writes on every run.
-	// A change of its modification time makes the front call [Config.LoadEndpoints].
+	// GenFile is a file the generator writes on every run. The front calls
+	// [Config.LoadEndpoints] when its modification time changes.
 	GenFile string
 
 	// LoadEndpoints returns the endpoints of the app as its source declares them.
 	LoadEndpoints func() ([]Endpoint, error)
 
-	// EndpointsChanged, when set, runs after the front took the endpoints
-	// [Config.LoadEndpoints] returned.
+	// EndpointsChanged, when set, runs after the front applies reloaded endpoints.
 	EndpointsChanged func()
 
 	Logger *slog.Logger
 }
 
-// Front is the HTTP server of watch.toxiproxy.host. It passes each request
-// through the Toxiproxy proxy of its endpoint to the dev server, and applies
-// the [Bandwidth] and [HTTPError] toxics itself. The settings page reads and
-// changes its settings.
+// Front is the HTTP server of watch.toxiproxy.host. It passes each request to
+// the dev server through the Toxiproxy proxy of its endpoint and applies the
+// [Bandwidth] and [HTTPError] toxics itself.
 type Front struct {
 	conf    Config
 	log     *slog.Logger
@@ -95,8 +91,7 @@ type Front struct {
 	lock     sync.Mutex
 	settings Settings
 
-	// genModTime is the modification time of conf.GenFile
-	// the endpoints were last loaded at.
+	// genModTime is the modification time of conf.GenFile when [New] ran.
 	genModTime time.Time
 
 	forward *httputil.ReverseProxy
@@ -106,22 +101,21 @@ type Front struct {
 	transports     map[string]*http.Transport // by proxy address
 }
 
-// addrKey is the context key of the address of
-// the Toxiproxy proxy a request passes through.
+// addrKey is the context key of the Toxiproxy proxy address of a request.
 type addrKey struct{}
 
-// replaceKey is the context key of the [replacement] of the response to a request.
+// replaceKey is the context key of the [replacement] of a response.
 type replaceKey struct{}
 
-// replacement is the status of the downstream [HTTPError] toxic that applies
-// to a request. atHead is set for the stream of a page, whose response doesn't end.
+// replacement is the status of the downstream [HTTPError] toxic of a request.
+// atHead is set for the stream of a page, whose response does not end.
 type replacement struct {
 	status int
 	atHead bool
 }
 
 // frontToxics maps the route pattern of an endpoint with overrides to the toxics
-// the [Front] applies to its requests, and "" to those of every other request.
+// the [Front] applies to it, and "" to those of every other request.
 type frontToxics map[string][]frontToxic
 
 // frontToxic is 1 toxic the [Front] applies. scope is the route pattern of
@@ -139,8 +133,7 @@ func newFrontToxics(s Settings) *frontToxics {
 	return &t
 }
 
-// scoped returns the toxics a of the endpoint with the pattern and the
-// overrides o, each with its scope.
+// scoped returns a with the scope pattern on each toxic that o overrides.
 func scoped(pattern string, o Set, a []active) []frontToxic {
 	t := make([]frontToxic, len(a))
 	for i, x := range a {
@@ -152,8 +145,7 @@ func scoped(pattern string, o Set, a []active) []frontToxic {
 	return t
 }
 
-// toxic returns the toxic of the slot that applies to a request of
-// the endpoint with the pattern, ok false for none.
+// toxic returns the toxic of slot that applies to the endpoint with pattern.
 func (t frontToxics) toxic(pattern string, slot Slot) (_ frontToxic, ok bool) {
 	toxics, ok := t[pattern]
 	if !ok {
@@ -167,9 +159,8 @@ func (t frontToxics) toxic(pattern string, slot Slot) (_ frontToxic, ok bool) {
 	return frontToxic{}, false
 }
 
-// status returns the status of the [HTTPError] toxic of stream st that applies
-// to a request of the endpoint with the pattern, by its toxicity,
-// or 0 for none.
+// status rolls the toxicity of the [HTTPError] toxic of st for the endpoint
+// with pattern and returns its status, or 0 for none.
 func (t frontToxics) status(pattern string, st Stream) int {
 	x, ok := t.toxic(pattern, Slot{Type: HTTPError, Stream: st})
 	if !ok || rand.Float32() >= x.toxic.Toxicity {
@@ -186,9 +177,8 @@ func (e statusError) Error() string {
 	return "http-error toxic: status " + strconv.Itoa(int(e))
 }
 
-// writeStatus answers with code the way the generated server answers an error
-// that no error page or RecoverError handles, with
-// [github.com/romshark/datapages/runtime/httpserve.WriteErrStatus].
+// writeStatus answers with code as
+// [github.com/romshark/datapages/runtime/httpserve.WriteErrStatus] does.
 func writeStatus(w http.ResponseWriter, code int) {
 	http.Error(w, http.StatusText(code), code)
 }
@@ -225,8 +215,7 @@ func New(conf Config) (*Front, error) {
 	f.forward = &httputil.ReverseProxy{
 		Rewrite:   f.rewrite,
 		Transport: roundTripFunc(f.roundTrip),
-		// Toxics such as bandwidth shape the stream of the response.
-		// Buffering it would hide them.
+		// Buffering would hide how toxics such as slicer shape the response.
 		FlushInterval:  -1,
 		ModifyResponse: f.replace,
 		ErrorHandler:   f.abort,
@@ -252,9 +241,9 @@ func hostPort(u *url.URL) string {
 	return net.JoinHostPort(host, port)
 }
 
-// rewrite keeps the Host header of the browser. The app sees the origin
-// the browser sees, which the cross-origin check of the generated server
-// compares the Origin header against. The app does not see the profile cookie.
+// rewrite keeps the Host header of the browser, which the cross-origin check
+// of the generated server compares the Origin header against. It removes the
+// profile cookie.
 func (f *Front) rewrite(r *httputil.ProxyRequest) {
 	r.SetURL(f.conf.Upstream)
 	r.Out.Host = r.In.Host
@@ -270,11 +259,9 @@ func (f *Front) roundTrip(r *http.Request) (*http.Response, error) {
 	return f.transport(addr).RoundTrip(r)
 }
 
-// transport returns the transport that connects to addr only.
-//
-// Toxiproxy decides per connection whether a toxic applies, by its toxicity,
-// and some toxics, such as limit-data, end the connection. Without keep-alive
-// every request gets a connection of its own, and the toxics of its endpoint.
+// transport returns the transport that connects to addr only. It disables
+// keep-alive because Toxiproxy rolls the toxicity per connection and some
+// toxics, such as limit-data, end the connection.
 func (f *Front) transport(addr string) *http.Transport {
 	f.transportsLock.Lock()
 	defer f.transportsLock.Unlock()
@@ -287,9 +274,8 @@ func (f *Front) transport(addr string) *http.Transport {
 			return dialer.DialContext(ctx, "tcp", addr)
 		},
 		DisableKeepAlives: true,
-		// The dev server presents the certificate of watch.tls, which may be
-		// self-signed. It runs in this process, which serves the same
-		// certificate to the browser.
+		// The dev server runs in this process and presents the certificate of
+		// watch.tls, which may be self-signed.
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true, //nolint:gosec // see above
 		},
@@ -298,10 +284,9 @@ func (f *Front) transport(addr string) *http.Transport {
 	return t
 }
 
-// replace returns the [statusError] of the [replacement] of the response,
-// if any, for [Front.abort] to answer with. It first reads the response to its
-// end, which lets the app finish an action that flushed its head before it ran.
-// It doesn't wait for a stream, whose response doesn't end.
+// replace returns the [statusError] of the [replacement] of resp, if any. It
+// first reads resp to its end, which lets the app finish an action that
+// flushed its head before it ran. It does not read a stream, which never ends.
 func (f *Front) replace(resp *http.Response) error {
 	rep, ok := resp.Request.Context().Value(replaceKey{}).(replacement)
 	if !ok {
@@ -316,8 +301,8 @@ func (f *Front) replace(resp *http.Response) error {
 }
 
 // abort answers with the status of a [statusError]. Any other error ends the
-// connection to the browser, as when a toxic reset the one to the dev server.
-// A 502 page would read as a response of the app to the request.
+// connection to the browser, because a 502 page would look like a response of
+// the app.
 func (f *Front) abort(w http.ResponseWriter, r *http.Request, err error) {
 	if code, ok := errors.AsType[statusError](err); ok {
 		writeStatus(w, int(code))
@@ -333,8 +318,7 @@ func (f *Front) abort(w http.ResponseWriter, r *http.Request, err error) {
 func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case config.TemplierEventsPath:
-		// A toxic on the reload connection would show the reconnect overlay
-		// of the dev server and reload the page in a loop.
+		// Toxics on the reload connection would reload the page in a loop.
 		f.direct.ServeHTTP(w, r)
 	default:
 		id, set := profile(r)
@@ -371,8 +355,7 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Close stops the Toxiproxy proxies, which [New] started.
-// [Front.Serve] calls it when it returns.
+// Close stops the Toxiproxy proxies. [Front.Serve] calls it on return.
 func (f *Front) Close() { f.proxies.close() }
 
 // Serve serves the front on ln until ctx is done, then stops the proxies.
@@ -399,7 +382,7 @@ func (f *Front) Serve(ctx context.Context, ln net.Listener) error {
 	var err error
 	select {
 	case <-ctx.Done():
-		// Close, not Shutdown: SSE streams would hold Shutdown until its timeout.
+		// Open SSE streams would block Shutdown.
 		_ = srv.Close()
 		err = <-errc
 	case err = <-errc:
@@ -411,7 +394,6 @@ func (f *Front) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 // pollEndpoints reloads the endpoints whenever conf.GenFile changes.
-// The generator rewrites the file after every change to the app package.
 func (f *Front) pollEndpoints(ctx context.Context, interval time.Duration) {
 	if f.conf.GenFile == "" || f.conf.LoadEndpoints == nil {
 		return
@@ -443,8 +425,8 @@ func (f *Front) pollEndpoints(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// setEndpoints routes the requests by eps, each endpoint through its proxy.
-// It starts the proxies of the new endpoints before a request can match one.
+// setEndpoints routes requests by eps. It starts the proxies of new endpoints
+// before a request can match them.
 func (f *Front) setEndpoints(eps []Endpoint) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -535,8 +517,8 @@ func (f *Front) Saved() bool {
 	return s.YAML(0, patterns) == f.Settings().YAML(0, patterns)
 }
 
-// section returns the keys of watch.toxiproxy at indent spaces: the addresses
-// the configuration file sets, and the settings. Empty for none.
+// section returns the keys of watch.toxiproxy indented by indent spaces, the
+// addresses only where the configuration file sets them.
 func (f *Front) section(indent int) string {
 	var b strings.Builder
 	pad := strings.Repeat(" ", indent)
@@ -553,7 +535,6 @@ func (f *Front) section(indent int) string {
 // patterns returns the patterns of the endpoints, in the order of the YAML.
 func (f *Front) patterns() []string { return patternsOf(f.Endpoints()) }
 
-// patternsOf returns the patterns of eps.
 func patternsOf(eps []Endpoint) []string {
 	patterns := make([]string, len(eps))
 	for i, e := range eps {
@@ -580,8 +561,8 @@ func (f *Front) Update(change func(*Settings) error) error {
 		return err
 	}
 	if err := f.proxies.apply(s, f.patterns()); err != nil {
-		// Toxiproxy validated each toxic the way Validate does,
-		// so this reports a bug rather than input. Keep what it accepted.
+		// [Toxic.Validate] matches the checks of Toxiproxy, which makes this
+		// error a bug. Keep the toxics Toxiproxy accepted.
 		f.log.Error("toxiproxy: " + err.Error())
 	}
 	f.settings = s

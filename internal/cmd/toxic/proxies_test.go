@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestProxiesPerEndpoint tests that every endpoint has a proxy of its own,
-// which keeps its address while its overrides come and go, and stops with the endpoint.
-// A request that matches no endpoint passes through the global proxy.
+// TestProxiesPerEndpoint tests that each endpoint keeps its own proxy while its
+// overrides change, until the endpoint is gone, and that other requests use the
+// global proxy.
 func TestProxiesPerEndpoint(t *testing.T) {
-	// Nothing connects, which leaves the upstream undialed.
+	// No request dials the upstream.
 	p, err := newProxies("127.0.0.1:1")
 	require.NoError(t, err)
 	t.Cleanup(p.close)
@@ -42,8 +42,7 @@ func TestProxiesPerEndpoint(t *testing.T) {
 }
 
 // TestFrontOverrideOpenStream tests that a change of the overrides of an
-// endpoint applies to its open stream: a reset added for the endpoint ends the
-// stream at its next event, and a toxic removed from it leaves the stream open.
+// endpoint applies to its open stream, which ends only if the change adds a reset.
 func TestFrontOverrideOpenStream(t *testing.T) {
 	const stream = "GET /_$/{$}"
 	for name, tc := range map[string]struct {
@@ -89,9 +88,9 @@ func TestFrontOverrideOpenStream(t *testing.T) {
 				close(done)
 				_ = resp.Body.Close()
 			})
-			// events receives nil for each event, then the error that ended the stream,
-			// [io.ErrUnexpectedEOF] when it ended cleanly. The stream of the upstream
-			// doesn't end, so either way the front ended it.
+			// events receives nil for each event, then the error that ended
+			// the stream, [io.ErrUnexpectedEOF] for a clean end. The upstream
+			// never ends it.
 			events := make(chan error)
 			send := func(err error) bool {
 				select {

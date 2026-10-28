@@ -55,8 +55,8 @@ Internal, used by the CLI and build tooling:
 - `internal/templatingbench/` - the templating benchmarks `FAQ.md` quotes.
 - `internal/cmd/` - CLI command implementations, `package cmd`.
   - `config/` - the `datapages.yaml` schema and its validation.
-  - `toxic/` - the Toxiproxy front of `datapages watch`: the HTTP server of `watch.toxiproxy.host`, 1 Toxiproxy proxy per endpoint with overrides, and the settings they apply.
-    - `ui/` - the settings page of the front, a Datapages application with templ and the Morpheus UI kit. Its `README.md` explains how to work on it.
+  - `toxic/` - the Toxiproxy front of `datapages watch`: the HTTP server of `watch.toxiproxy.host`, 1 Toxiproxy proxy per endpoint, and the settings.
+    - `ui/` - the settings page, a Datapages application with templ and the Morpheus UI kit. See its `README.md`.
 - `internal/tools/render-pages/` - renders `docs/index.html`.
 - `internal/tools/release-notes/` - prints the section of `CHANGELOG.md` that the release workflow publishes for a tag.
 - `internal/tools/genapp/` - generates the `datapagesgen` of an app package of this module. `datapages gen` refuses this module because its runtime packages import each other.
@@ -127,7 +127,7 @@ Never edit a generated file. Change the source or the generator, then regenerate
 - In every `example/*` module: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and everything under `.agents/skills/` and `.claude/skills/`. Written by `datapages init` from `internal/generator/agentdocs/data`. `mage genAISkills` runs it in every example to catch drift.
 - `docs/index.html`: written by `internal/tools/render-pages` from `internal/docs-src/`. `mage genDocs`.
 - `modules/offline/sw.min.js`: minified from `sw.js` next to it. `mage genOfflineWorker`. The module embeds the minified file, which is why it is committed: `go build` cannot run the target.
-- `internal/cmd/toxic/ui/static/morpheus/`: the Morpheus bundle of the components the settings page renders, at the version `go.mod` requires. `mage genMorpheus`. Add a component to the list in `magefiles/mage.go` before the page renders it.
+- `internal/cmd/toxic/ui/static/morpheus/`: the Morpheus bundle of the components the settings page renders, at the version `go.mod` requires. `mage genMorpheus`. Add a new component to the list in `magefiles/mage.go` first.
 - `mage gen` runs all of them.
 
 Any change to the generator requires `mage genDatapages` in the same commit. `TestExamplesAreUpToDate` (`internal/generator/generator_test.go:45`) and the acceptance tests regenerate and diff against the committed output, and report `run: mage genDatapages` when it differs, is missing or is no longer generated.

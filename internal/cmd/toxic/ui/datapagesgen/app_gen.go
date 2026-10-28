@@ -513,14 +513,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	body, err := p.GET(
+	body := p.GET(
 		r,
 		query,
 	)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
-		return
-	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {

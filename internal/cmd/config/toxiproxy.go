@@ -9,50 +9,47 @@ import (
 	"time"
 )
 
-// TemplierEventsPath is the endpoint the script the dev server injects into
-// every page connects to for reloads. The Toxiproxy front forwards it without toxics.
+// TemplierEventsPath is the reload endpoint of the script the dev server
+// injects into every page. The Toxiproxy front forwards it without toxics.
 const TemplierEventsPath = "/__templier/events"
 
-// WatchToxiproxy configures the proxy watch mode serves next to the dev server.
-// A request to Host passes through Toxiproxy on its way to the dev server,
-// which applies the configured toxics to its connection.
-// Watch mode runs the proxy without the section too, with its defaults.
+// WatchToxiproxy configures the proxy in front of the dev server, which
+// applies toxics to the requests sent to Host. Without the section, watch mode
+// runs the proxy with the defaults.
 type WatchToxiproxy struct {
 	// Disabled turns the proxy off.
 	Disabled bool `yaml:"disabled"`
 
-	// Host is the address the proxy listens on, as in "localhost:9090".
-	// Empty means the host of the dev server with the next port,
-	// "localhost:7332" for the default dev server.
+	// Host is the address of the proxy, as in "localhost:9090". Empty means
+	// the port after the dev server, "localhost:7332" by default.
 	Host string `yaml:"host"`
 
-	// UIHost is the address the settings page listens on.
-	// Empty means the host of Host with the next port.
+	// UIHost is the address of the settings page. Empty means the port after
+	// Host.
 	UIHost string `yaml:"ui-host"`
 
 	// Toxics apply to every endpoint that does not override them.
 	Toxics Toxics `yaml:"toxics"`
 
-	// Endpoints maps the route pattern of an endpoint, as the generated server
-	// registers it on its mux, to the toxics that replace the global toxic of
-	// the same type and stream for that endpoint.
+	// Endpoints maps the route pattern the generated server registers, as in
+	// "GET /post/{slug}/{$}", to toxics that replace the global ones of the
+	// same type and stream.
 	Endpoints map[EndpointPattern]Toxics `yaml:"endpoints"`
 
-	// Presets are named sets of global toxics and endpoint overrides, which the
-	// settings page applies in 1 step, between [PresetNoThrottling] and
-	// [PresetOffline], which it always has.
-	// [DefaultYAML] has the throttling presets of Chrome DevTools.
+	// Presets are named sets of toxics and endpoint overrides the settings
+	// page applies in 1 step. It lists them between the built-in
+	// [PresetNoThrottling] and [PresetOffline].
 	Presets []ToxiproxyPreset `yaml:"presets"`
 }
 
-// The presets the settings page always has, which Presets cannot name.
+// Built-in presets. [WatchToxiproxy.Presets] cannot use their names.
 const (
 	PresetNoThrottling = "No throttling"
 	PresetOffline      = "Offline"
 )
 
-// ToxiproxyPreset is 1 named set of global toxics and endpoint overrides,
-// which Toxics and Endpoints of [WatchToxiproxy] hold once it applies.
+// ToxiproxyPreset is a named set of toxics and endpoint overrides. Applying it
+// replaces Toxics and Endpoints of [WatchToxiproxy].
 type ToxiproxyPreset struct {
 	Name      string                     `yaml:"name"`
 	Toxics    Toxics                     `yaml:"toxics"`
@@ -117,9 +114,8 @@ func checkMuxPattern(pattern string) (err error) {
 	return nil
 }
 
-// Toxics are the toxics of 1 scope, the global one or 1 endpoint.
-// Each type acts on the downstream (response) and the upstream (request)
-// direction independently.
+// Toxics are the toxics of the global scope or of 1 endpoint. Each type has
+// its own downstream (response) and upstream (request) toxic.
 type Toxics struct {
 	Latency   *ToxicStreams[ToxicLatency]   `yaml:"latency"`
 	Bandwidth *ToxicStreams[ToxicBandwidth] `yaml:"bandwidth"`
@@ -131,21 +127,20 @@ type Toxics struct {
 	HTTPError *ToxicStreams[ToxicHTTPError] `yaml:"http-error"`
 }
 
-// ToxicStreams holds 1 toxic type per direction. A nil direction has no
-// toxic of the type, which an endpoint inherits from the global toxics.
+// ToxicStreams holds a toxic per direction. Nil means none, and on an endpoint
+// it means the global toxic applies.
 type ToxicStreams[T any] struct {
-	// Downstream acts on the data the server sends, the response.
+	// Downstream acts on the response.
 	Downstream *T `yaml:"downstream"`
 
-	// Upstream acts on the data the client sends, the request.
+	// Upstream acts on the request.
 	Upstream *T `yaml:"upstream"`
 }
 
 // ToxicBase holds the settings every toxic type has.
 type ToxicBase struct {
-	// Disabled turns the toxic off and keeps its other settings, which it then
-	// does not need. On an endpoint it turns off the global toxic of the same
-	// type and stream.
+	// Disabled turns the toxic off and makes its other settings optional. On
+	// an endpoint it turns off the global toxic of the same type and stream.
 	Disabled bool `yaml:"disabled"`
 
 	// Toxicity is the probability, from 0 to 1, that the toxic applies to
@@ -177,10 +172,9 @@ func (t ToxicLatency) Validate() error {
 	)
 }
 
-// ToxicBandwidth limits the rate of the data to Rate KB/s, which the requests
-// of 1 browser share. The requests of an endpoint that overrides it share
-// the rate of the override, apart from the others.
-// The proxy applies it, not Toxiproxy.
+// ToxicBandwidth limits the data to Rate KB/s, shared by the requests of 1
+// browser. An endpoint that overrides it has a rate of its own. The proxy
+// applies it, not Toxiproxy.
 type ToxicBandwidth struct {
 	ToxicBase `yaml:",inline"`
 	Rate      int64 `yaml:"rate"`
@@ -278,10 +272,9 @@ func (t ToxicLimitData) Validate() error {
 	return nil
 }
 
-// ToxicHTTPError answers the request with Status and the standard text of
-// Status. Upstream, the app never gets the request. Downstream, the app answers
-// it and the client gets Status in place of the response.
-// The proxy applies it, not Toxiproxy.
+// ToxicHTTPError answers with Status and its standard text. Upstream, the
+// request never reaches the app. Downstream, the app answers it and the client
+// gets Status instead. The proxy applies it, not Toxiproxy.
 type ToxicHTTPError struct {
 	ToxicBase `yaml:",inline"`
 	Status    int64 `yaml:"status"`
@@ -294,7 +287,8 @@ func (t ToxicHTTPError) Validate() error {
 	return nil
 }
 
-// checkMillis reports a duration Toxiproxy cannot take: it takes whole milliseconds.
+// checkMillis reports a duration other than 0 or more whole milliseconds,
+// which Toxiproxy requires.
 func checkMillis(name string, d time.Duration) error {
 	if d < 0 || d%time.Millisecond != 0 {
 		return fmt.Errorf("%s %s must be 0 or more whole milliseconds", name, d)

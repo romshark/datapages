@@ -24,8 +24,8 @@ type Endpoint struct {
 	Handler string
 }
 
-// Endpoints lists the routes the server generated for m registers,
-// in registration order, the assets last.
+// Endpoints lists the routes the generated server of m registers, in
+// registration order, the assets last.
 func Endpoints(m *model.App) []Endpoint {
 	if m == nil {
 		return nil
@@ -46,7 +46,7 @@ func Endpoints(m *model.App) []Endpoint {
 	return eps
 }
 
-// Kinds of endpoints, which the settings page filters the endpoints by.
+// Kinds of endpoints, which the settings page filters by.
 const (
 	KindGET    = "get"    // the GET handler of a page
 	KindStream = "stream" // the SSE stream of a page
@@ -67,8 +67,8 @@ func (e Endpoint) Kind() string {
 	return KindAction
 }
 
-// PatternKind guesses the kind of the endpoint of a pattern the app doesn't register,
-// which leaves no handler to tell from.
+// PatternKind guesses the kind of an endpoint from its pattern alone, for a
+// pattern the app does not register.
 func PatternKind(pattern string) string {
 	method, _, _ := strings.Cut(pattern, " ")
 	switch {
@@ -88,16 +88,16 @@ func (e Endpoint) Name() string {
 	return e.Owner + "." + e.Handler
 }
 
-// routeTable finds the endpoint a request is for the way the mux of
-// the generated server does.
+// routeTable matches a request to its endpoint as the mux of the generated
+// server does.
 type routeTable struct {
 	endpoints []Endpoint
 	mux       *http.ServeMux
 }
 
-// endpointHandler marks the endpoint a pattern of [routeTable.mux] belongs to.
-// [net/http.ServeMux.Handler] returns a path for the pattern of a redirect,
-// which only the handler tells apart from a match.
+// endpointHandler marks the endpoint of a pattern in [routeTable.mux]. Its type
+// tells a match from a redirect, for which [net/http.ServeMux.Handler] returns
+// a path in place of a pattern.
 type endpointHandler struct{ Endpoint }
 
 func (endpointHandler) ServeHTTP(http.ResponseWriter, *http.Request) {}
@@ -105,8 +105,7 @@ func (endpointHandler) ServeHTTP(http.ResponseWriter, *http.Request) {}
 func newRouteTable(eps []Endpoint) *routeTable {
 	t := &routeTable{endpoints: eps, mux: http.NewServeMux()}
 	for _, e := range eps {
-		// The generated server panics on the same pattern at startup,
-		// which leaves nothing to route to.
+		// The generated server fails at startup on a pattern that panics here.
 		func() {
 			defer func() { _ = recover() }()
 			t.mux.Handle(e.Pattern, endpointHandler{e})
@@ -115,8 +114,7 @@ func newRouteTable(eps []Endpoint) *routeTable {
 	return t
 }
 
-// match returns the endpoint r is for, or one with an empty pattern
-// when r is for none.
+// match returns the endpoint of r, or the zero Endpoint for none.
 func (t *routeTable) match(r *http.Request) Endpoint {
 	h, _ := t.mux.Handler(r)
 	if e, ok := h.(endpointHandler); ok {
@@ -125,8 +123,8 @@ func (t *routeTable) match(r *http.Request) Endpoint {
 	return Endpoint{}
 }
 
-// CheckEndpointKeys reports the keys of the endpoints of datapages.yaml at
-// where, as in "watch.toxiproxy.endpoints", that name no endpoint in eps.
+// CheckEndpointKeys reports each key that names no endpoint in eps. where is
+// the YAML path of the keys, as in "watch.toxiproxy.endpoints".
 func CheckEndpointKeys(where string, keys []string, eps []Endpoint) error {
 	var errs []error
 	for _, k := range keys {
@@ -144,7 +142,7 @@ func checkEndpointKey(where, key string, eps []Endpoint) error {
 		}
 	}
 	err := fmt.Errorf("%s: no endpoint has the pattern %q", where, key)
-	// The routes are written without the {$} the server registers them with.
+	// The app declares its routes without the {$} the generator adds.
 	trimmed := strings.TrimSuffix(key, "{$}")
 	for _, e := range eps {
 		if strings.TrimSuffix(e.Pattern, "{$}") == trimmed {

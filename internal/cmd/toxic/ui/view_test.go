@@ -16,13 +16,11 @@ func toxicWith(values ...int64) toxic.Toxic {
 	return x
 }
 
-// TestSetSlot tests the modes the settings page sets a slot to.
-// A toxic turned off or back to inherit keeps the values it had,
-// and an endpoint without overrides leaves no empty entry behind.
+// TestSetSlot tests setting the mode of a slot. A toxic turned off keeps its
+// values, and an endpoint without overrides leaves no empty entry.
 func TestSetSlot(t *testing.T) {
 	const ep = "GET /{$}"
 	disabled := func(x toxic.Toxic) toxic.Toxic { x.Disabled = true; return x }
-	// globalOnly returns settings with the global toxics g and no endpoints.
 	globalOnly := func(g toxic.Set) toxic.Settings {
 		return toxic.Settings{Global: g, Endpoints: map[string]toxic.Set{}}
 	}
@@ -82,8 +80,8 @@ func TestSetSlot(t *testing.T) {
 	}
 }
 
-// TestMatches tests the fuzzy search of the endpoint list: each term occurs
-// in order, ignoring case, and the terms independently of each other.
+// TestMatches tests that each search term matches as a case-insensitive
+// subsequence, independent of the other terms.
 func TestMatches(t *testing.T) {
 	const text = "POST /messages/sendmessage/{$} PageMessages.POSTSendMessage"
 	for query, want := range map[string]bool{
@@ -100,8 +98,8 @@ func TestMatches(t *testing.T) {
 	}
 }
 
-// TestPathParts tests the pieces of a route path the page colors:
-// wildcards, a wildcard that matches the rest, and the end anchor.
+// TestPathParts tests splitting route paths into literal text, wildcards and
+// the end anchor.
 func TestPathParts(t *testing.T) {
 	require.Equal(t, []pathPart{
 		{text: "/post/"},
@@ -117,8 +115,8 @@ func TestPathParts(t *testing.T) {
 	require.Equal(t, []pathPart{{text: "/odd/{"}}, pathParts("/odd/{"))
 }
 
-// TestFilter tests the kinds of the endpoint list: empty is every kind,
-// "none", which the page sends with no toggle pressed, is no kind.
+// TestFilter tests the kinds filter. Empty is every kind. "none", sent with no
+// toggle pressed, is no kind.
 func TestFilter(t *testing.T) {
 	for _, tc := range []struct {
 		kinds   string
@@ -140,19 +138,8 @@ func TestFilter(t *testing.T) {
 	require.False(t, f.shows(toxic.KindGET, "GET /{$}"))
 }
 
-// TestSummary tests the line an endpoint shows for the global toxic it
-// inherits, which leaves out the unit of a field without one.
-func TestSummary(t *testing.T) {
-	require.Equal(t, "Latency 300 ms, Jitter 0 ms, 100% of requests",
-		summary(toxic.Types[toxic.Latency], toxicWith(300, 0)))
-	half := toxicWith(503)
-	half.Toxicity = 0.5
-	require.Equal(t, "Status 503, 50% of requests",
-		summary(toxic.Types[toxic.HTTPError], half))
-}
-
-// TestStatusOptions tests the statuses the combobox offers: those net/http
-// names from 400 to 599, and a status datapages.yaml sets that it does not name.
+// TestStatusOptions tests that the combobox offers the statuses net/http names
+// from 400 to 599, plus an unnamed current status.
 func TestStatusOptions(t *testing.T) {
 	f := toxic.Types[toxic.HTTPError].Fields[0]
 	opts := statusOptions(f, 500)
@@ -167,9 +154,8 @@ func TestStatusOptions(t *testing.T) {
 	require.Contains(t, statusOptions(f, 499), unnamed)
 }
 
-// TestSetField tests setting 1 field of a toxic from the text of the page:
-// a field by its key, the percentage of requests affected, an empty field as 0,
-// and the errors shown in the row of the toxic.
+// TestSetField tests setting a field by key, the toxicity percentage,
+// an empty field as 0, and the errors.
 func TestSetField(t *testing.T) {
 	x := toxicWith(100, 50)
 	require.NoError(t, setField(&x, toxic.Latency, "jitter", " 20 "))

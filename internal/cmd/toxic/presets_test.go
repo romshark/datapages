@@ -11,7 +11,7 @@ import (
 )
 
 // TestDefaultPresets tests the presets against the formulas of Chrome DevTools,
-// in bytes per second and milliseconds, rounded to the units of Toxiproxy.
+// rounded to the units of Toxiproxy.
 func TestDefaultPresets(t *testing.T) {
 	chrome := []struct {
 		name              string
@@ -43,9 +43,8 @@ func TestDefaultPresets(t *testing.T) {
 	}
 }
 
-// TestAllPresets tests that No throttling, without toxics, comes before the presets of
-// the settings and Offline, which resets every connection, after them,
-// and that only those 2 count as built in.
+// TestAllPresets tests that No throttling comes before the presets of the
+// settings, Offline after them, and that only those 2 are built in.
 func TestAllPresets(t *testing.T) {
 	all := Settings{Presets: []Preset{{Name: "Train", Toxics: Set{}}}}.AllPresets()
 	none := map[string]Set{}
@@ -62,10 +61,8 @@ func TestAllPresets(t *testing.T) {
 	require.False(t, IsBuiltinPreset("Train"))
 }
 
-// TestActivePreset tests which preset the global toxics with the overrides
-// match, the built-in ones included: a toxic turned off counts as none, an
-// override that changes nothing as no override, any other difference matches
-// no preset, and of several presets that match, the one applied last.
+// TestActivePreset tests which preset, built-in ones included, the global
+// toxics and the overrides match.
 func TestActivePreset(t *testing.T) {
 	presets := append(DefaultPresets(),
 		Preset{Name: "Copy", Toxics: DefaultPresets()[1].Toxics})
@@ -122,9 +119,8 @@ func TestActivePreset(t *testing.T) {
 	}
 }
 
-// TestPresetCommands tests applying a preset, built in or not, which replaces
-// the global toxics and the overrides, creating one, which copies them and applies it,
-// and deleting one, which keeps the toxics. A built-in preset keeps its name and stays.
+// TestPresetCommands tests applying, creating and deleting presets, built-in
+// ones included.
 func TestPresetCommands(t *testing.T) {
 	s := Settings{
 		Global:    Set{limitDown: toxicWith(10)},
@@ -191,9 +187,8 @@ func TestPresetCommands(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoPreset)
 }
 
-// TestScaffoldPresets tests the datapages.yaml init writes: it has the presets
-// of Datapages and no toxics, which selects the built-in preset No throttling,
-// and it holds them as the settings page saves them, which a save leaves as they are.
+// TestScaffoldPresets tests that the datapages.yaml of init holds
+// [DefaultPresets] and no toxics, in the form the settings page saves.
 func TestScaffoldPresets(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, config.WriteDefault(dir))

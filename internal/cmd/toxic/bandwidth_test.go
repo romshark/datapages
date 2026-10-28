@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fetch reads the whole response to a request with the Cookie header cookie,
-// none when empty. It takes no [testing.T], which lets a goroutine call it.
+// fetch reads the whole response to a request with the Cookie header cookie.
+// It takes no [testing.T], which lets a goroutine call it.
 func fetch(
 	method, target, cookie string, body io.Reader,
 ) (*http.Response, string, error) {
@@ -36,9 +36,8 @@ func fetch(
 	return resp, string(b), err
 }
 
-// TestLinksReserve tests that data waits for what its link carries already,
-// that the links of another profile, scope or stream carry theirs at the same
-// time, and that a link done before now starts at now.
+// TestLinksReserve tests that data on a link queues behind earlier data, that
+// other links run in parallel, and that an idle link starts at now.
 func TestLinksReserve(t *testing.T) {
 	l := newLinks()
 	t0 := time.Unix(0, 0)
@@ -59,8 +58,8 @@ func TestLinksReserve(t *testing.T) {
 	require.Equal(t, ms(610), l.reserve(a, 1000, 100, ms(500)))
 }
 
-// TestLinksSweep tests that the links done by now go once there are more
-// than minSweep, and that a busy link stays.
+// TestLinksSweep tests that idle links are dropped once there are more than
+// minSweep, and that a busy link stays.
 func TestLinksSweep(t *testing.T) {
 	l := newLinks()
 	t0 := time.Unix(0, 0)
@@ -78,8 +77,7 @@ func TestLinksSweep(t *testing.T) {
 	require.Contains(t, l.free, last)
 }
 
-// TestRemoveCookie tests that the profile cookie leaves the Cookie header
-// and the other cookies stay.
+// TestRemoveCookie tests that only the profile cookie leaves the Cookie header.
 func TestRemoveCookie(t *testing.T) {
 	for name, tc := range map[string]struct{ in, want []string }{
 		"none":    {},
@@ -101,9 +99,8 @@ func TestRemoveCookie(t *testing.T) {
 	}
 }
 
-// TestFrontToxicsScope tests the scope of a toxic the front applies:
-// the endpoint that overrides it, else the global scope,
-// also for an endpoint that overrides another slot only.
+// TestFrontToxicsScope tests that a toxic of the front has the scope of the
+// endpoint that overrides its slot, else the global scope.
 func TestFrontToxicsScope(t *testing.T) {
 	toxics := *newFrontToxics(Settings{
 		Global: Set{rateDown: toxicWith(64)},
@@ -158,8 +155,8 @@ func TestFrontBandwidthShared(t *testing.T) {
 		Endpoints: endpoints("GET /"),
 		Settings:  Settings{Global: Set{rateDown: toxicWith(8)}},
 	})
-	// both requests 1 response for each of 2 profiles at the same time and
-	// returns the time until both arrived.
+	// both fetches 1 response for each of p1 and p2 at once and returns the
+	// time it took.
 	both := func(p1, p2 string) time.Duration {
 		start := time.Now()
 		var wg sync.WaitGroup
@@ -198,9 +195,8 @@ func TestFrontBandwidthUpstream(t *testing.T) {
 	require.GreaterOrEqual(t, time.Since(start), 512*time.Millisecond)
 }
 
-// TestFrontBandwidthChange tests that a change of the toxics applies to
-// a response the front is sending, as to the stream of a page.
-// At 1 KB/s, the response would take 4s.
+// TestFrontBandwidthChange tests that a change of the toxics applies to a
+// response in progress. At 1 KB/s, the response would take 4s.
 func TestFrontBandwidthChange(t *testing.T) {
 	f, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),

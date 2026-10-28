@@ -11,14 +11,11 @@ import (
 )
 
 // profileCookie is the cookie the [Front] tells browser profiles apart by.
-// The requests of 1 profile share the rate of a [Bandwidth] toxic, as the
-// requests of 1 device share its network. A request carries nothing that
-// names its tab, and the tabs of a profile share their connections to the front.
-// A private window has cookies of its own.
+// The requests of 1 profile share the rate of a [Bandwidth] toxic. A request
+// does not name its tab, and the tabs of a profile share connections.
 const profileCookie = "datapages_toxiproxy"
 
-// profile returns the browser profile of r by its cookie. A request without
-// the cookie starts a profile, and set reports that the response sets it.
+// profile returns the profile ID in the cookie of r, or a new ID and set true.
 func profile(r *http.Request) (id string, set bool) {
 	if c, err := r.Cookie(profileCookie); err == nil && c.Value != "" {
 		return c.Value, false
@@ -48,12 +45,12 @@ func removeCookie(h http.Header, name string) {
 	h["Cookie"] = kept
 }
 
-// links holds the links that carry the data of the [Bandwidth] toxics:
-// 1 per browser profile, scope and stream.
-// The requests on 1 link take turns by the chunk, which shares its rate among them.
+// links paces the data of the [Bandwidth] toxics, 1 link per browser profile,
+// scope and stream. The requests on 1 link take turns by the chunk, which
+// shares its rate among them.
 type links struct {
 	lock sync.Mutex
-	// free maps a link to when it is done with the data it was given.
+	// free maps a link to the time it finishes the data reserved on it.
 	free    map[linkKey]time.Time
 	sweepAt int
 }
@@ -66,18 +63,17 @@ type linkKey struct {
 	stream Stream
 }
 
-// minSweep is the number of links above which [links.reserve] drops those
-// that are done. A link that is done paces as a new one does, which makes
-// dropping it invisible. Every request of a client without cookies,
-// such as curl, starts a link.
+// minSweep is the number of links above which [links.reserve] drops idle
+// ones. An idle link paces as a new one does. Each request of a client
+// without cookies, such as curl, starts a link.
 const minSweep = 64
 
 func newLinks() *links {
 	return &links{free: map[linkKey]time.Time{}, sweepAt: minSweep}
 }
 
-// reserve returns when the link of key is done carrying n bytes at rate KB/s,
-// after the data it was given before.
+// reserve queues n bytes at rate KB/s on the link of key and returns the time
+// the link finishes them.
 func (l *links) reserve(key linkKey, n int, rate int64, now time.Time) time.Time {
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -108,7 +104,7 @@ func chunkSize(rate int64) int {
 	return max(1, int(rate*chunkTime.Milliseconds()))
 }
 
-// pacer paces 1 stream of 1 request by the [Bandwidth] toxic that applies to it.
+// pacer paces 1 stream of 1 request by its [Bandwidth] toxic.
 type pacer struct {
 	f       *Front
 	ctx     context.Context
@@ -116,14 +112,14 @@ type pacer struct {
 	profile string
 	stream  Stream
 
-	// roll decides the toxicity once for the request: the toxic applies
-	// while its toxicity is above roll.
+	// roll is drawn once per request. The toxic applies while its toxicity
+	// is above roll.
 	roll float32
 }
 
-// rate returns the rate of the toxic that applies and the key of its link,
-// ok false for none. It reads the settings for every chunk, which applies
-// a change to an open response, such as the stream of a page.
+// rate returns the rate of the toxic that applies and the key of its link.
+// It runs for every chunk, which applies a settings change to an open
+// response, such as the stream of a page.
 func (p *pacer) rate() (rate int64, key linkKey, ok bool) {
 	x, ok := p.f.toxics.Load().toxic(p.pattern, Slot{Type: Bandwidth, Stream: p.stream})
 	if !ok || p.roll >= x.toxic.Toxicity {
@@ -153,8 +149,7 @@ func (p *pacer) wait(key linkKey, n int, rate int64) error {
 	}
 }
 
-// pacedWriter writes the response to the browser at the rate of the
-// downstream [Bandwidth] toxic.
+// pacedWriter writes the response at the rate of the downstream [Bandwidth] toxic.
 type pacedWriter struct {
 	http.ResponseWriter
 	p *pacer
@@ -177,18 +172,17 @@ func (w *pacedWriter) Write(b []byte) (int, error) {
 		if err != nil {
 			return written, err
 		}
-		// The server buffers what it writes, which would hold back the chunk.
+		// Without a flush the server buffers the chunk.
 		_ = http.NewResponseController(w.ResponseWriter).Flush()
 		b = b[n:]
 	}
 	return written, nil
 }
 
-// Unwrap returns the writer of the response, which [http.ResponseController] flushes.
+// Unwrap returns the underlying writer for [http.ResponseController].
 func (w *pacedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// pacedBody reads the request body from the browser at the rate of the
-// upstream [Bandwidth] toxic.
+// pacedBody reads the request body at the rate of the upstream [Bandwidth] toxic.
 type pacedBody struct {
 	io.ReadCloser
 	p *pacer

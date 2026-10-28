@@ -29,8 +29,8 @@ func toxicWith(values ...int64) Toxic {
 	return x
 }
 
-// TestSlotText tests that every slot reads back from its name, which the settings page
-// puts in the query of its actions, and that an unknown name is refused.
+// TestSlotText tests that every slot reads back from its name and that an
+// unknown name fails.
 func TestSlotText(t *testing.T) {
 	for _, s := range Slots {
 		text, err := s.MarshalText()
@@ -43,9 +43,8 @@ func TestSlotText(t *testing.T) {
 	require.Error(t, s.UnmarshalText([]byte("latency_sideways")))
 }
 
-// TestEffective tests how an endpoint's overrides combine with the global toxics:
-// an override replaces the global toxic of its slot only, and a disabled toxic
-// applies nowhere. The toxics of the front and those of Toxiproxy come apart.
+// TestEffective tests how the overrides of an endpoint combine with the global
+// toxics, for the front and for Toxiproxy.
 func TestEffective(t *testing.T) {
 	disabled := toxicWith(100)
 	disabled.Disabled = true
@@ -116,8 +115,7 @@ func TestEffective(t *testing.T) {
 	}
 }
 
-// TestCreateJSON tests the body that creates a toxic, which Toxiproxy reads
-// by the attribute names of its toxic types.
+// TestCreateJSON tests the body that creates a toxic in Toxiproxy.
 func TestCreateJSON(t *testing.T) {
 	x := toxicWith(64, 8, 1500)
 	x.Toxicity = 0.25
@@ -138,9 +136,8 @@ func TestCreateJSON(t *testing.T) {
 }
 
 // TestSettingsFromConfig tests the conversion of datapages.yaml into the units
-// Toxiproxy takes, and the toxicity of 1 an absent setting means. A disabled
-// toxic without valid values gets those of the global toxic, else the initial
-// ones, for the settings page to turn it on with.
+// of Toxiproxy, the default toxicity of 1 and the values a disabled toxic with
+// invalid ones takes.
 func TestSettingsFromConfig(t *testing.T) {
 	half := float32(0.5)
 	c := &config.WatchToxiproxy{
@@ -222,8 +219,8 @@ func TestSettingsFromConfig(t *testing.T) {
 		SettingsFromConfig(c).Presets)
 }
 
-// TestSettingsYAMLRoundTrip tests that the YAML the settings page shows loads back
-// into the same settings, which is what copying it into datapages.yaml relies on.
+// TestSettingsYAMLRoundTrip tests that [Settings.YAML] loads back into the same
+// settings and lists known endpoints first.
 func TestSettingsYAMLRoundTrip(t *testing.T) {
 	disabled := toxicWith(250, 10)
 	disabled.Disabled = true

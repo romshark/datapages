@@ -9,9 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLoadToxiproxy tests that watch.toxiproxy loads, and that every value
-// Toxiproxy would reject or truncate is an error at its line rather than at the
-// first request through the proxy.
+// TestLoadToxiproxy tests that watch.toxiproxy loads and that Load rejects
+// every value Toxiproxy would reject or truncate.
 func TestLoadToxiproxy(t *testing.T) {
 	const valid = `watch:
   toxiproxy:
@@ -182,7 +181,7 @@ func TestLoadToxiproxy(t *testing.T) {
 			ep := tp.Endpoints["POST /upload/{$}"]
 			require.Equal(t, int64(8), ep.Bandwidth.Upstream.Rate)
 			require.True(t, ep.Latency.Downstream.Disabled)
-			// A disabled toxic needs none of the values it would need on.
+			// A disabled toxic needs no other values.
 			require.True(t, ep.Slicer.Downstream.Disabled)
 			require.Zero(t, ep.Slicer.Downstream.AverageSize)
 			require.Equal(t, int64(503), ep.HTTPError.Upstream.Status)
@@ -200,8 +199,7 @@ func TestLoadToxiproxy(t *testing.T) {
 }
 
 // TestLoadToxiproxyDefaults tests that every setting of watch.toxiproxy is
-// optional: watch mode runs the proxy without the section, and the section
-// only changes or turns it off.
+// optional.
 func TestLoadToxiproxyDefaults(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "datapages.yaml"),

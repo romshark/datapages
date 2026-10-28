@@ -25,7 +25,7 @@ import (
 const bodySize = 4096
 
 // startFront serves a [Front] with conf in front of an upstream that answers
-// every request with bodySize bytes and the Host header it received.
+// with bodySize bytes and the host and path it received in X-Host and X-Path.
 // It returns the base URL of the front.
 func startFront(t *testing.T, conf Config) (*Front, string) {
 	t.Helper()
@@ -84,10 +84,9 @@ func get(t *testing.T, target string, host string) (*http.Response, string, erro
 	return resp, string(b), err
 }
 
-// TestFrontRoutesByEndpoint tests that each request passes through the
-// toxics of its endpoint: a limit-data override cuts the response of 1 route,
-// a route without overrides gets the global toxics, and a toxic that ends the
-// connection to the app ends the one to the browser instead of answering it.
+// TestFrontRoutesByEndpoint tests that each request passes through the toxics
+// of its endpoint, and that a reset of the connection to the app resets the one
+// to the browser.
 func TestFrontRoutesByEndpoint(t *testing.T) {
 	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /", "GET /limited/{$}", "GET /reset/{$}"),
@@ -115,10 +114,9 @@ func TestFrontRoutesByEndpoint(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestFrontHTTPError tests the answer of the http-error toxic, which is the
-// one of httpserve.WriteErrStatus. Upstream, the app never gets the request.
-// Downstream, the app answers it to its end first, including an action that
-// flushed its head before it ran.
+// TestFrontHTTPError tests that the http-error toxic answers as
+// [httpserve.WriteErrStatus] does, upstream before the app runs and downstream
+// after it finishes.
 func TestFrontHTTPError(t *testing.T) {
 	want := httptest.NewRecorder()
 	httpserve.WriteErrStatus(want, errors.New("boom"))
@@ -178,8 +176,7 @@ func TestFrontHTTPErrorScope(t *testing.T) {
 }
 
 // TestFrontHTTPErrorStream tests that a downstream http-error toxic answers
-// the stream of a page once its head arrives, since the stream does not end,
-// and ends the stream on the server.
+// the stream of a page at its head and ends the stream on the server.
 func TestFrontHTTPErrorStream(t *testing.T) {
 	ended := make(chan struct{})
 	_, base := startFrontWith(t, Config{
@@ -205,7 +202,7 @@ func TestFrontHTTPErrorStream(t *testing.T) {
 }
 
 // TestFrontPassesDevServerEvents tests that the reload connection of the dev
-// server skips the toxics, which would otherwise reload the page in a loop.
+// server skips the toxics.
 func TestFrontPassesDevServerEvents(t *testing.T) {
 	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
@@ -222,9 +219,8 @@ func TestFrontPassesDevServerEvents(t *testing.T) {
 	require.Len(t, body, bodySize)
 }
 
-// TestFrontReloadsEndpoints tests that the front reads the endpoints again
-// after the generator rewrote its file, which routes a new page to its overrides,
-// and tells EndpointsChanged.
+// TestFrontReloadsEndpoints tests that a change of GenFile reloads the
+// endpoints and calls EndpointsChanged.
 func TestFrontReloadsEndpoints(t *testing.T) {
 	genFile := filepath.Join(t.TempDir(), "app_gen.go")
 	require.NoError(t, os.WriteFile(genFile, nil, 0o644))
@@ -252,9 +248,8 @@ func TestFrontReloadsEndpoints(t *testing.T) {
 	require.Equal(t, "GET /new/{$}", match())
 }
 
-// TestFrontSectionHost tests that the section the settings page saves repeats
-// the addresses of watch.toxiproxy only where datapages.yaml sets them.
-// Saving must not pin a default port, which follows the port of the dev server.
+// TestFrontSectionHost tests that the saved section holds the addresses only
+// where datapages.yaml sets them.
 func TestFrontSectionHost(t *testing.T) {
 	for name, set := range map[string]bool{"set": true, "default": false} {
 		t.Run(name, func(t *testing.T) {

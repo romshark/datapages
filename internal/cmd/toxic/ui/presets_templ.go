@@ -14,11 +14,9 @@ import (
 	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/action"
 )
 
-// presetPicker is the combobox of the header that applies a preset to the
-// global toxics. It selects the preset they match, else it shows "Custom".
-// The button in the option of a preset asks to delete it, and the last option
-// opens the dialog of a new preset. Its options carry a label, which the
-// trigger shows in place of their rows.
+// presetPicker is the header combobox that applies a preset. It selects the
+// preset the settings match, else it shows "Custom". The trigger shows the
+// label of an option in place of its row.
 func presetPicker(d pageData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -76,7 +74,7 @@ func presetPicker(d pageData) templ.Component {
 					var templ_7745c5c3_Var4 string
 					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(p.name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 25, Col: 14}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 23, Col: 14}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -113,7 +111,7 @@ func presetPicker(d pageData) templ.Component {
 							"aria-label":    "Delete the preset " + p.name,
 							"title":         "Delete the preset",
 							"data-on:click": askDeletePreset(p.name),
-							// Enter and space on an option pick it.
+							// Enter and space would also pick the option.
 							"data-on:keydown": "if (evt.key !== 'Enter' && evt.key !== ' ') return; " +
 								"evt.preventDefault(); " + askDeletePreset(p.name),
 						}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
@@ -184,18 +182,16 @@ func presetPicker(d pageData) templ.Component {
 	})
 }
 
-// presetDialogs are the dialog of a new preset and the dialog that confirms
-// the deletion of the preset signal. Script opens them, and each has a hidden
-// trigger, which neo-dialog requires. A morph keeps a dialog open. It skips
-// the dialog of the deletion, whose name the preset signal fills in.
+// presetDialogs are the new preset dialog and the delete confirm dialog.
+// Script opens them. neo-dialog requires the hidden triggers. Morphs keep the
+// new preset dialog open and skip the delete dialog, whose name the preset
+// signal fills in.
 //
-// The fields of the dialog of a new preset post each change, and the tab
-// renders them with why the name is refused. neo-textinput leaves its focused
-// field alone, which keeps a render from undoing typing.
+// The new preset fields post each change, and the render shows why a name is refused.
+// neo-textinput ignores a new value while it has focus.
 //
-// neo-dialog gives the dialog, its title and its description generated ids
-// where they have none. A morph would not find those in the new page and
-// would replace the open dialog, which loses its focus.
+// Without fixed ids neo-dialog generates ids, which a morph does not find in
+// the new page. It would replace the open dialog and lose its focus.
 func presetDialogs(d pageData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -389,7 +385,7 @@ func presetDialogs(d pageData) templ.Component {
 							var templ_7745c5c3_Var16 string
 							templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(o.name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 110, Col: 24}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 106, Col: 24}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 							if templ_7745c5c3_Err != nil {
@@ -402,7 +398,7 @@ func presetDialogs(d pageData) templ.Component {
 							var templ_7745c5c3_Var17 string
 							templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(o.source)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 112, Col: 21}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 108, Col: 21}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 							if templ_7745c5c3_Err != nil {
@@ -436,7 +432,7 @@ func presetDialogs(d pageData) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(d.newPreset.err)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 123, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 119, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {

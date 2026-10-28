@@ -71,7 +71,8 @@ an endpoint override in watch.toxiproxy that names no route of any app.`,
 				m, err := parseApp(filepath.Join(moduleDir, a.Dir), stderr)
 				events = append(events, appEvents(a.Dir, m)...)
 				if tp != nil {
-					// The endpoints of every app, 1 of which watch mode runs.
+					// An override may name a route of any app, because watch
+					// mode runs 1 of them.
 					endpoints = append(endpoints, toxic.Endpoints(m)...)
 				}
 				if err != nil {

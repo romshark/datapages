@@ -19,19 +19,17 @@ import (
 	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/action"
 )
 
-// Modes of a slot on the settings page.
 const (
 	modeOn      = "on"
 	modeOff     = "off"
 	modeInherit = "inherit" // endpoint only, the global toxic applies
 )
 
-// errUnknownField is a field key that no field of the toxic type has.
 var errUnknownField = errors.New("unknown field")
 
 // setField sets the field of x with the key to the whole number in value.
-// The key is that of a field of type t, as in "jitter", or "toxicity" for the
-// percentage of requests affected.
+// The key names a field of type t, or is "toxicity" for the percentage of
+// requests affected.
 func setField(x *toxic.Toxic, t toxic.Type, key, value string) error {
 	if key == "toxicity" {
 		pct, err := parseInt(value)
@@ -56,8 +54,8 @@ func setField(x *toxic.Toxic, t toxic.Type, key, value string) error {
 	return nil
 }
 
-// parseInt parses a field value. An empty field reads as 0,
-// which is the value a cleared field shows after the page updates.
+// parseInt parses a field value. An empty field reads as 0, the value a
+// cleared field shows after the next render.
 func parseInt(s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -70,8 +68,8 @@ func parseInt(s string) (int64, error) {
 	return v, nil
 }
 
-// current returns the toxic a slot of scope turns on with: its own,
-// else the global one, else that of [toxic.NewToxic].
+// current returns the toxic slot turns on with in scope, which is its own,
+// else the global one, else [toxic.NewToxic].
 func current(s toxic.Settings, scope string, slot toxic.Slot) toxic.Toxic {
 	x, ok := s.Endpoints[scope][slot]
 	if !ok || scope == "" {
@@ -84,8 +82,8 @@ func current(s toxic.Settings, scope string, slot toxic.Slot) toxic.Toxic {
 	return x
 }
 
-// setSlot applies the mode of 1 slot of scope, an endpoint pattern or empty for
-// the global scope. A toxic turned off keeps its values for when it's turned on again.
+// setSlot sets slot in scope, an endpoint pattern or empty for the global scope, to mode.
+// A toxic turned off keeps its values.
 func setSlot(
 	s *toxic.Settings, scope string, slot toxic.Slot, mode string, x toxic.Toxic,
 ) {
@@ -121,13 +119,12 @@ func setSlot(
 	}
 }
 
-// notice is the title and the text of a toast, failed for one that reports an error.
 type notice struct {
 	title, text string
 	failed      bool
 }
 
-// toastOpts shows a notice for 4 seconds, and a failure until the user closes it.
+// toastOpts shows a notice for 4s and a failure until the user closes it.
 func toastOpts(n notice) neo.ToastOpts {
 	if n.failed {
 		return neo.ToastOpts{Variant: neo.Set(neo.ToastVariantError)}
@@ -138,7 +135,7 @@ func toastOpts(n notice) neo.ToastOpts {
 	}
 }
 
-// slotError is an input the settings page rejected, none when msg is empty.
+// slotError is a rejected input, none when msg is empty.
 type slotError struct {
 	slot toxic.Slot
 	msg  string
@@ -150,28 +147,25 @@ type pageData struct {
 
 	// scope is the selected endpoint pattern, empty for the global toxics.
 	scope string
-	// scopeEndpoint is the endpoint of scope.
-	// Its pattern is empty when scope names none of the app.
+	// scopeEndpoint has an empty pattern when the app has no endpoint scope.
 	scopeEndpoint toxic.Endpoint
-	// scopeKind is the kind of scope, as its pattern implies for one that
-	// names none of the app.
+	// scopeKind is derived from the pattern for an unknown endpoint.
 	scopeKind string
 	// scopeOverrides counts the slots scope sets.
 	scopeOverrides int
 
 	filter filter
-	// endpoints and unknown list the endpoints filter shows,
-	// unknown those with overrides that name no endpoint of the app.
-	endpoints, unknown []navItem
+	// endpoints and unknown are the entries filter shows.
+	endpoints []navItem
+	// unknown holds the overrides of patterns the app has no endpoint for.
+	unknown []navItem
 	// hidden counts the endpoints filter hides.
 	hidden int
 
-	// presets are the presets the picker lists, and activePreset is the name
-	// of the one the global toxics match, empty for none.
-	presets      []presetItem
+	presets []presetItem
+	// activePreset is the preset the toxics and overrides match, empty for none.
 	activePreset string
-	// copyOptions are the presets the dialog of a new preset copies from,
-	// and newPreset is what the dialog shows.
+	// copyOptions are the presets the new preset dialog copies from.
 	copyOptions []copyOption
 	newPreset   newPresetView
 
@@ -205,7 +199,7 @@ type rowView struct {
 	err      string
 }
 
-// view returns what the page shows a tab with the state tab.
+// view returns the page data of a tab in state tab.
 func (a *App) view(tab StateIndex) pageData {
 	s := a.Front.Settings()
 	eps := a.Front.Endpoints()
@@ -298,18 +292,17 @@ func (a *App) view(tab StateIndex) pageData {
 	return d
 }
 
-// kinds lists the kinds of endpoints in the order of the toggles that filter
-// the endpoint list by them.
+// kinds lists the endpoint kinds in the order of their filter toggles.
 var kinds = [...]string{
 	toxic.KindGET, toxic.KindStream, toxic.KindAction, toxic.KindFile,
 }
 
-// kindInfo describes a kind of endpoints to the endpoint list.
+// kindInfo describes an endpoint kind in the endpoint list.
 type kindInfo struct {
-	// label and title are those of the toggle of the kind.
+	// label and title belong to the filter toggle of the kind.
 	label, title string
-	// name is that of 1 endpoint of the kind, and icon the file in
-	// static/icons, without .svg, that shows it in front of its handler.
+	// name labels 1 endpoint of the kind.
+	// icon is a file name in static/icons without .svg.
 	name, icon string
 }
 
@@ -332,13 +325,13 @@ var kindInfos = map[string]kindInfo{
 	},
 }
 
-// filter selects the endpoints of the list: those whose search text matches
-// search, of a kind in kinds, a comma-separated list. Empty kinds is every kind.
+// filter selects the endpoints whose text matches search and whose kind is in kinds,
+// a comma-separated list. Empty kinds is every kind.
 type filter struct {
 	search, kinds string
 }
 
-// shows reports whether f shows an endpoint of the kind with the search text.
+// shows reports whether f shows an endpoint of kind with the search text.
 func (f filter) shows(kind, text string) bool {
 	return f.showsKind(kind) && matches(f.search, text)
 }
@@ -361,7 +354,7 @@ func canonicalKinds(kinds string) string {
 	return kinds
 }
 
-// pressedKinds is the value of the toggle group of the kinds f shows.
+// pressedKinds returns the toggle group value of the kinds f shows.
 func (f filter) pressedKinds() string {
 	var shown []string
 	for _, k := range kinds {
@@ -372,8 +365,8 @@ func (f filter) pressedKinds() string {
 	return strings.Join(shown, ",")
 }
 
-// matches reports whether each space-separated term of query occurs in text
-// as a subsequence, ignoring case. "msg send" matches "POST /messages/sendmessage/{$}".
+// matches reports whether each term of query occurs in text as a subsequence,
+// ignoring case. "msg send" matches "POST /messages/sendmessage/{$}".
 func matches(query, text string) bool {
 	text = strings.ToLower(text)
 	for _, term := range strings.Fields(strings.ToLower(query)) {
@@ -389,7 +382,7 @@ func matches(query, text string) bool {
 	return true
 }
 
-// fieldInfo returns the info button of the field f, nil for a field without one.
+// fieldInfo returns the info button of f, nil for none.
 func fieldInfo(f toxic.Field) templ.Component {
 	if f.Key == "jitter" {
 		return jitterInfo()
@@ -397,21 +390,20 @@ func fieldInfo(f toxic.Field) templ.Component {
 	return nil
 }
 
-// setValue is the action expression that posts the value of the field with the
-// key of the toxic of slot, or "toxicity".
+// setValue returns the action expression that posts the value of the field key of slot.
 func setValue(slot toxic.Slot, key string) string {
 	return action.PageIndex.Value.POST(action.PageIndex.Value.POSTQuery(slot, key),
 		action.WithBefore("$value = el.value"))
 }
 
-// statusOption is 1 option of the status combobox, as in 503 with the label
-// "503 Service Unavailable".
+// statusOption is 1 option of the status combobox,
+// as in 503 labeled "503 Service Unavailable".
 type statusOption struct {
 	value, label string
 }
 
-// statusOptions lists the statuses f takes that [net/http.StatusText] names,
-// and current, which datapages.yaml may set to one it does not name.
+// statusOptions lists the statuses in the range of f that [net/http.StatusText] names,
+// plus current, which datapages.yaml may set to an unnamed one.
 func statusOptions(f toxic.Field, current int64) []statusOption {
 	var opts []statusOption
 	for code := f.Min; code <= f.Max; code++ {
@@ -420,12 +412,13 @@ func statusOptions(f toxic.Field, current int64) []statusOption {
 			continue
 		}
 		v := strconv.FormatInt(code, 10)
-		opts = append(opts, statusOption{value: v, label: strings.TrimSpace(v + " " + text)})
+		opts = append(opts,
+			statusOption{value: v, label: strings.TrimSpace(v + " " + text)})
 	}
 	return opts
 }
 
-// withAttrs returns the attributes of a and b, those of b winning.
+// withAttrs returns a copy of a with b merged in.
 func withAttrs(a, b templ.Attributes) templ.Attributes {
 	m := maps.Clone(a)
 	maps.Copy(m, b)
@@ -442,14 +435,13 @@ func path(pattern string) string {
 	return strings.TrimSpace(p)
 }
 
-// pathPart is a piece of the path of a route pattern, with the class that colors it,
-// empty for literal text.
+// pathPart is a piece of a route path with its CSS class, empty for literal text.
 type pathPart struct {
 	text, class string
 }
 
-// pathParts splits the path of a route pattern into literal text,
-// wildcards such as {slug} or {rest...}, and the end anchor {$}.
+// pathParts splits a route path into literal text, wildcards such as {slug}
+// or {rest...}, and the end anchor {$}.
 func pathParts(path string) []pathPart {
 	var parts []pathPart
 	for path != "" {
@@ -479,7 +471,6 @@ func badgeVariant(unknown bool) neo.BadgeVariant {
 	return neo.BadgeVariantPrimary
 }
 
-// streamIcon is the icon in static/icons of the direction of the data of s.
 func streamIcon(s toxic.Stream) string {
 	if s == toxic.Upstream {
 		return "arrow-up"
@@ -498,31 +489,11 @@ func toxicityPercent(x toxic.Toxic) int {
 	return int(math.Round(float64(x.Toxicity) * 100))
 }
 
-// summary describes x of the type info in 1 line, as in "Latency 300 ms,
-// Jitter 0 ms, 100% of requests".
-func summary(info toxic.TypeInfo, x toxic.Toxic) string {
-	if x.Disabled {
-		return "off"
-	}
-	parts := make([]string, 0, len(info.Fields)+1)
-	for i, f := range info.Fields {
-		p := f.Label + " " + strconv.FormatInt(x.Values[i], 10)
-		if u := f.Unit.String(); u != "" {
-			p += " " + u
-		}
-		parts = append(parts, p)
-	}
-	parts = append(parts, strconv.Itoa(toxicityPercent(x))+"% of requests")
-	return strings.Join(parts, ", ")
-}
-
-// newPresetOption is the value of the option of the preset picker that opens
-// the dialog of a new preset. A preset name has no space at either end,
-// which keeps this value apart from every name.
+// newPresetOption is the picker value that opens the new preset dialog.
+// [toxic.Settings.CreatePreset] trims names, which keeps them apart from it.
 const newPresetOption = " new"
 
-// pickerOpts are the options of the preset picker,
-// which selects the preset active, none for an empty one.
+// pickerOpts returns the preset picker options with active selected, none if empty.
 func pickerOpts(active string) neo.ComboboxOpts {
 	o := neo.ComboboxOpts{
 		Placeholder:       neo.Set("Custom"),
@@ -536,9 +507,9 @@ func pickerOpts(active string) neo.ComboboxOpts {
 	return o
 }
 
-// pickPreset is the action expression of the preset picker, whose selected
-// preset is active, empty for none. It applies the preset picked.
-// For the option of a new preset it selects active again and opens the dialog.
+// pickPreset returns the action expression of the preset picker,
+// which applies the picked preset. For [newPresetOption] it reselects active,
+// empty for none, and opens the new preset dialog.
 func pickPreset(active string) string {
 	reselect := "null"
 	if active != "" {
@@ -548,24 +519,23 @@ func pickPreset(active string) string {
 		"if (evt.detail.value === " + jsString(newPresetOption) + ") { " +
 			"el.value = " + reselect + "; " +
 			openDialog("tp-preset-new") + "; " +
-			// Clears why the last attempt to create a preset failed.
+			// Clears the error of the last create attempt.
 			postPresetDraft() + "; return } " +
 			"$preset = evt.detail.value",
 	))
 }
 
-// askDeletePreset is the action expression of the button that deletes the
-// preset with the name in its option of the picker. It keeps the click from
-// picking the preset, closes the picker and opens the dialog that confirms.
+// askDeletePreset returns the action expression of the delete button in the
+// picker option of the preset. It keeps the click from picking the preset,
+// closes the picker and opens the confirm dialog.
 func askDeletePreset(name string) string {
 	return "evt.stopPropagation(); $preset = " + jsString(name) + "; " +
 		"el.closest('neo-combobox').hide({restoreFocus: true}); " +
 		openDialog("tp-preset-delete")
 }
 
-// reloadClick is the action expression of the reload button. Where the file
-// lacks settings of the page, which a reload discards for good, it opens the
-// dialog that confirms. Else the reload discards nothing and runs at once.
+// reloadClick returns the action expression of the reload button.
+// With unsaved settings it opens the confirm dialog, else it reloads at once.
 func reloadClick(saved bool) string {
 	if saved {
 		return action.PageIndex.Reload.POST()
@@ -574,33 +544,31 @@ func reloadClick(saved bool) string {
 }
 
 // openDialog returns a statement that opens the neo-dialog with the id in the
-// next frame. By then the picker closed and took the focus back, which the
-// dialog returns to it when it closes.
+// next frame. By then the picker has closed and taken back the focus,
+// which the dialog returns to it on close.
 func openDialog(id string) string {
 	return "requestAnimationFrame(() => document.getElementById('" + id + "').show())"
 }
 
-// readPresetFields sets the name and from signals to the name field and the
-// copy combobox of the dialog of a new preset.
+// readPresetFields sets the name and from signals from the new preset dialog.
 const readPresetFields = "$name = document.getElementById('tp-preset-name').value; " +
 	"$from = document.getElementById('tp-preset-from').value ?? ''"
 
-// createPreset is the action expression that creates the preset of the dialog.
-// before runs first and may return to post nothing.
+// createPreset returns the action expression that creates the preset of the dialog.
+// before runs first and may return to skip the request.
 func createPreset(before string) string {
 	return action.PageIndex.CreatePreset.POST(
 		action.WithBefore(before + readPresetFields),
 	)
 }
 
-// postPresetDraft is the action expression that posts the fields of the
-// dialog of a new preset as they are.
+// postPresetDraft returns the action expression that
+// posts the fields of the new preset dialog.
 func postPresetDraft() string {
 	return action.PageIndex.PresetDraft.POST(action.WithBefore(readPresetFields))
 }
 
-// copyOpts are the options of the copy combobox, which selects from,
-// the global toxics for an empty one.
+// copyOpts returns the copy combobox options with from selected.
 func copyOpts(from string) neo.ComboboxOpts {
 	o := neo.ComboboxOpts{
 		Size:              neo.Set("sm"),
@@ -613,48 +581,47 @@ func copyOpts(from string) neo.ComboboxOpts {
 	return o
 }
 
-// The prefixes of the value of a preset in the copy combobox of the dialog of
-// a new preset, which keep a preset of the app and one of Datapages with the
-// same name apart. The empty value copies the global toxics.
+// Prefixes of the copy combobox values. They keep apart a preset of the app
+// and one of Datapages with the same name. The empty value copies the current toxics.
 const (
 	appPresetPrefix       = "app:"
 	datapagesPresetPrefix = "datapages:"
 )
 
-// presetItem is 1 preset of the picker.
-// A built-in preset has no button that deletes it.
+// presetItem is 1 preset of the picker. A built-in preset has no delete button.
 type presetItem struct {
 	name    string
 	builtin bool
 }
 
-// copyOption is 1 preset of the copy combobox, with the source of the preset,
-// as in "Datapages preset".
+// copyOption is 1 preset of the copy combobox with a source such as "Datapages preset".
 type copyOption struct {
 	value, name, source string
 }
 
-// copyOptions lists the presets of s, of the app with the name, then those of
-// Datapages. The built-in presets, No throttling without toxics and Offline,
-// are no start for another preset.
+// copyOptions lists the presets of s, of the app with the name, then those of Datapages.
+// The built-in No throttling and Offline are not offered.
 func copyOptions(s toxic.Settings, app string) []copyOption {
 	var o []copyOption
 	for _, p := range s.Presets {
 		o = append(o, copyOption{
-			value: appPresetPrefix + p.Name, name: p.Name, source: app + " preset",
+			value:  appPresetPrefix + p.Name,
+			name:   p.Name,
+			source: app + " preset",
 		})
 	}
 	for _, p := range toxic.DefaultPresets() {
 		o = append(o, copyOption{
-			value: datapagesPresetPrefix + p.Name, name: p.Name, source: "Datapages preset",
+			value:  datapagesPresetPrefix + p.Name,
+			name:   p.Name,
+			source: "Datapages preset",
 		})
 	}
 	return o
 }
 
-// copySource returns the global toxics and the overrides the value from of
-// the copy combobox names: those of s for an empty from, else those of a
-// preset of s or of Datapages.
+// copySource returns the toxics and overrides that the copy combobox value from names.
+// An empty from names those of s.
 func copySource(s toxic.Settings, from string) (toxic.Preset, error) {
 	if from == "" {
 		return toxic.Preset{Toxics: s.Global, Endpoints: s.Endpoints}, nil
@@ -668,18 +635,18 @@ func copySource(s toxic.Settings, from string) (toxic.Preset, error) {
 	return toxic.Preset{}, fmt.Errorf("%w %q", toxic.ErrNoPreset, from)
 }
 
-// presetDraft is what the dialog of a new preset holds: the name, the value of
-// the copy combobox, and why the last attempt to create the preset failed.
+// presetDraft holds the fields of the new preset dialog and the error of the
+// last create attempt.
 type presetDraft struct {
 	name, from, err string
-	// autoName is the name the dialog filled in for a preset of Datapages,
-	// which follows the copy combobox until the user changes the name.
+	// autoName is the name filled in from a Datapages preset.
+	// It follows the copy combobox until the user edits the name.
 	autoName string
 }
 
-// update takes the name and the copy value of the dialog. The copy value of
-// a preset of Datapages fills in its name where the name is empty or one the
-// dialog filled in, and any other empties such a name.
+// update stores the dialog fields. A new Datapages copy value replaces an
+// empty or filled-in name with its own name. Any other new value empties a
+// filled-in name.
 func (d *presetDraft) update(name, from string) {
 	if from != d.from && (strings.TrimSpace(name) == "" || name == d.autoName) {
 		name = ""
@@ -691,15 +658,15 @@ func (d *presetDraft) update(name, from string) {
 	d.name, d.from, d.err = name, from, ""
 }
 
-// newPresetView is what the dialog of a new preset shows.
+// newPresetView is what the new preset dialog shows.
 type newPresetView struct {
 	name, from, err string
-	// taken reports whether a preset has the name, which disables creating it.
+	// taken reports whether a preset has the name, which disables Create.
 	taken bool
 }
 
-// newPreset returns what the dialog shows for the draft d with the presets of
-// s: why the last attempt failed, else that a preset has the name.
+// newPreset returns the dialog view of d. Its error is that of the last attempt,
+// else that a preset of s has the name.
 func newPreset(s toxic.Settings, d presetDraft) newPresetView {
 	_, err := s.Preset(strings.TrimSpace(d.name))
 	v := newPresetView{name: d.name, from: d.from, err: d.err, taken: err == nil}
@@ -709,13 +676,12 @@ func newPreset(s toxic.Settings, d presetDraft) newPresetView {
 	return v
 }
 
-// presetCreated closes the dialog of a new preset and empties its fields,
-// whose text and choice a morph keeps.
+// presetCreated closes the new preset dialog and empties its fields, which a morph keeps.
 const presetCreated = "document.getElementById('tp-preset-new').hide(); " +
 	"document.getElementById('tp-preset-name').value = ''; " +
 	"document.getElementById('tp-preset-from').value = null"
 
-// createPresetError is the message the dialog of a new preset shows for err.
+// createPresetError returns the dialog message for err.
 func createPresetError(err error) string {
 	switch {
 	case errors.Is(err, toxic.ErrPresetUnnamed):
@@ -728,8 +694,7 @@ func createPresetError(err error) string {
 	return err.Error()
 }
 
-// jsString returns s as a JavaScript string literal for an action expression,
-// which templ escapes for the attribute.
+// jsString returns s as a JavaScript string literal. templ escapes it for the attribute.
 func jsString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)

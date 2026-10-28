@@ -1,7 +1,7 @@
-// Package toxic provides the Toxiproxy front of watch mode: an HTTP server that
-// passes each request through the Toxiproxy proxy of its endpoint to the dev
-// server, and the toxic settings it applies. Package
-// [github.com/romshark/datapages/internal/cmd/toxic/ui] provides the settings page.
+// Package toxic implements the Toxiproxy front of watch mode and its toxic
+// settings. The front passes each request to the dev server through the
+// Toxiproxy proxy of its endpoint. Package
+// [github.com/romshark/datapages/internal/cmd/toxic/ui] serves the settings page.
 package toxic
 
 import (
@@ -20,9 +20,9 @@ import (
 type Stream int8
 
 const (
-	// Downstream is the data the server sends, the response.
+	// Downstream is the response.
 	Downstream Stream = iota
-	// Upstream is the data the client sends, the request.
+	// Upstream is the request.
 	Upstream
 )
 
@@ -37,8 +37,8 @@ func (s Stream) String() string {
 	return "downstream"
 }
 
-// Type is 1 toxic type. Toxiproxy applies every type but [Bandwidth] and [HTTPError],
-// which the [Front] applies.
+// Type is a toxic type. The [Front] applies [Bandwidth] and [HTTPError],
+// Toxiproxy applies the rest.
 type Type int8
 
 const (
@@ -52,7 +52,7 @@ const (
 	HTTPError
 )
 
-// Unit is what a field value counts. Each is the unit Toxiproxy takes.
+// Unit is the unit of a field value, the one Toxiproxy takes.
 type Unit int8
 
 const (
@@ -87,12 +87,11 @@ type Field struct {
 	Min   int64
 	Max   int64 // 0 for none
 
-	// Initial is the value of the field when a toxic is turned on
-	// on the settings page.
+	// Initial is the value the settings page turns the toxic on with.
 	Initial int64
 }
 
-// TypeInfo describes a [Type] to the settings page, to datapages.yaml and to Toxiproxy.
+// TypeInfo describes a [Type] for the settings page, datapages.yaml and Toxiproxy.
 type TypeInfo struct {
 	Name   string // in the Toxiproxy API and in the name of a [Slot]
 	Key    string // in datapages.yaml
@@ -107,7 +106,7 @@ type TypeInfo struct {
 // MaxFields is the most fields a toxic type has, the 3 of [Slicer].
 const MaxFields = 3
 
-// Types is indexed by [Type]. The docs of the types of Toxiproxy paraphrase
+// Types is indexed by [Type]. The Doc of a Toxiproxy type paraphrases
 // [the Toxiproxy toxics] for an HTTP request.
 //
 // [the Toxiproxy toxics]: https://github.com/Shopify/toxiproxy#toxics
@@ -202,8 +201,8 @@ var Types = [...]TypeInfo{
 	},
 }
 
-// Slot names 1 toxic of a scope: its type and the stream it acts on.
-// Toxiproxy names it the same way by default, as in "latency_downstream".
+// Slot is the type and stream of 1 toxic of a scope. Its name is the default
+// name Toxiproxy gives the toxic, as in "latency_downstream".
 type Slot struct {
 	Type   Type
 	Stream Stream
@@ -212,10 +211,10 @@ type Slot struct {
 // Name returns the name of s, as in "latency_downstream".
 func (s Slot) Name() string { return Types[s.Type].Name + "_" + s.Stream.String() }
 
-// MarshalText returns the name of s, which [Slot.UnmarshalText] reads.
+// MarshalText returns the name of s.
 func (s Slot) MarshalText() ([]byte, error) { return []byte(s.Name()), nil }
 
-// UnmarshalText reads the name of a slot, as in "latency_downstream".
+// UnmarshalText parses the name of a slot.
 func (s *Slot) UnmarshalText(text []byte) error {
 	for _, x := range Slots {
 		if x.Name() == string(text) {
@@ -242,12 +241,10 @@ type Toxic struct {
 	// Disabled turns the toxic off. On an endpoint it turns the global toxic off.
 	Disabled bool
 
-	// Toxicity is the probability from 0 to 1 that the toxic applies
-	// to a connection.
+	// Toxicity is the probability from 0 to 1 that the toxic applies to a request.
 	Toxicity float32
 
-	// Values holds the field values of the type in the order of its fields,
-	// in the unit of each.
+	// Values holds the values of the fields of the type, in their order and units.
 	Values [MaxFields]int64
 }
 
@@ -260,8 +257,8 @@ func NewToxic(t Type) Toxic {
 	return x
 }
 
-// Validate reports a value of x Toxiproxy rejects or cannot take.
-// The rules match those of datapages.yaml in [config.Toxics].
+// Validate reports a value of x that Toxiproxy rejects or cannot take.
+// The rules match those of [config.Toxics].
 func (x Toxic) Validate(t Type) error {
 	if x.Toxicity < 0 || x.Toxicity > 1 {
 		return fmt.Errorf("toxicity %v must be from 0 to 1", x.Toxicity)
@@ -280,11 +277,11 @@ func (x Toxic) Validate(t Type) error {
 	return nil
 }
 
-// Set holds the toxics of 1 scope by slot. In the global scope a missing slot
-// has no toxic, on an endpoint it inherits the global toxic.
+// Set holds the toxics of 1 scope by slot. A slot missing from the global
+// scope has no toxic. A slot missing on an endpoint inherits the global toxic.
 type Set map[Slot]Toxic
 
-// Settings are the toxics of every scope.
+// Settings holds the toxics of every scope and the presets.
 type Settings struct {
 	Global Set
 
@@ -319,7 +316,7 @@ func (s Settings) Clone() Settings {
 	return c
 }
 
-// cloneEndpoints returns a deep copy of the overrides e, which is not nil.
+// cloneEndpoints returns a non-nil deep copy of e.
 func cloneEndpoints(e map[string]Set) map[string]Set {
 	c := make(map[string]Set, len(e))
 	for k, v := range e {
@@ -334,9 +331,9 @@ type active struct {
 	toxic Toxic
 }
 
-// effective returns the toxics of an endpoint with the overrides o:
-// the toxic o has for a slot, else the global one. A disabled toxic is left out.
-// It returns those the [Front] applies when front is set, else those Toxiproxy applies.
+// effective returns the toxics that apply to an endpoint with the overrides o,
+// those of the [Front] when front is set, else those of Toxiproxy. An override
+// replaces the global toxic of its slot. A disabled toxic is left out.
 func effective(global, o Set, front bool) []active {
 	var a []active
 	for _, s := range Slots {
@@ -354,7 +351,7 @@ func effective(global, o Set, front bool) []active {
 	return a
 }
 
-// attributes returns the attributes Toxiproxy takes for x.
+// attributes returns the Toxiproxy attributes of a.
 func (a active) attributes() map[string]int64 {
 	attrs := make(map[string]int64, MaxFields)
 	for i, f := range Types[a.slot.Type].Fields {
@@ -394,7 +391,7 @@ func (a active) updateJSON() []byte {
 }
 
 // SettingsFromConfig returns the settings c configures.
-// The presets are those of c only, none without.
+// It adds no [DefaultPresets] to those of c.
 func SettingsFromConfig(c *config.WatchToxiproxy) Settings {
 	s := Settings{Global: Set{}, Endpoints: map[string]Set{}}
 	if c == nil {
@@ -414,8 +411,6 @@ func SettingsFromConfig(c *config.WatchToxiproxy) Settings {
 	return s
 }
 
-// endpointsFromConfig returns the overrides c configures with the global
-// toxics global.
 func endpointsFromConfig(
 	c map[config.EndpointPattern]config.Toxics, global Set,
 ) map[string]Set {
@@ -426,9 +421,9 @@ func endpointsFromConfig(
 	return e
 }
 
-// setFromConfig returns the toxics c configures. A disabled toxic without
-// valid values gets those of the toxic of its slot in global,
-// else those of [NewToxic], for the settings page to turn it on with.
+// setFromConfig returns the toxics c configures. A disabled toxic with invalid
+// values takes those of its slot in global, else those of [NewToxic], which
+// the settings page turns it on with.
 func setFromConfig(c config.Toxics, global Set) Set {
 	s := Set{}
 	addFromConfig(s, global, Latency, c.Latency,
@@ -504,9 +499,9 @@ func addFromConfig[T any](
 	}
 }
 
-// YAML returns s as the toxics, endpoints and presets of watch.toxiproxy in
-// datapages.yaml, indented by indent spaces. The endpoints are listed in the
-// order of patterns, the overrides of an unknown endpoint after the others.
+// YAML returns s as the toxics, endpoints and presets keys of watch.toxiproxy,
+// indented by indent spaces. Endpoints follow the order of patterns, unknown
+// ones come last.
 func (s Settings) YAML(indent int, patterns []string) string {
 	var b strings.Builder
 	toxicsYAML(&b, indent, s.Global, s.Endpoints, patterns)
@@ -514,10 +509,7 @@ func (s Settings) YAML(indent int, patterns []string) string {
 	return b.String()
 }
 
-// toxicsYAML writes the global toxics and the overrides of the endpoints as
-// the toxics and endpoints keys of datapages.yaml, indented by indent spaces.
-// The endpoints are listed in the order of patterns, the overrides of an
-// unknown endpoint after the others.
+// toxicsYAML writes the toxics and endpoints keys of [Settings.YAML].
 func toxicsYAML(
 	b *strings.Builder,
 	indent int,
@@ -578,8 +570,7 @@ func writeSetYAML(b *strings.Builder, indent int, s Set) {
 	}
 }
 
-// writeLine writes parts and a newline to b, without first joining them
-// into a string of their own.
+// writeLine writes parts and a newline to b without joining them first.
 func writeLine(b *strings.Builder, parts ...string) {
 	for _, p := range parts {
 		b.WriteString(p)
