@@ -12,8 +12,10 @@ import (
 	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/href"
 )
 
-// head loads the Morpheus bundle. Datapages writes the Datastar script before it.
+// head applies the saved color scheme and loads the Morpheus bundle.
+// Datapages writes the Datastar script before it.
 templ head(info toxic.Info) {
+	@themeScript()
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
 	<title>{ info.AppName } - Toxiproxy</title>
 	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
@@ -21,6 +23,38 @@ templ head(info toxic.Info) {
 	<link rel="stylesheet" href={ assets.Path("morpheus/theme-default.css") }/>
 	<link rel="stylesheet" href={ assets.Path("ui.css") }/>
 	<script type="module" src={ assets.Path("morpheus/morpheus.min.js") }></script>
+}
+
+// themeScript applies the color scheme of the theme select before the first
+// paint and keeps it in localStorage, per browser. Morpheus forces a scheme
+// with the light or dark class of the root element and follows the OS
+// without either, which is the system mode.
+templ themeScript() {
+	<script>
+		window.tpTheme = {
+			key: "tp-theme",
+			mode() {
+				try {
+					return localStorage.getItem(this.key) || "system"
+				} catch {
+					return "system"
+				}
+			},
+			set(mode) {
+				try {
+					if (mode === "system") localStorage.removeItem(this.key)
+					else localStorage.setItem(this.key, mode)
+				} catch {}
+				this.apply(mode)
+			},
+			apply(mode) {
+				const c = document.documentElement.classList
+				c.toggle("light", mode === "light")
+				c.toggle("dark", mode === "dark")
+			},
+		}
+		tpTheme.apply(tpTheme.mode())
+	</script>
 }
 
 // app is the page. The mode and value signals carry a change to 1 toxic.
@@ -36,16 +70,28 @@ templ app(d pageData) {
 			Gap:        neo.Set(neo.GapLg),
 			AlignItems: neo.Set(neo.AlignItemsFlexStart),
 		}, templ.Attributes{"class": "tp-body"}) {
-			@nav(d)
+			// At 17rem the kind toggles of the panel, whose padding is wider than
+			// that of the column, wrap to 2 rows.
+			// The handle has no grip. ui.css draws it as a divider.
+			@neo.ResizableAttrs(neo.ResizableOpts[float64]{
+				Handles:     neo.Set(neo.ResizableRight),
+				Width:       neo.Set("20rem"),
+				MinWidth:    neo.Set("18rem"),
+				MaxWidth:    neo.Set("36rem"),
+				HandleIcons: map[string]templ.Component{"right": templ.NopComponent},
+			}, templ.Attributes{"class": "tp-sidebar-size"}) {
+				@nav(d)
+			}
 			@editor(d)
 		}
 		@neo.ToasterAttrs(neo.ToasterOpts{}, templ.Attributes{"id": "tp-toaster"})
 	</div>
 }
 
-// regions are the parts of the page each render morphs by id. They leave out
-// .tp-body, where neo-sidebar keeps its backdrop, and the toaster.
-// A morph would remove the backdrop and the toasts.
+// regions are the parts of the page each render morphs by id.
+// They leave out .tp-body, the neo-resizable around the sidebar and the toaster.
+// A morph would remove the backdrop neo-sidebar keeps beside it,
+// the width a drag sets and the toasts.
 templ regions(d pageData) {
 	@top(d)
 	@nav(d)
@@ -157,16 +203,17 @@ templ clearDialog(file string) {
 	}
 }
 
-// aboutDialog lists the addresses, the configuration file and the versions.
-// The title opens it. neo-dialog requires the hidden trigger.
-// Morphs skip the dialog, which keeps it open.
+// aboutDialog lists the addresses, the configuration file and the versions,
+// and picks the color scheme. The title opens it. neo-dialog requires the
+// hidden trigger. Morphs skip the dialog, which keeps it open and keeps the
+// theme the select shows.
 templ aboutDialog(info toxic.Info) {
 	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
 		"id":                "tp-about",
 		"data-ignore-morph": true,
 	}) {
 		<span hidden { neo.DialogTrigger()... }></span>
-		<dialog>
+		<dialog id="tp-about-dialog">
 			@neo.DialogHeader() {
 				@neo.DialogTitle() {
 					{ info.AppName } - Toxiproxy
@@ -224,6 +271,10 @@ templ aboutDialog(info toxic.Info) {
 							}
 						}
 					</dd>
+					<dt>Theme</dt>
+					<dd>
+						@themeSelect()
+					</dd>
 				</dl>
 			}
 			@neo.DialogFooter() {
@@ -232,6 +283,31 @@ templ aboutDialog(info toxic.Info) {
 				}
 			}
 		</dialog>
+	}
+}
+
+// themeSelect picks the color scheme of [themeScript]. The server cannot read
+// localStorage, so the select takes the saved mode on init. It sets the
+// attribute, since a property set before neo-select upgrades hides its setter.
+templ themeSelect() {
+	@neo.SelectAttrs(neo.SelectOpts{
+		Value:     neo.Set("system"),
+		Size:      neo.Set("sm"),
+		AriaLabel: neo.Set("Theme"),
+	}, templ.Attributes{
+		"id":                       "tp-theme",
+		"data-init":                "el.setAttribute('value', tpTheme.mode())",
+		"data-on:neo-select-change": "tpTheme.set(evt.detail.value)",
+	}) {
+		@neo.Option(neo.OptionOpts{Value: neo.Set("system")}) {
+			System
+		}
+		@neo.Option(neo.OptionOpts{Value: neo.Set("light")}) {
+			Light
+		}
+		@neo.Option(neo.OptionOpts{Value: neo.Set("dark")}) {
+			Dark
+		}
 	}
 }
 
@@ -297,7 +373,7 @@ templ confirmDialog(id, title, confirm, act string) {
 		"data-ignore-morph": true,
 	}) {
 		<span hidden { neo.DialogTrigger()... }></span>
-		<dialog>
+		<dialog id={ id + "-dialog" }>
 			@neo.DialogHeader() {
 				@neo.DialogTitleAttrs(templ.Attributes{"class": "tp-dialog-warning"}) {
 					@neo.Layout(neo.LayoutOpts{
@@ -475,8 +551,8 @@ templ navFilter(f filter) {
 	}
 }
 
-// addressLink opens url in a new tab. It stays an anchor, which keeps
-// middle-click and copying the link working.
+// addressLink opens url in a new tab. It stays an anchor,
+// which keeps middle-click and copying the link working.
 templ addressLink(url, addr, label string, variant neo.LinkVariant) {
 	@neo.LinkAttrs(neo.LinkOpts{
 		Href:    neo.Set(href.External(url)),
@@ -693,10 +769,10 @@ templ row(d pageData, info toxic.TypeInfo, r rowView) {
 	</div>
 }
 
-// segment is 1 button of the mode group with the radio state the group sets
-// on upgrade. neo-buttongroup does not set it again after a morph strips it
-// without a value change, as on the group the user just clicked. It avoids
-// [neo.ButtonAttrs], whose role="button" and tabindex come first and win.
+// segment is 1 button of the mode group with the radio state the group sets on upgrade.
+// neo-buttongroup does not set it again after a morph strips it without a value change,
+// as on the group the user just clicked.
+// It avoids [neo.ButtonAttrs], whose role="button" and tabindex come first and win.
 templ segment(value, label, mode string) {
 	<neo-button
 		role="radio"
@@ -838,9 +914,9 @@ templ toxicityField(slot toxic.Slot, x toxic.Toxic, configFile string, disabled 
 	}
 }
 
-// infoButton is an icon button whose popover shows the children. It's ghost
-// because the other variants set a transform, which makes the button the
-// containing block of the fixed popover.
+// infoButton is an icon button whose popover shows the children.
+// It's ghost because the other variants set a transform,
+// which makes the button the containing block of the fixed popover.
 templ infoButton(ariaLabel string) {
 	@neo.Popover(neo.PopoverOpts{Placement: neo.Set(neo.PlacementTop)}) {
 		@neo.ButtonAttrs(neo.ButtonOpts{

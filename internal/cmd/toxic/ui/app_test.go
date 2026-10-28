@@ -281,6 +281,20 @@ func TestPage(t *testing.T) {
 		`<a [^>]*aria-label="Toxiproxy on GitHub"[^>]*>`,
 	).FindString(about)
 	require.Contains(t, repo, `href="https://github.com/Shopify/toxiproxy"`)
+	require.Contains(t, about, `<dialog id="tp-about-dialog">`)
+	// The theme select applies its mode through the script of the head and
+	// takes the saved mode on init.
+	require.Contains(t, body, "tpTheme.apply(tpTheme.mode())")
+	theme := regexp.MustCompile(
+		`(?s)<neo-select [^>]*id="tp-theme".*?</neo-select>`,
+	).FindString(about)
+	require.Contains(t,
+		theme,
+		`data-on:neo-select-change="tpTheme.set(evt.detail.value)"`)
+	for _, mode := range []string{"system", "light", "dark"} {
+		require.Contains(t, theme, `<neo-option role="option" tabindex="-1" `+
+			`aria-selected="false" value="`+mode+`"`)
+	}
 	require.Regexp(t, `<a [^>]*href="http://localhost:7332"[^>]*>`+
 		`toxic <code>localhost:7332</code>`, body)
 	require.Regexp(t, `<a [^>]*href="http://127\.0\.0\.1:\d+"[^>]*>`+
@@ -304,6 +318,12 @@ func TestPage(t *testing.T) {
 	// The header and the scope have a menu button. ui.css shows the one of the
 	// scope while the scope sticks.
 	require.Equal(t, 2, strings.Count(body, `aria-controls="tp-sidebar"`))
+	// The sidebar sits in a neo-resizable with a handle on its right edge,
+	// which has no grip. ui.css draws it as a divider.
+	require.Regexp(t,
+		`<neo-resizable [^>]*class="tp-sidebar-size"[^>]*>\s*<neo-sidebar `,
+		body)
+	require.Contains(t, body, `<span data-neo-resizable-handle="right"></span>`)
 
 	scoped := base + "/?endpoint=" + limitedKey + "&q=lim"
 	code, body = do(t, http.MethodGet, scoped, "", nil)
@@ -349,6 +369,10 @@ func TestCommands(t *testing.T) {
 	got := tb.waitFrom(t, at, limitedHeading)
 	require.Contains(t, got,
 		`data: signals {"endpoint":"PageLimited.GET","search":"","kinds":""}`)
+	// A render morphs the sidebar, not its neo-resizable, which keeps the
+	// width a drag sets.
+	require.Contains(t, got, `id="tp-sidebar"`)
+	require.NotContains(t, got, "<neo-resizable")
 
 	// Every kind is no filter, which the render writes back as empty.
 	at = tb.at()
@@ -459,7 +483,8 @@ func TestPresets(t *testing.T) {
 	// The label of the picker is the text addon of its input group.
 	require.Regexp(t, `<neo-input-group[^>]*><span aria-hidden="true">Preset</span>`+
 		`\s*<neo-combobox [^>]*aria-label="Preset"`, body)
-	// No throttling and Unreachable have icons of their own. The presets of the app share 1.
+	// No throttling and Unreachable have icons of their own.
+	// The presets of the app share 1.
 	for name, icon := range map[string]string{
 		"No throttling": "gauge",
 		"Unreachable":   "server-off",
@@ -531,11 +556,14 @@ func TestPresets(t *testing.T) {
 	got := tb.waitFrom(t, at, `id="tp-main"`)
 	require.NotContains(t, got, `value="Train"`)
 	require.Equal(t,
-		http.StatusBadRequest, tb.command(t, "/delete-preset/", `{"preset":"Train"}`))
+		http.StatusBadRequest,
+		tb.command(t, "/delete-preset/", `{"preset":"Train"}`))
 	require.Equal(t,
-		http.StatusBadRequest, tb.command(t, "/apply-preset/", `{"preset":"Train"}`))
+		http.StatusBadRequest,
+		tb.command(t, "/apply-preset/", `{"preset":"Train"}`))
 	require.Equal(t,
-		http.StatusBadRequest, tb.command(t, "/delete-preset/", `{"preset":"Unreachable"}`))
+		http.StatusBadRequest,
+		tb.command(t, "/delete-preset/", `{"preset":"Unreachable"}`))
 
 	at = tb.at()
 	require.Equal(t, http.StatusOK, tb.command(t, "/save/", "{}"))
@@ -865,6 +893,7 @@ func TestClearConfirm(t *testing.T) {
 		`<neo-button[^>]*document.getElementById\(&#39;tp-clear&#39;\).show\(\)[^>]*>`+
 			`\s*Clear overrides`, body)
 	dialog := clearDialog.FindString(body)
+	require.Contains(t, dialog, `<dialog id="tp-clear-dialog">`)
 	require.Contains(t, dialog, "Clear overrides?")
 	require.Contains(t, dialog,
 		"Overrides not saved to <code>datapages.yaml</code> cannot be restored.")

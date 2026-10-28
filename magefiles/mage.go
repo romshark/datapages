@@ -555,6 +555,8 @@ var morpheusComponents = []string{
 	"input-group",
 	"layout",
 	"popover",
+	"resizable",
+	"select",
 	"sidebar",
 	"slider",
 	"switch",

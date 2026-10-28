@@ -23,7 +23,8 @@
 
 /* Replaces the near-white dark accent, the brightest color on pressed and on controls.
    Blue keeps 3:1 for controls and 4.5:1 for text, where a gray that dim would match
-   the off track of a switch. It takes the theme's selector, which outranks :root. */
+   the off track of a switch. It takes the selectors of the theme, which outrank :root,
+   for the OS scheme without a class and for the dark class of the theme select. */
 @media (prefers-color-scheme: dark) {
   :root:not(.light):not(.dark) {
     --accent: oklch(0.54 0.14 257);
@@ -32,6 +33,14 @@
     --tp-route-wild: oklch(0.78 0.07 235);
     --tp-route-end: oklch(0.78 0.07 310);
   }
+}
+
+:root.dark {
+  --accent: oklch(0.54 0.14 257);
+  --accent-hover: color-mix(in oklab, var(--accent) 88%, white);
+  --accent-fg: oklch(0.985 0 0);
+  --tp-route-wild: oklch(0.78 0.07 235);
+  --tp-route-end: oklch(0.78 0.07 310);
 }
 
 *,
@@ -86,9 +95,10 @@ neo-input-group.tp-preset-picker > neo-combobox {
 }
 
 /* The transform and backdrop filter of an open neo-dialog make it the
-   containing block of the fixed list of the copy combobox, which its overflow
-   then clips. The dialog still enters from its starting style. */
-#tp-preset-new > dialog[open] {
+   containing block of the fixed lists of the copy combobox and the theme select,
+   which its overflow then clips. The dialog still enters from its starting style. */
+#tp-preset-new-dialog[open],
+#tp-about-dialog[open] {
   transform: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -175,12 +185,60 @@ a.tp-address {
   white-space: nowrap;
 }
 
-neo-sidebar.tp-sidebar {
-  --neo-sidebar-width: min(20rem, 85vw);
-  --neo-sidebar-bg: var(--page-bg);
-  --neo-sidebar-fg: var(--page-fg);
+/* neo-resizable sets the width of the sidebar, which keeps it as a panel, up to 85vw. */
+neo-resizable.tp-sidebar-size {
   /* Room inside the clipping list for a 2px focus outline at a 2px offset. */
   --tp-nav-inset: 0.25rem;
+  --neo-resizable-handle-hover-bg: transparent;
+  flex: none;
+}
+
+neo-sidebar.tp-sidebar {
+  --neo-sidebar-width: min(var(--neo-resizable-width, 20rem), 85vw);
+  --neo-sidebar-bg: var(--page-bg);
+  --neo-sidebar-fg: var(--page-fg);
+}
+
+/* The handle is the divider between the sidebar and the editor, centered in the gap of
+   .tp-body, whose --neo-gap it inherits. Its hit area is wider than the line. */
+neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"] {
+  right: calc(-0.5 * (var(--neo-gap) + var(--neo-resizable-edge-thickness)));
+  opacity: 1;
+}
+
+neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"]::before {
+  content: "";
+  align-self: stretch;
+  width: 1px;
+  background: var(--tp-divider);
+}
+
+neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"]:hover::before,
+neo-resizable.tp-sidebar-size:state(resizing) > [data-neo-resizable-handle="right"]::before {
+  background: var(--tp-control-border);
+}
+
+/* A panel is fixed. Without a box of its own, the wrapper leaves neither its
+   width nor a gap in .tp-body. Morpheus lays out an undefined neo-sidebar
+   as a panel below a 50rem viewport. */
+neo-resizable.tp-sidebar-size:has(> neo-sidebar:state(overlay)) {
+  display: contents;
+}
+
+neo-resizable.tp-sidebar-size:has(> neo-sidebar:state(overlay))
+  > [data-neo-resizable-handle] {
+  display: none;
+}
+
+@media (width <= 50rem) {
+  neo-resizable.tp-sidebar-size:has(> neo-sidebar:not(:defined)) {
+    display: contents;
+  }
+
+  neo-resizable.tp-sidebar-size:has(> neo-sidebar:not(:defined))
+    > [data-neo-resizable-handle] {
+    display: none;
+  }
 }
 
 /* On a wide page the header stays and the sidebar and the editor scroll on
@@ -188,13 +246,13 @@ neo-sidebar.tp-sidebar {
    hides its end below the screen until the page scrolls by the header height.
    The width query covers an undefined neo-sidebar, which has no overlay state. */
 @media (width > 50rem) {
-  .tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) {
+  .tp-app:has(> .tp-body > .tp-sidebar-size > neo-sidebar:not(:state(overlay))) {
     display: flex;
     flex-direction: column;
     height: 100dvh;
   }
 
-  .tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) > .tp-body {
+  .tp-app:has(> .tp-body > .tp-sidebar-size > neo-sidebar:not(:state(overlay))) > .tp-body {
     flex: 1 1 auto;
     min-height: 0;
     align-items: stretch;
@@ -204,18 +262,26 @@ neo-sidebar.tp-sidebar {
      The negative margins keep the cards in line with the header.
      A top padding would show the cards passing above the sticky scope,
      whose own top padding leaves room for the outlines. */
-  .tp-app:has(> .tp-body > neo-sidebar.tp-sidebar:not(:state(overlay))) .tp-main {
+  .tp-app:has(> .tp-body > .tp-sidebar-size > neo-sidebar:not(:state(overlay))) .tp-main {
     overflow-y: auto;
     padding: 0 var(--tp-main-inset) var(--tp-main-inset);
     margin: 0 calc(-1 * var(--tp-main-inset)) calc(-1 * var(--tp-main-inset));
   }
 
   /* The margins align the entries with the header and with the scope,
-     1rem below the header. */
-  neo-sidebar.tp-sidebar:not(:state(overlay)) {
-    height: auto;
+     1rem below the header. The stretched wrapper gives the sidebar a definite
+     height to fill, which keeps the margins off the sidebar. */
+  neo-resizable.tp-sidebar-size:has(> neo-sidebar:not(:state(overlay))) {
     margin: calc(1rem - var(--tp-nav-inset)) 0 calc(-1 * var(--tp-nav-inset))
       calc(-1 * var(--tp-nav-inset));
+  }
+
+  /* Above the margin of the wrapper, the divider meets the border of the header. */
+  neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"] {
+    top: calc(var(--tp-nav-inset) - 1rem);
+  }
+
+  neo-sidebar.tp-sidebar:not(:state(overlay)) {
     border: none;
   }
 }
