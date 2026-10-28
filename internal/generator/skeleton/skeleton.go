@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"go/format"
 	"maps"
+	"slices"
 	"strconv"
+	"strings"
 	"text/template"
 )
 
@@ -78,6 +80,19 @@ var (
 	)
 )
 
+// parseChoice returns the choice named s. what describes the choice in the error.
+func parseChoice[T ~string](what string, choices []T, s string) (T, error) {
+	if c := T(s); slices.Contains(choices, c) {
+		return c, nil
+	}
+	names := make([]string, len(choices))
+	for i, c := range choices {
+		names[i] = string(c)
+	}
+	return "", fmt.Errorf("unknown %s %q, want one of %s",
+		what, s, strings.Join(names, ", "))
+}
+
 // AppGo renders the app/app.go skeleton and returns formatted Go source.
 // With Web Components it declares the static files and a head that loads them.
 func AppGo(w WebComponents) ([]byte, error) {
@@ -96,10 +111,10 @@ func AppGo(w WebComponents) ([]byte, error) {
 // AppTempl renders the app/app.templ skeleton. With Web Components it defines
 // the head [AppGo] returns and shows the example component on the welcome page.
 //
-// assetsImport is the import path of the generated assets package, which the
-// head refers to the entry of the components through. Before the first
-// generation the package does not exist, and the app package would not
-// type-check. An empty assetsImport writes the head without the entry.
+// assetsImport is the import path of the generated assets package,
+// which the head refers to the entry of the components through. Before the first
+// generation the package does not exist, and the app package would not type-check.
+// An empty assetsImport writes the head without the entry.
 func AppTempl(w WebComponents, assetsImport string) ([]byte, error) {
 	var buf bytes.Buffer
 	data := struct {
