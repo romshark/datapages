@@ -288,9 +288,11 @@ func (PageIndex) OnPing(event EventPing, sse datapages.SSE) error { return nil }
 	var imports, funcs strings.Builder
 	for i, subj := range subjects {
 		name := multiappNames[i]
-		writeFileAt(t, filepath.Join(dir, "app", name, "app.go"),
+		writeFileAt(t,
+			filepath.Join(dir, "app", name, "app.go"),
 			appSrc(name, subj, fields[i]))
-		writeFileAt(t, filepath.Join(dir, "app", name, "datapagesgen", "app_gen.go"), stub)
+		writeFileAt(t,
+			filepath.Join(dir, "app", name, "datapagesgen", "app_gen.go"), stub)
 		_, _ = fmt.Fprintf(&imports, "\t%q\n\t%sgen %q\n",
 			"testproject/app/"+name, name, "testproject/app/"+name+"/datapagesgen")
 		_, _ = fmt.Fprintf(&funcs, `
@@ -1166,9 +1168,20 @@ func TestInit(t *testing.T) {
 				require.FileExists(t, filepath.Join(projectDir,
 					".claude", "skills", "datapages", "SKILL.md"))
 				require.Contains(t, stdout, "Project initialized successfully.")
+
+				// -n commits the generated code.
+				gitignore, err := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+				require.NoError(t, err)
+				require.NotContains(t, string(gitignore), "datapagesgen")
+				require.NotContains(t, string(gitignore), "_templ.go")
+				require.NoFileExists(t,
+					filepath.Join(projectDir, ".vscode", "settings.json"))
+				requireFileContains(t,
+					filepath.Join(projectDir, ".github", "workflows", "ci.yml"),
+					"git diff --exit-code")
 			},
 		},
-		"non-interactive without ai skills": {
+		"non-interactive without ai skills and ci": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
@@ -1179,6 +1192,7 @@ func TestInit(t *testing.T) {
 				"--name", "myapp",
 				"--module", "example.com/myapp",
 				"--no-ai-skills",
+				"--ci", "none",
 			},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1186,6 +1200,9 @@ func TestInit(t *testing.T) {
 				require.NoFileExists(t, filepath.Join(projectDir, "AGENTS.md"))
 				require.NoFileExists(t, filepath.Join(projectDir, "CLAUDE.md"))
 				require.NoDirExists(t, filepath.Join(projectDir, ".claude"))
+				// copilot-instructions.md and ci.yml are all .github holds.
+				require.NoDirExists(t, filepath.Join(projectDir, ".github"))
+				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
 			},
 		},
 		"non-interactive missing name": {
@@ -1363,8 +1380,9 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			args: []string{"datapages", "init"},
-			// The empty line takes the default of the Web Components prompt.
-			stdin:      "y\nmyapp\ny\nmymod\n\nn\n",
+			// The empty lines take the defaults of the Web Components,
+			// generated code and CI prompts.
+			stdin:      "y\nmyapp\ny\nmymod\n\n\n\nn\n",
 			projectDir: "myapp",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1421,7 +1439,7 @@ func TestInit(t *testing.T) {
 				"--name", "custom-app",
 				"--module", "example.com/custom",
 			},
-			stdin:    "\nn\n",
+			stdin:    "\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "custom-app")
@@ -1441,7 +1459,7 @@ func TestInit(t *testing.T) {
 			},
 			projectDir: "myproject",
 			args:       []string{"datapages", "init", "--name", "myproject"},
-			stdin:      "y\nmymod\n\nn\n",
+			stdin:      "y\nmymod\n\n\n\nn\n",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
@@ -1459,8 +1477,11 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err, "git init: %s", out)
 				return dir
 			},
-			args:     []string{"datapages", "init", "--module", "example.com/flagmod"},
-			stdin:    "\nn\n",
+			args: []string{
+				"datapages", "init",
+				"--module", "example.com/flagmod",
+			},
+			stdin:    "\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
@@ -1473,7 +1494,9 @@ func TestInit(t *testing.T) {
 			setup:      func(t *testing.T) string { return t.TempDir() },
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "rocket",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1495,17 +1518,23 @@ func TestInit(t *testing.T) {
 			setup:      func(t *testing.T) string { return t.TempDir() },
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "javascript",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
 				dir := filepath.Join(startDir, "myapp")
 				main, err := os.ReadFile(filepath.Join(dir, "cmd", "server", "main.go"))
 				require.NoError(t, err)
-				require.Contains(t, string(main), "datapages.WithAssets(app.StaticFS, false)")
+				require.Contains(t,
+					string(main),
+					"datapages.WithAssets(app.StaticFS, false)")
 				require.NotContains(t, string(main), "WithDatastarJS")
-				require.FileExists(t, filepath.Join(dir, "app", "static", "components", "index.js"))
-				requireFileContains(t, filepath.Join(dir, "AGENTS.md"),
+				require.FileExists(t,
+					filepath.Join(dir, "app", "static", "components", "index.js"))
+				requireFileContains(t,
+					filepath.Join(dir, "AGENTS.md"),
 					"| `app/static/components/` | Web Components as JavaScript modules")
 			},
 		},
@@ -1514,22 +1543,25 @@ func TestInit(t *testing.T) {
 				if runtime.GOOS == "windows" {
 					t.Skip("the fake npm and node are shell scripts")
 				}
-				// npm install would need the network. The fake node writes
-				// the bundle where build.mjs writes it.
+				// npm install would need the network.
+				// The fake node writes the bundle where build.mjs writes it.
 				bin := t.TempDir()
 				for name, script := range map[string]string{
 					"npm": "#!/bin/sh\nexit 0\n",
 					"node": "#!/bin/sh\nmkdir -p ../app/static\n" +
 						"echo 'console.log(1)' > ../app/static/components.js\n",
 				} {
-					require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755))
+					require.NoError(t,
+						os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755))
 				}
 				t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 				return t.TempDir()
 			},
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "typescript",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1562,7 +1594,10 @@ func TestInit(t *testing.T) {
 				t.Setenv("PATH", t.TempDir())
 				return dir
 			},
-			args:     []string{"datapages", "init", "-n", "--web-components", "typescript"},
+			args: []string{
+				"datapages", "init", "-n",
+				"--web-components", "typescript",
+			},
 			wantCode: 1,
 			wantErr:  "TypeScript Web Components need npm",
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1571,10 +1606,90 @@ func TestInit(t *testing.T) {
 			},
 		},
 		"web components unknown": {
-			setup:    func(t *testing.T) string { return t.TempDir() },
-			args:     []string{"datapages", "init", "-n", "--name", "x", "--web-components", "vue"},
+			setup: func(t *testing.T) string { return t.TempDir() },
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "x",
+				"--web-components", "vue",
+			},
 			wantCode: 1,
 			wantErr:  `unknown Web Components setup "vue"`,
+		},
+		"generated code hidden": {
+			setup:      func(t *testing.T) string { return t.TempDir() },
+			projectDir: "myapp",
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
+				"--generated-code", "hidden",
+			},
+			check: func(t *testing.T, startDir string, stdout string) {
+				dir := filepath.Join(startDir, "myapp")
+				for _, rel := range []string{
+					"app/datapagesgen/app_gen.go",
+					"app/datapagesgen/href/href_gen.go",
+					"app/app_templ.go",
+				} {
+					require.FileExists(t, filepath.Join(dir, rel))
+					c := exec.Command("git", "check-ignore", "-q", rel)
+					c.Dir = dir
+					require.NoError(t, c.Run(), "git does not ignore %s", rel)
+				}
+				c := exec.Command("git", "check-ignore", "-q", "app/app.go")
+				c.Dir = dir
+				require.Error(t, c.Run(), "git ignores app/app.go")
+
+				requireFileContains(t, filepath.Join(dir, ".vscode", "settings.json"),
+					`"**/datapagesgen": true`, `"**/*_templ.go": true`)
+				requireFileContains(t, filepath.Join(dir, "Makefile"), "build: gen\n")
+				ci, err := os.ReadFile(
+					filepath.Join(dir, ".github", "workflows", "ci.yml"),
+				)
+				require.NoError(t, err)
+				require.Contains(t, string(ci), "run: datapages gen")
+				require.NotContains(t, string(ci), "git diff --exit-code")
+			},
+		},
+		"interactive hidden generated code and no ci": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args: []string{"datapages", "init", "--module", "example.com/hidden"},
+			// Default Web Components, the 2nd generated code and CI options, no run.
+			stdin: "\n2\n2\nn\n",
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.Contains(t, stdout, "Commit generated files?")
+				require.Contains(t, stdout, "Set up CI?")
+				requireFileContains(t, filepath.Join(startDir, ".gitignore"),
+					"datapagesgen/\n", "*_templ.go\n")
+				require.FileExists(t, filepath.Join(startDir, ".vscode", "settings.json"))
+				require.NoFileExists(t,
+					filepath.Join(startDir, ".github", "workflows", "ci.yml"))
+			},
+		},
+		"ci unknown": {
+			setup: func(t *testing.T) string { return t.TempDir() },
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "x",
+				"--ci", "jenkins",
+			},
+			wantCode: 1,
+			wantErr:  `unknown CI system "jenkins", want one of github-actions, none`,
+		},
+		"generated code unknown": {
+			setup: func(t *testing.T) string { return t.TempDir() },
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "x",
+				"--generated-code", "vendored",
+			},
+			wantCode: 1,
+			wantErr:  `unknown generated code setting "vendored"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1638,7 +1753,8 @@ func TestInitInInitializedProject(t *testing.T) {
 		code := cmd.Run(
 			context.Background(),
 			append([]string{
-				"datapages", "init", "-n", "--module", "example.com/initialized",
+				"datapages", "init", "-n",
+				"--module", "example.com/initialized",
 			}, args...),
 			nil, &stdout, &stderr,
 			versionUnstamped, "xxxxxxx", "2026-2-23",
@@ -1763,11 +1879,10 @@ func TestInitPinsTheDatapagesModule(t *testing.T) {
 // TestInitReplacesWithTheLocalCheckout tests what init writes when the build
 // has no version go.mod takes.
 //
-// A "go build" from a modified checkout reports a pseudo-version marked
-// "+dirty", and a binary stamped with a tag that was never pushed reports a
-// version the proxy does not have. go.mod takes neither, hence it names the
-// checkout the binary was compiled from, which keeps the scaffold and the
-// generator on 1 tree.
+// A "go build" from a modified checkout reports a pseudo-version marked "+dirty",
+// and a binary stamped with a tag that was never pushed reports a version the proxy
+// does not have. go.mod takes neither, hence it names the checkout the binary
+// was compiled from, which keeps the scaffold and the generator on 1 tree.
 //
 // This test writes no workspace: the replace alone has to resolve datapages.
 func TestInitReplacesWithTheLocalCheckout(t *testing.T) {
@@ -1804,8 +1919,8 @@ func TestInitReplacesWithTheLocalCheckout(t *testing.T) {
 // Every release up to v0.9.4 carries package main at the module root:
 // the CLI lived there before it moved to cmd/datapages. Without the report
 // every error that follows names the user's own app package and none names
-// the version that cannot be imported. This test writes no workspace, which
-// is what a real project has.
+// the version that cannot be imported. This test writes no workspace,
+// which is what a real project has.
 func TestInitReportsAnUnimportableRoot(t *testing.T) {
 	t.Setenv("GOFLAGS", "-e")
 
@@ -1822,7 +1937,8 @@ func TestInitReportsAnUnimportableRoot(t *testing.T) {
 		nil, &stdout, &stderr,
 		"0.9.4", "xxxxxxx", "2026-2-23",
 	)
-	require.Equal(t, 1, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+	require.Equal(t, 1, code,
+		"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 	require.Contains(t, stderr.String(),
 		"github.com/romshark/datapages v0.9.4 has no importable root package")
 	require.Contains(t, stderr.String(), "add a replace for a local checkout")

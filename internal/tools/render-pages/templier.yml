@@ -9,7 +9,7 @@ lint: false
 format: false
 
 # The same templ that mage uses and this module requires.
-templ-cmd: go run github.com/a-h/templ/cmd/templ@v0.3.1070
+templ-cmd: go run github.com/a-h/templ/cmd/templ@v0.3.1100
 
 app:
   host: http://127.0.0.1:7341

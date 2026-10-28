@@ -36,6 +36,8 @@ Run `datapages gen` to apply these.
 #### `datapages init`
 
 - Scaffold Web Components instead of requiring manual frontend setup. Choose Datastar Rocket, esbuild-bundled TypeScript, JavaScript modules or none interactively or with `--web-components rocket|typescript|javascript|none`; `-n` defaults to none. Each setup adds an attribute-and-event example. Rocket loads the matching CDN bundle. TypeScript requires Node.js; init installs and builds it, and `datapages watch` rebuilds changes.
+- Ask whether to commit the generated code, `datapagesgen/` and `*_templ.go`, interactively or with `--generated-code committed|hidden`; `-n` defaults to committed. Hidden lists it in `.gitignore`, hides it in VS Code with `.vscode/settings.json` and makes `make build` and CI generate it. CI no longer compares it with the commit. A clone of a hidden project builds only after `templ generate` and `datapages gen`, and `datapages gen` fails there while the app uses the `href`, `action` or `assets` packages.
+- Ask whether to write the GitHub Actions workflow `.github/workflows/ci.yml`, interactively or with `--ci github-actions|none`; `-n` defaults to `github-actions`.
 
 ### Changed
 
@@ -66,6 +68,7 @@ Run `datapages gen` to apply these.
 #### Runtime and modules
 
 - Require Go 1.27.3 instead of 1.27.1. `go get` raises the `go` line of the application's `go.mod` to 1.27.3. Where `GOTOOLCHAIN=local` is set, install Go 1.27.3 or later first.
+- Require templ v0.3.1100. `*_templ.go` files written by an earlier templ fail to compile. Install templ v0.3.1100 and run `templ generate`.
 - Label requests with the `QUERY` method as `QUERY` in the `method` label of the HTTP metrics. They were counted as `<other>`.
 - Refuse a URL passed to `datapages.WithDatastarJS` that is invalid according to RFC 3986, such as one with `|` or a non-ASCII character. `datapages.NewServer` returns the error. Percent-encode the character it reports, as `%7C` for `|`.
 - Answer 404 to an asset path spelled differently from its file name, such as `/static/App.js` for `app.js`, on every system and in dev mode. Windows and macOS served such paths, unlike Linux and an `embed.FS`, and `datapages.WithAssetsCache` kept an `ETag` per spelling until exit. Spell asset links exactly like their files.
@@ -86,7 +89,8 @@ Run `datapages gen` to apply these.
 #### `datapages init`
 
 - Teach generated AI instructions to use isolated Web Components for browser libraries or client logic too complex for Datastar expressions. The earlier instructions did not say where such JavaScript belongs. Run `datapages init` in an existing project to update them.
-- Generate a new project's templates with templ v0.3.1070 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
+- Generate a new project's templates with templ v0.3.1100 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
+- Run `templ generate` after `datapages gen` in a new project's `make gen`. It left `*_templ.go` stale after a `.templ` change.
 
 ### Removed
 

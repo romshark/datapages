@@ -9,11 +9,22 @@ up:
 down:
 	docker compose down
 
-build:{{if .TypeScript}} bundle{{end}}
+build:{{if .Hidden}} gen{{end}}{{if .TypeScript}} bundle{{end}}
 	go build -o ./cmd/server/server ./cmd/server/
+{{- if .Hidden}}
 
+# templ generate runs first because a clone has no *_templ.go, without which
+# datapages gen cannot load the app.
+gen:
+	go run {{.TemplCmd}} generate
+	datapages gen
+{{- else}}
+
+# datapages gen runs first because templates may use the helpers it writes.
 gen:
 	datapages gen
+	go run {{.TemplCmd}} generate
+{{- end}}
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...

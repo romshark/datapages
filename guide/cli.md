@@ -61,7 +61,7 @@ On such a run `init` also takes these steps, in order:
 
 1. Adds the `github.com/romshark/datapages` requirement to `go.mod` when it is missing. A release of the CLI, or a build with a pseudo-version, requires its own version after `go list` confirms that Go can download it. Any other build, such as `(devel)`, a `+dirty` build or a commit that Go cannot download, adds a `replace` directive to the checkout it was built from and warns that the path exists only on this machine. Without a checkout, it warns and lets `go mod tidy` pick a version.
 2. Runs `npm install` and `node build.mjs` in `web/` for TypeScript Web Components.
-3. Runs `templ generate ./app/` with templ v0.3.1070 through `go run`, then `go mod tidy`.
+3. Runs `templ generate ./app/` with templ v0.3.1100 through `go run`, then `go mod tidy`.
 4. Fails when the selected Datapages version has no importable root package, as releases through v0.9.4.
 5. Runs [`datapages gen`](#datapages-gen), which writes `app/datapagesgen/` and `cmd/server/main.go`.
 6. With Web Components, writes `app/app.templ` again to load them through the generated `assets` package, and runs `templ generate` again.

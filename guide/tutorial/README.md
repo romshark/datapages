@@ -2,7 +2,7 @@
 
 Build a shared shopping list with sign-in and an HTTP test. Every open tab shows the same list. A change in 1 tab updates all of them.
 
-You need Go, templ v0.3.1070, the `datapages` CLI and Docker, which [Installation](../installation.md) covers. The tutorial assumes you know Go and `net/http`. It introduces templ and Datastar where the code first uses them.
+You need Go, templ v0.3.1100, the `datapages` CLI and Docker, which [Installation](../installation.md) covers. The tutorial assumes you know Go and `net/http`. It introduces templ and Datastar where the code first uses them.
 
 At the end, the app:
 

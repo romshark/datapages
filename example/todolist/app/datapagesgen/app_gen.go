@@ -15,7 +15,6 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"time"
 
@@ -477,14 +476,17 @@ func setupHandlers(s *Server) {
 		"GET /item/{id}/_$/{$}",
 		pageItemHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
-		"PUT /{id}/{$}",
-		appHandlers{s}.PUTEdit)
+		"PUT /toggle/{id}/{$}",
+		appHandlers{s}.PUTToggle)
 	s.Mux().HandleFunc(
 		"POST /{$}",
 		pageIndexHandlers{s}.POSTCreate)
 	s.Mux().HandleFunc(
 		"POST /filter/{$}",
 		pageIndexHandlers{s}.POSTFilter)
+	s.Mux().HandleFunc(
+		"PUT /item/{id}/edit/{$}",
+		pageItemHandlers{s}.PUTEdit)
 	s.Mux().HandleFunc(
 		"DELETE /item/{id}/{$}",
 		pageItemHandlers{s}.DELETEItem)
@@ -539,36 +541,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 
 type appHandlers struct{ *Server }
 
-func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
-	defer s.recoverPanic(w, r, nil, "App.Edit")
-	if !s.CheckDatastarRequest(w, r) {
+func (s appHandlers) PUTToggle(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Toggle")
+	if !s.CheckSameOrigin(w, r) {
 		return
-	}
-
-	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
-	var signals datapages.Signals[struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Done        bool   `json:"done"`
-		Due         string `json:"due"`
-	}]
-	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-
-	var query datapages.Query[struct {
-		Toggle bool `query:"toggle"`
-	}]
-	{
-		if q := httpread.QueryValue(r.URL.RawQuery, "toggle"); q != "" {
-			b, err := strconv.ParseBool(q)
-			if err != nil {
-				s.HTTPErrBad(w, "unexpected value for query parameter: toggle", err)
-				return
-			}
-			query.Values.Toggle = b
-		}
 	}
 
 	var path datapages.Path[struct {
@@ -577,15 +553,13 @@ func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
 	path.Values.ID = r.PathValue("id")
 
 	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
-	err := s.app.PUTEdit(
+	err := s.app.PUTToggle(
 		r,
 		path,
-		query,
-		signals,
 		dispatchTodoUpdated,
 	)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action App.Edit", err)
+		s.httpErrIntern(w, r, nil, "handling action App.Toggle", err)
 		return
 	}
 }
@@ -947,6 +921,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseStateItem(instanceID, slot)
+	stateID := stateRouteKey(instanceID)
 
 	p := dpapp.PageItem{
 		App: s.app,
@@ -993,6 +968,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 							eventTodoUpdated,
 							sse,
 							datapages.State[dpapp.StateItem]{Values: slot.state},
+							stateID,
 						); err != nil {
 							s.LogErr("handling PageItem.OnTodoUpdated", err)
 						}
@@ -1000,6 +976,68 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		})
+}
+
+func (s pageItemHandlers) PUTEdit(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageItem.Edit")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateItem(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	stateID := stateRouteKey(instanceID)
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Done        bool   `json:"done"`
+		Due         string `json:"due"`
+	}]
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	var path datapages.Path[struct {
+		ID string `path:"id"`
+	}]
+	path.Values.ID = r.PathValue("id")
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
+	p := dpapp.PageItem{
+		App: s.app,
+	}
+	err := p.PUTEdit(
+		r,
+		path,
+		signals,
+		datapages.State[dpapp.StateItem]{Values: slot.state},
+		stateID,
+		dispatchTodoUpdated,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageItem.Edit", err)
+		return
+	}
 }
 
 func (s pageItemHandlers) DELETEItem(
