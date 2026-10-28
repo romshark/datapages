@@ -124,8 +124,8 @@ func TestFilter(t *testing.T) {
 		all     bool
 	}{
 		{kinds: "", pressed: "get,stream,action,file", all: true},
-		{kinds: "file,stream,get,action", pressed: "get,stream,action,file", all: true},
-		{kinds: "action,get", pressed: "get,action", all: false},
+		{kinds: "file-stream-get-action", pressed: "get,stream,action,file", all: true},
+		{kinds: "action-get", pressed: "get,action", all: false},
 		{kinds: "none", pressed: "", all: false},
 	} {
 		f := filter{kinds: tc.kinds}
@@ -170,4 +170,31 @@ func TestSetField(t *testing.T) {
 	require.EqualError(t, setField(&x, toxic.Latency, "toxicity", "101"),
 		"requests affected must be a whole percentage from 0 to 100")
 	require.ErrorIs(t, setField(&x, toxic.Latency, "rate", "1"), errUnknownField)
+}
+
+// TestScope tests the endpoint query parameter. It names an endpoint of the app
+// by its handler and any other by its pattern, which a pattern of an endpoint
+// of the app also still does.
+func TestScope(t *testing.T) {
+	eps := []toxic.Endpoint{
+		{Pattern: "GET /{$}", Owner: "PageIndex", Handler: "GET"},
+		{Pattern: "GET /_$/{$}", Owner: "PageIndex", Handler: "GETStream"},
+		{Pattern: "GET /static/", Handler: "assets"},
+	}
+	for name, tc := range map[string]struct {
+		key, pattern, canonical string
+	}{
+		"global":          {"", "", ""},
+		"handler":         {"PageIndex.GETStream", "GET /_$/{$}", "PageIndex.GETStream"},
+		"assets":          {"assets", "GET /static/", "assets"},
+		"pattern":         {"GET /_$/{$}", "GET /_$/{$}", "PageIndex.GETStream"},
+		"unknown pattern": {"POST /gone/{$}", "POST /gone/{$}", "POST /gone/{$}"},
+		"unknown handler": {"PageGone.GET", "PageGone.GET", "PageGone.GET"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pattern := scopePattern(tc.key, eps)
+			require.Equal(t, tc.pattern, pattern)
+			require.Equal(t, tc.canonical, scopeKey(pattern, eps))
+		})
+	}
 }

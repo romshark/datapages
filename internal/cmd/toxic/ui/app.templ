@@ -401,13 +401,14 @@ templ nav(d pageData) {
 	}
 }
 
-// navLink links the scope of pattern, empty for global, with the filter f.
+// navLink links the scope that the endpoint query parameter key names,
+// empty for global, with the filter f.
 // A plain click shows the scope through POSTShow, which keeps the search field,
 // and closes the sidebar panel. Other clicks follow the link.
-templ navLink(f filter, selected bool, pattern string) {
+templ navLink(f filter, selected bool, key string) {
 	<a
 		href={ href.PageIndex(href.QueryPageIndex{
-			Endpoint: pattern,
+			Endpoint: key,
 			Search:   f.search,
 			Kinds:    f.kinds,
 		}) }
@@ -416,7 +417,7 @@ templ navLink(f filter, selected bool, pattern string) {
 			aria-current="page"
 		}
 		data-on:click={ action.PageIndex.Show.POST(
-			action.PageIndex.Show.POSTQuery(pattern),
+			action.PageIndex.Show.POSTQuery(key),
 			action.WithBefore("if (evt.button !== 0 || evt.metaKey || evt.ctrlKey || "+
 				"evt.shiftKey || evt.altKey) return; evt.preventDefault(); "+
 				"el.closest('neo-sidebar:state(overlay)')?.hide()"),
@@ -456,7 +457,7 @@ templ navFilter(f filter) {
 		}, templ.Attributes{
 			// An empty kinds signal is every kind, which leaves 'none' for no kind.
 			"data-on:neo-toggle-group-change": action.PageIndex.Filter.POST(
-				action.WithBefore("$kinds = evt.detail.value || 'none'")),
+				action.WithBefore("$kinds = evt.detail.values.join('-') || 'none'")),
 		}) {
 			for _, k := range kinds {
 				// Primary, because the default variant marks pressed with an
@@ -501,7 +502,7 @@ templ routePath(path string) {
 }
 
 templ navEntry(f filter, e navItem, unknown bool) {
-	@navLink(f, e.selected, e.pattern) {
+	@navLink(f, e.selected, e.key()) {
 		@navTitle() {
 			<span class="tp-method">{ method(e.pattern) }</span>
 			<code class="tp-path">

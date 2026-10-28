@@ -37,6 +37,9 @@ type App struct {
 
 func (a *App) Head(_ *http.Request) datapages.Head { return head(a.Front.Info()) }
 
+// scope returns the pattern of the scope that the endpoint query parameter key names.
+func (a *App) scope(key string) string { return scopePattern(key, a.Front.Endpoints()) }
+
 // EventChanged is "toxiproxy.changed"
 //
 // The settings or the endpoints of the app changed. Every tab renders.
@@ -58,10 +61,10 @@ type PageIndex struct{ App *App }
 
 // StateIndex is what 1 tab shows.
 type StateIndex struct {
-	// Endpoint is the pattern of the scope, empty for the global toxics.
+	// Endpoint is the endpoint query parameter, which names the scope,
+	// empty for the global toxics. See [scopePattern].
 	Endpoint string
-	// Search and Kinds filter the endpoint list. Kinds is comma-separated,
-	// empty for every kind.
+	// Search and Kinds filter the endpoint list. See [filter].
 	Search, Kinds string
 
 	// Notice is the outcome of a save or a reload, shown once as a toast.
@@ -97,15 +100,16 @@ func (p PageIndex) GET(
 
 // StreamOpen sets the tab state from the signals, which mirror the URL,
 // and renders the tab to catch up on changes made while it had no stream.
+// An endpoint the URL names by its pattern is renamed after its handler.
 func (p PageIndex) StreamOpen(
 	_ *http.Request,
 	sse datapages.SSE,
 	state datapages.State[StateIndex],
 	signals datapages.Signals[ViewSignals],
 ) error {
-	v := signals.Values
+	v, eps := signals.Values, p.App.Front.Endpoints()
 	*state.Values = StateIndex{
-		Endpoint: v.Endpoint,
+		Endpoint: scopeKey(scopePattern(v.Endpoint, eps), eps),
 		Search:   v.Search,
 		Kinds:    canonicalKinds(v.Kinds),
 	}
@@ -205,8 +209,9 @@ func (p PageIndex) POSTMode(
 	}
 	s, slot := state.Values, query.Values.Slot
 	s.clearOutcome()
+	scope := p.App.scope(s.Endpoint)
 	_ = p.App.Front.Update(func(st *toxic.Settings) error {
-		setSlot(st, s.Endpoint, slot, mode, current(*st, s.Endpoint, slot))
+		setSlot(st, scope, slot, mode, current(*st, scope, slot))
 		return nil
 	})
 	return changed.Dispatch(EventChanged{})
@@ -232,8 +237,9 @@ func (p PageIndex) POSTValue(
 	viewChanged datapages.Dispatcher[EventViewChanged],
 ) error {
 	s, slot := state.Values, query.Values.Slot
+	scope := p.App.scope(s.Endpoint)
 	err := p.App.Front.Update(func(st *toxic.Settings) error {
-		x := current(*st, s.Endpoint, slot)
+		x := current(*st, scope, slot)
 		err := setField(&x, slot.Type, query.Values.Field, signals.Values.Value)
 		if err != nil {
 			return err
@@ -241,7 +247,7 @@ func (p PageIndex) POSTValue(
 		if err := x.Validate(slot.Type); err != nil {
 			return err
 		}
-		setSlot(st, s.Endpoint, slot, modeOn, x)
+		setSlot(st, scope, slot, modeOn, x)
 		return nil
 	})
 	if errors.Is(err, errUnknownField) {
@@ -267,8 +273,9 @@ func (p PageIndex) POSTClear(
 ) error {
 	s := state.Values
 	s.clearOutcome()
+	scope := p.App.scope(s.Endpoint)
 	_ = p.App.Front.Update(func(st *toxic.Settings) error {
-		delete(st.Endpoints, s.Endpoint)
+		delete(st.Endpoints, scope)
 		return nil
 	})
 	return changed.Dispatch(EventChanged{})

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -184,6 +185,33 @@ type navItem struct {
 	overrides int
 }
 
+// key returns the endpoint query parameter that selects e. See [scopePattern].
+func (e navItem) key() string { return cmp.Or(e.name, e.pattern) }
+
+// scopePattern returns the pattern of the scope that the endpoint query
+// parameter key names. key is the handler of an endpoint in eps, as in
+// PageIndex.GET, else a pattern. A handler name needs no escaping in the URL,
+// where the "/", "{" and "$" of a pattern do.
+func scopePattern(key string, eps []toxic.Endpoint) string {
+	for _, e := range eps {
+		if e.Name() == key {
+			return e.Pattern
+		}
+	}
+	return key
+}
+
+// scopeKey returns the endpoint query parameter of the scope pattern:
+// the handler of its endpoint in eps, else pattern.
+func scopeKey(pattern string, eps []toxic.Endpoint) string {
+	for _, e := range eps {
+		if e.Pattern == pattern {
+			return e.Name()
+		}
+	}
+	return pattern
+}
+
 type typeView struct {
 	info toxic.TypeInfo
 	rows []rowView
@@ -204,7 +232,8 @@ type rowView struct {
 func (a *App) view(tab StateIndex) pageData {
 	s := a.Front.Settings()
 	eps := a.Front.Endpoints()
-	scope, f := tab.Endpoint, filter{search: tab.Search, kinds: tab.Kinds}
+	scope := scopePattern(tab.Endpoint, eps)
+	f := filter{search: tab.Search, kinds: tab.Kinds}
 	d := pageData{
 		info:           a.Front.Info(),
 		scope:          scope,
@@ -329,7 +358,8 @@ var kindInfos = map[string]kindInfo{
 }
 
 // filter selects the endpoints whose text matches search and whose kind is in kinds,
-// a comma-separated list. Empty kinds is every kind.
+// a list separated by "-", which unlike "," needs no escaping in the URL.
+// Empty kinds is every kind.
 type filter struct {
 	search, kinds string
 }
@@ -340,7 +370,7 @@ func (f filter) shows(kind, text string) bool {
 }
 
 func (f filter) showsKind(kind string) bool {
-	return f.kinds == "" || slices.Contains(strings.Split(f.kinds, ","), kind)
+	return f.kinds == "" || slices.Contains(strings.Split(f.kinds, "-"), kind)
 }
 
 // allKinds reports whether f shows every kind.

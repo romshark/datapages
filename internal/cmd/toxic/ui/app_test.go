@@ -28,7 +28,11 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-const limited = "GET /limited/{$}"
+// limited is the pattern of an endpoint, limitedKey its endpoint query parameter.
+const (
+	limited    = "GET /limited/{$}"
+	limitedKey = "PageLimited.GET"
+)
 
 var (
 	latencyDown = toxic.Slot{Type: toxic.Latency, Stream: toxic.Downstream}
@@ -301,10 +305,11 @@ func TestPage(t *testing.T) {
 	// scope while the scope sticks.
 	require.Equal(t, 2, strings.Count(body, `aria-controls="tp-sidebar"`))
 
-	scoped := base + "/?endpoint=" + url.QueryEscape(limited) + "&q=lim"
+	scoped := base + "/?endpoint=" + limitedKey + "&q=lim"
 	code, body = do(t, http.MethodGet, scoped, "", nil)
 	require.Equal(t, http.StatusOK, code)
 	require.Contains(t, body, limitedHeading)
+	require.Contains(t, body, `href="/?endpoint=PageLimited.GET&amp;q=lim"`)
 	require.Contains(t, body, `data-signals:search="'lim'"`)
 	// The kind icon leads the heading.
 	require.Regexp(t, `<h2[^>]*><neo-layout[^>]*><neo-icon [^>]*aria-label="Page"`, body)
@@ -339,15 +344,15 @@ func TestCommands(t *testing.T) {
 	}
 
 	at := tb.at()
-	code := tb.command(t, "/show/?endpoint="+url.QueryEscape(limited), "{}")
+	code := tb.command(t, "/show/?endpoint="+limitedKey, "{}")
 	require.Equal(t, http.StatusOK, code)
 	got := tb.waitFrom(t, at, limitedHeading)
 	require.Contains(t, got,
-		`data: signals {"endpoint":"GET /limited/{$}","search":"","kinds":""}`)
+		`data: signals {"endpoint":"PageLimited.GET","search":"","kinds":""}`)
 
 	// Every kind is no filter, which the render writes back as empty.
 	at = tb.at()
-	code = tb.command(t, "/filter/", `{"search":"lim","kinds":"get,stream,action,file"}`)
+	code = tb.command(t, "/filter/", `{"search":"lim","kinds":"get-stream-action-file"}`)
 	require.Equal(t, http.StatusOK, code)
 	got = tb.waitFrom(t, at, limitedPath)
 	require.Contains(t, got, `"search":"lim","kinds":""}`)
@@ -623,7 +628,7 @@ func TestPresetOverrides(t *testing.T) {
 	}
 	override := toxic.Set{latencyDown: toxic.NewToxic(toxic.Latency)}
 
-	require.Contains(t, run("/show/?endpoint="+url.QueryEscape(limited), "{}"),
+	require.Contains(t, run("/show/?endpoint="+limitedKey, "{}"),
 		`value="No throttling"`)
 	require.NotContains(t, run("/mode/?slot=latency_downstream", `{"mode":"on"}`),
 		"value=", "Unsaved")
@@ -853,7 +858,7 @@ func TestClearConfirm(t *testing.T) {
 
 	_, body := do(t,
 		http.MethodGet,
-		s.url+"/?endpoint="+url.QueryEscape(limited),
+		s.url+"/?endpoint="+limitedKey,
 		"",
 		nil)
 	require.Regexp(t,
@@ -872,7 +877,7 @@ func TestClearConfirm(t *testing.T) {
 // global toxic is off and its disabled fields while it is on.
 func TestInherit(t *testing.T) {
 	s := startSettings(t)
-	scoped := s.url + "/?endpoint=" + url.QueryEscape(limited)
+	scoped := s.url + "/?endpoint=" + limitedKey
 	row := regexp.MustCompile(
 		`(?s)id="tp-latency_downstream".*?id="tp-latency_upstream"`,
 	)
