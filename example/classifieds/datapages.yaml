@@ -24,7 +24,10 @@ watch:
       requires: reload
   # http://localhost:7332 serves the app through Toxiproxy,
   # with its settings page at http://localhost:7333/, which applies the presets.
+  # Without host and ui-host, the OS picks the ports.
   toxiproxy:
+    host: localhost:7332
+    ui-host: localhost:7333
     presets:
       - name: Flaky network
         toxics:

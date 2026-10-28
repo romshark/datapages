@@ -702,30 +702,11 @@ func TestAppName(t *testing.T) {
 	}
 }
 
-// TestNextPort tests nextPort, including hosts that have no next port.
-func TestNextPort(t *testing.T) {
-	for host, want := range map[string]string{
-		"localhost:7331":  "localhost:7332",
-		":7331":           ":7332",
-		"[::1]:8080":      "[::1]:8081",
-		"localhost:0":     "",
-		"localhost:65535": "",
-		"localhost":       "",
-	} {
-		got, err := nextPort(host)
-		if want == "" {
-			require.Error(t, err, host)
-			continue
-		}
-		require.NoError(t, err, host)
-		require.Equal(t, want, got, host)
-	}
-}
-
 // TestStartToxiproxy tests when watch mode starts the Toxiproxy front and its
-// settings page. Without a watch.toxiproxy section they use the 2 ports after
-// the dev server and a problem turns them off with a warning. With the section,
-// a problem fails the start. It parses the todolist example.
+// settings page. Without an address in watch.toxiproxy they listen on the host
+// of the dev server and a port the OS picks. Without the section, a problem
+// turns them off with a warning. With it, a problem fails the start.
+// It parses the todolist example.
 func TestStartToxiproxy(t *testing.T) {
 	moduleDir, err := filepath.Abs(filepath.Join("..", "..", "example", "todolist"))
 	require.NoError(t, err)
@@ -733,7 +714,8 @@ func TestStartToxiproxy(t *testing.T) {
 	appHost := &url.URL{Scheme: "http", Host: "localhost:8080"}
 
 	// In the strings, %[1]d is the free port of the dev server and %[2]d and
-	// %[3]d the 2 free ports after it.
+	// %[3]d the 2 free ports after it. In wantLine, %[4]d and %[5]d are the
+	// ports the front and the settings page listen on.
 	for name, tc := range map[string]struct {
 		tp       *config.WatchToxiproxy
 		host     string
@@ -744,25 +726,23 @@ func TestStartToxiproxy(t *testing.T) {
 	}{
 		"default": {
 			host: "localhost:%[1]d",
-			wantLine: "toxiproxy: http://localhost:%[2]d " +
-				"(settings: http://localhost:%[3]d/)\n",
+			wantLine: "toxiproxy: http://localhost:%[4]d " +
+				"(settings: http://localhost:%[5]d/)\n",
 		},
 		"default with a random dev server port": {host: "localhost:0"},
-		"default on a busy port": {
-			host: "localhost:%[1]d", busy: 1,
+		// 192.0.2.0/24 is reserved for documentation by RFC 5737.
+		"default on an address of no interface": {
+			host:    "192.0.2.1:%[1]d",
 			wantOff: "warning: toxiproxy is off: listening on watch.toxiproxy.host",
 		},
-		"default on a busy settings port": {
-			host: "localhost:%[1]d", busy: 2,
-			wantOff: "warning: toxiproxy is off: listening on watch.toxiproxy.ui-host",
-		},
-		"default on the port of the app": {
-			host: "localhost:8079",
-			wantOff: "warning: toxiproxy is off: " +
-				"watch.toxiproxy.host localhost:8080 uses the port of watch.app-host",
+		"configured with a random port": {
+			tp:   &config.WatchToxiproxy{Host: "127.0.0.1:0"},
+			host: "localhost:%[1]d",
+			wantLine: "toxiproxy: http://127.0.0.1:%[4]d " +
+				"(settings: http://127.0.0.1:%[5]d/)\n",
 		},
 		"configured on a busy port": {
-			tp:   &config.WatchToxiproxy{},
+			tp:   &config.WatchToxiproxy{Host: "localhost:%[2]d"},
 			host: "localhost:%[1]d", busy: 1,
 			wantErr: "listening on watch.toxiproxy.host",
 		},
@@ -824,7 +804,10 @@ func TestStartToxiproxy(t *testing.T) {
 				}
 				return
 			}
-			require.Equal(t, ports(tc.wantLine), stderr.String())
+			require.Equal(t, fmt.Sprintf(tc.wantLine, port, port+1, port+2,
+				tox.frontLn.Addr().(*net.TCPAddr).Port,
+				tox.uiLn.Addr().(*net.TCPAddr).Port,
+			), stderr.String())
 
 			ctx, cancel := context.WithCancel(context.Background())
 			done := make(chan error, 1)

@@ -229,8 +229,8 @@ func Load(moduleDir string) (c Config, found bool, _ error) {
 // the destination and the Prometheus option are read from the datapages.NewServer call,
 // assets from the embed.FS variable of the app package.
 //
-// The toxiproxy section has no host, which defaults to the port after the dev
-// server and lets 2 apps of 1 module run side by side. It holds the presets
+// The toxiproxy section has no host, which defaults to a port the OS picks
+// and lets 2 apps of 1 module run side by side. It holds the presets
 // as the settings page saves them. It ends inside the watch section, because
 // init appends watch keys.
 const DefaultYAML = `cmd: cmd/server
@@ -239,8 +239,8 @@ watch:
     - ".git/**" # git internals
     - ".*"      # hidden files/directories
     - "*~"      # editor backup files
-  # The app through Toxiproxy on the port after the dev server, as
-  # http://localhost:7332, and its settings page on the port after that.
+  # The app through Toxiproxy and its settings page, on the ports the OS
+  # picks, which watch prints. Set host and ui-host for fixed ports.
   # The presets are the throttling presets of Chrome DevTools.
   toxiproxy:
     presets:

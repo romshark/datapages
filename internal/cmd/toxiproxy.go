@@ -118,19 +118,17 @@ func startToxiproxy(
 		}
 		return nil, nil
 	}
+	// The defaults keep the host of the dev server, whose cookies the browser
+	// then sends to both, and let 2 apps of 1 module run side by side.
 	proxyHost := tp.Host
 	if proxyHost == "" {
-		var err error
-		if proxyHost, err = nextPort(host); err != nil {
-			return fail(fmt.Errorf("%w; set watch.toxiproxy.host", err))
-		}
+		proxyHost = net.JoinHostPort(upstream.Hostname(), "0")
 	}
 	uiHost := tp.UIHost
 	if uiHost == "" {
-		var err error
-		if uiHost, err = defaultUIHost(proxyHost); err != nil {
-			return fail(fmt.Errorf("%w; set watch.toxiproxy.ui-host", err))
-		}
+		// [config.WatchToxiproxy.Validate] rejects a host without a port.
+		h, _, _ := net.SplitHostPort(proxyHost)
+		uiHost = net.JoinHostPort(h, "0")
 	}
 	// The proxy binds before the dev server and the app. On 1 of their ports it
 	// makes them fail with an error that names another watch as the cause.
@@ -289,35 +287,15 @@ func newSettingsServer(
 	)
 }
 
-// boundAddr returns addr, or the address of ln when addr has port 0.
+// boundAddr returns addr, or addr with the port of ln when addr has port 0.
+// It keeps the host of addr, as in "localhost", where the address of ln has
+// the IP it resolved to.
 func boundAddr(addr string, ln net.Listener) string {
-	if _, port, _ := net.SplitHostPort(addr); port == "0" {
-		return ln.Addr().String()
+	h, port, err := net.SplitHostPort(addr)
+	if err != nil || port != "0" {
+		return addr
 	}
-	return addr
-}
-
-// defaultUIHost returns proxyHost with the next port,
-// or with port 0 when proxyHost has port 0.
-func defaultUIHost(proxyHost string) (string, error) {
-	if h, port, err := net.SplitHostPort(proxyHost); err == nil && port == "0" {
-		return net.JoinHostPort(h, "0"), nil
-	}
-	return nextPort(proxyHost)
-}
-
-// nextPort returns host with the port after its own,
-// as in "localhost:7332" for "localhost:7331".
-func nextPort(host string) (string, error) {
-	h, port, err := net.SplitHostPort(host)
-	if err != nil {
-		return "", fmt.Errorf("reading the port of %s: %w", host, err)
-	}
-	n, err := strconv.ParseUint(port, 10, 16)
-	if err != nil || n == 0 || n == 65535 {
-		return "", fmt.Errorf("%s has no next port", host)
-	}
-	return net.JoinHostPort(h, strconv.FormatUint(n+1, 10)), nil
+	return net.JoinHostPort(h, strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))
 }
 
 // checkEndpointKeys reports the override keys of

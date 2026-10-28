@@ -492,10 +492,10 @@ watch:
 
 ## Test on a slow or failing network
 
-`datapages watch` also serves the application through [Toxiproxy](https://github.com/Shopify/toxiproxy), which injects network faults, called toxics, into each request. `--host` keeps serving without toxics. Watch mode prints the address of the proxy and of its settings page:
+`datapages watch` also serves the application through [Toxiproxy](https://github.com/Shopify/toxiproxy), which injects network faults, called toxics, into each request. `--host` keeps serving without toxics. Watch mode prints the address of the proxy and of its settings page. The OS picks their ports unless `host` and `ui-host` set them:
 
 ```
-toxiproxy: http://localhost:7332 (settings: http://localhost:7333/)
+toxiproxy: http://localhost:52417 (settings: http://localhost:52419/)
 ```
 
 ```
@@ -535,12 +535,12 @@ watch:
                 toxicity: 0.5
 ```
 
-| Key        | Value                                                                                                  |
-| ---------- | ------------------------------------------------------------------------------------------------------ |
-| `disabled` | `true` turns the proxy off.                                                                            |
-| `host`     | The address of the proxy. Defaults to the host of `--host` with the next port, `localhost:7332`.       |
-| `ui-host`  | The address of the settings page. Defaults to the host of `host` with the next port, `localhost:7333`. |
-| `presets`  | The named sets of toxics the settings page applies.                                                    |
+| Key        | Value                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| `disabled` | `true` turns the proxy off.                                                               |
+| `host`     | The address of the proxy. Defaults to the host of `--host` and a port the OS picks.       |
+| `ui-host`  | The address of the settings page. Defaults to the host of `host` and a port the OS picks. |
+| `presets`  | The named sets of toxics the settings page applies.                                       |
 
 Each preset takes:
 

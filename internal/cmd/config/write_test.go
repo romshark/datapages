@@ -26,8 +26,8 @@ watch:
     - ".git/**" # git internals
     - ".*"      # hidden files/directories
     - "*~"      # editor backup files
-  # The app through Toxiproxy on the port after the dev server, as
-  # http://localhost:7332, and its settings page on the port after that.
+  # The app through Toxiproxy and its settings page, on the ports the OS
+  # picks, which watch prints. Set host and ui-host for fixed ports.
   # The presets are the throttling presets of Chrome DevTools.
   toxiproxy:
     presets:

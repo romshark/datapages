@@ -449,30 +449,14 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
-// freePorts returns the first of n consecutive free ports of the loopback
-// interface.
-func freePorts(t *testing.T, n int) int {
+// freePort returns a free port of the loopback interface.
+func freePort(t *testing.T) int {
 	t.Helper()
-	for range 20 {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-		port := ln.Addr().(*net.TCPAddr).Port
-		_ = ln.Close()
-		free := true
-		for i := 1; i < n && free; i++ {
-			next, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+i))
-			if err != nil {
-				free = false
-				continue
-			}
-			_ = next.Close()
-		}
-		if free {
-			return port
-		}
-	}
-	t.Fatalf("no %d consecutive free ports", n)
-	return 0
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	require.NoError(t, ln.Close())
+	return port
 }
 
 // TestWatch tests the watch command over a scaffolded module: it refuses a
@@ -569,60 +553,37 @@ func TestWatch(t *testing.T) {
 	})
 
 	t.Run("toxiproxy by default", func(t *testing.T) {
-		for name, tc := range map[string]struct {
-			busy bool // the port after --host is taken
-			want string
-		}{
-			"starts on the next ports": {
-				want: "toxiproxy: http://localhost:%[2]d " +
-					"(settings: http://localhost:%[3]d/)",
-			},
-			"turns off on a busy port": {
-				busy: true,
-				want: "warning: toxiproxy is off: listening on watch.toxiproxy.host",
-			},
-		} {
-			t.Run(name, func(t *testing.T) {
-				setupProject(t, "invalid.go")
-				port := freePorts(t, 3)
-				if tc.busy {
-					ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+1))
-					require.NoError(t, err)
-					t.Cleanup(func() { _ = ln.Close() })
-				}
+		setupProject(t, "invalid.go")
+		port := freePort(t)
 
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				stderr := new(lockedBuffer)
-				done := make(chan int, 1)
-				go func() {
-					done <- cmd.Run(ctx, []string{
-						"datapages", "watch", "--host", fmt.Sprintf("localhost:%d", port),
-					}, nil, io.Discard, stderr, "0.0.0", "xxxxxxx", "2026-2-23")
-				}()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stderr := new(lockedBuffer)
+		done := make(chan int, 1)
+		go func() {
+			done <- cmd.Run(ctx, []string{
+				"datapages", "watch", "--host", fmt.Sprintf("localhost:%d", port),
+			}, nil, io.Discard, stderr, "0.0.0", "xxxxxxx", "2026-2-23")
+		}()
 
-				want := tc.want
-				if strings.Contains(want, "%") {
-					want = fmt.Sprintf(want, port, port+1, port+2)
-				}
-				deadline := time.After(30 * time.Second)
-				for !strings.Contains(stderr.String(), want) {
-					select {
-					case code := <-done:
-						t.Fatalf("watch exited with code %d; stderr: %s", code, stderr)
-					case <-deadline:
-						t.Fatalf("stderr lacks %q: %s", want, stderr)
-					case <-time.After(50 * time.Millisecond):
-					}
-				}
+		want := regexp.MustCompile(
+			`toxiproxy: http://localhost:\d+ \(settings: http://localhost:\d+/\)`)
+		deadline := time.After(30 * time.Second)
+		for !want.MatchString(stderr.String()) {
+			select {
+			case code := <-done:
+				t.Fatalf("watch exited with code %d; stderr: %s", code, stderr)
+			case <-deadline:
+				t.Fatalf("stderr lacks %s: %s", want, stderr)
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
 
-				cancel()
-				select {
-				case <-done:
-				case <-time.After(10 * time.Second):
-					t.Fatal("watch did not stop after cancel")
-				}
-			})
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("watch did not stop after cancel")
 		}
 	})
 

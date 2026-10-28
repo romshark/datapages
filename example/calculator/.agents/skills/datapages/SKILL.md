@@ -49,7 +49,7 @@ To restore rendering, save a `.templ` file or restart the watcher.
 
 ### Test on a slow or failing network
 
-`datapages watch` also serves the app through Toxiproxy, by default on the port after the development server, with latency, bandwidth limits, timeouts, resets and HTTP errors per endpoint, and a settings page for them on the port after that. `watch.toxiproxy` in `datapages.yaml` configures it. `datapages lint` reports an endpoint key of a preset in `watch.toxiproxy.presets` that is not the `net/http.ServeMux` pattern of a route, as in `GET /post/{slug}/{$}`.
+`datapages watch` also serves the app through Toxiproxy, with latency, bandwidth limits, timeouts, resets and HTTP errors per endpoint, and a settings page for them. Both listen on ports the OS picks unless `watch.toxiproxy.host` and `watch.toxiproxy.ui-host` set them, and watch mode prints their addresses. `watch.toxiproxy` in `datapages.yaml` configures it. `datapages lint` reports an endpoint key of a preset in `watch.toxiproxy.presets` that is not the `net/http.ServeMux` pattern of a route, as in `GET /post/{slug}/{$}`.
 
 ## Rules
 
@@ -116,4 +116,4 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:f5c36c93ceb688ab -->
+<!-- written by datapages sha256:2d8c6afd8b5e3834 -->

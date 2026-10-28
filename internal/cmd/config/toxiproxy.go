@@ -13,18 +13,19 @@ import (
 // injects into every page. The Toxiproxy front forwards it without toxics.
 const TemplierEventsPath = "/__templier/events"
 
-// WatchToxiproxy configures the proxy in front of the dev server, which
-// applies toxics to the requests sent to Host. Without the section, watch mode
-// runs the proxy with the defaults.
+// WatchToxiproxy configures the proxy in front of the dev server,
+// which applies toxics to the requests sent to Host. Without the section,
+// watch mode runs the proxy with the defaults.
 type WatchToxiproxy struct {
 	// Disabled turns the proxy off.
 	Disabled bool `yaml:"disabled"`
 
-	// Host is the address of the proxy, as in "localhost:9090". Empty means
-	// the port after the dev server, "localhost:7332" by default.
+	// Host is the address of the proxy, as in "localhost:9090".
+	// Empty means the host of the dev server and a port the OS picks.
 	Host string `yaml:"host"`
 
-	// UIHost is the address of the settings page. Empty means the port after Host.
+	// UIHost is the address of the settings page.
+	// Empty means the host of Host and a port the OS picks.
 	UIHost string `yaml:"ui-host"`
 
 	// Presets are named sets of toxics and endpoint overrides the settings
@@ -46,9 +47,9 @@ type ToxiproxyPreset struct {
 	// Toxics apply to every endpoint that does not override them.
 	Toxics Toxics `yaml:"toxics"`
 
-	// Endpoints maps the route pattern the generated server registers, as in
-	// "GET /post/{slug}/{$}", to toxics that replace the global ones of the
-	// same type and stream.
+	// Endpoints maps the route pattern the generated server registers,
+	// as in "GET /post/{slug}/{$}", to toxics that replace the global ones
+	// of the same type and stream.
 	Endpoints map[EndpointPattern]Toxics `yaml:"endpoints"`
 }
 

@@ -1,6 +1,6 @@
 # Toxiproxy settings page
 
-The settings page of the Toxiproxy front of `datapages watch`, a Datapages application on `watch.toxiproxy.ui-host`, by default `http://localhost:7333/`. It reads and changes `toxic.Front` in [`internal/cmd/toxic`](..). [`internal/cmd/toxiproxy.go`](../../toxiproxy.go) builds its server.
+The settings page of the Toxiproxy front of `datapages watch`, a Datapages application on `watch.toxiproxy.ui-host`, by default on a port the OS picks. It reads and changes `toxic.Front` in [`internal/cmd/toxic`](..). [`internal/cmd/toxiproxy.go`](../../toxiproxy.go) builds its server.
 
 | File | Holds |
 | ---- | ----- |

@@ -29,8 +29,8 @@ type Config struct {
 	Host string
 
 	// HostSet reports whether watch.toxiproxy.host sets Host. Only then does
-	// the settings page save Host, which keeps the default port following the
-	// port of the dev server.
+	// the settings page save Host, which keeps the port the OS picked out of
+	// datapages.yaml.
 	HostSet bool
 
 	// UIHost is the address the settings page listens on,
