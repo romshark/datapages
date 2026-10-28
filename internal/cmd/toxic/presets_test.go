@@ -62,9 +62,8 @@ func TestAllPresets(t *testing.T) {
 	require.False(t, IsBuiltinPreset("Train"))
 }
 
-// TestRecord tests that a change of the toxics goes into the active preset of
-// the app, and that a change of the effect of a built-in preset leaves toxics
-// no preset holds.
+// TestRecord tests that a change of the toxics goes into the active preset of the app,
+// and that a change of the effect of a built-in preset leaves toxics no preset holds.
 func TestRecord(t *testing.T) {
 	slow := DefaultPresets()[1]
 	off := toxicWith(100)
@@ -76,12 +75,27 @@ func TestRecord(t *testing.T) {
 		want       string
 		wantPreset Set
 	}{
-		"app preset":               {active: "Slow 4G", global: changed, want: "Slow 4G", wantPreset: changed},
-		"no throttling changed":    {active: "No throttling", global: changed},
-		"no throttling, toxic off": {active: "No throttling", global: Set{latencyDown: off}, want: "No throttling"},
-		"unreachable changed":      {active: "Unreachable", global: Set{}},
-		"unsaved":                  {global: changed},
-		"deleted preset":           {active: "Train", global: changed},
+		"app preset": {
+			active:     "Slow 4G",
+			global:     changed,
+			want:       "Slow 4G",
+			wantPreset: changed,
+		},
+		"no throttling changed": {
+			active: "No throttling",
+			global: changed,
+		},
+		"no throttling, toxic off": {
+			active: "No throttling",
+			global: Set{latencyDown: off},
+			want:   "No throttling",
+		},
+		"unreachable changed": {
+			active: "Unreachable",
+			global: Set{},
+		},
+		"unsaved":        {global: changed},
+		"deleted preset": {active: "Train", global: changed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := Settings{
@@ -99,8 +113,8 @@ func TestRecord(t *testing.T) {
 	}
 }
 
-// TestPresetCommands tests applying, creating and deleting presets, built-in
-// ones included.
+// TestPresetCommands tests applying, creating and deleting presets,
+// built-in ones included.
 func TestPresetCommands(t *testing.T) {
 	s := Settings{
 		Global:    Set{limitDown: toxicWith(10)},
@@ -155,7 +169,10 @@ func TestPresetCommands(t *testing.T) {
 	require.Len(t, s.Presets, 5)
 
 	require.NoError(t, s.DeletePreset("Train"))
-	require.Equal(t, "No throttling", s.Active, "No throttling replaces the deleted preset")
+	require.Equal(t,
+		"No throttling",
+		s.Active,
+		"No throttling replaces the deleted preset")
 	require.Empty(t, s.Global)
 	require.NoError(t, s.DeletePreset("Fast 4G"))
 	require.Equal(t, "Slow 4G", s.Presets[0].Name)
@@ -170,9 +187,8 @@ func TestPresetCommands(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoPreset)
 }
 
-// TestScaffoldPresets tests that the datapages.yaml of init holds
-// [DefaultPresets] in the form the settings page saves, and that watch starts
-// with No throttling.
+// TestScaffoldPresets tests that the datapages.yaml of init holds [DefaultPresets] in
+// the form the settings page saves, and that watch starts with No throttling.
 func TestScaffoldPresets(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, config.WriteDefault(dir))
@@ -182,7 +198,8 @@ func TestScaffoldPresets(t *testing.T) {
 	require.Equal(t, DefaultPresets(), s.Presets)
 	require.Empty(t, s.Global)
 	require.Equal(t, "No throttling", s.Active)
-	require.True(t, strings.HasSuffix(config.DefaultYAML, "  toxiproxy:\n"+s.YAML(4, nil)),
+	require.True(t,
+		strings.HasSuffix(config.DefaultYAML, "  toxiproxy:\n"+s.YAML(4, nil)),
 		"the settings page writes:\n%s", s.YAML(4, nil))
 }
 

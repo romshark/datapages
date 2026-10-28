@@ -11,8 +11,8 @@ import (
 )
 
 // profileCookie is the cookie the [Front] tells browser profiles apart by.
-// The requests of 1 profile share the rate of a [Bandwidth] toxic. A request
-// does not name its tab, and the tabs of a profile share connections.
+// The requests of 1 profile share the rate of a [Bandwidth] toxic.
+// A request doesn't name its tab, and the tabs of a profile share connections.
 const profileCookie = "datapages_toxiproxy"
 
 // profile returns the profile ID in the cookie of r, or a new ID and set true.
@@ -63,9 +63,9 @@ type linkKey struct {
 	stream Stream
 }
 
-// minSweep is the number of links above which [links.reserve] drops idle
-// ones. An idle link paces as a new one does. Each request of a client
-// without cookies, such as curl, starts a link.
+// minSweep is the number of links above which [links.reserve] drops idle ones.
+// An idle link paces as a new one does. Each request of a client without cookies,
+// such as curl, starts a link.
 const minSweep = 64
 
 func newLinks() *links {
@@ -112,14 +112,14 @@ type pacer struct {
 	profile string
 	stream  Stream
 
-	// roll is drawn once per request. The toxic applies while its toxicity
-	// is above roll.
+	// roll is drawn once per request.
+	// The toxic applies while its toxicity is above roll.
 	roll float32
 }
 
 // rate returns the rate of the toxic that applies and the key of its link.
-// It runs for every chunk, which applies a settings change to an open
-// response, such as the stream of a page.
+// It runs for every chunk, which applies a settings change to an open response,
+// such as the stream of a page.
 func (p *pacer) rate() (rate int64, key linkKey, ok bool) {
 	x, ok := p.f.toxics.Load().toxic(p.pattern, Slot{Type: Bandwidth, Stream: p.stream})
 	if !ok || p.roll >= x.toxic.Toxicity {
@@ -132,8 +132,8 @@ func (p *pacer) rate() (rate int64, key linkKey, ok bool) {
 	}, true
 }
 
-// wait returns once the link of key carried n bytes at rate KB/s, or the error
-// of the request when it ends first.
+// wait returns once the link of key carried n bytes at rate KB/s,
+// or the error of the request when it ends first.
 func (p *pacer) wait(key linkKey, n int, rate int64) error {
 	d := time.Until(p.f.links.reserve(key, n, rate, time.Now()))
 	if d <= 0 {

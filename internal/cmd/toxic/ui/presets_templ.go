@@ -106,7 +106,7 @@ func presetPicker(d pageData) templ.Component {
 								var templ_7745c5c3_Var7 string
 								templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(p.name)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 28, Col: 15}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 29, Col: 15}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 								if templ_7745c5c3_Err != nil {
@@ -165,7 +165,8 @@ func presetPicker(d pageData) templ.Component {
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = neo.Option(neo.OptionOpts{Value: neo.Set(p.name), Label: neo.Set(p.name)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = neo.Option(neo.OptionOpts{
+						Value: neo.Set(p.name), Label: neo.Set(p.name)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -290,9 +291,9 @@ func iconLabel(icon string) templ.Component {
 }
 
 // presetDialogs are the new preset dialog and the delete confirm dialog.
-// Script opens them. neo-dialog requires the hidden triggers. Morphs keep the
-// new preset dialog open and skip the delete dialog, whose name the preset
-// signal fills in.
+// Script opens them. neo-dialog requires the hidden triggers.
+// Morphs keep the new preset dialog open and skip the delete dialog,
+// whose name the preset signal fills in.
 //
 // The new preset fields post each change, and the render shows why a name is refused.
 // neo-textinput ignores a new value while it has focus.
@@ -462,7 +463,8 @@ func presetDialogs(d pageData) templ.Component {
 							"id":                            "tp-preset-name",
 							"aria-label":                    "Name",
 							"data-on:input__debounce.150ms": postPresetDraft(),
-							"data-on:keydown":               createPreset("if (evt.key !== 'Enter') return; "),
+							"data-on:keydown": createPreset(
+								"if (evt.key !== 'Enter') return; "),
 						}).Render(ctx, templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
@@ -555,7 +557,7 @@ func presetDialogs(d pageData) templ.Component {
 										var templ_7745c5c3_Var26 string
 										templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(o.name)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 135, Col: 24}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 138, Col: 24}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 										if templ_7745c5c3_Err != nil {
@@ -568,7 +570,7 @@ func presetDialogs(d pageData) templ.Component {
 										var templ_7745c5c3_Var27 string
 										templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(o.source)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 137, Col: 21}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 140, Col: 21}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 										if templ_7745c5c3_Err != nil {
@@ -580,7 +582,8 @@ func presetDialogs(d pageData) templ.Component {
 										}
 										return nil
 									})
-									templ_7745c5c3_Err = neo.Layout(neo.LayoutOpts{Direction: neo.Set(neo.Column)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
+									templ_7745c5c3_Err = neo.Layout(neo.LayoutOpts{
+										Direction: neo.Set(neo.Column)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
@@ -614,7 +617,7 @@ func presetDialogs(d pageData) templ.Component {
 					var templ_7745c5c3_Var28 string
 					templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(d.newPreset.err)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 148, Col: 23}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `presets.templ`, Line: 151, Col: 23}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 					if templ_7745c5c3_Err != nil {

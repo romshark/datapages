@@ -49,7 +49,9 @@ func TestRouteTableMatch(t *testing.T) {
 		"wildcard": {
 			method: "GET", target: "/post/hello/", want: "GET /post/{slug}/{$}",
 		},
-		"more specific": {method: "GET", target: "/post/new/", want: "GET /post/new/{$}"},
+		"more specific": {
+			method: "GET", target: "/post/new/", want: "GET /post/new/{$}",
+		},
 		"action": {
 			method: "POST", target: "/post/x/like/", want: "POST /post/{slug}/like/{$}",
 		},

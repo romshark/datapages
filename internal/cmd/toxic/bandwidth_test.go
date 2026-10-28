@@ -36,8 +36,8 @@ func fetch(
 	return resp, string(b), err
 }
 
-// TestLinksReserve tests that data on a link queues behind earlier data, that
-// other links run in parallel, and that an idle link starts at now.
+// TestLinksReserve tests that data on a link queues behind earlier data,
+// that other links run in parallel, and that an idle link starts at now.
 func TestLinksReserve(t *testing.T) {
 	l := newLinks()
 	t0 := time.Unix(0, 0)
@@ -58,8 +58,8 @@ func TestLinksReserve(t *testing.T) {
 	require.Equal(t, ms(610), l.reserve(a, 1000, 100, ms(500)))
 }
 
-// TestLinksSweep tests that idle links are dropped once there are more than
-// minSweep, and that a busy link stays.
+// TestLinksSweep tests that idle links are dropped once there are more than minSweep,
+// and that a busy link stays.
 func TestLinksSweep(t *testing.T) {
 	l := newLinks()
 	t0 := time.Unix(0, 0)
@@ -80,13 +80,30 @@ func TestLinksSweep(t *testing.T) {
 // TestRemoveCookie tests that only the profile cookie leaves the Cookie header.
 func TestRemoveCookie(t *testing.T) {
 	for name, tc := range map[string]struct{ in, want []string }{
-		"none":    {},
-		"only":    {in: []string{"datapages_toxiproxy=x"}},
-		"first":   {in: []string{"datapages_toxiproxy=x; a=1"}, want: []string{"a=1"}},
-		"middle":  {in: []string{"a=1; datapages_toxiproxy=x; b=2"}, want: []string{"a=1; b=2"}},
-		"absent":  {in: []string{"a=1; b=2"}, want: []string{"a=1; b=2"}},
-		"prefix":  {in: []string{"datapages_toxiproxy_2=x"}, want: []string{"datapages_toxiproxy_2=x"}},
-		"2 lines": {in: []string{"a=1", "datapages_toxiproxy=x"}, want: []string{"a=1"}},
+		"none": {},
+		"only": {
+			in: []string{"datapages_toxiproxy=x"},
+		},
+		"first": {
+			in:   []string{"datapages_toxiproxy=x; a=1"},
+			want: []string{"a=1"},
+		},
+		"middle": {
+			in:   []string{"a=1; datapages_toxiproxy=x; b=2"},
+			want: []string{"a=1; b=2"},
+		},
+		"absent": {
+			in:   []string{"a=1; b=2"},
+			want: []string{"a=1; b=2"},
+		},
+		"prefix": {
+			in:   []string{"datapages_toxiproxy_2=x"},
+			want: []string{"datapages_toxiproxy_2=x"},
+		},
+		"2 lines": {
+			in:   []string{"a=1", "datapages_toxiproxy=x"},
+			want: []string{"a=1"},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := http.Header{}
@@ -155,8 +172,7 @@ func TestFrontBandwidthShared(t *testing.T) {
 		Endpoints: endpoints("GET /"),
 		Settings:  Settings{Global: Set{rateDown: toxicWith(8)}},
 	})
-	// both fetches 1 response for each of p1 and p2 at once and returns the
-	// time it took.
+	// both fetches 1 response for each of p1 and p2 at once and returns the time it took.
 	both := func(p1, p2 string) time.Duration {
 		start := time.Now()
 		var wg sync.WaitGroup

@@ -44,8 +44,8 @@ templ app(d pageData) {
 }
 
 // regions are the parts of the page each render morphs by id. They leave out
-// .tp-body, where neo-sidebar keeps its backdrop, and the toaster. A morph
-// would remove the backdrop and the toasts.
+// .tp-body, where neo-sidebar keeps its backdrop, and the toaster.
+// A morph would remove the backdrop and the toasts.
 templ regions(d pageData) {
 	@top(d)
 	@nav(d)
@@ -68,7 +68,8 @@ templ top(d pageData) {
 				}) {
 					@menuButton("tp-menu")
 					<h1>
-						@neo.ButtonAttrs(neo.ButtonOpts{Variant: neo.Set(neo.ButtonVariantGhost)},
+						@neo.ButtonAttrs(neo.ButtonOpts{
+							Variant: neo.Set(neo.ButtonVariantGhost)},
 							templ.Attributes{
 								"class":         "tp-about",
 								"aria-haspopup": "dialog",
@@ -84,7 +85,8 @@ templ top(d pageData) {
 						}
 					</h1>
 				}
-				@neo.Layout(neo.LayoutOpts{Wrap: neo.Set(neo.Wrap), Gap: neo.Set(neo.GapSm)}) {
+				@neo.Layout(neo.LayoutOpts{
+					Wrap: neo.Set(neo.Wrap), Gap: neo.Set(neo.GapSm)}) {
 					@addressLink(d.info.URL, d.info.Host, "toxic",
 						neo.LinkVariantButtonSecondary)
 					@addressLink(d.info.UpstreamURL, d.info.Upstream, "non-toxic",
@@ -195,7 +197,8 @@ templ aboutDialog(info toxic.Info) {
 						@aboutValue() {
 							<code>{ info.ConfigFile }</code>
 							if info.ConfigPath != "" {
-								@copyButton(info.ConfigPath, "Copy the path of "+info.ConfigFile)
+								@copyButton(info.ConfigPath,
+									"Copy the path of "+info.ConfigFile)
 							}
 						}
 					</dd>
@@ -206,7 +209,9 @@ templ aboutDialog(info toxic.Info) {
 						@aboutValue() {
 							{ orUnknown(info.ToxiproxyVersion) }
 							@neo.LinkAttrs(neo.LinkOpts{
-								Href:   neo.Set(href.External("https://github.com/Shopify/toxiproxy")),
+								Href: neo.Set(href.External(
+									"https://github.com/Shopify/toxiproxy",
+								)),
 								Target: neo.Set("_blank"),
 								Rel:    neo.Set("noopener"),
 							}, templ.Attributes{
@@ -214,7 +219,8 @@ templ aboutDialog(info toxic.Info) {
 								"aria-label": "Toxiproxy on GitHub",
 								"title":      "Toxiproxy on GitHub",
 							}) {
-								@neo.IconAttrs("github", templ.Attributes{"aria-hidden": "true"})
+								@neo.IconAttrs("github",
+									templ.Attributes{"aria-hidden": "true"})
 							}
 						}
 					</dd>
@@ -362,7 +368,9 @@ templ nav(d pageData) {
 					@navTitle() {
 						Global
 					}
-					<span class="tp-muted tp-small">Every endpoint without an override</span>
+					<span class="tp-muted tp-small">
+						Every endpoint without an override
+					</span>
 				}
 				@navFilter(d.filter)
 				@neo.Layout(neo.LayoutOpts{
@@ -560,7 +568,9 @@ templ scopeHeader(d pageData) {
 							}) {
 								@kindIcon(d.scopeKind)
 								<code>
-									<span class="tp-route-method">{ method(d.scope) }</span>{ " " }
+									<span class="tp-route-method">
+										{ method(d.scope) }
+									</span>{ " " }
 									@routePath(path(d.scope))
 								</code>
 							}
@@ -635,7 +645,8 @@ templ row(d pageData, info toxic.TypeInfo, r rowView) {
 				AlignItems: neo.Set(neo.AlignItemsCenter),
 				Gap:        neo.Set(neo.GapSm),
 			}, templ.Attributes{"class": "tp-stream"}) {
-				@neo.IconAttrs(streamIcon(r.slot.Stream), templ.Attributes{"aria-hidden": "true"})
+				@neo.IconAttrs(streamIcon(r.slot.Stream),
+					templ.Attributes{"aria-hidden": "true"})
 				{ streamLabel(r.slot.Stream) }
 			}
 			if r.isGlobal {

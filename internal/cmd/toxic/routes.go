@@ -67,8 +67,8 @@ func (e Endpoint) Kind() string {
 	return KindAction
 }
 
-// PatternKind guesses the kind of an endpoint from its pattern alone, for a
-// pattern the app does not register.
+// PatternKind guesses the kind of an endpoint from its pattern alone,
+// for a pattern the app does not register.
 func PatternKind(pattern string) string {
 	method, _, _ := strings.Cut(pattern, " ")
 	switch {
@@ -88,16 +88,15 @@ func (e Endpoint) Name() string {
 	return e.Owner + "." + e.Handler
 }
 
-// routeTable matches a request to its endpoint as the mux of the generated
-// server does.
+// routeTable matches a request to its endpoint as the mux of the generated server does.
 type routeTable struct {
 	endpoints []Endpoint
 	mux       *http.ServeMux
 }
 
-// endpointHandler marks the endpoint of a pattern in [routeTable.mux]. Its type
-// tells a match from a redirect, for which [net/http.ServeMux.Handler] returns
-// a path in place of a pattern.
+// endpointHandler marks the endpoint of a pattern in [routeTable.mux].
+// Its type tells a match from a redirect, for which [net/http.ServeMux.Handler]
+// returns a path in place of a pattern.
 type endpointHandler struct{ Endpoint }
 
 func (endpointHandler) ServeHTTP(http.ResponseWriter, *http.Request) {}
@@ -123,8 +122,8 @@ func (t *routeTable) match(r *http.Request) Endpoint {
 	return Endpoint{}
 }
 
-// CheckEndpointKeys reports each key that names no endpoint in eps. where is
-// the YAML path of the keys, as in "watch.toxiproxy.endpoints".
+// CheckEndpointKeys reports each key that names no endpoint in eps.
+// where is the YAML path of the keys, as in "watch.toxiproxy.endpoints".
 func CheckEndpointKeys(where string, keys []string, eps []Endpoint) error {
 	var errs []error
 	for _, k := range keys {

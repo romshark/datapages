@@ -88,9 +88,8 @@ func TestFrontOverrideOpenStream(t *testing.T) {
 				close(done)
 				_ = resp.Body.Close()
 			})
-			// events receives nil for each event, then the error that ended
-			// the stream, [io.ErrUnexpectedEOF] for a clean end. The upstream
-			// never ends it.
+			// events receives nil for each event, then the error that ended the stream,
+			// [io.ErrUnexpectedEOF] for a clean end. The upstream never ends it.
 			events := make(chan error)
 			send := func(err error) bool {
 				select {

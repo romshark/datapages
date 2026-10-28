@@ -18,7 +18,8 @@ templ presetPicker(d pageData) {
 			"data-on:neo-combobox-change": pickPreset(d.activePreset),
 		}) {
 			for _, p := range d.presets {
-				@neo.Option(neo.OptionOpts{Value: neo.Set(p.name), Label: neo.Set(p.name)}) {
+				@neo.Option(neo.OptionOpts{
+					Value: neo.Set(p.name), Label: neo.Set(p.name)}) {
 					@neo.LayoutAttrs(neo.LayoutOpts{
 						AlignItems:     neo.Set(neo.AlignItemsCenter),
 						JustifyContent: neo.Set(neo.JustifyContentSpaceBetween),
@@ -68,9 +69,9 @@ templ iconLabel(icon string) {
 }
 
 // presetDialogs are the new preset dialog and the delete confirm dialog.
-// Script opens them. neo-dialog requires the hidden triggers. Morphs keep the
-// new preset dialog open and skip the delete dialog, whose name the preset
-// signal fills in.
+// Script opens them. neo-dialog requires the hidden triggers.
+// Morphs keep the new preset dialog open and skip the delete dialog,
+// whose name the preset signal fills in.
 //
 // The new preset fields post each change, and the render shows why a name is refused.
 // neo-textinput ignores a new value while it has focus.
@@ -116,7 +117,8 @@ templ presetDialogs(d pageData) {
 							"id":                            "tp-preset-name",
 							"aria-label":                    "Name",
 							"data-on:input__debounce.150ms": postPresetDraft(),
-							"data-on:keydown":               createPreset("if (evt.key !== 'Enter') return; "),
+							"data-on:keydown": createPreset(
+								"if (evt.key !== 'Enter') return; "),
 						})
 					}
 					@field(templ.Attributes{"class": "tp-field", "data-show": "!$save"}) {
@@ -131,7 +133,8 @@ templ presetDialogs(d pageData) {
 							for _, o := range d.copyOptions {
 								@neo.Option(neo.OptionOpts{
 									Value: neo.Set(o.value), Label: neo.Set(o.name)}) {
-									@neo.Layout(neo.LayoutOpts{Direction: neo.Set(neo.Column)}) {
+									@neo.Layout(neo.LayoutOpts{
+										Direction: neo.Set(neo.Column)}) {
 										<span>{ o.name }</span>
 										<span class="tp-small tp-muted">
 											{ o.source }

@@ -246,8 +246,8 @@ func hostPort(u *url.URL) string {
 }
 
 // rewrite keeps the Host header of the browser, which the cross-origin check
-// of the generated server compares the Origin header against. It removes the
-// profile cookie.
+// of the generated server compares the Origin header against.
+// It removes the profile cookie.
 func (f *Front) rewrite(r *httputil.ProxyRequest) {
 	r.SetURL(f.conf.Upstream)
 	r.Out.Host = r.In.Host
@@ -256,16 +256,18 @@ func (f *Front) rewrite(r *httputil.ProxyRequest) {
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
 
 func (f *Front) roundTrip(r *http.Request) (*http.Response, error) {
 	addr, _ := r.Context().Value(addrKey{}).(string)
 	return f.transport(addr).RoundTrip(r)
 }
 
-// transport returns the transport that connects to addr only. It disables
-// keep-alive because Toxiproxy rolls the toxicity per connection and some
-// toxics, such as limit-data, end the connection.
+// transport returns the transport that connects to addr only.
+// It disables keep-alive because Toxiproxy rolls the toxicity per connection
+// and some toxics, such as limit-data, end the connection.
 func (f *Front) transport(addr string) *http.Transport {
 	f.transportsLock.Lock()
 	defer f.transportsLock.Unlock()
@@ -288,8 +290,8 @@ func (f *Front) transport(addr string) *http.Transport {
 	return t
 }
 
-// replace returns the [statusError] of the [replacement] of resp, if any. It
-// first reads resp to its end, which lets the app finish an action that
+// replace returns the [statusError] of the [replacement] of resp, if any.
+// It first reads resp to its end, which lets the app finish an action that
 // flushed its head before it ran. It does not read a stream, which never ends.
 func (f *Front) replace(resp *http.Response) error {
 	rep, ok := resp.Request.Context().Value(replaceKey{}).(replacement)
@@ -305,8 +307,7 @@ func (f *Front) replace(resp *http.Response) error {
 }
 
 // abort answers with the status of a [statusError]. Any other error ends the
-// connection to the browser, because a 502 page would look like a response of
-// the app.
+// connection to the browser, because a 502 page would look like a response of the app.
 func (f *Front) abort(w http.ResponseWriter, r *http.Request, err error) {
 	if code, ok := errors.AsType[statusError](err); ok {
 		writeStatus(w, int(code))
@@ -540,8 +541,8 @@ func (f *Front) Saved() bool {
 	return cur.Active != "" && s.YAML(0, patterns) == cur.YAML(0, patterns)
 }
 
-// section returns the keys of watch.toxiproxy indented by indent spaces, the
-// addresses only where the configuration file sets them.
+// section returns the keys of watch.toxiproxy indented by indent spaces,
+// the addresses only where the configuration file sets them.
 func (f *Front) section(indent int) string {
 	var b strings.Builder
 	pad := strings.Repeat(" ", indent)

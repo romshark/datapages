@@ -202,8 +202,7 @@ func TestFrontHTTPErrorStream(t *testing.T) {
 }
 
 // TestFrontUnreachable tests that Unreachable fails the requests of every endpoint,
-// overrides included, and that the preset applied after it brings its
-// overrides back.
+// overrides included, and that the preset applied after it brings its overrides back.
 func TestFrontUnreachable(t *testing.T) {
 	limited := map[string]Set{"GET /limited/{$}": {limitDown: toxicWith(100)}}
 	f, base := startFront(t, Config{

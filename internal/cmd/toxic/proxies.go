@@ -30,8 +30,8 @@ var toxiproxyVersion = sync.OnceValue(func() string {
 })
 
 // proxies runs 1 Toxiproxy proxy per endpoint of the app and a global one for
-// requests that match none, because Toxiproxy applies toxics per proxy. Each
-// endpoint has its proxy whether or not it has overrides, which applies a
+// requests that match none, because Toxiproxy applies toxics per proxy.
+// Each endpoint has its proxy whether or not it has overrides, which applies a
 // change of its overrides to its open connections, such as an SSE stream.
 type proxies struct {
 	server   *toxiproxy.ApiServer
@@ -147,9 +147,8 @@ func (p *proxies) apply(s Settings, patterns []string) error {
 	return errors.Join(errs...)
 }
 
-// syncToxics adds, updates and removes the toxics of x until it has want. It
-// updates a kept toxic in place, which keeps its effect on an open connection
-// continuous.
+// syncToxics adds, updates and removes the toxics of x until it has want. It updates
+// a kept toxic in place, which keeps its effect on an open connection continuous.
 func syncToxics(x *toxiproxy.Proxy, want []active) error {
 	var errs []error
 	wanted := make(map[Slot]bool, len(want))
