@@ -32,9 +32,8 @@ var (
 	errUnknownUnit  = errors.New("unknown unit")
 )
 
-// setField sets the field of x with the key to the whole number in value.
-// The key names a field of type t, or is "toxicity" for the percentage of
-// requests affected. A byte field reads value in the [byteUnit] named unit, B when empty.
+// setField parses and sets 1 field or the toxicity percentage.
+// Byte fields use unit, or B when empty. Choice fields use their configuration name.
 func setField(x *toxic.Toxic, t toxic.Type, key, value, unit string) error {
 	if key == "toxicity" {
 		pct, err := parseInt(value)
@@ -50,8 +49,18 @@ func setField(x *toxic.Toxic, t toxic.Type, key, value, unit string) error {
 	if i < 0 {
 		return fmt.Errorf("%w %q of %s", errUnknownField, key, toxic.Types[t].Name)
 	}
+	f := fields[i]
+	if f.Unit == toxic.UnitChoice {
+		c := slices.Index(f.Choices, value)
+		if c < 0 {
+			return fmt.Errorf("%s must be %s, not %q",
+				strings.ToLower(f.Label), strings.Join(f.Choices, " or "), value)
+		}
+		x.Values[i] = int64(c)
+		return nil
+	}
 	parse := parseInt
-	if fields[i].Unit == toxic.UnitBytes {
+	if f.Unit == toxic.UnitBytes {
 		u, ok := lookupByteUnit(unit)
 		if !ok {
 			return fmt.Errorf("%w %q", errUnknownUnit, unit)
@@ -60,14 +69,14 @@ func setField(x *toxic.Toxic, t toxic.Type, key, value, unit string) error {
 	}
 	v, err := parse(value)
 	if err != nil {
-		return fmt.Errorf("%s: %w", strings.ToLower(fields[i].Label), err)
+		return fmt.Errorf("%s: %w", strings.ToLower(f.Label), err)
 	}
 	x.Values[i] = v
 	return nil
 }
 
-// parseInt parses a field value. An empty field reads as 0, the value a
-// cleared field shows after the next render.
+// parseInt parses a field value. An empty field reads as 0,
+// the value a cleared field shows after the next render.
 func parseInt(s string) (int64, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -79,6 +88,9 @@ func parseInt(s string) (int64, error) {
 	}
 	return v, nil
 }
+
+// choiceLabel capitalizes a [toxic.UnitChoice] configuration value for the UI.
+func choiceLabel(c string) string { return strings.ToUpper(c[:1]) + c[1:] }
 
 // fieldIndex returns the index of the field of t with the key, or -1.
 func fieldIndex(t toxic.Type, key string) int {
@@ -542,10 +554,13 @@ func matches(query, text string) bool {
 	return true
 }
 
-// fieldInfo returns the info button of f, nil for none.
-func fieldInfo(f toxic.Field) templ.Component {
-	if f.Key == "jitter" {
+// fieldInfo returns the field's help, or nil.
+func fieldInfo(t toxic.Type, f toxic.Field) templ.Component {
+	switch f.Key {
+	case "jitter":
 		return jitterInfo()
+	case "per":
+		return perInfo(t)
 	}
 	return nil
 }

@@ -81,16 +81,19 @@ type Config struct {
 	Logger *slog.Logger
 }
 
-// Front is the HTTP server of watch.toxiproxy.host. It passes each request to
-// the dev server through the Toxiproxy proxy of its endpoint and applies the
-// [Bandwidth] and [HTTPError] toxics itself.
+// Front serves watch.toxiproxy.host. It sends requests through each endpoint's
+// Toxiproxy proxy and applies [ClientBandwidth], [ServerBandwidth], [DataCap]
+// and [HTTPError] itself.
 type Front struct {
 	conf    Config
 	log     *slog.Logger
 	proxies *proxies
 	links   *links
-	routes  atomic.Pointer[routeTable]
-	toxics  atomic.Pointer[frontToxics]
+	caps    *caps
+	// requests assigns nonzero IDs to per-request toxics.
+	requests atomic.Uint64
+	routes   atomic.Pointer[routeTable]
+	toxics   atomic.Pointer[frontToxics]
 
 	lock     sync.Mutex
 	settings Settings
@@ -202,6 +205,7 @@ func New(conf Config) (*Front, error) {
 		log:        conf.Logger,
 		proxies:    p,
 		links:      newLinks(),
+		caps:       newCaps(),
 		settings:   conf.Settings.Clone(),
 		transports: map[string]*http.Transport{},
 	}
@@ -346,10 +350,11 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				status: code, atHead: e.Kind() == KindStream,
 			})
 		}
+		request := f.requests.Add(1)
 		pace := func(st Stream) *pacer {
 			return &pacer{
 				f: f, ctx: r.Context(), pattern: e.Pattern, profile: id,
-				stream: st, roll: rand.Float32(),
+				request: request, stream: st, roll: rand.Float32(),
 			}
 		}
 		r = r.WithContext(ctx)
@@ -513,8 +518,8 @@ func (f *Front) Reload() error {
 	})
 }
 
-// ErrUnnamed reports toxics no preset holds, which the config file can't hold either.
-var ErrUnnamed = errors.New("no preset holds the toxics; create one to save them")
+// ErrUnnamed reports toxics that have no preset name for the config file.
+var ErrUnnamed = errors.New("create a preset before saving these toxics")
 
 // Save writes the presets into the configuration file.
 func (f *Front) Save() error {
@@ -575,9 +580,8 @@ func yamlString(s string) string {
 	return s
 }
 
-// Update applies change to a copy of the settings, records it in the active
-// preset with [Settings.record], and applies the copy to the proxies unless
-// change returns an error.
+// Update changes a copy of the settings, records it in the active preset and
+// applies it unless change returns an error. A [DataCap] change clears usage.
 func (f *Front) Update(change func(*Settings) error) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -591,9 +595,41 @@ func (f *Front) Update(change func(*Settings) error) error {
 		// error a bug. Keep the toxics Toxiproxy accepted.
 		f.log.Error("toxiproxy: " + err.Error())
 	}
+	if !dataCapsEqual(f.settings, s) {
+		f.caps.reset()
+	}
 	f.settings = s
 	f.toxics.Store(newFrontToxics(s))
 	return nil
+}
+
+// ResetDataCaps clears per-client [DataCap] usage.
+func (f *Front) ResetDataCaps() { f.caps.reset() }
+
+// dataCapsEqual reports whether a and b have the same [DataCap] toxics.
+func dataCapsEqual(a, b Settings) bool {
+	equal := func(x, y Set) bool {
+		for _, st := range Streams {
+			slot := Slot{Type: DataCap, Stream: st}
+			tx, okx := x[slot]
+			ty, oky := y[slot]
+			if okx != oky || tx != ty {
+				return false
+			}
+		}
+		return true
+	}
+	if !equal(a.Global, b.Global) {
+		return false
+	}
+	for _, e := range []map[string]Set{a.Endpoints, b.Endpoints} {
+		for p := range e {
+			if !equal(a.Endpoints[p], b.Endpoints[p]) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Settings returns a copy of the settings.

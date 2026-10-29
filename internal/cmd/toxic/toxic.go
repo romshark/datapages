@@ -37,13 +37,15 @@ func (s Stream) String() string {
 	return "downstream"
 }
 
-// Type is a toxic type. The [Front] applies [Bandwidth] and [HTTPError],
-// Toxiproxy applies the rest.
+// Type is a toxic type. [Front] applies [ClientBandwidth], [ServerBandwidth],
+// [DataCap] and [HTTPError]. Toxiproxy applies the rest.
 type Type int8
 
 const (
 	Latency Type = iota
-	Bandwidth
+	ClientBandwidth
+	ServerBandwidth
+	DataCap
 	SlowClose
 	Timeout
 	ResetPeer
@@ -61,6 +63,7 @@ const (
 	UnitKBps
 	UnitBytes
 	UnitStatus // an HTTP status code
+	UnitChoice // the index of 1 of [Field.Choices]
 )
 
 // String returns the symbol of u, as in "ms".
@@ -72,7 +75,7 @@ func (u Unit) String() string {
 		return "µs"
 	case UnitKBps:
 		return "KB/s"
-	case UnitStatus:
+	case UnitStatus, UnitChoice:
 		return ""
 	}
 	return "B"
@@ -89,6 +92,10 @@ type Field struct {
 
 	// Initial is the value the settings page turns the toxic on with.
 	Initial int64
+
+	// Choices maps a [UnitChoice] index to its datapages.yaml value.
+	// The first value is the omitted default.
+	Choices []string
 }
 
 // TypeInfo describes a [Type] for the settings page, datapages.yaml and Toxiproxy.
@@ -103,7 +110,7 @@ type TypeInfo struct {
 	Front bool
 }
 
-// MaxFields is the most fields a toxic type has, the 3 of [Slicer].
+// MaxFields is the largest field count of a toxic type.
 const MaxFields = 3
 
 // [config.MaxToxicDuration] in the units of the duration fields.
@@ -111,6 +118,19 @@ const (
 	maxMillis = int64(config.MaxToxicDuration / time.Millisecond)
 	maxMicros = int64(config.MaxToxicDuration / time.Microsecond)
 )
+
+// PerClient and PerRequest select how [ClientBandwidth] and [DataCap] are shared.
+const (
+	// PerClient shares the toxic across a browser's requests.
+	PerClient int64 = iota
+	// PerRequest gives each request an independent toxic.
+	PerRequest
+)
+
+var perField = Field{
+	Key: "per", Label: "Shared by", Unit: UnitChoice, Max: PerRequest,
+	Choices: []string{"client", "request"},
+}
 
 // Types is indexed by [Type]. The Doc of a Toxiproxy type paraphrases
 // [the Toxiproxy toxics] for an HTTP request.
@@ -131,14 +151,39 @@ var Types = [...]TypeInfo{
 			},
 		},
 	},
-	Bandwidth: {
-		Name: "bandwidth", Key: "bandwidth", Title: "Bandwidth",
-		Doc: "Limits the rate of the data, as a slow network does.",
+	ClientBandwidth: {
+		Name: "client_bandwidth", Key: "client-bandwidth", Title: "Client bandwidth",
+		Doc: "Limits each browser's data rate to simulate a slow network.",
 		Fields: []Field{
 			{
 				Key: "rate", Label: "Rate",
 				Unit: UnitKBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 64,
 			},
+			perField,
+		},
+		Front: true,
+	},
+	ServerBandwidth: {
+		Name: "server_bandwidth", Key: "server-bandwidth", Title: "Server bandwidth",
+		Doc: "Limits the combined data rate of all browsers.",
+		Fields: []Field{
+			{
+				Key: "rate", Label: "Rate",
+				Unit: UnitKBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 1000,
+			},
+		},
+		Front: true,
+	},
+	DataCap: {
+		Name: "data_cap", Key: "data-cap", Title: "Data cap",
+		Doc: "Limits the data rate after a client or request uses its volume.",
+		Fields: []Field{
+			{Key: "volume", Label: "Volume", Unit: UnitBytes, Initial: 1 << 20},
+			{
+				Key: "rate", Label: "Rate",
+				Unit: UnitKBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 16,
+			},
+			perField,
 		},
 		Front: true,
 	},
@@ -155,7 +200,7 @@ var Types = [...]TypeInfo{
 	Timeout: {
 		Name: "timeout", Key: "timeout", Title: "Timeout",
 		Doc: "Stops all data and closes the connection after the timeout. " +
-			"0 holds it open until the browser gives up.",
+			"0 leaves it open until the browser gives up.",
 		Fields: []Field{
 			{
 				Key: "timeout", Attr: "timeout", Label: "Timeout",
@@ -175,8 +220,8 @@ var Types = [...]TypeInfo{
 	},
 	Slicer: {
 		Name: "slicer", Key: "slicer", Title: "Slicer",
-		Doc: "Splits the data into chunks of the average size, plus or minus " +
-			"up to the variation, and delays each chunk.",
+		Doc: "Splits data into delayed chunks " +
+			"with the configured average size and variation.",
 		Fields: []Field{
 			{
 				Key: "average-size", Attr: "average_size", Label: "Average size",
@@ -194,7 +239,7 @@ var Types = [...]TypeInfo{
 	},
 	LimitData: {
 		Name: "limit_data", Key: "limit-data", Title: "Limit data",
-		Doc: "Closes the connection after the number of bytes.",
+		Doc: "Closes the connection after the byte limit.",
 		Fields: []Field{
 			{Key: "bytes", Attr: "bytes", Label: "Bytes", Unit: UnitBytes, Initial: 1024},
 		},
@@ -446,9 +491,17 @@ func setFromConfig(c config.Toxics, global Set) Set {
 				t.Jitter.Milliseconds(),
 			}
 		})
-	addFromConfig(s, global, Bandwidth, c.Bandwidth,
-		func(t config.ToxicBandwidth) (config.ToxicBase, []int64) {
+	addFromConfig(s, global, ClientBandwidth, c.ClientBandwidth,
+		func(t config.ToxicClientBandwidth) (config.ToxicBase, []int64) {
+			return t.ToxicBase, []int64{t.Rate, perFromConfig(t.Per)}
+		})
+	addFromConfig(s, global, ServerBandwidth, c.ServerBandwidth,
+		func(t config.ToxicServerBandwidth) (config.ToxicBase, []int64) {
 			return t.ToxicBase, []int64{t.Rate}
+		})
+	addFromConfig(s, global, DataCap, c.DataCap,
+		func(t config.ToxicDataCap) (config.ToxicBase, []int64) {
+			return t.ToxicBase, []int64{t.Volume, t.Rate, perFromConfig(t.Per)}
 		})
 	addFromConfig(s, global, SlowClose, c.SlowClose,
 		func(t config.ToxicSlowClose) (config.ToxicBase, []int64) {
@@ -477,6 +530,13 @@ func setFromConfig(c config.Toxics, global Set) Set {
 			return t.ToxicBase, []int64{t.Status}
 		})
 	return s
+}
+
+func perFromConfig(p config.ToxicPer) int64 {
+	if p == config.ToxicPerRequest {
+		return PerRequest
+	}
+	return PerClient
 }
 
 func addFromConfig[T any](
@@ -569,6 +629,9 @@ func writeSetYAML(b *strings.Builder, indent int, s Set) {
 			}
 			writeLine(b, pad, "  ", st.String(), ":")
 			for i, f := range info.Fields {
+				if f.Unit == UnitChoice && x.Values[i] == 0 {
+					continue
+				}
 				writeLine(b, pad, "    ", f.Key, ": ", f.yamlValue(x.Values[i]))
 			}
 			if x.Toxicity != 1 {
@@ -597,6 +660,8 @@ func (f Field) yamlValue(v int64) string {
 		return (time.Duration(v) * time.Millisecond).String()
 	case UnitMicros:
 		return (time.Duration(v) * time.Microsecond).String()
+	case UnitChoice:
+		return f.Choices[v]
 	}
 	return strconv.FormatInt(v, 10)
 }

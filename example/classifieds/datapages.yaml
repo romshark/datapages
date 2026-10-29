@@ -36,7 +36,7 @@ watch:
             downstream:
               latency: 150ms
               jitter: 50ms
-          bandwidth:
+          client-bandwidth:
             downstream:
               rate: 512
         endpoints:
@@ -51,8 +51,8 @@ watch:
             reset-peer:
               downstream:
                 timeout: 60s
-          # Static files load without the bandwidth limit.
+          # Static files load without the client bandwidth limit.
           "GET /static/":
-            bandwidth:
+            client-bandwidth:
               downstream:
                 disabled: true

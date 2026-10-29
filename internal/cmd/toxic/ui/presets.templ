@@ -34,8 +34,8 @@ templ presetPicker(d pageData) {
 								Size:    neo.Set("sm"),
 							}, templ.Attributes{
 								"class":         "tp-preset-delete",
-								"aria-label":    "Delete the preset " + p.name,
-								"title":         "Delete the preset",
+								"aria-label":    "Delete preset " + p.name,
+								"title":         "Delete preset",
 								"data-on:click": askDeletePreset(p.name),
 								// Enter and space would also pick the option.
 								"data-on:keydown": "if (evt.key !== 'Enter' && evt.key !== ' ') return; " +
@@ -50,7 +50,7 @@ templ presetPicker(d pageData) {
 			@neo.Option(neo.OptionOpts{
 				Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}) {
 				@iconLabel("plus") {
-					New preset…
+					New preset...
 				}
 			}
 		}
@@ -68,16 +68,12 @@ templ iconLabel(icon string) {
 	}
 }
 
-// presetDialogs are the new preset dialog and the delete confirm dialog.
-// Script opens them. neo-dialog requires the hidden triggers.
-// Morphs keep the new preset dialog open and skip the delete dialog,
-// whose name the preset signal fills in.
+// presetDialogs renders the create and delete dialogs. Morphs preserve the
+// create dialog and skip the delete dialog, whose name comes from preset.
 //
-// The new preset fields post each change, and the render shows why a name is refused.
-// neo-textinput ignores a new value while it has focus.
+// Create fields post each change. neo-textinput ignores patches while focused.
 //
-// Without fixed ids neo-dialog generates ids, which a morph does not find in
-// the new page. It would replace the open dialog and lose its focus.
+// Fixed IDs prevent a morph from replacing an open dialog and losing focus.
 templ presetDialogs(d pageData) {
 	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
 		"id":                           "tp-preset-new",
@@ -96,11 +92,11 @@ templ presetDialogs(d pageData) {
 				@neo.DialogDescriptionAttrs(templ.Attributes{
 					"id": "tp-preset-new-desc",
 					"data-text": "$save ? " +
-						jsString("Names the toxics and writes the presets to "+
+						jsString("Name these toxics and save presets to "+
 							d.info.ConfigFile+".") +
-						" : 'Saves toxics under a name and applies them.'",
+						" : 'Name and apply the current toxics.'",
 				}) {
-					Saves toxics under a name and applies them.
+					Name and apply the current toxics.
 				}
 			}
 			@neo.DialogBody() {
@@ -175,11 +171,11 @@ templ presetDialogs(d pageData) {
 		<dialog id="tp-preset-delete-dialog">
 			@neo.DialogHeader() {
 				@neo.DialogTitle() {
-					Delete the preset?
+					Delete preset?
 				}
 				@neo.DialogDescription() {
-					<strong data-text="$preset"></strong> goes away.
-					If it is in effect, No throttling replaces it.
+					<strong data-text="$preset"></strong> will be deleted.
+					If active, No throttling replaces it.
 				}
 			}
 			@neo.DialogFooter() {

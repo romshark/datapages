@@ -1,5 +1,5 @@
-// Package ui is the settings page of the Toxiproxy front of datapages watch,
-// a Datapages application. README.md explains how to work on it.
+// Package ui implements the Toxiproxy settings page for datapages watch.
+// README.md contains its development instructions.
 package ui
 
 import (
@@ -20,8 +20,8 @@ import (
 //go:embed static/*
 var StaticFS embed.FS
 
-// init makes [neo.Icon] inline the SVGs of static/icons. After a theme change
-// <neo-icon> fetches them from /static/icons/, its default base.
+// init gives [neo.Icon] the embedded SVGs. After a theme change, <neo-icon>
+// fetches the same files from its default /static/icons/ path.
 func init() {
 	icons, err := fs.Sub(StaticFS, "static/icons")
 	if err != nil {
@@ -42,7 +42,7 @@ func (a *App) scope(key string) string { return scopePattern(key, a.Front.Endpoi
 
 // EventChanged is "toxiproxy.changed"
 //
-// The settings or the endpoints of the app changed. Every tab renders.
+// The settings or endpoints changed. Every tab renders again.
 type EventChanged struct{}
 
 // EventViewChanged is "toxiproxy.view"
@@ -54,29 +54,26 @@ type EventViewChanged struct {
 
 // PageIndex is /
 //
-// Shows the global toxics, or the overrides of the endpoint query parameter,
-// beside the endpoints that match q and kinds. Each action changes the
-// settings or the tab state and dispatches an event that renders the page.
+// Shows global toxics or 1 endpoint's overrides. It filters endpoints by q and
+// kinds. Actions update settings or tab state, then dispatch a render event.
 type PageIndex struct{ App *App }
 
 // StateIndex is what 1 tab shows.
 type StateIndex struct {
-	// Endpoint is the endpoint query parameter, which names the scope,
-	// empty for the global toxics. See [scopePattern].
+	// Endpoint names the selected scope. Empty selects the global toxics.
 	Endpoint string
 	// Search and Kinds filter the endpoint list. See [filter].
 	Search, Kinds string
 
-	// Notice is the outcome of a save or a reload, shown once as a toast.
-	// Err is a value Toxiproxy would refuse, shown in the row of its slot
-	// until the next command of the tab.
+	// Notice is a save, reload or reset result shown once as a toast.
+	// Err is a rejected value shown in its slot until the next tab command.
 	Notice notice
 	Err    slotError
 
 	NewPreset presetDraft
 
-	// Units holds the unit the tab picked for a byte field.
-	// A field without one shows the unit [defaultByteUnit] picks.
+	// Units stores each byte unit selected in this tab. [defaultByteUnit] picks
+	// the unit of a missing entry.
 	Units map[fieldRef]byteUnit
 }
 
@@ -102,9 +99,8 @@ func (p PageIndex) GET(
 	return app(p.App.view(s))
 }
 
-// StreamOpen sets the tab state from the signals, which mirror the URL,
-// and renders the tab to catch up on changes made while it had no stream.
-// An endpoint the URL names by its pattern is renamed after its handler.
+// StreamOpen restores the URL-backed tab state and renders changes missed
+// while the stream was closed. It replaces an endpoint pattern with its handler.
 func (p PageIndex) StreamOpen(
 	_ *http.Request,
 	sse datapages.SSE,
@@ -132,8 +128,8 @@ func (p PageIndex) OnViewChanged(
 	return p.render(sse, state.Values)
 }
 
-// render patches the tab with the view of s and puts it in the URL.
-// It appends the notice of s once to the toaster, which no render morphs.
+// render patches the tab, reflects its view in the URL and appends its notice
+// once to the toaster outside the morphed regions.
 func (p PageIndex) render(sse datapages.SSE, s *StateIndex) error {
 	err := sse.PatchSignals(ViewSignals{
 		Endpoint: s.Endpoint,
@@ -156,8 +152,7 @@ func (p PageIndex) render(sse datapages.SSE, s *StateIndex) error {
 
 // POSTShow is /show
 //
-// Shows the scope of the endpoint query parameter without a page load,
-// which keeps the text of the search field.
+// Shows the selected scope without reloading or clearing the search field.
 func (p PageIndex) POSTShow(
 	_ *http.Request,
 	query datapages.Query[struct {
@@ -194,8 +189,8 @@ func (p PageIndex) POSTFilter(
 
 // POSTMode is /mode
 //
-// Sets the slot to the mode signal, which is on, off or, for an endpoint,
-// inherit. A toxic turned on again keeps its earlier values.
+// Sets the slot to on, off or, for an endpoint, inherit.
+// Turning a toxic on again restores its previous values.
 func (p PageIndex) POSTMode(
 	_ *http.Request,
 	query datapages.Query[struct {
@@ -223,10 +218,8 @@ func (p PageIndex) POSTMode(
 
 // POSTValue is /value
 //
-// Sets the field of the slot, a key such as "jitter" or "toxicity", to the
-// value signal and turns the toxic on. A byte field reads the value in the unit
-// query parameter, B when absent. A value Toxiproxy would refuse shows in
-// the row of the slot.
+// Sets 1 slot field and turns the toxic on. A byte field uses the unit query parameter,
+// or B when absent. A rejected value appears in the slot row.
 func (p PageIndex) POSTValue(
 	_ *http.Request,
 	query datapages.Query[struct {
@@ -272,8 +265,7 @@ func (p PageIndex) POSTValue(
 
 // POSTUnit is /unit
 //
-// Shows the byte field of the slot in the unit signal, in this tab only.
-// The value of the field stays.
+// Changes how this tab displays a byte field without changing its value.
 func (p PageIndex) POSTUnit(
 	_ *http.Request,
 	query datapages.Query[struct {
@@ -325,6 +317,24 @@ func (p PageIndex) POSTClear(
 	return changed.Dispatch(EventChanged{})
 }
 
+// POSTResetDataCaps is /reset-data-caps
+//
+// Clears per-client data-cap usage.
+func (p PageIndex) POSTResetDataCaps(
+	_ *http.Request,
+	state datapages.State[StateIndex],
+	stateID string,
+	viewChanged datapages.Dispatcher[EventViewChanged],
+) error {
+	p.App.Front.ResetDataCaps()
+	s := state.Values
+	s.Notice = notice{
+		title: "Data caps reset", text: "Restored each browser's full volume.",
+	}
+	s.Err = slotError{}
+	return viewChanged.Dispatch(EventViewChanged{Tab: datapages.SubjectStateID(stateID)})
+}
+
 // POSTSave is /save
 //
 // Writes the presets into the configuration file.
@@ -341,10 +351,10 @@ func (p PageIndex) POSTSave(
 // save writes the presets into the configuration file and returns the notice.
 func (p PageIndex) save() notice {
 	if err := p.App.Front.Save(); err != nil {
-		return notice{title: "Saving config failed", text: err.Error(), failed: true}
+		return notice{title: "Could not save config", text: err.Error(), failed: true}
 	}
 	file := p.App.Front.Info().ConfigFile
-	return notice{title: "Saved config", text: "Wrote the presets to " + file + "."}
+	return notice{title: "Config saved", text: "Saved presets to " + file + "."}
 }
 
 // POSTReload is /reload
@@ -358,12 +368,12 @@ func (p PageIndex) POSTReload(
 	s := state.Values
 	file := p.App.Front.Info().ConfigFile
 	s.Notice = notice{
-		title: "Reloaded config",
-		text:  "Read the settings of " + file + ".",
+		title: "Config reloaded",
+		text:  "Loaded settings from " + file + ".",
 	}
 	if err := p.App.Front.Reload(); err != nil {
 		s.Notice = notice{
-			title: "Reloading config failed", text: err.Error(), failed: true,
+			title: "Could not reload config", text: err.Error(), failed: true,
 		}
 	}
 	s.Err = slotError{}
@@ -377,7 +387,7 @@ type PresetSignals struct {
 
 // POSTApplyPreset is /apply-preset
 //
-// Replaces the toxics in effect with those of the preset signal.
+// Applies the selected preset.
 func (p PageIndex) POSTApplyPreset(
 	_ *http.Request,
 	signals datapages.Signals[PresetSignals],
@@ -394,8 +404,8 @@ func (p PageIndex) POSTApplyPreset(
 	return changed.Dispatch(EventChanged{})
 }
 
-// NewPresetSignals are the name field and the copy combobox of the new preset
-// dialog. Save is set when the save button opened it for toxics no preset holds.
+// NewPresetSignals contains the new-preset fields. Save reports that the save
+// button opened the dialog to name otherwise unnamed toxics.
 type NewPresetSignals struct {
 	Name string `json:"name"`
 	From string `json:"from"`
@@ -404,8 +414,8 @@ type NewPresetSignals struct {
 
 // POSTPresetDraft is /preset-draft
 //
-// Stores the fields of the new preset dialog and renders the tab.
-// Picking a Datapages preset fills in an empty name. A taken name disables Create.
+// Stores the new-preset fields and renders the tab.
+// A Datapages preset fills an empty name. An existing name disables Create.
 func (p PageIndex) POSTPresetDraft(
 	_ *http.Request,
 	signals datapages.Signals[NewPresetSignals],
@@ -419,10 +429,9 @@ func (p PageIndex) POSTPresetDraft(
 
 // POSTCreatePreset is /create-preset
 //
-// Adds a preset named by the name signal and applies it. It copies the preset
-// of the app or of Datapages the from signal names, or the current toxics for
-// an empty from. A refused name shows in the dialog. Success closes it and,
-// with the save signal, writes the presets into the configuration file.
+// Creates and applies a preset. It copies the selected app or Datapages preset,
+// or the current toxics when no source is selected.
+// With Save set, it also writes the presets to the configuration file.
 func (p PageIndex) POSTCreatePreset(
 	_ *http.Request,
 	sse datapages.SSE,
@@ -460,8 +469,7 @@ func (p PageIndex) POSTCreatePreset(
 
 // POSTDeletePreset is /delete-preset
 //
-// Removes the preset the preset signal names. When it is in effect,
-// No throttling replaces it.
+// Deletes the selected preset. No throttling replaces an active preset.
 func (p PageIndex) POSTDeletePreset(
 	_ *http.Request,
 	signals datapages.Signals[PresetSignals],

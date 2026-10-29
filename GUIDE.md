@@ -480,7 +480,7 @@ watch:
             downstream:
               latency: 165ms
               jitter: 0s
-          bandwidth:
+          client-bandwidth:
             downstream:
               rate: 1013
             upstream:
@@ -517,12 +517,12 @@ watch:
             downstream:
               latency: 300ms
               jitter: 100ms
-          bandwidth:
+          client-bandwidth:
             downstream:
               rate: 256
         endpoints:
           "POST /upload/{$}":
-            bandwidth:
+            client-bandwidth:
               upstream:
                 rate: 16
             latency:
@@ -552,16 +552,18 @@ Each preset takes:
 
 Each toxic type takes a `downstream` toxic for the data the server sends and an `upstream` toxic for the data the browser sends:
 
-| Type         | Fields                                                                          | Effect                                                                                                                                    |
-| ------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `latency`    | `latency`, `jitter`: whole milliseconds, up to 24h                              | Delays the data by `latency`, plus or minus up to `jitter`.                                                                               |
-| `bandwidth`  | `rate`: KB/s, from 1 to 10000000                                                | Limits the rate, which the requests of 1 browser share.                                                                                   |
-| `slow-close` | `delay`: whole milliseconds, up to 24h                                          | Delays closing the connection.                                                                                                            |
-| `timeout`    | `timeout`: whole milliseconds, up to 24h                                        | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up.                           |
-| `reset-peer` | `timeout`: whole milliseconds, up to 24h                                        | Resets the connection with a TCP RST once data arrives, after `timeout`.                                                                  |
-| `slicer`     | `average-size`, `size-variation`: bytes; `delay`: whole microseconds, up to 24h | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each by `delay`.                    |
-| `limit-data` | `bytes`: bytes                                                                  | Closes the connection after `bytes` bytes.                                                                                                |
-| `http-error` | `status`: 400 to 599                                                            | Answers with `status`. Upstream, the app never gets the request. Downstream, the browser gets `status` in place of the answer of the app. |
+| Type               | Fields                                                                                            | Effect                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `latency`          | `latency`, `jitter`: whole milliseconds, up to 24h                                                | Delays the data by `latency`, plus or minus up to `jitter`.                                                                               |
+| `client-bandwidth` | `rate`: KB/s, from 1 to 10000000; `per`: `client` or `request`, default `client`                  | Limits the rate of each browser. Per client, the requests of 1 browser share it.                                                          |
+| `server-bandwidth` | `rate`: KB/s, from 1 to 10000000                                                                  | Limits the rate of all browsers together.                                                                                                 |
+| `data-cap`         | `volume`: bytes; `rate`: KB/s, from 1 to 10000000; `per`: `client` or `request`, default `client` | Limits the rate to `rate` once `volume` bytes have passed. Per client, the requests of 1 browser use up 1 volume.                         |
+| `slow-close`       | `delay`: whole milliseconds, up to 24h                                                            | Delays closing the connection.                                                                                                            |
+| `timeout`          | `timeout`: whole milliseconds, up to 24h                                                          | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up.                           |
+| `reset-peer`       | `timeout`: whole milliseconds, up to 24h                                                          | Resets the connection with a TCP RST once data arrives, after `timeout`.                                                                  |
+| `slicer`           | `average-size`, `size-variation`: bytes; `delay`: whole microseconds, up to 24h                   | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each by `delay`.                    |
+| `limit-data`       | `bytes`: bytes                                                                                    | Closes the connection after `bytes` bytes.                                                                                                |
+| `http-error`       | `status`: 400 to 599                                                                              | Answers with `status`. Upstream, the app never gets the request. Downstream, the browser gets `status` in place of the answer of the app. |
 
 Every toxic also takes:
 
@@ -570,16 +572,16 @@ Every toxic also takes:
 
 The proxy applies `http-error` itself. It answers with the status and its standard text, as the generated server answers an error that no `PageError500`, `PageError404` or `RecoverError` handles. The toxic stands for a failure in front of the app, such as a gateway or a crashed process. To test the error handling of the app, return an error from the handler. Upstream, the proxy answers at once and skips the other toxics. Downstream, the request passes the other toxics, and the app finishes its response before the proxy replaces it. A page stream gets the status when its head arrives, which ends the stream. With both set, a request the upstream toxic answers never reaches the downstream one.
 
-The proxy also applies `bandwidth` itself. The requests of 1 browser share the rate, as the requests of 1 device share its network. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets and removes from the requests the app gets. The tabs of a browser share the rate, and a private window gets its own. A client without cookies, such as curl, gets the rate per request. An endpoint that overrides `bandwidth` shares its own rate among its requests. Cookies ignore ports, which sends the cookie to `--host` too.
+The proxy also applies `client-bandwidth`, `server-bandwidth` and `data-cap` itself. Per client, the requests of 1 browser share the rate of `client-bandwidth` and use up 1 `volume` of `data-cap`, as the requests of 1 device share its network and its data plan. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets and removes from the requests the app gets. The tabs of a browser share them, and a private window gets its own. A client without cookies, such as curl, gets them per request. Per request, each request gets the whole rate and volume. All requests share the rate of `server-bandwidth`, as the requests of all users share the uplink of a server. An endpoint that overrides one of the 3 has a rate or volume of its own. A change of a `data-cap` toxic, the Reset button of the settings page and a restart of watch give the whole volume back. With more than 1 of them on a stream, the data waits for the slowest. Cookies ignore ports, which sends the cookie to `--host` too.
 
 The preset combobox in the header of the settings page applies a preset. It lists No throttling first, Unreachable last and the presets of `datapages.yaml` between them. Watch mode starts with No throttling, and picking a preset changes nothing to save. A change of the toxics goes into the preset of `datapages.yaml` in effect, which Save writes. A change of No throttling or Unreachable leaves toxics no preset holds, which the combobox shows as "Unsaved". Save asks for a name for them, and picking a preset asks before it discards them. The last option creates a preset from the current toxics and overrides or from a copy of a preset of `datapages.yaml` or of Datapages. A preset of `datapages.yaml` has a button that deletes it after a confirmation, and No throttling replaces it while it is in effect. Fast 4G, Slow 4G and 3G mirror the network presets of Chrome DevTools, and `datapages init` writes them into `presets`:
 
 | Preset        | Toxics                                                                                                                                          |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | No throttling | Built in. None.                                                                                                                                 |
-| Fast 4G       | Datapages. `latency` 165ms downstream, `bandwidth` 1013 KB/s downstream and 169 KB/s upstream.                                                  |
-| Slow 4G       | Datapages. `latency` 563ms downstream, `bandwidth` 180 KB/s downstream and 84 KB/s upstream.                                                    |
-| 3G            | Datapages. `latency` 2000ms downstream, `bandwidth` 50 KB/s downstream and upstream.                                                            |
+| Fast 4G       | Datapages. `latency` 165ms downstream, `client-bandwidth` 1013 KB/s downstream and 169 KB/s upstream.                                           |
+| Slow 4G       | Datapages. `latency` 563ms downstream, `client-bandwidth` 180 KB/s downstream and 84 KB/s upstream.                                             |
+| 3G            | Datapages. `latency` 2000ms downstream, `client-bandwidth` 50 KB/s downstream and upstream.                                                     |
 | Unreachable   | Built in. `reset-peer` with a `timeout` of 0s downstream and upstream. A request ends before the app gets it, an open stream at its next event. |
 
 The values are those of Chrome, rounded to whole milliseconds and KB/s. Chrome shares the bandwidth per tab, the proxy per browser.

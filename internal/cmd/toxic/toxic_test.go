@@ -16,8 +16,11 @@ import (
 var (
 	latencyDown = Slot{Type: Latency, Stream: Downstream}
 	latencyUp   = Slot{Type: Latency, Stream: Upstream}
-	rateDown    = Slot{Type: Bandwidth, Stream: Downstream}
-	rateUp      = Slot{Type: Bandwidth, Stream: Upstream}
+	rateDown    = Slot{Type: ClientBandwidth, Stream: Downstream}
+	rateUp      = Slot{Type: ClientBandwidth, Stream: Upstream}
+	serverDown  = Slot{Type: ServerBandwidth, Stream: Downstream}
+	capDown     = Slot{Type: DataCap, Stream: Downstream}
+	capUp       = Slot{Type: DataCap, Stream: Upstream}
 	limitDown   = Slot{Type: LimitData, Stream: Downstream}
 	errorDown   = Slot{Type: HTTPError, Stream: Downstream}
 	errorUp     = Slot{Type: HTTPError, Stream: Upstream}
@@ -159,6 +162,15 @@ func TestSettingsFromConfig(t *testing.T) {
 					ToxicBase: config.ToxicBase{Toxicity: &half}, Status: 500,
 				},
 			},
+			ClientBandwidth: &config.ToxicStreams[config.ToxicClientBandwidth]{
+				Upstream: &config.ToxicClientBandwidth{Rate: 8, Per: config.ToxicPerRequest},
+			},
+			ServerBandwidth: &config.ToxicStreams[config.ToxicServerBandwidth]{
+				Downstream: &config.ToxicServerBandwidth{Rate: 1000},
+			},
+			DataCap: &config.ToxicStreams[config.ToxicDataCap]{
+				Downstream: &config.ToxicDataCap{Volume: 2048, Rate: 4},
+			},
 		},
 		Endpoints: map[config.EndpointPattern]config.Toxics{
 			"GET /{$}": {
@@ -172,8 +184,8 @@ func TestSettingsFromConfig(t *testing.T) {
 						ToxicBase: config.ToxicBase{Disabled: true},
 					},
 				},
-				Bandwidth: &config.ToxicStreams[config.ToxicBandwidth]{
-					Downstream: &config.ToxicBandwidth{
+				ClientBandwidth: &config.ToxicStreams[config.ToxicClientBandwidth]{
+					Downstream: &config.ToxicClientBandwidth{
 						ToxicBase: config.ToxicBase{Disabled: true},
 					},
 				},
@@ -203,11 +215,14 @@ func TestSettingsFromConfig(t *testing.T) {
 			latencyDown:                      toxicWith(2000, 5),
 			{Type: Slicer, Stream: Upstream}: slicer,
 			errorDown:                        httpError,
+			rateUp:                           toxicWith(8, PerRequest),
+			serverDown:                       toxicWith(1000),
+			capDown:                          toxicWith(2048, 4, PerClient),
 		},
 		Endpoints: map[string]Set{"GET /{$}": {
 			latencyDown:                      off(toxicWith(0, 0)),
 			{Type: Slicer, Stream: Upstream}: off(toxicWith(10, 2, 3000)),
-			rateDown:                         off(NewToxic(Bandwidth)),
+			rateDown:                         off(NewToxic(ClientBandwidth)),
 			errorUp:                          toxicWith(503),
 			errorDown:                        off(toxicWith(500)),
 		}},
@@ -236,6 +251,9 @@ func TestSettingsYAMLRoundTrip(t *testing.T) {
 					{Type: Slicer, Stream: Downstream}: toxicWith(64, 8, 1500),
 					{Type: Timeout, Stream: Upstream}:  toxicWith(0),
 					errorUp:                            httpError,
+					rateUp:                             toxicWith(8, PerRequest),
+					capDown:                            toxicWith(1<<20, 16, PerClient),
+					capUp:                              toxicWith(0, 2, PerRequest),
 				},
 				Endpoints: map[string]Set{
 					"POST /upload/{$}": {
@@ -248,8 +266,11 @@ func TestSettingsYAMLRoundTrip(t *testing.T) {
 				},
 			},
 			{
-				Name:   `Train "tunnel": 2`,
-				Toxics: Set{latencyDown: toxicWith(900, 300)},
+				Name: `Train "tunnel": 2`,
+				Toxics: Set{
+					latencyDown: toxicWith(900, 300),
+					serverDown:  toxicWith(32),
+				},
 				Endpoints: map[string]Set{
 					"POST /upload/{$}": {limitDown: toxicWith(64)},
 				},
@@ -268,6 +289,9 @@ func TestSettingsYAMLRoundTrip(t *testing.T) {
 	// Without overrides it writes nothing.
 	delete(want.Presets[0].Endpoints, "GET /post/{id}/{$}")
 	require.Equal(t, want, SettingsFromConfig(c.Watch.Toxiproxy))
+	require.Contains(t, got, "per: request")
+	require.Contains(t, got, "server-bandwidth:")
+	require.NotContains(t, got, "per: client", "the default is left out")
 	known := strings.Index(got, `"POST /upload/{$}"`)
 	unknown := strings.Index(got, `"GET /gone/{$}"`)
 	require.True(t, known >= 0 && unknown > known,
@@ -304,12 +328,12 @@ func TestToxicValidate(t *testing.T) {
 			wantErr: "timeout must be at most 86400000",
 		},
 		"zero rate": {
-			typ: Bandwidth, toxic: toxicWith(0),
+			typ: ClientBandwidth, toxic: toxicWith(0),
 			wantErr: "rate must be at least 1",
 		},
-		"rate of 10 GB/s": {typ: Bandwidth, toxic: toxicWith(10_000_000)},
+		"rate of 10 GB/s": {typ: ClientBandwidth, toxic: toxicWith(10_000_000)},
 		"rate above 10 GB/s": {
-			typ: Bandwidth, toxic: toxicWith(10_000_001),
+			typ: ClientBandwidth, toxic: toxicWith(10_000_001),
 			wantErr: "rate must be at most 10000000",
 		},
 		"slicer": {typ: Slicer, toxic: toxicWith(10, 10, 0)},

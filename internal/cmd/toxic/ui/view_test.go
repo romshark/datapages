@@ -179,6 +179,12 @@ func TestSetField(t *testing.T) {
 	require.EqualError(t, setField(&y, toxic.LimitData, "bytes", "1.5", "B"),
 		`bytes: "1.5" is not a whole number`)
 	require.ErrorIs(t, setField(&y, toxic.LimitData, "bytes", "1", "TB"), errUnknownUnit)
+
+	z := toxicWith(64)
+	require.NoError(t, setField(&z, toxic.ClientBandwidth, "per", "request", ""))
+	require.Equal(t, toxicWith(64, toxic.PerRequest), z)
+	require.EqualError(t, setField(&z, toxic.ClientBandwidth, "per", "tab", ""),
+		`shared by must be client or request, not "tab"`)
 }
 
 // TestDefaultByteUnit tests that a value shows in the largest unit that shows

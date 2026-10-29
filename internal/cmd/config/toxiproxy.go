@@ -116,21 +116,24 @@ func checkMuxPattern(pattern string) (err error) {
 // which overflows above 292 years.
 const MaxToxicDuration = 24 * time.Hour
 
-// MaxBandwidthRate is the highest [ToxicBandwidth.Rate], 10 GB/s. The proxy paces
-// the data in chunks of the rate times 20ms, which overflow int64 above 4.6e17 KB/s.
+// MaxBandwidthRate is the highest rate of [ToxicClientBandwidth],
+// [ToxicServerBandwidth] and [ToxicDataCap], 10 GB/s. The proxy paces the data in chunks of the rate times 20ms,
+// which overflow int64 above 4.6e17 KB/s.
 const MaxBandwidthRate = 10_000_000
 
 // Toxics are the toxics of the global scope or of 1 endpoint. Each type has
 // its own downstream (response) and upstream (request) toxic.
 type Toxics struct {
-	Latency   *ToxicStreams[ToxicLatency]   `yaml:"latency"`
-	Bandwidth *ToxicStreams[ToxicBandwidth] `yaml:"bandwidth"`
-	SlowClose *ToxicStreams[ToxicSlowClose] `yaml:"slow-close"`
-	Timeout   *ToxicStreams[ToxicTimeout]   `yaml:"timeout"`
-	ResetPeer *ToxicStreams[ToxicResetPeer] `yaml:"reset-peer"`
-	Slicer    *ToxicStreams[ToxicSlicer]    `yaml:"slicer"`
-	LimitData *ToxicStreams[ToxicLimitData] `yaml:"limit-data"`
-	HTTPError *ToxicStreams[ToxicHTTPError] `yaml:"http-error"`
+	Latency         *ToxicStreams[ToxicLatency]         `yaml:"latency"`
+	ClientBandwidth *ToxicStreams[ToxicClientBandwidth] `yaml:"client-bandwidth"`
+	ServerBandwidth *ToxicStreams[ToxicServerBandwidth] `yaml:"server-bandwidth"`
+	DataCap         *ToxicStreams[ToxicDataCap]         `yaml:"data-cap"`
+	SlowClose       *ToxicStreams[ToxicSlowClose]       `yaml:"slow-close"`
+	Timeout         *ToxicStreams[ToxicTimeout]         `yaml:"timeout"`
+	ResetPeer       *ToxicStreams[ToxicResetPeer]       `yaml:"reset-peer"`
+	Slicer          *ToxicStreams[ToxicSlicer]          `yaml:"slicer"`
+	LimitData       *ToxicStreams[ToxicLimitData]       `yaml:"limit-data"`
+	HTTPError       *ToxicStreams[ToxicHTTPError]       `yaml:"http-error"`
 }
 
 // ToxicStreams holds a toxic per direction. Nil means none, and on an endpoint
@@ -178,17 +181,84 @@ func (t ToxicLatency) Validate() error {
 	)
 }
 
-// ToxicBandwidth limits the data to Rate KB/s, shared by the requests of 1
-// browser. An endpoint that overrides it has a rate of its own. The proxy
-// applies it, not Toxiproxy.
-type ToxicBandwidth struct {
+// ToxicPer says whether the requests of 1 browser share a toxic the proxy
+// applies or each request has its own.
+type ToxicPer int8
+
+const (
+	// ToxicPerClient shares the toxic among the requests of 1 browser.
+	ToxicPerClient ToxicPer = iota
+	// ToxicPerRequest gives each request a toxic of its own.
+	ToxicPerRequest
+)
+
+var toxicPers = []enumOption[ToxicPer]{
+	{"client", ToxicPerClient},
+	{"request", ToxicPerRequest},
+}
+
+func (p *ToxicPer) UnmarshalText(text []byte) error {
+	return unmarshalEnum(text, "per", toxicPers, p)
+}
+
+// ToxicClientBandwidth limits the data of each browser to Rate KB/s, as its
+// network does. Per client, the requests of 1 browser share the rate, and an
+// endpoint that overrides it has a rate of its own. The proxy applies it,
+// not Toxiproxy.
+type ToxicClientBandwidth struct {
+	ToxicBase `yaml:",inline"`
+	Rate      int64    `yaml:"rate"`
+	Per       ToxicPer `yaml:"per"`
+}
+
+func (t ToxicClientBandwidth) Validate() error {
+	if t.Disabled {
+		return nil
+	}
+	return checkRate(t.Rate)
+}
+
+// ToxicServerBandwidth limits the data of all browsers together to Rate KB/s,
+// as the uplink of a server does. An endpoint that overrides it has a rate of
+// its own. The proxy applies it, not Toxiproxy.
+type ToxicServerBandwidth struct {
 	ToxicBase `yaml:",inline"`
 	Rate      int64 `yaml:"rate"`
 }
 
-func (t ToxicBandwidth) Validate() error {
-	if !t.Disabled && (t.Rate < 1 || t.Rate > MaxBandwidthRate) {
-		return fmt.Errorf("rate %d must be from 1 to %d KB/s", t.Rate, MaxBandwidthRate)
+func (t ToxicServerBandwidth) Validate() error {
+	if t.Disabled {
+		return nil
+	}
+	return checkRate(t.Rate)
+}
+
+// ToxicDataCap limits the data to Rate KB/s once Volume bytes have passed,
+// as a mobile data plan does. Per client, the requests of 1 browser use up 1
+// volume, and an endpoint that overrides it has a volume of its own.
+// The proxy applies it, not Toxiproxy.
+type ToxicDataCap struct {
+	ToxicBase `yaml:",inline"`
+	Volume    int64    `yaml:"volume"`
+	Rate      int64    `yaml:"rate"`
+	Per       ToxicPer `yaml:"per"`
+}
+
+func (t ToxicDataCap) Validate() error {
+	if t.Disabled {
+		return nil
+	}
+	var errs []error
+	if t.Volume < 0 {
+		errs = append(errs, fmt.Errorf("volume %d must be 0 or more", t.Volume))
+	}
+	return errors.Join(append(errs, checkRate(t.Rate))...)
+}
+
+// checkRate reports a rate in KB/s outside 1 to [MaxBandwidthRate].
+func checkRate(rate int64) error {
+	if rate < 1 || rate > MaxBandwidthRate {
+		return fmt.Errorf("rate %d must be from 1 to %d KB/s", rate, MaxBandwidthRate)
 	}
 	return nil
 }

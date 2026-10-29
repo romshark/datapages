@@ -38,12 +38,12 @@ func DefaultPresets() []Preset {
 				Toxicity: 1, Values: [MaxFields]int64{latency},
 			},
 			{
-				Type: Bandwidth, Stream: Downstream,
+				Type: ClientBandwidth, Stream: Downstream,
 			}: {
 				Toxicity: 1, Values: [MaxFields]int64{down},
 			},
 			{
-				Type: Bandwidth, Stream: Upstream,
+				Type: ClientBandwidth, Stream: Upstream,
 			}: {
 				Toxicity: 1, Values: [MaxFields]int64{up},
 			},

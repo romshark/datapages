@@ -452,6 +452,9 @@ func setupHandlers(s *Server) {
 		"POST /clear/{$}",
 		pageIndexHandlers{s}.POSTClear)
 	s.Mux().HandleFunc(
+		"POST /reset-data-caps/{$}",
+		pageIndexHandlers{s}.POSTResetDataCaps)
+	s.Mux().HandleFunc(
 		"POST /save/{$}",
 		pageIndexHandlers{s}.POSTSave)
 	s.Mux().HandleFunc(
@@ -1012,6 +1015,50 @@ func (s pageIndexHandlers) POSTClear(
 	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Clear", err)
+		return
+	}
+}
+
+func (s pageIndexHandlers) POSTResetDataCaps(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.ResetDataCaps")
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateIndex(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	stateID := stateRouteKey(instanceID)
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	dispatchViewChanged := dispatcherEventViewChanged{s: s.Server, ctx: r.Context()}
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTResetDataCaps(
+		r,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		stateID,
+		dispatchViewChanged,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.ResetDataCaps", err)
 		return
 	}
 }

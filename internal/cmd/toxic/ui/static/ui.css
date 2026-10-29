@@ -469,6 +469,15 @@ neo-button.tp-scope-menu {
   --neo-card-border-color: var(--tp-divider);
 }
 
+/* The head fills the card header, which lets .tp-card-action move to its end. */
+.tp-card-head {
+  flex: 1;
+}
+
+.tp-card-action {
+  margin-left: auto;
+}
+
 .tp-row {
   margin: 0;
   padding: 0.75rem 0;

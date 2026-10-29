@@ -37,7 +37,7 @@ const (
 var (
 	latencyDown = toxic.Slot{Type: toxic.Latency, Stream: toxic.Downstream}
 	limitDown   = toxic.Slot{Type: toxic.LimitData, Stream: toxic.Downstream}
-	rateDown    = toxic.Slot{Type: toxic.Bandwidth, Stream: toxic.Downstream}
+	rateDown    = toxic.Slot{Type: toxic.ClientBandwidth, Stream: toxic.Downstream}
 )
 
 // rootPath and limitedPath match the 2 entries of the endpoint list,
@@ -264,14 +264,14 @@ func TestPage(t *testing.T) {
 	require.Regexp(t,
 		`<dt>Non-toxic</dt><dd><neo-layout[^>]*><a [^>]*href="http://127\.0\.0\.1:\d+"`,
 		about)
-	require.Contains(t, about, `aria-label="What the toxic address is"`)
-	require.Contains(t, about, `aria-label="What the non-toxic address is"`)
+	require.Contains(t, about, `aria-label="About the toxic address"`)
+	require.Contains(t, about, `aria-label="About the non-toxic address"`)
 	require.Regexp(t,
 		`<dt>Config</dt><dd><neo-layout[^>]*><code>datapages.yaml</code>`,
 		about)
 	// The copy button copies the absolute path of the file.
 	copyConfig := regexp.MustCompile(
-		`(?s)<neo-clipcopy [^>]*>\s*<neo-button [^>]*aria-label="Copy the path of datapages.yaml"`,
+		`(?s)<neo-clipcopy [^>]*>\s*<neo-button [^>]*aria-label="Copy path to datapages.yaml"`,
 	).FindString(about)
 	require.Contains(t, copyConfig,
 		`value="`+filepath.Join(s.dir, "datapages.yaml")+`"`)
@@ -341,7 +341,7 @@ func TestPage(t *testing.T) {
 
 	code, body = do(t, http.MethodGet, base+"/?kinds=none", "", nil)
 	require.Equal(t, http.StatusOK, code)
-	require.Contains(t, body, "No endpoint matches.")
+	require.Contains(t, body, "No endpoints match.")
 	require.NotContains(t, body, limitedPath)
 
 	for _, file := range []string{
@@ -398,7 +398,7 @@ func TestCommands(t *testing.T) {
 	require.Equal(t, int64(10), limitBytes())
 
 	at, otherAt = tb.at(), other.at()
-	code = tb.command(t, "/value/?slot=bandwidth_downstream&field=rate", `{"value":"0"}`)
+	code = tb.command(t, "/value/?slot=client_bandwidth_downstream&field=rate", `{"value":"0"}`)
 	require.Equal(t, http.StatusOK, code)
 	tb.waitFrom(t, at, "rate must be at least 1")
 	require.NotContains(t, s.front.Settings().Endpoints[limited], rateDown)
@@ -431,10 +431,10 @@ func TestCommands(t *testing.T) {
 	code = tb.command(t, "/reload/", "{}")
 	require.Equal(t, http.StatusOK, code)
 	// The notice is a toast, appended to the toaster.
-	got = tb.waitFrom(t, at, "Read the settings of datapages.yaml.")
+	got = tb.waitFrom(t, at, "Loaded settings from datapages.yaml.")
 	require.Contains(t, got, "data: selector #tp-toaster\n")
 	require.Contains(t, got, "data: mode append\n")
-	require.Contains(t, got, `<span slot="title">Reloaded config</span>`)
+	require.Contains(t, got, `<span slot="title">Config reloaded</span>`)
 	// The changed No throttling became toxics no preset holds, which a reload
 	// replaces with No throttling.
 	st := s.front.Settings()
@@ -478,7 +478,7 @@ func TestPresets(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.Contains(t, body, `<neo-combobox value="No throttling"`)
 	require.NotContains(t, body, "563 ms")
-	require.Contains(t, body, `aria-label="Delete the preset Slow 4G"`)
+	require.Contains(t, body, `aria-label="Delete preset Slow 4G"`)
 	require.Contains(t, body, `value=" new"`)
 	// The label of the picker is the text addon of its input group.
 	require.Regexp(t, `<neo-input-group[^>]*><span aria-hidden="true">Preset</span>`+
@@ -497,8 +497,8 @@ func TestPresets(t *testing.T) {
 	// The built-in presets have no delete button and no copy option.
 	require.Contains(t, body, `value="No throttling"`)
 	require.Contains(t, body, `value="Unreachable"`)
-	require.NotContains(t, body, `aria-label="Delete the preset No throttling"`)
-	require.NotContains(t, body, `aria-label="Delete the preset Unreachable"`)
+	require.NotContains(t, body, `aria-label="Delete preset No throttling"`)
+	require.NotContains(t, body, `aria-label="Delete preset Unreachable"`)
 	require.NotContains(t, body, `value="app:Unreachable"`)
 	require.NotContains(t, body, `value="datapages:Unreachable"`)
 	require.NotContains(t, body, `value="datapages:No throttling"`)
@@ -567,7 +567,7 @@ func TestPresets(t *testing.T) {
 
 	at = tb.at()
 	require.Equal(t, http.StatusOK, tb.command(t, "/save/", "{}"))
-	tb.waitFrom(t, at, "Wrote the presets to datapages.yaml.")
+	tb.waitFrom(t, at, "Saved presets to datapages.yaml.")
 	b, err := os.ReadFile(filepath.Join(s.dir, "datapages.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(b), "    presets:\n      - name: \"Fast 4G\"\n")
@@ -763,6 +763,33 @@ func TestByteUnit(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, code)
 }
 
+// TestDataCap tests the initial volume, sharing selection and reset notice.
+func TestDataCap(t *testing.T) {
+	s := startSettings(t)
+	tb := openTab(t, s.url)
+	capDown := toxic.Slot{Type: toxic.DataCap, Stream: toxic.Downstream}
+
+	at := tb.at()
+	code := tb.command(t, "/mode/?slot=data_cap_downstream", `{"mode":"on"}`)
+	require.Equal(t, http.StatusOK, code)
+	got := tb.waitFrom(t, at, `aria-label="Volume unit"`)
+	require.Regexp(t, `<neo-textinput aria-label="Volume"[^>]* value="1"`, got)
+	require.Regexp(t, `<neo-select value="MiB"[^>]* aria-label="Volume unit"`, got)
+	require.Regexp(t, `<neo-select value="client"[^>]* aria-label="Shared by"`, got)
+
+	at = tb.at()
+	code = tb.command(t, "/value/?slot=data_cap_downstream&field=per",
+		`{"value":"request"}`)
+	require.Equal(t, http.StatusOK, code)
+	tb.waitFrom(t, at, `<neo-select value="request"`)
+	require.Equal(t, toxic.PerRequest, s.front.Settings().Global[capDown].Values[2])
+
+	at = tb.at()
+	code = tb.command(t, "/reset-data-caps/", "{}")
+	require.Equal(t, http.StatusOK, code)
+	tb.waitFrom(t, at, "Restored each browser's full volume.")
+}
+
 // TestChangedFromOutside tests that an EventChanged published on the broker,
 // as datapages watch does when the endpoints change, renders the tabs.
 func TestChangedFromOutside(t *testing.T) {
@@ -777,13 +804,13 @@ func TestChangedFromOutside(t *testing.T) {
 	require.NoError(t, s.broker.Publish(context.Background(), messaging.NoopMetrics{},
 		datapagesgen.EvSubjChanged, []byte("{}")))
 	got := tb.waitFrom(t, at, `aria-label="Latency"`)
-	require.Contains(t, got, `aria-label="What jitter means"`)
+	require.Contains(t, got, `aria-label="About jitter"`)
 	require.Contains(t, got, `<neo-slider min="0" max="100" step="1" value="100"`)
 }
 
 // saveButton matches the opening tag of the save button.
 var saveButton = regexp.MustCompile(
-	`<neo-button[^>]*title="Write the presets of this page to datapages.yaml"[^>]*>`,
+	`<neo-button[^>]*title="Save presets to datapages.yaml"[^>]*>`,
 )
 
 // TestSave tests that a save keeps the file outside watch.toxiproxy and
@@ -804,7 +831,7 @@ func TestSave(t *testing.T) {
 		return tb.waitFrom(t, at, notice)
 	}
 
-	got := save("/save/", "{}", "Wrote the presets to datapages.yaml.")
+	got := save("/save/", "{}", "Saved presets to datapages.yaml.")
 	require.Contains(t, saveButton.FindString(got), `aria-disabled="true"`)
 	b, err := os.ReadFile(file)
 	require.NoError(t, err)
@@ -822,12 +849,12 @@ func TestSave(t *testing.T) {
 	require.Contains(t, button, "$save = true")
 	require.NotContains(t, button, "/save/")
 	// The toast of the save shows once.
-	require.NotContains(t, got, "Saved config")
-	save("/save/", "{}", "Saving config failed")
+	require.NotContains(t, got, "Config saved")
+	save("/save/", "{}", "Could not save config")
 	require.False(t, s.front.Saved())
 
 	save("/create-preset/", `{"name":"Mine","from":"","save":true}`,
-		"Wrote the presets to datapages.yaml.")
+		"Saved presets to datapages.yaml.")
 	require.True(t, s.front.Saved())
 	b, err = os.ReadFile(file)
 	require.NoError(t, err)
@@ -842,7 +869,7 @@ func TestSave(t *testing.T) {
 	require.Contains(t, presetPicker.FindString(got), `value="Mine"`)
 	require.Contains(t, saveButton.FindString(got), "@post(&#39;/save/&#39;)")
 	require.False(t, s.front.Saved())
-	save("/save/", "{}", "Wrote the presets to datapages.yaml.")
+	save("/save/", "{}", "Saved presets to datapages.yaml.")
 	require.True(t, s.front.Saved())
 
 	// Change the file by hand.

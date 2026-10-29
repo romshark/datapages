@@ -25,10 +25,8 @@ templ head(info toxic.Info) {
 	<script type="module" src={ assets.Path("morpheus/morpheus.min.js") }></script>
 }
 
-// themeScript applies the color scheme of the theme select before the first
-// paint and keeps it in localStorage, per browser. Morpheus forces a scheme
-// with the light or dark class of the root element and follows the OS
-// without either, which is the system mode.
+// themeScript applies the stored color scheme before the first paint. Morpheus reads
+// light or dark from the root class and follows the OS when neither is set.
 templ themeScript() {
 	<script>
 		window.tpTheme = {
@@ -57,9 +55,8 @@ templ themeScript() {
 	</script>
 }
 
-// app is the page. The mode and value signals carry a change to 1 toxic, unit
-// the unit picked for a byte field. preset names the preset to apply or delete.
-// name and from are the name of a new preset and the preset it copies.
+// app declares the signals shared by its controls. mode, value and unit edit a
+// toxic. preset selects a preset. name and from define a new preset.
 templ app(d pageData) {
 	<div
 		class="tp-app"
@@ -70,8 +67,7 @@ templ app(d pageData) {
 			Gap:        neo.Set(neo.GapLg),
 			AlignItems: neo.Set(neo.AlignItemsFlexStart),
 		}, templ.Attributes{"class": "tp-body"}) {
-			// At 17rem the kind toggles of the panel, whose padding is wider than
-			// that of the column, wrap to 2 rows.
+			// 18rem keeps the panel's kind toggles on 1 row.
 			// The handle has no grip. ui.css draws it as a divider.
 			@neo.ResizableAttrs(neo.ResizableOpts[float64]{
 				Handles:     neo.Set(neo.ResizableRight),
@@ -88,10 +84,8 @@ templ app(d pageData) {
 	</div>
 }
 
-// regions are the parts of the page each render morphs by id.
-// They leave out .tp-body, the neo-resizable around the sidebar and the toaster.
-// A morph would remove the backdrop neo-sidebar keeps beside it,
-// the width a drag sets and the toasts.
+// regions are the elements a render morphs by ID. It excludes the resizable
+// sidebar wrapper and toaster to preserve the backdrop, width and toasts.
 templ regions(d pageData) {
 	@top(d)
 	@nav(d)
@@ -146,7 +140,7 @@ templ top(d pageData) {
 					@presetPicker(d)
 					@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
 						"data-on:click": reloadClick(d.saved),
-						"title":         "Discard the changes made on this page",
+						"title":         "Discard page changes and reload config",
 					}) {
 						Reload config
 					}
@@ -156,7 +150,7 @@ templ top(d pageData) {
 						Disabled: neo.Set(d.saved),
 					}, templ.Attributes{
 						"data-on:click": saveClick(d.activePreset),
-						"title": "Write the presets of this page to " +
+						"title": "Save presets to " +
 							d.info.ConfigFile,
 					}) {
 						Save to config
@@ -177,7 +171,7 @@ templ menuButton(class string) {
 	@neo.ButtonAttrs(neo.ButtonOpts{Variant: neo.Set(neo.ButtonVariantGhost)},
 		templ.Attributes{
 			"class":         class,
-			"aria-label":    "Show the endpoints",
+			"aria-label":    "Show endpoints",
 			"aria-controls": "tp-sidebar",
 			"data-on:click": "document.getElementById('tp-sidebar').show()",
 		}) {
@@ -189,7 +183,7 @@ templ menuButton(class string) {
 templ reloadDialog(file string) {
 	@confirmDialog("tp-reload", "Discard unsaved changes?", "Discard and reload",
 		action.PageIndex.Reload.POST()) {
-		Changes not saved to <code>{ file }</code> cannot be restored.
+		This discards changes not saved to <code>{ file }</code>.
 	}
 }
 
@@ -198,8 +192,8 @@ templ reloadDialog(file string) {
 templ clearDialog(file string) {
 	@confirmDialog("tp-clear", "Clear overrides?", "Clear overrides",
 		action.PageIndex.Clear.POST()) {
-		The endpoint inherits the global toxics.
-		Overrides not saved to <code>{ file }</code> cannot be restored.
+		The endpoint will inherit global toxics.
+		This discards overrides not saved to <code>{ file }</code>.
 	}
 }
 
@@ -225,8 +219,8 @@ templ aboutDialog(info toxic.Info) {
 					<dd>
 						@aboutValue() {
 							@externalLink(info.URL, info.Host)
-							@infoButton("What the toxic address is") {
-								<p>The app through the toxics of this page.</p>
+							@infoButton("About the toxic address") {
+								<p>The app through these toxics.</p>
 							}
 						}
 					</dd>
@@ -234,8 +228,8 @@ templ aboutDialog(info toxic.Info) {
 					<dd>
 						@aboutValue() {
 							@externalLink(info.UpstreamURL, info.Upstream)
-							@infoButton("What the non-toxic address is") {
-								<p>The app without toxics, served by the dev server.</p>
+							@infoButton("About the non-toxic address") {
+								<p>The app without toxics, from the dev server.</p>
 							}
 						}
 					</dd>
@@ -245,7 +239,7 @@ templ aboutDialog(info toxic.Info) {
 							<code>{ info.ConfigFile }</code>
 							if info.ConfigPath != "" {
 								@copyButton(info.ConfigPath,
-									"Copy the path of "+info.ConfigFile)
+									"Copy path to "+info.ConfigFile)
 							}
 						}
 					</dd>
@@ -286,17 +280,16 @@ templ aboutDialog(info toxic.Info) {
 	}
 }
 
-// themeSelect picks the color scheme of [themeScript]. The server cannot read
-// localStorage, so the select takes the saved mode on init. It sets the
-// attribute, since a property set before neo-select upgrades hides its setter.
+// themeSelect reads the stored mode on init because the server cannot read localStorage.
+// It sets the attribute because a pre-upgrade property would hide neo-select's setter.
 templ themeSelect() {
 	@neo.SelectAttrs(neo.SelectOpts{
 		Value:     neo.Set("system"),
 		Size:      neo.Set("sm"),
 		AriaLabel: neo.Set("Theme"),
 	}, templ.Attributes{
-		"id":                       "tp-theme",
-		"data-init":                "el.setAttribute('value', tpTheme.mode())",
+		"id":                        "tp-theme",
+		"data-init":                 "el.setAttribute('value', tpTheme.mode())",
 		"data-on:neo-select-change": "tpTheme.set(evt.detail.value)",
 	}) {
 		@neo.Option(neo.OptionOpts{Value: neo.Set("system")}) {
@@ -321,8 +314,8 @@ templ aboutValue() {
 	}
 }
 
-// copyButton is an icon button that copies value and shows a check mark for
-// a moment after.
+// copyButton is an icon button that copies value
+// and shows a check mark for a moment after.
 templ copyButton(value, ariaLabel string) {
 	@neo.Clipcopy(neo.ClipcopyOpts{Value: neo.Set(value)}) {
 		@neo.ButtonAttrs(neo.ButtonOpts{
@@ -360,13 +353,12 @@ templ externalLink(url, addr string) {
 templ discardDialog() {
 	@confirmDialog("tp-discard", "Discard unsaved toxics?", "Discard",
 		action.PageIndex.ApplyPreset.POST()) {
-		Toxics not saved as a preset cannot be restored.
+		This discards toxics not saved as a preset.
 	}
 }
 
-// confirmDialog asks before the danger action act, which the button confirm runs.
-// The children say what is lost. neo-dialog requires the hidden trigger.
-// Morphs skip the dialog, which keeps it open.
+// confirmDialog asks before act. The children describe what the action loses.
+// The hidden trigger satisfies neo-dialog. Morphs skip the open dialog.
 templ confirmDialog(id, title, confirm, act string) {
 	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
 		"id":                id,
@@ -426,10 +418,8 @@ templ editor(d pageData) {
 	</main>
 }
 
-// nav is the endpoint list in a sidebar, a column on a wide page and a panel
-// on a narrow one. neo-sidebar compares the breakpoint with the width of .tp-body,
-// 2rem less than the viewport. 48rem matches the 50rem viewport at
-// which Morpheus and ui.css lay out an undefined sidebar as a panel.
+// nav shows endpoints as a column on wide pages and a panel on narrow pages.
+// Its 48rem body breakpoint matches the 50rem viewport breakpoint after padding.
 templ nav(d pageData) {
 	@neo.SidebarAttrs(neo.SidebarOpts{
 		AriaLabel:         neo.Set("Endpoints"),
@@ -445,7 +435,7 @@ templ nav(d pageData) {
 						Global
 					}
 					<span class="tp-muted tp-small">
-						Every endpoint without an override
+						All endpoints without overrides
 					</span>
 				}
 				@navFilter(d.filter)
@@ -465,9 +455,9 @@ templ nav(d pageData) {
 					if len(d.endpoints) == 0 && len(d.unknown) == 0 {
 						<p class="tp-muted tp-small">
 							if d.hidden > 0 {
-								No endpoint matches.
+								No endpoints match.
 							} else {
-								No endpoints yet. They appear once the app compiles.
+								No endpoints. Compile the app to load them.
 							}
 						</p>
 					}
@@ -477,10 +467,8 @@ templ nav(d pageData) {
 	}
 }
 
-// navLink links the scope that the endpoint query parameter key names,
-// empty for global, with the filter f.
-// A plain click shows the scope through POSTShow, which keeps the search field,
-// and closes the sidebar panel. Other clicks follow the link.
+// navLink links a scope with its current filter. A plain click uses POSTShow to
+// preserve the search field and close the panel. Other clicks follow the link.
 templ navLink(f filter, selected bool, key string) {
 	<a
 		href={ href.PageIndex(href.QueryPageIndex{
@@ -503,9 +491,8 @@ templ navLink(f filter, selected bool, key string) {
 	</a>
 }
 
-// navFilter is the sticky head of the endpoint list with a fuzzy search and a
-// toggle per kind, which POSTFilter applies. neo-textinput ignores a new
-// value while it has focus, which keeps a render from undoing typing.
+// navFilter searches endpoints and filters their kinds. neo-textinput ignores
+// patches while focused, which keeps a render from undoing typed text.
 templ navFilter(f filter) {
 	@neo.LayoutAttrs(neo.LayoutOpts{
 		Direction: neo.Set(neo.Column),
@@ -524,12 +511,12 @@ templ navFilter(f filter) {
 				// Morpheus defines the element.
 				"data-on:input__debounce.150ms": action.PageIndex.Filter.POST(
 					action.WithBefore("$search = el.value")),
-				"aria-label": "Search the endpoints",
+				"aria-label": "Search endpoints",
 			})
 		}
 		@neo.ToggleGroupAttrs(neo.ToggleGroupOpts{
 			Value:     neo.Set(f.pressedKinds()),
-			AriaLabel: neo.Set("Kinds of endpoints to show"),
+			AriaLabel: neo.Set("Endpoint kinds"),
 		}, templ.Attributes{
 			// An empty kinds signal is every kind, which leaves 'none' for no kind.
 			"data-on:neo-toggle-group-change": action.PageIndex.Filter.POST(
@@ -615,8 +602,8 @@ templ navTitle() {
 	}
 }
 
-// scopeHeader names the scope of the toxics below it. Its description is
-// behind an info button, which keeps the sticky scope short.
+// scopeHeader names the selected toxic scope. Help stays behind an info button
+// to keep the sticky header short.
 templ scopeHeader(d pageData) {
 	<section class="tp-scope">
 		<div class="tp-scope-bar">
@@ -656,8 +643,9 @@ templ scopeHeader(d pageData) {
 					if d.scope == "" {
 						@infoButton("About these toxics") {
 							<p>
-								Every request passes through these toxics unless its endpoint
-								overrides them. Each request opens a connection of its own.
+								Every request uses these toxics
+								unless its endpoint overrides them.
+								Each request uses a separate connection.
 							</p>
 						}
 					} else if d.scopeEndpoint.Pattern != "" {
@@ -677,7 +665,7 @@ templ scopeHeader(d pageData) {
 				}
 			}
 			if d.scope != "" && d.scopeEndpoint.Pattern == "" {
-				<p class="tp-error">The app has no endpoint with this pattern.</p>
+				<p class="tp-error">No app endpoint has this pattern.</p>
 			}
 		</div>
 	</section>
@@ -688,20 +676,36 @@ templ typeCard(d pageData, t typeView) {
 		templ.Attributes{"class": "tp-card"}) {
 		@neo.CardHeader() {
 			// Outside the title, an h3, which allows only phrasing content.
-			@neo.Layout(neo.LayoutOpts{
+			@neo.LayoutAttrs(neo.LayoutOpts{
 				AlignItems: neo.Set(neo.AlignItemsCenter),
 				Gap:        neo.Set(neo.GapXs),
-			}) {
+			}, templ.Attributes{"class": "tp-card-head"}) {
 				@neo.CardTitle() {
 					{ t.info.Title }
 				}
-				@infoButton("What " + strings.ToLower(t.info.Title) + " does") {
+				@infoButton("About " + strings.ToLower(t.info.Title)) {
 					<p>{ t.info.Doc }</p>
 					switch t.typ {
-						case toxic.Bandwidth:
-							@bandwidthStreams()
+						case toxic.ClientBandwidth:
+							@clientBandwidthStreams()
+						case toxic.ServerBandwidth:
+							@serverBandwidthStreams()
+						case toxic.DataCap:
+							@dataCapStreams()
 						case toxic.HTTPError:
 							@httpErrorStreams()
+					}
+				}
+				if t.typ == toxic.DataCap {
+					@neo.ButtonAttrs(neo.ButtonOpts{
+						Variant: neo.Set(neo.ButtonVariantGhost),
+						Size:    neo.Set("sm"),
+					}, templ.Attributes{
+						"class":         "tp-card-action",
+						"title":         "Reset per-client data-cap usage",
+						"data-on:click": action.PageIndex.ResetDataCaps.POST(),
+					}) {
+						Reset
 					}
 				}
 			}
@@ -815,8 +819,8 @@ templ fieldHead() {
 	}
 }
 
-// fields shows the values of x, the byte fields in units, disabled for the
-// global toxic an endpoint inherits.
+// fields shows the values of x, the byte fields in units,
+// disabled for the global toxic an endpoint inherits.
 templ fields(
 	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic,
 	units [toxic.MaxFields]byteUnit, disabled bool,
@@ -831,10 +835,12 @@ templ fields(
 					@statusField(slot, f, x.Values[i], disabled)
 				case toxic.UnitBytes:
 					@bytesField(slot, f, x.Values[i], units[i], disabled)
+				case toxic.UnitChoice:
+					@choiceField(slot, f, x.Values[i], fieldInfo(slot.Type, f), disabled)
 				default:
 					@numberField(f.Label, setValue(slot, f.Key, ""),
 						strconv.FormatInt(x.Values[i], 10), f.Unit.String(), f.Min,
-						fieldInfo(f), disabled)
+						fieldInfo(slot.Type, f), disabled)
 			}
 		}
 		@toxicityField(slot, x, d.info.ConfigFile, disabled)
@@ -911,6 +917,39 @@ templ bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disabl
 	}
 }
 
+// choiceField selects and posts a configured field choice.
+templ choiceField(
+	slot toxic.Slot, f toxic.Field, value int64, info templ.Component, disabled bool,
+) {
+	@field(templ.Attributes{"class": "tp-field tp-field-choice"}) {
+		@fieldHead() {
+			<span class="tp-small">{ f.Label }</span>
+			if info != nil {
+				@info
+			}
+		}
+		// The input group gives it the height and font of the other fields.
+		@neo.InputGroup() {
+			@neo.SelectAttrs(neo.SelectOpts{
+				Value:     neo.Set(f.Choices[value]),
+				Size:      neo.Set("sm"),
+				AriaLabel: neo.Set(f.Label),
+				Disabled:  formDisabled(disabled),
+			}, templ.Attributes{
+				"data-on:neo-select-change": action.PageIndex.Value.POST(
+					action.PageIndex.Value.POSTQuery(slot, f.Key, ""),
+					action.WithBefore("$value = evt.detail.value")),
+			}) {
+				for _, c := range f.Choices {
+					@neo.Option(neo.OptionOpts{Value: neo.Set(c)}) {
+						{ choiceLabel(c) }
+					}
+				}
+			}
+		}
+	}
+}
+
 // statusField is a combobox of the HTTP statuses of f with value selected.
 // It posts the picked status.
 templ statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) {
@@ -918,20 +957,23 @@ templ statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) {
 		@fieldHead() {
 			<span class="tp-small">{ f.Label }</span>
 		}
-		@neo.ComboboxAttrs(neo.ComboboxOpts{
-			Value:             neo.Set(strconv.FormatInt(value, 10)),
-			Size:              neo.Set("sm"),
-			AriaLabel:         neo.Set(f.Label),
-			PopoverFitContent: neo.Set(true),
-			Disabled:          formDisabled(disabled),
-		}, templ.Attributes{
-			"data-on:neo-combobox-change": action.PageIndex.Value.POST(
-				action.PageIndex.Value.POSTQuery(slot, f.Key, ""),
-				action.WithBefore("$value = evt.detail.value")),
-		}) {
-			for _, o := range statusOptions(f, value) {
-				@neo.Option(neo.OptionOpts{Value: neo.Set(o.value)}) {
-					{ o.label }
+		// The input group gives it the height and font of the other fields.
+		@neo.InputGroup() {
+			@neo.ComboboxAttrs(neo.ComboboxOpts{
+				Value:             neo.Set(strconv.FormatInt(value, 10)),
+				Size:              neo.Set("sm"),
+				AriaLabel:         neo.Set(f.Label),
+				PopoverFitContent: neo.Set(true),
+				Disabled:          formDisabled(disabled),
+			}, templ.Attributes{
+				"data-on:neo-combobox-change": action.PageIndex.Value.POST(
+					action.PageIndex.Value.POSTQuery(slot, f.Key, ""),
+					action.WithBefore("$value = evt.detail.value")),
+			}) {
+				for _, o := range statusOptions(f, value) {
+					@neo.Option(neo.OptionOpts{Value: neo.Set(o.value)}) {
+						{ o.label }
+					}
 				}
 			}
 		}
@@ -985,57 +1027,104 @@ templ infoButton(ariaLabel string) {
 }
 
 templ toxicityInfo(configFile string) {
-	@infoButton("What requests affected means") {
+	@infoButton("About requests affected") {
 		<p>
-			The share of requests the toxic applies to. Each request is picked
-			at random. At 30%, about 3 in 10 requests get the toxic, and the rest
-			pass through unchanged.
+			The percentage of requests that get this toxic, chosen at random.
+			At 30%, about 3 in 10 get it.
 		</p>
-		<p>A stream, such as the SSE stream of a page, is picked once, when it opens.</p>
-		<p>{ configFile } calls it toxicity and writes it as a fraction from 0 to 1.</p>
+		<p>A long-lived stream is chosen once, when it opens.</p>
+		<p>{ configFile } stores it as <code>toxicity</code>, from 0 to 1.</p>
 	}
 }
 
-// bandwidthStreams says what the streams of [toxic.Bandwidth] slow down.
-templ bandwidthStreams() {
+// clientBandwidthStreams describes client limits in each direction.
+templ clientBandwidthStreams() {
 	<ul>
 		<li>
-			<strong>{ streamLabel(toxic.Downstream) }</strong>: slows what the browser
-			receives, such as pages, assets and page streams.
+			<strong>{ streamLabel(toxic.Downstream) }</strong>: limits data sent to each
+			browser, including pages, assets and page streams.
 		</li>
 		<li>
-			<strong>{ streamLabel(toxic.Upstream) }</strong>: slows what the app
-			receives, such as action signals and uploads.
+			<strong>{ streamLabel(toxic.Upstream) }</strong>: limits data received from
+			each browser, including action signals and uploads.
 		</li>
 	</ul>
-	<p>The tabs of 1 browser share the rate. 1 KB/s is 1000 bytes per second.</p>
+	<p>
+		Use Server bandwidth for a shared limit or Data cap to start limiting after
+		a volume. 1 KB/s equals 1000 B/s.
+	</p>
 }
 
-// httpErrorStreams tells the streams of [toxic.HTTPError] apart. Its rows are
-// labeled by the direction of the data, which does not say whether the app ran.
+// serverBandwidthStreams describes shared limits in each direction.
+templ serverBandwidthStreams() {
+	<ul>
+		<li><strong>{ streamLabel(toxic.Downstream) }</strong>: limits data sent to all browsers combined.</li>
+		<li><strong>{ streamLabel(toxic.Upstream) }</strong>: limits data received from all browsers combined.</li>
+	</ul>
+	<p>
+		With Client bandwidth enabled, the lower rate applies. 1 KB/s equals 1000 B/s.
+	</p>
+}
+
+// dataCapStreams describes counted data in each direction.
+templ dataCapStreams() {
+	<ul>
+		<li>
+			<strong>
+				{ streamLabel(toxic.Downstream) }
+			</strong>: counts bytes the browser receives.
+		</li>
+		<li>
+			<strong>
+				{ streamLabel(toxic.Upstream) }
+			</strong>: counts bytes the app receives.
+		</li>
+	</ul>
+	<p>With Client or Server bandwidth enabled, the lowest rate applies.</p>
+}
+
+// perInfo explains how client bandwidth and data-cap volume are shared.
+templ perInfo(t toxic.Type) {
+	@infoButton("How the limit is shared") {
+		<ul>
+			if t == toxic.DataCap {
+				<li>
+					<strong>Client</strong>: all tabs in 1 browser share 1 volume.
+					Reset or changing the toxic restores it.
+				</li>
+				<li><strong>Request</strong>: each request gets the full volume.</li>
+			} else {
+				<li><strong>Client</strong>: all tabs in 1 browser share the rate.</li>
+				<li><strong>Request</strong>: each request gets the full rate.</li>
+			}
+		</ul>
+	}
+}
+
+// httpErrorStreams explains whether the request reaches the app.
 templ httpErrorStreams() {
 	<ul>
 		<li>
-			<strong>{ streamLabel(toxic.Downstream) }</strong>: the app handles the
-			request and its changes take effect. The browser gets the status instead
-			of the answer of the app. Use it to test a retry of an action that already ran.
+			<strong>{ streamLabel(toxic.Downstream) }</strong>:
+			the app handles the request,
+			but the browser gets this status instead.
+			Use it to test a retry after the action ran.
 		</li>
 		<li>
-			<strong>{ streamLabel(toxic.Upstream) }</strong>: the app never gets the
-			request and nothing changes, as when a proxy rejects it.
+			<strong>{ streamLabel(toxic.Upstream) }</strong>:
+			the proxy returns this status before the request reaches the app.
 		</li>
 	</ul>
 }
 
 templ jitterInfo() {
-	@infoButton("What jitter means") {
+	@infoButton("About jitter") {
 		<p>
-			How much the latency varies. Each chunk of data waits the latency,
-			plus or minus a random amount up to the jitter.
+			The maximum random variation added to or subtracted from each chunk's latency.
 		</p>
 		<p>
-			At 100 ms of latency and 50 ms of jitter, a chunk waits between 50
-			and 150 ms. The chunks keep their order.
+			With 100 ms latency and 50 ms jitter, each chunk waits 50 to 150 ms.
+			Chunks keep their order.
 		</p>
 	}
 }

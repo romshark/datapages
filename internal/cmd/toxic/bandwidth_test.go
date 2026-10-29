@@ -233,3 +233,215 @@ func TestFrontBandwidthChange(t *testing.T) {
 	require.Less(t, time.Since(start), 2*time.Second)
 	require.NoError(t, <-updated)
 }
+
+// TestFrontBandwidthPerRequest tests that concurrent requests get independent
+// client-bandwidth limits. At 8 KB/s, each body takes 512ms instead of sharing
+// the rate and taking 1024ms.
+func TestFrontBandwidthPerRequest(t *testing.T) {
+	_, base := startFront(t, Config{
+		Endpoints: endpoints("GET /"),
+		Settings:  Settings{Global: Set{rateDown: toxicWith(8, PerRequest)}},
+	})
+	start := time.Now()
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			_, body, err := fetch(http.MethodGet, base+"/", profileCookie+"=a", nil)
+			assert.NoError(t, err)
+			assert.Len(t, body, bodySize)
+		})
+	}
+	wg.Wait()
+	took := time.Since(start)
+	require.GreaterOrEqual(t, took, 512*time.Millisecond)
+	require.Less(t, took, 1024*time.Millisecond)
+}
+
+// TestFrontServerBandwidth tests that browser profiles share server bandwidth.
+// At 8 KB/s, 2 bodies take 1024ms.
+func TestFrontServerBandwidth(t *testing.T) {
+	_, base := startFront(t, Config{
+		Endpoints: endpoints("GET /"),
+		Settings:  Settings{Global: Set{serverDown: toxicWith(8)}},
+	})
+	require.GreaterOrEqual(t, fetchBoth(t, base+"/", "a", "b"), 1024*time.Millisecond)
+}
+
+// TestFrontClientAndServerBandwidth tests that the lower client or server rate applies.
+// 2 bodies sharing 8 KB/s take 1024ms. 1 body at 4 KB/s also takes 1024ms.
+func TestFrontClientAndServerBandwidth(t *testing.T) {
+	f, base := startFront(t, Config{
+		Endpoints: endpoints("GET /"),
+		Settings: Settings{Global: Set{
+			rateDown:   toxicWith(8, PerClient),
+			serverDown: toxicWith(8),
+		}},
+	})
+	require.GreaterOrEqual(t, fetchBoth(t, base+"/", "a", "b"), 1024*time.Millisecond,
+		"the server rate")
+
+	require.NoError(t, f.Update(func(s *Settings) error {
+		s.Global[rateDown] = toxicWith(4, PerClient)
+		s.Global[serverDown] = toxicWith(64)
+		return nil
+	}))
+	require.GreaterOrEqual(t, timedFetch(t, base+"/", "c"), 1024*time.Millisecond,
+		"the client rate")
+}
+
+// fetchBoth fetches target for 2 profiles concurrently and returns the duration.
+func fetchBoth(t *testing.T, target, p1, p2 string) time.Duration {
+	t.Helper()
+	start := time.Now()
+	var wg sync.WaitGroup
+	for _, p := range []string{p1, p2} {
+		wg.Go(func() {
+			_, body, err := fetch(http.MethodGet, target, profileCookie+"="+p, nil)
+			assert.NoError(t, err)
+			assert.Len(t, body, bodySize)
+		})
+	}
+	wg.Wait()
+	return time.Since(start)
+}
+
+// timedFetch returns how long the response to a GET of target for the profile took.
+func timedFetch(t *testing.T, target, profile string) time.Duration {
+	t.Helper()
+	start := time.Now()
+	_, body, err := fetch(http.MethodGet, target, profileCookie+"="+profile, nil)
+	require.NoError(t, err)
+	require.Len(t, body, bodySize)
+	return time.Since(start)
+}
+
+// TestFrontDataCap tests that a browser shares 1 volume, another browser gets
+// its own, and a reset or toxic change restores the volume.
+// After the cap, 1 body at 4 KB/s takes 1024ms.
+func TestFrontDataCap(t *testing.T) {
+	f, base := startFront(t, Config{
+		Endpoints: endpoints("GET /"),
+		Settings:  Settings{Global: Set{capDown: toxicWith(bodySize, 4, PerClient)}},
+	})
+	const fast = 500 * time.Millisecond
+	require.Less(t, timedFetch(t, base+"/", "a"), fast, "within the volume")
+	require.GreaterOrEqual(t, timedFetch(t, base+"/", "a"), 1024*time.Millisecond)
+	require.Less(t, timedFetch(t, base+"/", "b"), fast, "a volume of its own")
+
+	f.ResetDataCaps()
+	require.Less(t, timedFetch(t, base+"/", "a"), fast, "after the reset")
+
+	require.NoError(t, f.Update(func(s *Settings) error {
+		s.Global[latencyDown] = toxicWith(0, 0)
+		return nil
+	}))
+	require.GreaterOrEqual(t, timedFetch(t, base+"/", "a"), 1024*time.Millisecond,
+		"another toxic keeps the volume used")
+
+	require.NoError(t, f.Update(func(s *Settings) error {
+		s.Global[capDown] = toxicWith(bodySize, 5, PerClient)
+		return nil
+	}))
+	require.Less(t, timedFetch(t, base+"/", "a"), fast, "after the change")
+}
+
+// TestFrontDataCapPerRequest tests that each request gets the full volume.
+// The 2048 bytes after the cap take 512ms at 4 KB/s.
+// A shared client volume would make the second response take 1024ms.
+func TestFrontDataCapPerRequest(t *testing.T) {
+	_, base := startFront(t, Config{
+		Endpoints: endpoints("GET /"),
+		Settings: Settings{Global: Set{
+			capDown: toxicWith(bodySize/2, 4, PerRequest),
+		}},
+	})
+	for range 2 {
+		took := timedFetch(t, base+"/", "a")
+		require.GreaterOrEqual(t, took, 512*time.Millisecond)
+		require.Less(t, took, 1024*time.Millisecond)
+	}
+}
+
+// TestFrontDataCapBandwidth tests that the lower client-bandwidth or data-cap
+// rate applies. At 4 KB/s, 1 body takes 1024ms instead of 512ms at 8 KB/s.
+func TestFrontDataCapBandwidth(t *testing.T) {
+	_, base := startFront(t, Config{
+		Endpoints: endpoints("GET /"),
+		Settings: Settings{Global: Set{
+			rateDown: toxicWith(8, PerClient),
+			capDown:  toxicWith(0, 4, PerClient),
+		}},
+	})
+	require.GreaterOrEqual(t, timedFetch(t, base+"/", "a"), 1024*time.Millisecond)
+}
+
+// TestCapsSweep tests that a large cache drops idle counts and keeps recent ones.
+func TestCapsSweep(t *testing.T) {
+	c := newCaps()
+	t0 := time.Unix(0, 0)
+	for i := range minSweep {
+		c.add(linkKey{profile: strconv.Itoa(i)}, 1, t0)
+	}
+	require.Len(t, c.used, minSweep)
+
+	recent := linkKey{profile: "recent"}
+	c.add(recent, 7, t0.Add(capIdle+time.Second))
+	require.Len(t, c.used, 1)
+	require.Equal(t, int64(7), c.bytes(recent))
+}
+
+// TestDataCapsEqual tests that only global or endpoint data-cap changes differ.
+func TestDataCapsEqual(t *testing.T) {
+	base := Settings{
+		Global:    Set{capDown: toxicWith(1024, 4)},
+		Endpoints: map[string]Set{"GET /{$}": {capUp: toxicWith(64, 2)}},
+	}
+	for name, tc := range map[string]struct {
+		change func(*Settings)
+		equal  bool
+	}{
+		"same": {
+			change: func(*Settings) {},
+			equal:  true,
+		},
+		"other toxic": {
+			change: func(s *Settings) {
+				s.Global[rateDown] = toxicWith(8)
+			},
+			equal: true,
+		},
+		"global value": {
+			change: func(s *Settings) {
+				s.Global[capDown] = toxicWith(2048, 4)
+			},
+		},
+		"global removed": {
+			change: func(s *Settings) {
+				delete(s.Global, capDown)
+			},
+		},
+		"endpoint off": {
+			change: func(s *Settings) {
+				x := s.Endpoints["GET /{$}"][capUp]
+				x.Disabled = true
+				s.Endpoints["GET /{$}"][capUp] = x
+			},
+		},
+		"endpoint removed": {
+			change: func(s *Settings) {
+				delete(s.Endpoints, "GET /{$}")
+			},
+		},
+		"endpoint added": {
+			change: func(s *Settings) {
+				s.Endpoints["GET /new/{$}"] = Set{capDown: toxicWith(1, 1)}
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := base.Clone()
+			tc.change(&changed)
+			require.Equal(t, tc.equal, dataCapsEqual(base, changed))
+		})
+	}
+}

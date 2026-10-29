@@ -30,11 +30,16 @@ func TestLoadToxiproxy(t *testing.T) {
               average-size: 64
               size-variation: 32
               delay: 1500us
+          data-cap:
+            downstream:
+              volume: 2000000000
+              rate: 16
         endpoints:
           "POST /upload/{$}":
-            bandwidth:
+            client-bandwidth:
               upstream:
                 rate: 8
+                per: request
             latency:
               downstream:
                 disabled: true
@@ -120,12 +125,32 @@ func TestLoadToxiproxy(t *testing.T) {
 			wantErr: "jitter 25h0m0s must be whole milliseconds from 0 to 24h0m0s",
 		},
 		"zero rate": {
-			yaml:    toxic("bandwidth", "downstream", "rate: 0"),
+			yaml:    toxic("client-bandwidth", "downstream", "rate: 0"),
 			wantErr: "rate 0 must be from 1 to 10000000 KB/s",
 		},
 		"rate above 10 GB/s": {
-			yaml:    toxic("bandwidth", "downstream", "rate: 10000001"),
+			yaml:    toxic("client-bandwidth", "downstream", "rate: 10000001"),
 			wantErr: "rate 10000001 must be from 1 to 10000000 KB/s",
+		},
+		"zero server rate": {
+			yaml:    toxic("server-bandwidth", "upstream", "rate: 0"),
+			wantErr: "rate 0 must be from 1 to 10000000 KB/s",
+		},
+		"server per": {
+			yaml:    toxic("server-bandwidth", "upstream", "rate: 8", "per: client"),
+			wantErr: "per",
+		},
+		"unknown per": {
+			yaml:    toxic("client-bandwidth", "downstream", "rate: 8", "per: tab"),
+			wantErr: `invalid per "tab", use: client, request`,
+		},
+		"negative volume": {
+			yaml:    toxic("data-cap", "downstream", "volume: -1", "rate: 8"),
+			wantErr: "volume -1 must be 0 or more",
+		},
+		"data cap without rate": {
+			yaml:    toxic("data-cap", "upstream", "volume: 1024"),
+			wantErr: "rate 0 must be from 1 to 10000000 KB/s",
 		},
 		"slicer variation above average": {
 			yaml: toxic(
@@ -211,8 +236,12 @@ func TestLoadToxiproxy(t *testing.T) {
 			require.Equal(t, float32(0.5), *p.Toxics.Latency.Downstream.Toxicity)
 			require.Nil(t, p.Toxics.Latency.Upstream)
 			require.Equal(t, 1500*time.Microsecond, p.Toxics.Slicer.Upstream.Delay)
+			require.Equal(t,
+				ToxicDataCap{Volume: 2_000_000_000, Rate: 16},
+				*p.Toxics.DataCap.Downstream)
 			ep := p.Endpoints["POST /upload/{$}"]
-			require.Equal(t, int64(8), ep.Bandwidth.Upstream.Rate)
+			require.Equal(t, int64(8), ep.ClientBandwidth.Upstream.Rate)
+			require.Equal(t, ToxicPerRequest, ep.ClientBandwidth.Upstream.Per)
 			require.True(t, ep.Latency.Downstream.Disabled)
 			// A disabled toxic needs no other values.
 			require.True(t, ep.Slicer.Downstream.Disabled)

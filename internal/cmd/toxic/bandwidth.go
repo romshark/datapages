@@ -4,15 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 )
 
-// profileCookie is the cookie the [Front] tells browser profiles apart by.
-// The requests of 1 profile share the rate of a [Bandwidth] toxic.
-// A request doesn't name its tab, and the tabs of a profile share connections.
+// profileCookie identifies a browser profile. Its tabs share client bandwidth
+// and per-client data-cap usage because requests do not identify their tab.
 const profileCookie = "datapages_toxiproxy"
 
 // profile returns the profile ID in the cookie of r, or a new ID and set true.
@@ -45,9 +45,8 @@ func removeCookie(h http.Header, name string) {
 	h["Cookie"] = kept
 }
 
-// links paces the data of the [Bandwidth] toxics, 1 link per browser profile,
-// scope and stream. The requests on 1 link take turns by the chunk, which
-// shares its rate among them.
+// links schedules bandwidth by browser or request, scope, stream and toxic type.
+// Requests on the same link take turns by chunk.
 type links struct {
 	lock sync.Mutex
 	// free maps a link to the time it finishes the data reserved on it.
@@ -56,11 +55,15 @@ type links struct {
 }
 
 type linkKey struct {
+	// profile identifies a per-client link. request identifies a per-request link.
+	// Both are zero for a [ServerBandwidth] toxic.
 	profile string
+	request uint64
 	// scope is the route pattern of the endpoint that overrides the toxic,
 	// empty for the global one.
 	scope  string
 	stream Stream
+	typ    Type
 }
 
 // minSweep is the number of links above which [links.reserve] drops idle ones.
@@ -104,38 +107,168 @@ func chunkSize(rate int64) int {
 	return max(1, int(rate*chunkTime.Milliseconds()))
 }
 
-// pacer paces 1 stream of 1 request by its [Bandwidth] toxic.
+// caps tracks per-client [DataCap] usage.
+type caps struct {
+	lock    sync.Mutex
+	used    map[linkKey]capUse
+	sweepAt int
+}
+
+type capUse struct {
+	bytes int64
+	last  time.Time
+}
+
+// capIdle expires unused counts once the cache exceeds minSweep.
+// A client without cookies creates a new count for each request.
+const capIdle = 10 * time.Minute
+
+func newCaps() *caps { return &caps{used: map[linkKey]capUse{}, sweepAt: minSweep} }
+
+func (c *caps) bytes(key linkKey) int64 {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.used[key].bytes
+}
+
+func (c *caps) add(key linkKey, n int64, now time.Time) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.used[key] = capUse{bytes: c.used[key].bytes + n, last: now}
+	if len(c.used) > c.sweepAt {
+		for k, u := range c.used {
+			if now.Sub(u.last) > capIdle {
+				delete(c.used, k)
+			}
+		}
+		c.sweepAt = max(minSweep, 2*len(c.used))
+	}
+}
+
+func (c *caps) reset() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	clear(c.used)
+	c.sweepAt = minSweep
+}
+
+// pacer applies bandwidth and data-cap toxics to 1 request stream.
 type pacer struct {
 	f       *Front
 	ctx     context.Context
 	pattern string // of the endpoint of the request
 	profile string
+	request uint64
 	stream  Stream
 
-	// roll is drawn once per request.
-	// The toxic applies while its toxicity is above roll.
+	// roll selects probabilistic toxics once per request.
 	roll float32
+
+	// used is the per-request [DataCap] usage.
+	used int64
 }
 
-// rate returns the rate of the toxic that applies and the key of its link.
-// It runs for every chunk, which applies a settings change to an open response,
-// such as the stream of a page.
-func (p *pacer) rate() (rate int64, key linkKey, ok bool) {
-	x, ok := p.f.toxics.Load().toxic(p.pattern, Slot{Type: Bandwidth, Stream: p.stream})
-	if !ok || p.roll >= x.toxic.Toxicity {
-		return 0, linkKey{}, false
+type limit struct {
+	rate int64
+	key  linkKey
+}
+
+// step describes the limits on the next chunk.
+type step struct {
+	// The slowest link in limits[:n] determines the delay.
+	limits [3]limit
+	n      int
+
+	// room ends the chunk at the [DataCap] boundary.
+	room int64
+
+	// capped reports that capKey must count the chunk.
+	capped bool
+	capKey linkKey
+}
+
+func (s *step) add(rate int64, key linkKey) {
+	s.limits[s.n] = limit{rate: rate, key: key}
+	s.n++
+}
+
+// step snapshots the limits for the next chunk, which applies settings changes
+// to open streams. Concurrent requests can each exceed a shared cap by 1 write
+// because they read and update its usage separately.
+func (p *pacer) step() step {
+	toxics := p.f.toxics.Load()
+	s := step{room: math.MaxInt64}
+	if x, ok := p.toxic(toxics, ClientBandwidth); ok {
+		s.add(x.toxic.Values[0], p.link(x, x.toxic.Values[1]))
 	}
-	return x.toxic.Values[0], linkKey{
-		profile: p.profile,
-		scope:   x.scope,
-		stream:  p.stream,
-	}, true
+	if x, ok := p.toxic(toxics, ServerBandwidth); ok {
+		s.add(x.toxic.Values[0],
+			linkKey{scope: x.scope, stream: p.stream, typ: ServerBandwidth})
+	}
+	x, ok := p.toxic(toxics, DataCap)
+	if !ok {
+		return s
+	}
+	volume, rate, per := x.toxic.Values[0], x.toxic.Values[1], x.toxic.Values[2]
+	s.capped, s.capKey = true, p.link(x, per)
+	used := p.used
+	if per == PerClient {
+		used = p.f.caps.bytes(s.capKey)
+	}
+	if used < volume {
+		s.room = volume - used
+	} else {
+		s.add(rate, s.capKey)
+	}
+	return s
 }
 
-// wait returns once the link of key carried n bytes at rate KB/s,
-// or the error of the request when it ends first.
-func (p *pacer) wait(key linkKey, n int, rate int64) error {
-	d := time.Until(p.f.links.reserve(key, n, rate, time.Now()))
+func (s step) paced() bool { return s.n > 0 }
+
+// size limits n to the slowest link's chunk and the remaining cap volume.
+func (s step) size(n int) int {
+	for _, l := range s.limits[:s.n] {
+		n = min(n, chunkSize(l.rate))
+	}
+	return int(min(int64(n), s.room))
+}
+
+func (p *pacer) toxic(toxics *frontToxics, t Type) (frontToxic, bool) {
+	x, ok := toxics.toxic(p.pattern, Slot{Type: t, Stream: p.stream})
+	return x, ok && p.roll < x.toxic.Toxicity
+}
+
+// link returns the sharing key selected by per.
+func (p *pacer) link(x frontToxic, per int64) linkKey {
+	k := linkKey{scope: x.scope, stream: p.stream, typ: x.slot.Type}
+	if per == PerRequest {
+		k.request = p.request
+	} else {
+		k.profile = p.profile
+	}
+	return k
+}
+
+func (p *pacer) count(s step, n int) {
+	switch {
+	case !s.capped || n == 0:
+	case s.capKey.request != 0:
+		p.used += int64(n)
+	default:
+		p.f.caps.add(s.capKey, int64(n), time.Now())
+	}
+}
+
+// wait returns after every link carries n bytes or the request ends.
+func (p *pacer) wait(s step, n int) error {
+	now := time.Now()
+	var done time.Time
+	for _, l := range s.limits[:s.n] {
+		if t := p.f.links.reserve(l.key, n, l.rate, now); t.After(done) {
+			done = t
+		}
+	}
+	d := time.Until(done)
 	if d <= 0 {
 		return nil
 	}
@@ -149,7 +282,7 @@ func (p *pacer) wait(key linkKey, n int, rate int64) error {
 	}
 }
 
-// pacedWriter writes the response at the rate of the downstream [Bandwidth] toxic.
+// pacedWriter applies downstream bandwidth and data-cap limits.
 type pacedWriter struct {
 	http.ResponseWriter
 	p *pacer
@@ -158,22 +291,21 @@ type pacedWriter struct {
 func (w *pacedWriter) Write(b []byte) (int, error) {
 	var written int
 	for len(b) > 0 {
-		rate, key, ok := w.p.rate()
-		if !ok {
-			n, err := w.ResponseWriter.Write(b)
-			return written + n, err
-		}
-		chunk := b[:min(len(b), chunkSize(rate))]
-		if err := w.p.wait(key, len(chunk), rate); err != nil {
+		s := w.p.step()
+		chunk := b[:s.size(len(b))]
+		if err := w.p.wait(s, len(chunk)); err != nil {
 			return written, err
 		}
 		n, err := w.ResponseWriter.Write(chunk)
+		w.p.count(s, n)
 		written += n
 		if err != nil {
 			return written, err
 		}
-		// Without a flush the server buffers the chunk.
-		_ = http.NewResponseController(w.ResponseWriter).Flush()
+		if s.paced() {
+			// Without a flush the server buffers the chunk.
+			_ = http.NewResponseController(w.ResponseWriter).Flush()
+		}
 		b = b[n:]
 	}
 	return written, nil
@@ -182,20 +314,18 @@ func (w *pacedWriter) Write(b []byte) (int, error) {
 // Unwrap returns the underlying writer for [http.ResponseController].
 func (w *pacedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// pacedBody reads the request body at the rate of the upstream [Bandwidth] toxic.
+// pacedBody applies upstream bandwidth and data-cap limits.
 type pacedBody struct {
 	io.ReadCloser
 	p *pacer
 }
 
 func (b *pacedBody) Read(buf []byte) (int, error) {
-	rate, key, ok := b.p.rate()
-	if !ok {
-		return b.ReadCloser.Read(buf)
-	}
-	n, err := b.ReadCloser.Read(buf[:min(len(buf), chunkSize(rate))])
+	s := b.p.step()
+	n, err := b.ReadCloser.Read(buf[:s.size(len(buf))])
+	b.p.count(s, n)
 	if n > 0 {
-		if werr := b.p.wait(key, n, rate); werr != nil {
+		if werr := b.p.wait(s, n); werr != nil {
 			return n, werr
 		}
 	}

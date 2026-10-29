@@ -250,7 +250,7 @@ watch:
             downstream:
               latency: 165ms
               jitter: 0s
-          bandwidth:
+          client-bandwidth:
             downstream:
               rate: 1013
             upstream:
@@ -261,7 +261,7 @@ watch:
             downstream:
               latency: 563ms
               jitter: 0s
-          bandwidth:
+          client-bandwidth:
             downstream:
               rate: 180
             upstream:
@@ -272,7 +272,7 @@ watch:
             downstream:
               latency: 2s
               jitter: 0s
-          bandwidth:
+          client-bandwidth:
             downstream:
               rate: 50
             upstream:

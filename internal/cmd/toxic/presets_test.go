@@ -33,7 +33,7 @@ func TestDefaultPresets(t *testing.T) {
 			rateDown: toxicWith(
 				int64(math.Round(c.down / 1000)),
 			),
-			{Type: Bandwidth, Stream: Upstream}: toxicWith(
+			{Type: ClientBandwidth, Stream: Upstream}: toxicWith(
 				int64(math.Round(c.up / 1000)),
 			),
 		}, p.Toxics, c.name)

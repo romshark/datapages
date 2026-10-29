@@ -186,18 +186,19 @@ func textOf(v encoding.TextMarshaler) string {
 var PageIndex pageIndex
 
 type pageIndex struct {
-	ApplyPreset  pageIndex_ApplyPreset
-	Clear        pageIndex_Clear
-	CreatePreset pageIndex_CreatePreset
-	DeletePreset pageIndex_DeletePreset
-	Filter       pageIndex_Filter
-	Mode         pageIndex_Mode
-	PresetDraft  pageIndex_PresetDraft
-	Reload       pageIndex_Reload
-	Save         pageIndex_Save
-	Show         pageIndex_Show
-	Unit         pageIndex_Unit
-	Value        pageIndex_Value
+	ApplyPreset   pageIndex_ApplyPreset
+	Clear         pageIndex_Clear
+	CreatePreset  pageIndex_CreatePreset
+	DeletePreset  pageIndex_DeletePreset
+	Filter        pageIndex_Filter
+	Mode          pageIndex_Mode
+	PresetDraft   pageIndex_PresetDraft
+	Reload        pageIndex_Reload
+	ResetDataCaps pageIndex_ResetDataCaps
+	Save          pageIndex_Save
+	Show          pageIndex_Show
+	Unit          pageIndex_Unit
+	Value         pageIndex_Value
 }
 
 type pageIndex_ApplyPreset struct{}
@@ -384,6 +385,24 @@ func (pageIndex_Reload) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/reload/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/reload/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_ResetDataCaps struct{}
+
+// POST references /reset-data-caps/
+func (pageIndex_ResetDataCaps) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/reset-data-caps/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/reset-data-caps/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/reset-data-caps/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
