@@ -1379,88 +1379,13 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	w.Line(0, "")
 	w.Line(0, "func setupHandlers(s *Server) {")
 	w.Line(1, "// Pages")
-
-	for _, p := range m.Pages {
-		if p.GET == nil || p.GET.OutputBody == nil {
-			continue
-		}
-
-		routeForHandler := routepattern.WithTrailingSlash(p.Route)
-
-		if p.PageSpecialization == model.PageTypeIndex {
-			// Index page: GET /
-			w.Line(1, "s.Mux().HandleFunc(")
-			w.Line(2, "\"GET /\",")
-			w.Rawf("\t\t%s{s}.GET)\n", handlerRecvType(p.TypeName))
-		} else if routepattern.EndsInWildcard(p.Route) {
-			// A {name...} wildcard runs to the end of the path already.
-			// Marking the end after it puts the wildcard in the middle,
-			// which is a pattern net/http will not parse.
-			w.Line(1, "s.Mux().HandleFunc(")
-			w.Raw("\t\t\"GET ")
-			w.Raw(p.Route)
-			w.Raw("\",\n")
-			w.Rawf("\t\t%s{s}.GET)\n", handlerRecvType(p.TypeName))
-		} else {
-			w.Line(1, "s.Mux().HandleFunc(")
-			w.Raw("\t\t\"GET ")
-			w.Raw(routeForHandler)
-			w.Raw("{$}\",\n")
-			w.Rawf("\t\t%s{s}.GET)\n", handlerRecvType(p.TypeName))
-		}
-
-		// Stream endpoint.
-		if pageHasStream(p) {
-			streamPath := routepattern.StreamPath(p.Route)
-
-			w.Line(1, "s.Mux().HandleFunc(")
-			w.Raw("\t\t\"GET ")
-			w.Raw(streamPath)
-			w.Raw("{$}\",\n")
-			w.Rawf("\t\t%s{s}.GETStream)\n", handlerRecvType(p.TypeName))
-
-			if pageHasAnonStream(p, w.eventMap) {
-				w.Line(1, "s.Mux().HandleFunc(")
-				w.Raw("\t\t\"GET ")
-				w.Raw(streamPath)
-				w.Raw("anon/{$}\",\n")
-				w.Rawf("\t\t%s{s}.GETStreamAnon)\n",
-					handlerRecvType(p.TypeName))
-			}
-		}
-	}
-
-	// App-level actions.
-	for _, h := range m.Actions {
-		route := routepattern.WithTrailingSlash(h.Route)
-		method := strings.ToUpper(h.HTTPMethod)
-
+	for _, r := range Routes(m) {
 		w.Line(1, "s.Mux().HandleFunc(")
 		w.Raw("\t\t\"")
-		w.Raw(method)
-		w.Byte(' ')
-		w.Raw(route)
-		w.Raw("{$}\",\n")
-		w.Rawf("\t\t%s{s}.%s%s)\n", handlerRecvType("App"), method, h.Name)
+		w.Raw(r.Pattern)
+		w.Raw("\",\n")
+		w.Rawf("\t\t%s{s}.%s)\n", handlerRecvType(r.Owner), r.Handler)
 	}
-
-	// Page actions.
-	for _, p := range m.Pages {
-		for _, h := range p.Actions {
-			route := routepattern.WithTrailingSlash(h.Route)
-			method := strings.ToUpper(h.HTTPMethod)
-
-			w.Line(1, "s.Mux().HandleFunc(")
-			w.Raw("\t\t\"")
-			w.Raw(method)
-			w.Byte(' ')
-			w.Raw(route)
-			w.Raw("{$}\",\n")
-			w.Rawf("\t\t%s{s}.%s%s)\n",
-				handlerRecvType(p.TypeName), method, h.Name)
-		}
-	}
-
 	w.Line(0, "}")
 }
 

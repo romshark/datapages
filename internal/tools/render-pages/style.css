@@ -1,0 +1,1324 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Every color is a light-dark() pair, which the color scheme picks from. The
+   scheme follows the system unless the theme switch sets data-theme. */
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#ffffff, #0d1117);
+  --bg-card: light-dark(#f6f8fa, #161b22);
+  --bg-code: light-dark(#f6f8fa, #1c2128);
+  --border: light-dark(#d0d7de, #30363d);
+  --text: light-dark(#1f2328, #e6edf3);
+  --text-muted: light-dark(#59636e, #8b949e);
+  --accent: light-dark(#0969da, #58a6ff);
+  --accent-hover: light-dark(#0550ae, #79c0ff);
+  --green: light-dark(#1a7f37, #3fb950);
+  /* The theme tokens of Morpheus, from which the sidebar and the button of
+     the docs pages take their colors. */
+  --page-bg: var(--bg);
+  --page-fg: var(--text);
+  --muted: var(--text-muted);
+  --accent-fg: var(--bg);
+  --btn-bg: var(--bg);
+  --btn-fg: var(--text);
+  --btn-border: var(--border);
+  --btn-hover-bg: var(--bg-card);
+  --page-font-family: var(--font-sans);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  --max-w: 960px;
+
+  &[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  &[data-theme="dark"] {
+    color-scheme: dark;
+  }
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+
+  /* The column keeps the footer at the viewport bottom on a page whose
+     content is shorter than the screen. Every section states its own
+     inline-size: the auto inline margins that center them are auto
+     cross-axis margins here, which cancel the flex stretch. */
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100dvh;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--accent-hover);
+  }
+}
+
+/* A link with an icon before its text. The icon takes the color and the size
+   of the text. */
+.icon-link {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+
+  svg {
+    flex: none;
+    inline-size: 1em;
+    block-size: 1em;
+  }
+}
+
+/* ── Header ──────────────────────────────────────── */
+
+/* The sticky header of a docs page computes its offset from --header-pad,
+   --logo-size and --header-row-gap. */
+.site-header {
+  --header-pad: 1.25rem;
+  --logo-size: 3rem;
+  --header-row-gap: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--header-row-gap) 1rem;
+  inline-size: 100%;
+  max-width: var(--max-w);
+  margin-inline: auto;
+  padding: var(--header-pad) 1.5rem;
+
+  /* The logo and the badges of the release. */
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .logo {
+    display: inline-flex;
+    color: var(--text);
+
+    /* The mark carries the wordmark, so it scales with the header text size
+       instead of a fixed pixel height. */
+    .logo-svg {
+      block-size: var(--logo-size);
+      inline-size: auto;
+    }
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.5rem;
+    font-size: 0.9rem;
+
+    a {
+      color: var(--text-muted);
+
+      &:hover,
+      &[aria-current="page"] {
+        color: var(--text);
+      }
+    }
+  }
+
+  /* The Menu button of a docs page opens the navigation while it is an
+     overlay. */
+  .menu-button {
+    margin-inline-end: auto;
+
+    svg {
+      inline-size: 1rem;
+      block-size: 1rem;
+    }
+
+    .docs-page:not(:has(.docs-nav:state(overlay))) & {
+      display: none;
+    }
+  }
+
+  @media (width <= 640px) {
+    --header-pad: 1rem;
+    --logo-size: 2.25rem;
+    --header-row-gap: 0.5rem;
+    column-gap: 0.75rem;
+    padding-inline: 1.25rem;
+
+    nav {
+      gap: 0.75rem;
+      font-size: 0.85rem;
+    }
+
+    /* The navigation of a docs page links the docs, the examples and the
+       specification too. */
+    .docs-page & .header-link {
+      display: none;
+    }
+  }
+
+  /* Morpheus makes the navigation of a docs page an overlay while the content
+     box of .docs is at most 56.25rem wide, which is a viewport of at most
+     59.25rem with the 1.5rem padding of .docs. The header then takes 2 rows. */
+  @media (width <= 59.25rem) {
+    /* The logo and the badges take the first row, the badges at its end. */
+    .brand {
+      flex-basis: 100%;
+
+      .beta-badge {
+        margin-inline-start: auto;
+      }
+    }
+
+    /* On a docs page the links take the second row after the Menu button. The
+       header sticks with the first row above the viewport, which keeps the
+       second row in view. */
+    .docs-page & {
+      position: sticky;
+      inset-block-start: calc(
+        0.5rem - var(--header-pad) - var(--logo-size) - var(--header-row-gap)
+      );
+      z-index: 2;
+      padding-block-end: 0.5rem;
+      background: var(--bg);
+
+      /* With the gap of 1.5rem the search button has no room for its label
+         below a 666px wide viewport, measured in Chrome on macOS. */
+      nav {
+        flex-basis: 100%;
+        justify-content: flex-end;
+        gap: 1rem;
+      }
+    }
+  }
+
+  /* Above 59.25rem the header takes 1 row. On a docs page the row needs a
+     viewport of 956px with main and of 986px with an 8 character version,
+     such as v0.12.10, measured in Chrome on macOS. Up to 64rem the gaps of
+     the navigation are those of 2 rows, and the search button drops its
+     shortcut hint as it does there. */
+  @media (59.25rem < width <= 64rem) {
+    .docs-page & {
+      nav {
+        gap: 1rem;
+      }
+
+      .search-button kbd {
+        display: none;
+      }
+    }
+  }
+
+  /* The footer links GitHub too. */
+  @media (width <= 480px) {
+    .header-github {
+      display: none;
+    }
+  }
+}
+
+/* ── Skip link ───────────────────────────────────── */
+
+/* The first link of every page. It stays above the viewport until the first
+   Tab gives it the focus. */
+.skip-link {
+  position: absolute;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 0.5rem;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  translate: 0 calc(-100% - 1rem);
+
+  &:focus {
+    translate: none;
+    color: var(--bg);
+  }
+}
+
+/* The skip link focuses <main> so that the next Tab continues in the content.
+   A focus ring around the whole column would mark nothing the reader can
+   use. */
+#main-content:focus {
+  outline: none;
+}
+
+/* ── Hero ────────────────────────────────────────── */
+
+.hero {
+  inline-size: 100%;
+  max-width: var(--max-w);
+  margin-inline: auto;
+  padding: 4rem 1.5rem 3rem;
+  text-align: center;
+
+  h1 {
+    font-size: 2.75rem;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    margin-block-end: 1rem;
+    text-wrap: balance;
+
+    .accent {
+      color: var(--accent);
+    }
+  }
+
+  .subtitle {
+    font-size: 1.15rem;
+    color: var(--text-muted);
+    max-inline-size: 600px;
+    margin: 0 auto 2rem;
+  }
+
+  /* The command is shown on 1 line or not at all: broken across lines it
+     is no longer copy-and-paste readable, and wrapping it mid-token widens
+     the page. Measured at v0.9.4, the line needs 545px of viewport at
+     0.8rem and 657px at 0.95rem, both including the hero padding. The
+     thresholds keep about 30px spare for a longer version tag. */
+  .install {
+    display: inline-block;
+    white-space: nowrap;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--green);
+    margin-block-end: 1.5rem;
+
+    @media (width <= 700px) {
+      font-size: 0.8rem;
+      padding: 0.6rem 1rem;
+    }
+
+    @media (width < 580px) {
+      display: none;
+    }
+  }
+
+  .cta {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+
+    .btn {
+      white-space: nowrap;
+    }
+  }
+
+  @media (width <= 400px) {
+    .cta {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+
+  @media (width <= 640px) {
+    padding: 2.5rem 1.25rem 2rem;
+
+    h1 {
+      font-size: 2rem;
+    }
+
+    .subtitle {
+      font-size: 1rem;
+    }
+  }
+}
+
+.gopher {
+  block-size: min(12rem, 20vw);
+  overflow: hidden;
+  margin-block-end: -1rem;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+
+  .lid-top, .lid-bot {
+    transition: transform 80ms ease-in-out;
+  }
+}
+
+.gopher-svg {
+  display: block;
+  margin-inline: auto;
+  inline-size: 50%;
+  will-change: transform;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* ── Theme switch ────────────────────────────────── */
+
+.theme-switch {
+  display: inline-flex;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+
+  button {
+    display: grid;
+    place-items: center;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--text);
+    }
+
+    &[aria-pressed="true"] {
+      background: var(--bg-card);
+      color: var(--text);
+    }
+
+    svg {
+      inline-size: 1rem;
+      block-size: 1rem;
+    }
+  }
+
+  @media (width <= 59.25rem) {
+    .docs-page & {
+      display: none;
+    }
+  }
+}
+
+/* The theme switch of a docs page on a narrow screen. Its button shows the icon
+   of the chosen theme. .site-header outranks the display of <neo-button> in
+   Morpheus. */
+.site-header .theme-menu {
+  svg {
+    inline-size: 1rem;
+    block-size: 1rem;
+  }
+
+  > svg {
+    display: none;
+  }
+
+  :root:not([data-theme]) & > .icon-desktop,
+  :root[data-theme="light"] & > .icon-sun,
+  :root[data-theme="dark"] & > .icon-moon {
+    display: block;
+  }
+
+  @media (width > 59.25rem) {
+    display: none;
+  }
+}
+
+/* ── Beta badge ──────────────────────────────────── */
+
+.beta-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+/* ── Buttons ─────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 150ms, color 150ms;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+
+  &:hover {
+    background: var(--accent-hover);
+    color: var(--bg);
+  }
+}
+
+.btn-secondary {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+
+  &:hover {
+    border-color: var(--text-muted);
+    color: var(--text);
+  }
+}
+
+/* ── Tech stack ──────────────────────────────────── */
+
+.tech {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  inline-size: 100%;
+  max-width: var(--max-w);
+  margin-inline: auto;
+  padding: 0 1.5rem 3rem;
+  flex-wrap: wrap;
+
+  a {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+
+    &:hover {
+      color: var(--text);
+    }
+  }
+
+  @media (width <= 640px) {
+    gap: 0.75rem 1.25rem;
+    padding-inline: 1.25rem;
+  }
+}
+
+/* ── Version menu ────────────────────────────────── */
+
+/* The version menu of a docs page, as wide as the version it shows. The
+   button, popover and option colors of Morpheus have no dark variant. */
+.version-select {
+  --neo-select-min-width: 0;
+  --neo-button-bg: var(--bg);
+  --neo-button-color: var(--text);
+  --neo-button-border-color: var(--border);
+  --neo-button-hover-bg: var(--bg-card);
+  --neo-button-focus-ring: var(--accent);
+  --neo-popover-bg: var(--bg);
+  --neo-popover-color: var(--text);
+  --neo-popover-border-color: var(--border);
+  --neo-select-option-hover-bg: var(--bg-card);
+  --neo-select-option-selected-bg: color-mix(in srgb, var(--accent) 15%, transparent);
+  --neo-select-option-selected-color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+/* The note above a page of the main branch, in the colors of a warning
+   callout. */
+.main-note {
+  --note: light-dark(#9a6700, #d29922);
+  margin-block: 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 4px solid var(--note);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--note) 8%, transparent);
+  font-size: 0.875rem;
+}
+
+/* ── Docs ────────────────────────────────────────── */
+
+/* The header reads the same width as the columns, which aligns their edges.
+   The width is 15rem of navigation, 48rem of text and 13rem of contents with
+   3rem of gap between them, inside 1.5rem of padding. */
+.docs-page {
+  --max-w: 85rem;
+}
+
+/* A smooth scroll to a heading of the specification, from its contents or from
+   a link in the guide, takes about 2s for the 9000px it can cover. */
+html:has(.docs-page) {
+  scroll-behavior: auto;
+
+  /* Keeps a heading that a link scrolls to below the sticky header. */
+  @media (width <= 59.25rem) {
+    scroll-padding-block-start: 3.25rem;
+  }
+}
+
+.docs {
+  display: flex;
+  gap: 3rem;
+  inline-size: 100%;
+  max-width: var(--max-w);
+  margin-inline: auto;
+  padding: 0 1.5rem 4rem;
+
+  @media (width <= 900px) {
+    gap: 0;
+    padding: 0 1.25rem 3rem;
+  }
+}
+
+/* <neo-sidebar> of Morpheus. Above its 56.25rem breakpoint it is a column,
+   which sticks in view while the text scrolls, and below an overlay. */
+.docs-nav {
+  --neo-sidebar-width: 15rem;
+  font-size: 0.875rem;
+
+  &:not(:state(overlay)) {
+    position: sticky;
+    inset-block-start: 0;
+    block-size: 100dvh;
+    border-color: transparent;
+
+    /* Aligns the navigation with the logo above it. */
+    > [data-neo-sidebar-content] {
+      padding-inline: 0;
+    }
+  }
+}
+
+.nav-group {
+  margin-block-end: 1.25rem;
+
+  ul {
+    list-style: none;
+  }
+
+  a {
+    display: block;
+    padding: 0.2rem 0.75rem;
+    border-inline-start: 1px solid var(--border);
+    color: var(--text-muted);
+
+    &:hover {
+      border-color: var(--text-muted);
+      color: var(--text);
+    }
+
+    &[aria-current="page"] {
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 500;
+    }
+  }
+
+  .nav-external svg {
+    inline-size: 0.7rem;
+    block-size: 0.7rem;
+    margin-inline-start: 0.25rem;
+    vertical-align: baseline;
+  }
+}
+
+.nav-group-title {
+  margin-block-end: 0.35rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* The column has no maximum width. Beside the navigation and the contents it
+   is at most 48rem wide, and without them a maximum would leave empty space
+   after it. */
+.docs-main {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+/* The contents of the page. A column on a screen wide enough for 3 columns,
+   above the text otherwise. */
+.docs-toc {
+  flex: 0 0 13rem;
+  position: sticky;
+  inset-block-start: 0;
+  align-self: flex-start;
+  max-block-size: 100dvh;
+  overflow-y: auto;
+  padding-block: 1.5rem;
+  font-size: 0.8125rem;
+
+  @media (width < 75rem) {
+    display: none;
+  }
+}
+
+.toc-title {
+  margin-block-end: 0.5rem;
+  font-weight: 600;
+}
+
+.toc-inline {
+  display: none;
+  margin-block: 1rem 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+
+  @media (width < 75rem) {
+    display: block;
+  }
+
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .toc {
+    margin-block: 0.5rem 0.25rem;
+  }
+}
+
+.toc {
+  list-style: none;
+
+  /* Headings of the specification name types such as
+     datapages.Dispatcher[EventXXX], which are wider than the column. */
+  a {
+    display: block;
+    overflow-wrap: anywhere;
+    padding: 0.15rem 0 0.15rem 0.75rem;
+    border-inline-start: 1px solid var(--border);
+    color: var(--text-muted);
+
+    &:hover {
+      border-color: var(--text-muted);
+      color: var(--text);
+    }
+
+    &[aria-current] {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+  }
+
+  .level-3 a {
+    padding-inline-start: 1.5rem;
+  }
+
+  .level-4 a {
+    padding-inline-start: 2.25rem;
+  }
+}
+
+/* ── Docs page footer ────────────────────────────── */
+
+.docs-page-footer {
+  margin-block-start: 3rem;
+  padding-block-start: 1.5rem;
+  border-block-start: 1px solid var(--border);
+}
+
+.page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-block-end: 1.5rem;
+  font-size: 0.875rem;
+
+  a {
+    color: var(--text-muted);
+
+    &:hover {
+      color: var(--text);
+    }
+  }
+}
+
+.pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+
+  a {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-weight: 600;
+
+    &:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+  }
+
+  .pager-next {
+    grid-column: 2;
+    text-align: end;
+  }
+
+  .pager-label {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  @media (width <= 640px) {
+    grid-template-columns: 1fr;
+
+    .pager-next {
+      grid-column: 1;
+    }
+  }
+}
+
+/* ── Search ──────────────────────────────────────── */
+
+.search-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.375rem 0.25rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--text-muted);
+    color: var(--text);
+  }
+
+  svg {
+    flex: none;
+    inline-size: 1rem;
+    block-size: 1rem;
+  }
+
+  kbd {
+    padding: 0 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  /* In the row of the header while the navigation is an overlay, the button
+     takes the width that the other items leave. A label without room for it
+     ends in an ellipsis instead of wrapping the row. */
+  @media (width <= 59.25rem) {
+    flex: 1;
+    min-inline-size: 0;
+
+    .search-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    kbd {
+      display: none;
+    }
+  }
+}
+
+neo-dialog.search dialog {
+  inline-size: min(40rem, calc(100vw - 2rem));
+  max-inline-size: none;
+  margin: 10dvh auto auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* The icon lies over the padding of the input and lets clicks through, which
+   keeps a click on it from taking the focus from the input. */
+.search-box {
+  position: relative;
+
+  svg {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 1rem;
+    inline-size: 1.125rem;
+    block-size: 1.125rem;
+    translate: 0 -50%;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+}
+
+.search-input {
+  inline-size: 100%;
+  padding: 0.9rem 1rem;
+  padding-inline-start: 2.75rem;
+  border: 0;
+  border-block-end: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+
+  /* The focus outline of Morpheus for a text input outranks .search-input. It
+     lies 2px outside the input, where the dialog clips all but its lower
+     edge. */
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+.search-results {
+  max-block-size: min(26rem, 60dvh);
+  overflow-y: auto;
+  list-style: none;
+
+  &:not(:empty) {
+    padding: 0.5rem;
+  }
+
+  a {
+    display: block;
+    padding: 0.5rem;
+    border-radius: 6px;
+    color: var(--text);
+  }
+
+  [aria-selected="true"] a {
+    background: var(--bg-card);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  mark {
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--accent) 25%, transparent);
+    color: inherit;
+  }
+}
+
+.result-page {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.result-section {
+  display: block;
+  font-weight: 600;
+}
+
+.result-text {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.search-status {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+
+  &:empty {
+    display: none;
+  }
+}
+
+.docs-content {
+  min-inline-size: 0;
+  padding-block: 1rem;
+  line-height: 1.7;
+  /* Identifiers in inline code, such as
+     datapages.ResponseCompressionLowBandwidth(), are wider than a phone. */
+  overflow-wrap: break-word;
+
+  h1 {
+    font-size: 2.25rem;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-block-end: 1rem;
+
+    /* Each part of the page, such as the specification, starts with a level
+       1 heading. */
+    &:not(:first-child) {
+      margin-block-start: 4rem;
+      padding-block-start: 2.5rem;
+      border-block-start: 1px solid var(--border);
+    }
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.3;
+    margin-block: 2.5rem 1rem;
+    padding-block-end: 0.4rem;
+    border-block-end: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-block: 2rem 0.75rem;
+  }
+
+  h4 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-block: 1.75rem 0.5rem;
+  }
+
+  h5 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-block: 1.5rem 0.5rem;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5 {
+    scroll-margin-block-start: 1rem;
+  }
+
+  p,
+  ul,
+  ol,
+  pre,
+  table {
+    margin-block-end: 1rem;
+  }
+
+  ul,
+  ol {
+    padding-inline-start: 1.5rem;
+  }
+
+  li + li {
+    margin-block-start: 0.25rem;
+  }
+
+  a {
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    text-underline-offset: 0.2em;
+
+    &:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+  }
+
+  /* The font size is set on pre and not only on its code. A line of pre is at
+     least the line height of pre tall, 24px at the inherited 16px. */
+  pre {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    tab-size: 4;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+
+    code {
+      font-size: inherit;
+      background: none;
+      border: 0;
+      padding: 0;
+    }
+
+    /* The token classes that Chroma writes, in the syntax colors of the light and
+       dark themes of GitHub. Other tokens keep the text color. */
+    .k,
+    .kd,
+    .kn,
+    .kp,
+    .kr,
+    .kv {
+      color: light-dark(#cf222e, #ff7b72);
+    }
+
+    .kt,
+    .nb {
+      color: light-dark(#953800, #ffa657);
+    }
+
+    .kc,
+    .m,
+    .mf,
+    .mh,
+    .mi,
+    .mo,
+    .na {
+      color: light-dark(#0550ae, #79c0ff);
+    }
+
+    .nf {
+      color: light-dark(#8250df, #d2a8ff);
+    }
+
+    .nt {
+      color: light-dark(#116329, #7ee787);
+    }
+
+    .s,
+    .s1,
+    .s2,
+    .sb,
+    .sc,
+    .sd,
+    .se,
+    .sh,
+    .si,
+    .sr,
+    .ss,
+    .sx {
+      color: light-dark(#0a3069, #a5d6ff);
+    }
+
+    .c,
+    .c1,
+    .ch,
+    .cm,
+    .cp,
+    .cpf,
+    .cs {
+      color: var(--text-muted);
+    }
+  }
+
+  /* A table wider than the column scrolls instead of widening the page. */
+  table {
+    display: block;
+    inline-size: max-content;
+    max-inline-size: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--border);
+    text-align: start;
+  }
+
+  th {
+    background: var(--bg-card);
+    font-weight: 600;
+  }
+
+  @media (width <= 640px) {
+    h1 {
+      font-size: 1.85rem;
+    }
+
+    h2 {
+      font-size: 1.3rem;
+    }
+  }
+}
+
+
+/* A Mermaid diagram, which docs.js draws as an SVG in place of its source.
+   Without the script the source shows as text. */
+.docs-content pre.mermaid {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: center;
+}
+
+/* A code block with its title above it and its copy button in its top right
+   corner, or in its title if it has one. */
+.docs-content .code-block {
+  position: relative;
+  margin-block-end: 1rem;
+
+  pre {
+    margin-block-end: 0;
+  }
+}
+
+.docs-content .code-title {
+  position: relative;
+  padding: 0.4rem 1.25rem;
+  border: 1px solid var(--border);
+  border-block-end: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-card);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+
+  + .code-body pre {
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+  }
+}
+
+/* The host of the button is placed and not the button, which would leave the
+   host as an empty line below the block. As a flex container the host is as
+   high as the button, without the line height of the text around it. */
+.docs-content .code-block neo-clipcopy {
+  position: absolute;
+  inset-block-start: 0.4rem;
+  inset-inline-end: 0.4rem;
+  display: flex;
+}
+
+.docs-content .code-title neo-clipcopy {
+  inset-block-start: 50%;
+  translate: 0 -50%;
+}
+
+/* The button shows while the pointer is over its block, and always on a
+   screen without hover. */
+.docs-content .copy-button {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms;
+
+  &:hover {
+    color: var(--text);
+  }
+
+  &:focus-visible,
+  .code-block:hover & {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    opacity: 1;
+  }
+}
+
+.docs-content blockquote {
+  margin-block-end: 1rem;
+  padding-inline-start: 1rem;
+  border-inline-start: 4px solid var(--border);
+  color: var(--text-muted);
+}
+
+/* GitHub alerts, as in "> [!NOTE]", in the colors that GitHub gives them. */
+.docs-content .callout {
+  --callout: var(--accent);
+  margin-block-end: 1rem;
+  padding: 0.75rem 1rem;
+  border-inline-start: 4px solid var(--callout);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--callout) 8%, transparent);
+
+  > :last-child {
+    margin-block-end: 0;
+  }
+}
+
+.docs-content .callout-tip {
+  --callout: var(--green);
+}
+
+.docs-content .callout-important {
+  --callout: light-dark(#8250df, #a371f7);
+}
+
+.docs-content .callout-warning {
+  --callout: light-dark(#9a6700, #d29922);
+}
+
+.docs-content .callout-caution {
+  --callout: light-dark(#cf222e, #f85149);
+}
+
+.docs-content .callout-title {
+  margin-block-end: 0.25rem;
+  font-weight: 600;
+  color: var(--callout);
+}
+
+/* The link of a heading to itself, which shows while the pointer is over the
+   heading. */
+.docs-content .heading-link {
+  margin-inline-start: 0.4rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  opacity: 0;
+
+  &::before {
+    content: "#";
+  }
+
+  &:focus-visible,
+  :hover > & {
+    opacity: 1;
+  }
+}
+
+/* ── Footer ──────────────────────────────────────── */
+
+.site-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block-start: auto;
+  padding: 2rem;
+  text-align: center;
+  font-size: 0.825rem;
+  color: var(--text-muted);
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1.25rem;
+
+  a {
+    color: var(--text-muted);
+
+    &:hover {
+      color: var(--text);
+    }
+  }
+}

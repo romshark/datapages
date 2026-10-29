@@ -118,7 +118,8 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 | `tls.cert`, `tls.key` | certificate and key for dev-server TLS |
 | `compiler.tags`, `compiler.env` | Go build tags and environment; `compiler` also accepts Go compiler flags |
 | `custom-watchers` | extra watchers with include/exclude patterns, command and rebuild action |
+| `toxiproxy` | the second address that serves the app through Toxiproxy with network faults; `disabled: true` turns it off |
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:3f51596e530ff291 -->
+<!-- written by datapages sha256:fab9d137b1de5fa5 -->

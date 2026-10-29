@@ -645,6 +645,32 @@ func TestResponseCompressionDevMode(t *testing.T) {
 
 // TestCompressionInvalidConfig tests that NewCore refuses an invalid compression
 // config set on ServerConfig directly, as a custom ServerOption can.
+// TestSetNoStore tests that SetNoStore replaces Cache-Control with no-store and
+// keeps a no-transform from any of its values.
+func TestSetNoStore(t *testing.T) {
+	for name, tt := range map[string]struct {
+		cacheControl []string
+		want         string
+	}{
+		"absent":  {cacheControl: nil, want: "no-store"},
+		"private": {cacheControl: []string{"private"}, want: "no-store"},
+		"no-transform": {
+			cacheControl: []string{"private, no-transform"},
+			want:         "no-store, no-transform",
+		},
+		"no-transform in a second value": {
+			cacheControl: []string{"private", "No-Transform"},
+			want:         "no-store, no-transform",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := http.Header{"Cache-Control": tt.cacheControl}
+			httpserve.SetNoStore(h)
+			require.Equal(t, []string{tt.want}, h.Values("Cache-Control"))
+		})
+	}
+}
+
 func TestCompressionInvalidConfig(t *testing.T) {
 	t.Parallel()
 

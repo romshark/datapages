@@ -4,8 +4,6 @@ import (
 	"embed"
 	"fmt"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/list"
@@ -17,7 +15,11 @@ import (
 var StaticFS embed.FS
 
 // EventTodoUpdated is "todo.updated"
-type EventTodoUpdated struct{}
+type EventTodoUpdated struct {
+	// Origin is the stateID of the item page tab whose edit caused the update.
+	// It is empty when another action changed the list.
+	Origin string `json:"origin"`
+}
 
 // StateIndex is the per-tab state held by PageIndex.
 //
@@ -29,9 +31,9 @@ type StateIndex struct {
 	list.ViewParameters
 }
 
-// StateItem is the per-tab state held by PageItem. It tracks which
-// todo the current tab is viewing so the OnTodoUpdated handler can
-// re-render only the affected item.
+// StateItem is the per-tab state held by PageItem.
+// It tracks which todo the current tab is viewing so the OnTodoUpdated handler
+// can re-render only the affected item.
 type StateItem struct {
 	ItemID string
 }
@@ -46,48 +48,18 @@ func NewApp(l *list.List) *App {
 
 func (*App) Head(r *http.Request) datapages.Head { return head() }
 
-// PUTEdit is /{id}
+// PUTToggle is /toggle/{id}
 //
-// This action is shared across pages. It does not take state because
-// editing a todo mutates global list state, not per-tab state.
-func (a *App) PUTEdit(
+// It does not take state because toggling a todo mutates global list state,
+// not per-tab state.
+func (a *App) PUTToggle(
 	r *http.Request,
 	path datapages.Path[struct {
 		ID string `path:"id"`
 	}],
-	query datapages.Query[struct {
-		Toggle bool `query:"toggle"`
-	}],
-	signals datapages.Signals[struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Done        bool   `json:"done"`
-		Due         string `json:"due"`
-	}],
 	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	if query.Values.Toggle {
-		if !a.list.ToggleItem(path.Values.ID) {
-			return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
-		}
-		return todoUpdated.Dispatch(EventTodoUpdated{})
-	}
-	title := strings.TrimSpace(signals.Values.Title)
-	if title == "" {
-		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
-	}
-	var dueAt time.Time
-	if signals.Values.Due != "" {
-		var err error
-		dueAt, err = time.Parse("2006-01-02T15:04", signals.Values.Due)
-		if err != nil {
-			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
-		}
-	}
-	if !a.list.UpdateItem(
-		path.Values.ID, title, strings.TrimSpace(signals.Values.Description),
-		signals.Values.Done, dueAt,
-	) {
+	if !a.list.ToggleItem(path.Values.ID) {
 		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
 	return todoUpdated.Dispatch(EventTodoUpdated{})

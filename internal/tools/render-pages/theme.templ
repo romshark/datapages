@@ -1,0 +1,119 @@
+package main
+
+import (
+	"strconv"
+
+	"github.com/romshark/morpheus/neo"
+)
+
+// themeScript applies the theme chosen with [themeSwitch] or [themeMenu] and
+// marks the choice in both. It runs in <head>, which sets the theme before the
+// first paint. Without a choice the stylesheet follows the system theme.
+templ themeScript() {
+	<script>
+		(() => {
+			const root = document.documentElement;
+			const stored = () => {
+				try {
+					return localStorage.getItem("theme");
+				} catch {
+					return null;
+				}
+			};
+			const apply = (choice) => {
+				if (choice === "light" || choice === "dark") {
+					root.dataset.theme = choice;
+				} else {
+					delete root.dataset.theme;
+				}
+				const current = root.dataset.theme ?? "system";
+				for (const b of document.querySelectorAll("[data-theme-choice]")) {
+					b.setAttribute("aria-pressed", String(b.dataset.themeChoice === current));
+				}
+				for (const item of document.querySelectorAll(".theme-menu neo-menuitem")) {
+					item.setAttribute("aria-checked", String(item.getAttribute("value") === current));
+				}
+			};
+			const choose = (choice) => {
+				try {
+					if (choice === "system") {
+						localStorage.removeItem("theme");
+					} else {
+						localStorage.setItem("theme", choice);
+					}
+				} catch {}
+				apply(choice);
+			};
+			apply(stored());
+			document.addEventListener("DOMContentLoaded", () => apply(stored()));
+			document.addEventListener("click", (e) => {
+				const button = e.target.closest("[data-theme-choice]");
+				if (button) {
+					choose(button.dataset.themeChoice);
+				}
+			});
+			// A menu item fires this event for a click and for the keys that
+			// select it.
+			document.addEventListener("neo-menuitem-select", (e) => {
+				if (e.target.closest(".theme-menu")) {
+					choose(e.detail.value);
+				}
+			});
+		})();
+	</script>
+}
+
+// themeSwitch lets the visitor choose the system, the light or the dark theme.
+templ themeSwitch() {
+	<div class="theme-switch" role="group" aria-label="Theme">
+		<button type="button" data-theme-choice="system" aria-pressed="true" aria-label="System theme" title="System theme">
+			@iconDesktop()
+		</button>
+		<button type="button" data-theme-choice="light" aria-pressed="false" aria-label="Light theme" title="Light theme">
+			@iconSun()
+		</button>
+		<button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="Dark theme" title="Dark theme">
+			@iconMoon()
+		</button>
+	</div>
+}
+
+// themeMenu is the theme switch of a documentation page on a narrow screen. Its
+// button shows the icon of the chosen theme, which style.css picks by the
+// data-theme attribute of <html>, and opens a menu of the themes.
+templ themeMenu() {
+	@neo.ButtonAttrs(neo.ButtonOpts{
+		Variant: neo.Set(neo.ButtonVariantGhost),
+	}, templ.Attributes{
+		"class":      "theme-menu",
+		"aria-label": "Theme",
+		"title":      "Theme",
+	}) {
+		@iconDesktop()
+		@iconSun()
+		@iconMoon()
+		@neo.Menu(neo.MenuOpts{Placement: neo.Set(neo.PlacementBottomEnd)}) {
+			@themeMenuItem("system", "System") {
+				@iconDesktop()
+			}
+			@themeMenuItem("light", "Light") {
+				@iconSun()
+			}
+			@themeMenuItem("dark", "Dark") {
+				@iconMoon()
+			}
+		}
+	}
+}
+
+// themeMenuItem is the item of [themeMenu] for the theme choice. It shows the
+// children, an icon, before the label.
+templ themeMenuItem(choice, label string) {
+	@neo.MenuItemAttrs(neo.MenuItemOpts{Value: neo.Set(choice)}, templ.Attributes{
+		"role":         "menuitemradio",
+		"aria-checked": strconv.FormatBool(choice == "system"),
+	}) {
+		{ children... }
+		{ label }
+	}
+}

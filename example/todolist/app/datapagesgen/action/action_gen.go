@@ -7,7 +7,6 @@ package action
 import (
 	"log/slog"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/romshark/datapages/runtime/actionexpr"
@@ -175,75 +174,28 @@ func WithRequestCancellationController(expr string) Option {
 var App app
 
 type app struct {
-	Edit app_Edit
+	Toggle app_Toggle
 }
 
-type app_Edit struct{}
+type app_Toggle struct{}
 
-// PUT references /{id}/
-func (app_Edit) PUT(
+// PUT references /toggle/{id}/
+func (app_Toggle) PUT(
 	id string,
-	query app_Edit_PUTQuery,
 	options ...Option,
 ) string {
 	s_id := url.PathEscape(id)
-	var (
-		toggleStr string
-	)
-
-	if query.Toggle {
-		toggleStr = url.QueryEscape(strconv.FormatBool(query.Toggle))
-	}
-
-	anyQuery := query.Toggle
-
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	l := bl + len("@put('/") + len(s_id) + len("/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
-	if anyQuery {
-		l += len("?")
-	}
-	n := 0
-	if query.Toggle {
-		if n > 0 {
-			l += len("&")
-		}
-		l += len("toggle=") + len(toggleStr)
-	}
-
-	b.Grow(l)
-
+	b.Grow(bl + len("@put('/toggle/") + len(s_id) + len("/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@put('/")
+	b.WriteString("@put('/toggle/")
 	b.WriteString(s_id)
-	b.WriteString("/")
-	if anyQuery {
-		b.WriteString("?")
-	}
-	n = 0
-	if query.Toggle {
-		if n > 0 {
-			b.WriteString("&")
-		}
-		b.WriteString("toggle=")
-		b.WriteString(toggleStr)
-	}
-	b.WriteString("'")
+	b.WriteString("/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)
-
 	return b.String()
-}
-
-type app_Edit_PUTQuery struct {
-	Toggle bool `query:"toggle"`
-}
-
-func (app_Edit) PUTQuery(vToggle bool) app_Edit_PUTQuery {
-	return app_Edit_PUTQuery{
-		Toggle: vToggle,
-	}
 }
 
 var PageIndex pageIndex
@@ -292,7 +244,29 @@ func (pageIndex_Filter) POST(options ...Option) string {
 var PageItem pageItem
 
 type pageItem struct {
+	Edit pageItem_Edit
 	Item pageItem_Item
+}
+
+type pageItem_Edit struct{}
+
+// PUT references /item/{id}/edit/
+func (pageItem_Edit) PUT(
+	id string,
+	options ...Option,
+) string {
+	s_id := url.PathEscape(id)
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@put('/item/") + len(s_id) + len("/edit/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@put('/item/")
+	b.WriteString(s_id)
+	b.WriteString("/edit/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
 }
 
 type pageItem_Item struct{}

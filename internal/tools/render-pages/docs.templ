@@ -1,0 +1,339 @@
+package main
+
+import (
+	"strconv"
+
+	"github.com/romshark/morpheus/neo"
+)
+
+const (
+	discordURL = "https://discord.com/channels/1296224603642925098/1464634812135505940"
+	slackURL   = "https://gophers.slack.com/archives/C0AKMFC1M2A"
+)
+
+// docsPage is the page that v shows.
+templ docsPage(v docView) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ v.doc.page.title } - Datapages</title>
+			<meta name="description" content={ v.doc.description }/>
+			if !v.edition.indexed() {
+				<meta name="robots" content="noindex"/>
+			}
+			<link rel="icon" href={ v.base() + "favicon.svg" } type="image/svg+xml"/>
+			<link rel="alternate" type="text/markdown" href={ v.base() + v.doc.page.markdownFile() }/>
+			@themeScript()
+			<link rel="stylesheet" href={ v.base() + "morpheus/morpheus.min.css" }/>
+			@morpheusIconBase(v.base())
+			<link rel="stylesheet" href={ v.base() + "style.css" }/>
+			<script type="module" src={ v.base() + "morpheus/morpheus.min.js" }></script>
+			<script type="module" src={ v.base() + "docs.js" }></script>
+		</head>
+		<body class="docs-page" data-site-root={ v.base() }>
+			@skipLink()
+			@siteHeader(v.home(), v.base(), v.section(), v.versions) {
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant: neo.Set(neo.ButtonVariantGhost),
+				}, templ.Attributes{
+					"id":            "docs-nav-toggle",
+					"class":         "menu-button",
+					"aria-controls": "docs-nav",
+				}) {
+					@iconMenu()
+					Menu
+				}
+			}
+			<div class="docs">
+				// A column next to the text on a wide screen, and on a narrow one
+				// an overlay that the Menu button opens.
+				@neo.SidebarAttrs(neo.SidebarOpts{
+					AriaLabel:         neo.Set("Documentation"),
+					OverlayBreakpoint: neo.Set("56.25rem"),
+				}, templ.Attributes{"id": "docs-nav", "class": "docs-nav"}) {
+					<nav { neo.SidebarContent()... } aria-label="Documentation">
+						@docsNav(v.nav)
+					</nav>
+				}
+				<main class="docs-main" id="main-content" tabindex="-1">
+					if v.edition.isMain() {
+						@mainNote(v.versions)
+					}
+					// The contents of the page, while the screen is too narrow for
+					// their column.
+					if len(v.toc) > 0 {
+						<details class="toc-inline">
+							<summary>On this page</summary>
+							@docsContents(v.toc)
+						</details>
+					}
+					@pageLinks(&v)
+					<article class="docs-content">
+						@templ.Raw(v.doc.body)
+					</article>
+					<footer class="docs-page-footer">
+						@pageLinks(&v)
+						if v.prev.Href != "" || v.next.Href != "" {
+							<nav class="pager" aria-label="Previous and next page">
+								if v.prev.Href != "" {
+									<a class="pager-prev" href={ v.prev.Href } rel="prev">
+										<span class="pager-label">Previous</span>
+										{ v.prev.Title }
+									</a>
+								}
+								if v.next.Href != "" {
+									<a class="pager-next" href={ v.next.Href } rel="next">
+										<span class="pager-label">Next</span>
+										{ v.next.Title }
+									</a>
+								}
+							</nav>
+						}
+					</footer>
+				</main>
+				if len(v.toc) > 0 {
+					<aside class="docs-toc" aria-labelledby="docs-toc-title">
+						<p class="toc-title" id="docs-toc-title">On this page</p>
+						@docsContents(v.toc)
+					</aside>
+				}
+			</div>
+			@siteFooter(v.base())
+		</body>
+	</html>
+}
+
+templ pageLinks(v *docView) {
+	<p class="page-meta">
+		<a class="icon-link" href={ v.base() + v.doc.page.markdownFile() }>
+			@iconMarkdown()
+			Raw Markdown
+		</a>
+		<a class="icon-link" href={ templ.SafeURL(v.sourceURL()) }>
+			@iconGitHub()
+			View this page on GitHub
+		</a>
+	</p>
+}
+
+// morpheusIconBase points <neo-icon> at morpheus/icons/ of the version, base
+// relative to the page, replacing the /static/icons of morpheus.min.css.
+// <neo-icon> resolves the URL against the page.
+templ morpheusIconBase(base string) {
+	@templ.Raw(`<style>:root{--neo-icon-base:"` + base + `morpheus/icons"}</style>`)
+}
+
+// skipLink is the first element of every page. It shows only while it has the
+// focus, which the first Tab gives it, and leads past the header and the
+// navigation to the <main> element, as WCAG 2.4.1 requires.
+templ skipLink() {
+	<a class="skip-link" href="#main-content">Skip to content</a>
+}
+
+// siteHeader is the header of every page. home is the URL of the site root
+// relative to the page, docs the URL of the root of the version that the
+// header links, and section the part of the site that the page belongs to:
+// "docs", "examples", "specification" or "" for none. A page with versions is
+// a documentation page, which has a menu of the versions that the site serves
+// and loads Morpheus for it, the search and the theme menu. The children come first in the navigation, as the Menu button
+// of a documentation page.
+templ siteHeader(home, docs, section string, versions []versionLink) {
+	<header class="site-header">
+		<div class="brand">
+			<a class="logo" href={ home } aria-label="Datapages home">
+				@svgLogo()
+			</a>
+			<span class="beta-badge">beta</span>
+			if len(versions) > 0 {
+				@versionSelect(versions)
+			}
+		</div>
+		<nav aria-label="Site">
+			{ children... }
+			@headerLink(docs, "Docs", section == "docs")
+			@headerLink(docs+"examples", "Examples", section == "examples")
+			@headerLink(docs+"specification", "Specification", section == "specification")
+			<a class="header-github icon-link" href={ templ.SafeURL(repoURL) }>
+				@iconGitHub()
+				GitHub
+			</a>
+			if len(versions) > 0 {
+				@searchDialog()
+				@themeMenu()
+			}
+			@themeSwitch()
+		</nav>
+	</header>
+}
+
+// versionSelect is the menu of the versions that the site serves. docs.js opens
+// the same page in the version picked.
+templ versionSelect(versions []versionLink) {
+	@neo.SelectAttrs(neo.SelectOpts{
+		Value:             neo.Set(currentVersion(versions)),
+		Size:              neo.Set("sm"),
+		AriaLabel:         neo.Set("Documentation version"),
+		PopoverFitContent: neo.Set(true),
+	}, templ.Attributes{"class": "version-select"}) {
+		for _, l := range versions {
+			@neo.OptionAttrs(neo.OptionOpts{Value: neo.Set(l.Version)}, templ.Attributes{
+				"data-href":     l.Href,
+				"data-fallback": l.Fallback,
+			}) {
+				{ l.Version }
+			}
+		}
+	}
+}
+
+// mainNote tells the reader of a page of the main branch that it documents
+// unreleased code, and links the page of the release among versions if the site
+// serves one.
+templ mainNote(versions []versionLink) {
+	<p class="main-note" role="note">
+		This page documents the unreleased main branch.
+		for _, l := range versions {
+			if !l.Current {
+				Read
+				<a href={ l.Href } data-fallback={ l.Fallback }>
+					the page of { l.Version }
+				</a>,
+				the latest release.
+			}
+		}
+	</p>
+}
+
+// headerLink links a part of the site, which is the current one if current.
+templ headerLink(href, label string, current bool) {
+	if current {
+		<a class="header-link" href={ href } aria-current="page">{ label }</a>
+	} else {
+		<a class="header-link" href={ href }>{ label }</a>
+	}
+}
+
+// siteFooter is the footer of every page. docs is the URL of the root of the
+// version that the footer links, relative to the page.
+templ siteFooter(docs string) {
+	<footer class="site-footer">
+		<nav class="footer-links" aria-label="Project">
+			<a class="icon-link" href={ templ.SafeURL(repoURL) }>
+				@iconGitHub()
+				GitHub
+			</a>
+			<a class="icon-link" href={ templ.SafeURL(discordURL) }>
+				@iconDiscord()
+				Discord
+			</a>
+			// Simple Icons removed the Slack logo with the other Salesforce brands in
+			// version 16. The icon is the # of a channel.
+			<a class="icon-link" href={ templ.SafeURL(slackURL) }>
+				@iconHash()
+				Slack
+			</a>
+			<a class="icon-link" href={ docs + "changelog" }>
+				@iconHistory()
+				Changelog
+			</a>
+			<a class="icon-link" href={ docs + "llms.txt" }>
+				@iconFile()
+				llms.txt
+			</a>
+		</nav>
+		<span>MIT License &copy; 2026 Roman Scharkov</span>
+	</footer>
+}
+
+// searchDialog is the search button of the header and the dialog that it
+// opens. docs.js searches search.json and lists the results in the dialog.
+templ searchDialog() {
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{"class": "search"}) {
+		<button
+			type="button"
+			class="search-button"
+			aria-keyshortcuts="/ Control+K Meta+K"
+			{ neo.DialogTrigger()... }
+		>
+			@iconSearch()
+			<span class="search-label">Search</span>
+			<kbd>/</kbd>
+		</button>
+		<dialog class="search-dialog" aria-label="Search the documentation">
+			<div class="search-box" role="search">
+				@iconSearch()
+				<input
+					type="search"
+					class="search-input"
+					placeholder="Search the documentation"
+					aria-label="Search the documentation"
+					role="combobox"
+					aria-expanded="false"
+					aria-controls="search-results"
+					aria-autocomplete="list"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+			</div>
+			<ul
+				class="search-results"
+				id="search-results"
+				role="listbox"
+				aria-label="Results"
+			></ul>
+			<p class="search-status" role="status"></p>
+		</dialog>
+	}
+}
+
+// docsNav lists the groups of the navigation.
+templ docsNav(groups []navGroup) {
+	for _, g := range groups {
+		<div class="nav-group">
+			<p class="nav-group-title">{ g.Title }</p>
+			<ul>
+				for _, e := range g.Entries {
+					<li>
+						if e.External {
+							<a href={ templ.SafeURL(e.Href) } class="nav-external">
+								{ e.Title }
+								@iconArrowUpRight()
+							</a>
+						} else if e.Current {
+							<a href={ e.Href } aria-current="page">{ e.Title }</a>
+						} else {
+							<a href={ e.Href }>{ e.Title }</a>
+						}
+					</li>
+				}
+			</ul>
+		</div>
+	}
+}
+
+// docsContents lists the contents of a page.
+templ docsContents(toc []tocEntry) {
+	<ul class="toc">
+		for _, e := range toc {
+			<li class={ "level-" + strconv.Itoa(e.Level) }>
+				<a href={ e.Href }>{ e.Title }</a>
+			</li>
+		}
+	</ul>
+}
+
+// copyButton copies the text of the element with the given ID, a code block.
+templ copyButton(id string) {
+	@neo.Clipcopy(neo.ClipcopyOpts{For: neo.Set(id)}) {
+		<button type="button" class="copy-button" aria-label="Copy the code">
+			@neo.ClipcopyIdle() {
+				Copy
+			}
+			@neo.ClipcopyCopied() {
+				Copied
+			}
+		</button>
+	}
+}

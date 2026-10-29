@@ -6,16 +6,11 @@ Frequently asked questions about Datapages.
 
 **Yes.** More specifically - the best way to write local-first Datapages apps is to make them a hybrid web app.
 
-Datapages optimizes for the thin client architecture, where the served HTML/CSS/JS is just a thin presentation and intent capturing layer, because this reduces the complexity and amount of code, as well as overall performance characteristics by avoiding a lot of JavaScript. Frameworks like [Wails v3](https://v3.wails.io/) can then be used to run the Go server on the `localhost` loopback and display this thin shell in a webview (the system's native browser without the browser window shell). 
+Datapages optimizes for the thin client architecture, where the served HTML/CSS/JS is just a thin presentation and intent capturing layer, because this reduces the complexity and amount of code, as well as overall performance characteristics by avoiding a lot of JavaScript. Frameworks like [Wails](https://wails.io/) can then be used to run the Go server on the `localhost` loopback and display this thin shell in a webview (the system's native browser without the browser window shell). 
 
 [example/calculator](https://github.com/romshark/datapages/tree/main/example/calculator) shows how this can be achieved.
 
 Since this will not require you to ship a whole Chromium (like Electron; 100-150 MB compressed, typically ~200-300+ MB installed) or a whole JavaScript runtime (like `deno compile`; 60-70 MB) in the installer - the distributable and its installation size will be rather small. The [Calculator](https://github.com/romshark/datapages/tree/main/example/calculator) example is just ~22 MB on `darwin/arm64`.
-
-This approach is more efficient, and overall better than the [Wails v2](https://wails.io/) architecture, where JavaScript still plays a big role.
-
-P.S.
-Even though [Wails v3](https://v3.wails.io/) is still in Beta - it is already successfully used in production. Due to technical limitations, [Wails v2](https://wails.io/) cannot be used with Datastar and Datapages.
 
 ## When to do a JavaScript SPA instead?
 
@@ -27,10 +22,10 @@ For server-centric applications that are mostly useless when offline with the se
 
 - **No `npm` supply chain**: All you need is Go and HTML/CSS with tiny pieces of JavaScript inside, not the entire JavaScript zoo. This reduces the attack surface of your code base.
 - **Optimal agentic engineering**: Datapages ships with all AI skills and CLI tools necessary for coding agents to be utmost efficient. This avoids wasting tokens on huge piles of React and Go API boilerplate.
-- **Less code**: You don't need to maintain a JavaScript code base + a JSON API server, in fact, you need no API at all. The amount of code is substantially lower.
+- **Less code**: You don't need to maintain a JavaScript code base + a JSON API server, in fact, you need no API at all.
 - **More efficient SSR**: you don't need to run a JavaScript runtime like with Next.js for SSR. Rendering HTML with Go is significantly more resource-efficient and faster.
 - **Lighter bundle**: Datastar (v1.0.4) is the entire runtime at just ~13KB gzipped, plus a short inline script on pages that use per-tab state. React, Vue, Angular, or even HTMX + Alpine.js all usually end up being larger.
-- **Real-Time by default**: Making your SPA a real-time multiplayer UI is usually considerably more extra work and code. With Datapages you get real-time web UIs out of the box.
+- **Real-Time by default**: Making your SPA a real-time multiplayer UI is usually considerably more extra work and code.
 
 If the only reason you're going for a JavaScript SPA is a larger ecosystem and from that you only really need a UI kit - consider these alternatives instead that work great with Datapages:
 
@@ -131,6 +126,5 @@ complexity with no real payoff for this use case.
   [`Publish` buffers outgoing data locally](https://docs.nats.io/using-nats/developer/sending/caches),
   so each call is a fast in-memory append. A dispatch loop failing
   mid-way would require the connection to drop between 2 appends.
-  Even then, the result is just a missed UI update - not data loss.
 - **Lower latency.** No ack round-trip per publish.
 - **Simpler deployment.** No stream/consumer configuration needed.

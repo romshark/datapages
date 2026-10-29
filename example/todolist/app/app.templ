@@ -49,14 +49,23 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				type="text"
 				placeholder="Search..."
 				data-bind="search"
+				data-indicator:_searching
 				data-on:input__debounce.200ms={ action.PageIndex.Filter.POST() }
 			/>
-			<select data-bind="filter" data-on:change={ action.PageIndex.Filter.POST() }>
+			<select
+				data-bind="filter"
+				data-indicator:_filtering
+				data-on:change={ action.PageIndex.Filter.POST() }
+			>
 				<option value="all">All</option>
 				<option value="done">Done</option>
 				<option value="pending">Pending</option>
 			</select>
-			<select data-bind="sort" data-on:change={ action.PageIndex.Filter.POST() }>
+			<select
+				data-bind="sort"
+				data-indicator:_sorting
+				data-on:change={ action.PageIndex.Filter.POST() }
+			>
 				<option value="alpha">Alphabetical</option>
 				<option value="created">Created</option>
 				<option value="due">Due Date</option>
@@ -104,7 +113,12 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 }
 
 templ todoList(todos []list.Item) {
-	<div id="todo-list">
+	// Each control has its own indicator signal. A shared one would turn
+	// false when the first of 2 overlapping requests finishes.
+	<div
+		id="todo-list"
+		data-class:loading="$_searching || $_filtering || $_sorting"
+	>
 		if len(todos) == 0 {
 			<p class="empty">No todos found.</p>
 		}
@@ -114,16 +128,20 @@ templ todoList(todos []list.Item) {
 				// replaces the element instead of patching it in place.
 				// Patching only updates the HTML checked attribute, not the
 				// DOM checked property, leaving the checkbox visually stale.
-				<input
-					id={ fmt.Sprintf("check-%s-%t", t.ID, t.Done) }
-					type="checkbox"
-					if t.Done {
-						checked
-					}
-					data-on:click={ action.App.Edit.PUT(
-						t.ID, action.App.Edit.PUTQuery(true),
-					) }
-				/>
+				//
+				// Signals are page-global. The todo ID in the signal path gives
+				// each row its own indicator.
+				<span class="check" data-class:loading={ "$_toggling." + t.ID }>
+					<input
+						id={ fmt.Sprintf("check-%s-%t", t.ID, t.Done) }
+						type="checkbox"
+						if t.Done {
+							checked
+						}
+						data-indicator={ "_toggling." + t.ID }
+						data-on:click={ action.App.Toggle.PUT(t.ID) }
+					/>
+				</span>
 				<a href={ href.PageItem(t.ID) } class="todo-content">
 					<span class="todo-title">{ t.Title }</span>
 					if t.Description != "" {
@@ -151,38 +169,38 @@ templ pageItem(todo list.Item) {
 		<a href={ href.PageIndex(href.QueryPageIndex{}) } class="back">
 			&larr; Back to list
 		</a>
-		<h1>{ todo.Title }</h1>
+		@itemTitle(todo)
 		<div class="form">
-			<label>Title</label>
+			<label data-class:saving="$_savingTitle">Title</label>
 			<input
 				type="text"
 				data-bind="title"
-				data-on:input__debounce.200ms={ action.App.Edit.PUT(
-					todo.ID, action.App.Edit.PUTQuery(false),
-				) }
+				data-indicator:_saving-title
+				data-on:input__debounce.200ms={ action.PageItem.Edit.PUT(todo.ID) }
 			/>
-			<label>Description</label>
+			<label data-class:saving="$_savingDescription">Description</label>
 			<textarea
 				data-bind="description"
-				data-on:input__debounce.200ms={ action.App.Edit.PUT(
-					todo.ID, action.App.Edit.PUTQuery(false),
-				) }
+				data-indicator:_saving-description
+				data-on:input__debounce.200ms={ action.PageItem.Edit.PUT(todo.ID) }
 			></textarea>
 			<label class="checkbox-label">
-				<input
-					type="checkbox"
-					data-bind="done"
-					data-on:change={ action.App.Edit.PUT(
-						todo.ID, action.App.Edit.PUTQuery(false),
-					) }
-				/>
+				<span class="check" data-class:loading="$_savingDone">
+					<input
+						type="checkbox"
+						data-bind="done"
+						data-indicator:_saving-done
+						data-on:change={ action.PageItem.Edit.PUT(todo.ID) }
+					/>
+				</span>
 				Done
 			</label>
-			<label>Due Date</label>
+			<label data-class:saving="$_savingDue">Due Date</label>
 			<input
 				type="datetime-local"
 				data-bind="due"
-				data-on:change={ action.App.Edit.PUT(todo.ID, action.App.Edit.PUTQuery(false)) }
+				data-indicator:_saving-due
+				data-on:change={ action.PageItem.Edit.PUT(todo.ID) }
 			/>
 			<p class="created">
 				Created: { todo.CreatedAt.Format("Jan 2, 2006 15:04") }
@@ -195,4 +213,8 @@ templ pageItem(todo list.Item) {
 			</button>
 		</div>
 	</div>
+}
+
+templ itemTitle(todo list.Item) {
+	<h1 id="item-title">{ todo.Title }</h1>
 }

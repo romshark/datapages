@@ -68,6 +68,8 @@ jobs:
           - path: "."
             name: "acceptance"
             packages: "./internal/acceptance"
+          - path: "internal/tools/render-pages"
+            name: "render-pages"
           - path: "example/counter"
             name: "counter"
           - path: "example/classifieds"
@@ -113,11 +115,11 @@ jobs:
       # PATH. Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
         if: matrix.project.name == 'cmd'
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1100
 
       # The root entry tests the packages without an entry of their own.
-      # The acceptance cases run in modules of their own: TestMain merges
-      # their profiles into the file -cover.out names.
+      # The acceptance cases run in modules of their own:
+      # TestMain merges their profiles into the file -cover.out names.
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
         env:
@@ -203,10 +205,10 @@ jobs:
         run: mage modTidy
 
       # internal/cmd TestWatch starts the templier engine, which runs templ as
-      # a command. mage itself only ever `go run`s it, which puts nothing on
-      # PATH. Pinned to the version toolTempl in magefiles generates with.
+      # a command. mage itself only ever `go run`s it, which puts nothing on PATH.
+      # Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1070
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1100
 
       - name: Run tests
         run: go test -timeout 15m ./...
