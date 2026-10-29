@@ -121,7 +121,7 @@ cmd: cmd/web
 
 Type mapping. Default none, which gives every key below its default.
 
-The settings of `datapages watch`, which runs [templier](https://github.com/romshark/templier) v0.13.2. [`datapages watch`](cli.md#datapages-watch) describes what it does on startup and on a file change.
+The settings of `datapages watch`, which runs [templier](https://github.com/romshark/templier) v0.13.4. [`datapages watch`](cli.md#datapages-watch) describes what it does on startup and on a file change.
 
 ### Dev server and app
 
@@ -141,7 +141,7 @@ The address of the dev server itself is the `--host` flag of `datapages watch`, 
 
 Type duration. Default `2s`.
 
-No effect. templier v0.13.2 accepts the value and uses it nowhere. A forwarded request waits for the app without a time limit. A forwarded request that fails before a response arrives, such as while the app restarts, is tried up to 20 times, with pauses that grow from 100 ms.
+No effect. templier v0.13.4 accepts the value and uses it nowhere. A forwarded request waits for the app without a time limit. A forwarded request that fails before a response arrives, such as while the app restarts, is tried up to 20 times, with pauses that grow from 100 ms.
 
 #### `flags`
 

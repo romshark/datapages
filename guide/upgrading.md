@@ -104,6 +104,7 @@ These changes are on the main branch and listed under Unreleased in the changelo
 ### Generated code and runtime
 
 - Install Go 1.27.3 or later first where `GOTOOLCHAIN=local` is set. `go get` raises the `go` line of `go.mod` to 1.27.3.
+- Install templ v0.3.1100 and run `templ generate`, as steps 3 and 4 do. A `*_templ.go` file written by an earlier templ fails to compile with `undefined: templ.ResolveAttributeValue` or `undefined: templ.JoinURLErrs`.
 - Run `datapages gen` before you build, as step 4 does. The generated code no longer uses `github.com/starfederation/datastar-go`, and older generated code does not compile with the new runtime. `go mod tidy` then drops `datastar-go`, `github.com/CAFxX/httpcompression` and `github.com/valyala/bytebufferpool` unless the application imports them.
 - Submit forms that post to an `App` action that takes `datapages.PageCacheWriter` through a Datastar action. A plain form submission to such an action now gets `406 Not Acceptable`. Before, a redirect from the action dropped its cache writes, such as `ClearAll`. See [Templates and forms](templates.md).
 - Pass `datapages.WithDatastarJS` a URL that is valid according to RFC 3986. Otherwise `datapages.NewServer` fails with `applying server option: WithDatastarJS: URL contains ' ', which RFC 3986 does not allow`.
@@ -120,6 +121,7 @@ These files belong to the project, and `datapages init` does not rewrite them. C
 - Add `syscall.SIGTERM` to the `signal.NotifyContext` call of `cmd/server/main.go`, as `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. Otherwise Docker, Kubernetes and systemd, which stop a process with SIGTERM, end the server without waiting for requests, SSE streams and `StreamClose` hooks. See [`App`](../SPECIFICATION.md#app).
 - If the app package declares static files, check that `cmd/server/main.go` passes them with `datapages.WithAssets(app.StaticFS, false)`. Otherwise every asset URL answers 404. See [Static assets](assets.md).
 - In `.github/workflows/ci.yml`, move the `Checkout repository` step above `Install Go`, which lets `actions/setup-go` restore its cache.
+- In the `gen` target of `Makefile`, add `go run github.com/a-h/templ/cmd/templ@v0.3.1100 generate` after `datapages gen`. Otherwise `make gen` leaves `*_templ.go` stale after a `.templ` change, and CI fails on the uncommitted diff.
 - Run `datapages init -n`, as step 5 does. The new instructions tell agents to put JavaScript that Datastar expressions cannot hold, such as a library, in a Web Component.
 
 ## Upgrade to v0.10.1

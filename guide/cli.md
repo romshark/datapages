@@ -51,11 +51,12 @@ In a project that is set up, `init` rewrites the agent instructions, adds `.env`
 | `cmd/server/main.go` | The entry point, written by the `datapages gen` run of `init` into the [`cmd`](configuration.md#cmd) directory |
 | `.env` | `NATS_URL` and a random `SESSION_ENCRYPTION_KEY` |
 | `compose.yaml` | A NATS server for `make up` |
-| `Makefile` | The targets `dev`, `up`, `down`, `build`, `gen` and `lint` |
+| `Makefile` | The targets `dev`, `up`, `down`, `build`, `gen` and `lint`, and `npm-install` and `bundle` for TypeScript Web Components. `gen` runs `datapages gen`, then `templ generate`. With hidden generated code, `gen` runs them in reverse order and `build` runs `gen` first |
 | `.vscode/extensions.json` | The templ and Go editor extensions |
-| `.github/workflows/ci.yml` | A CI job that checks the output of `templ generate` and `datapages gen`, runs the tests and builds `./cmd/server/` |
+| `.vscode/settings.json` | With hidden generated code, hides `datapagesgen` directories and `*_templ.go` files in VS Code |
+| `.github/workflows/ci.yml` | With `--ci github-actions`, a CI job that runs `templ generate` and `datapages gen`, runs the tests and builds `./cmd/server/`. With committed generated code, it fails when a generator changes a file |
 
-`init` sets up the project only on a run that creates the git repository, `go.mod`, `datapages.yaml` or `app/app.go`. Only such a run writes the last 6 files of the table. A run that creates none of the 4 writes none of the 6, even when one of them is missing.
+`init` sets up the project only on a run that creates the git repository, `go.mod`, `datapages.yaml` or `app/app.go`. Only such a run writes the last 7 files of the table. A run that creates none of the 4 writes none of the 7, even when one of them is missing.
 
 On such a run `init` also takes these steps, in order:
 
@@ -79,21 +80,37 @@ When `init` writes the app package, `--web-components` or a prompt selects the W
 | `javascript` | JavaScript modules in `app/static/components/`, served as they are |
 | `none` | No Web Components |
 
+When `init` sets up the project, `--generated-code` or the prompt `Commit generated files?` selects whether git keeps the generated code, `datapagesgen/` and `*_templ.go`:
+
+| Value | Setup |
+| ----- | ----- |
+| `committed` | git keeps the generated code. A clone builds without the generators, and so does `go install` of the module. Diffs and merges include the generated files |
+| `hidden` | `init` adds `datapagesgen/` and `*_templ.go` to `.gitignore` and writes `.vscode/settings.json`. A clone builds only after `templ generate` and `datapages gen`, which `make build` and the CI workflow run. `go install` of the module fails. On a clone, `datapages gen` fails while the app package uses the generated `href`, `action` or `assets` package, because the app package does not compile without them |
+
+`--ci` or the prompt `Set up CI?` selects the CI system that `init` writes a workflow for:
+
+| Value | Setup |
+| ----- | ----- |
+| `github-actions` | `.github/workflows/ci.yml` for GitHub Actions |
+| `none` | No workflow |
+
 ### Flags
 
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
-| `-n`, `--non-interactive` | `false` | Ask nothing. Requires `--name` outside a git repository, except in a Go module that has a `datapages.yaml`, and `--module` outside a Go module. Selects `none` for Web Components and skips `Run the app now?` |
+| `-n`, `--non-interactive` | `false` | Ask nothing. Requires `--name` outside a git repository, except in a Go module that has a `datapages.yaml`, and `--module` outside a Go module. Selects `none` for Web Components, `committed` for the generated code and `github-actions` for CI, and skips `Run the app now?` |
 | `--name` | `""` | Directory to create outside a git repository. Ignored inside one and in a Go module that has a `datapages.yaml` |
 | `--module` | `""` | Module path for `go mod init`. Ignored when `go.mod` exists |
 | `--web-components` | `""` | `rocket`, `typescript`, `javascript` or `none`. Used only when `init` writes the app package. Otherwise `init` prints `Ignored --web-components: init writes no app package here.` |
+| `--generated-code` | `""` | `committed` or `hidden`. Used only when `init` sets up the project. Otherwise `init` prints `Ignored --generated-code: the project is already initialized.` |
+| `--ci` | `""` | `github-actions` or `none`. Used only when `init` sets up the project. Otherwise `init` prints `Ignored --ci: the project is already initialized.` |
 | `--prometheus` | `true` | Names `datapages.EnablePrometheus` in the `cmd/server/main.go` that `init` writes, which serves metrics on `HOST_METRICS:PORT_METRICS`, `localhost:9090` by default. `--prometheus=false` names `datapages.DisablePrometheus` |
 | `--no-ai-skills` | `false` | Write no agent instructions and no skills |
 | `-h`, `--help` | | Print the help |
 
 ### Exit status
 
-0 when `init` set up the project, and when the project was set up before. 1 when a step fails, such as a missing `--name` or `--module` with `-n`, an unknown `--web-components` value, or a failed `git`, `go`, `npm` or `node` command. After `Run the app now?`, a failed `make dev` ends `init` with 1 too.
+0 when `init` set up the project, and when the project was set up before. 1 when a step fails, such as a missing `--name` or `--module` with `-n`, an unknown `--web-components`, `--generated-code` or `--ci` value, or a failed `git`, `go`, `npm` or `node` command. After `Run the app now?`, a failed `make dev` ends `init` with 1 too.
 
 ### Examples
 
@@ -165,7 +182,7 @@ Regenerate after changing the application model and the templates:
 datapages gen && templ generate && go build ./...
 ```
 
-Fail a CI job when the committed generated code is out of date, as the `.github/workflows/ci.yml` of the scaffold does:
+Fail a CI job when the committed generated code is out of date, as the `.github/workflows/ci.yml` of a scaffold with committed generated code does:
 
 ```sh
 datapages gen
@@ -231,7 +248,7 @@ datapages watch [flags]
 
 `watch` runs the development server for 1 app package. It regenerates code, rebuilds and restarts the app after file changes, then reloads open browser tabs. Open the `--host` address, which defaults to `http://localhost:7331`. Pages loaded from the app's own address do not reload or show build errors. Ctrl+C stops the process.
 
-`watch` runs [templier](https://github.com/romshark/templier) v0.13.2 as a library and reads its settings from the [`watch` section](configuration.md#watch) of `datapages.yaml`. It needs `templ` on the PATH, and `golangci-lint` when [`lint`](configuration.md#lint) is on.
+`watch` runs [templier](https://github.com/romshark/templier) v0.13.4 as a library and reads its settings from the [`watch` section](configuration.md#watch) of `datapages.yaml`. It needs `templ` on the PATH, and `golangci-lint` when [`lint`](configuration.md#lint) is on.
 
 Start `watch` in the module root. It runs `go build` in the current directory with the path of the main package relative to the module root, as `./cmd/server/`. From a subdirectory that path names no package and the build fails.
 

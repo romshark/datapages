@@ -13,7 +13,7 @@ Install the Datapages CLI and templ, then use `datapages init` to create a proje
 | make | any | The targets of the generated `Makefile` |
 | [Node.js](https://nodejs.org/) with npm | any | A project set up with `--web-components typescript`. `init` installs esbuild, and `init`, `make dev`, `make build` and `datapages watch` run it |
 
-Use the templ version named by the `github.com/a-h/templ` requirement in `go.mod`. A new project requires v0.3.1100. Generated templ files record that version. The generated CI workflow fails when `templ generate` changes a committed file.
+Use the templ version named by the `github.com/a-h/templ` requirement in `go.mod`. A new project requires v0.3.1100. Generated templ files record that version. When git keeps the generated code, the generated CI workflow fails when `templ generate` changes a committed file.
 
 Docker is needed only for NATS. [Run without Docker](#run-without-docker) shows how to start a project with the in-memory modules instead.
 
@@ -57,6 +57,8 @@ datapages init
 | `No go.mod found. Initialize a Go module?` | The project has no `go.mod` | Yes asks for the module path and runs `go mod init`. No ends `init`. |
 | `Module path` | After Yes | The default comes from the URL of the `origin` remote, or else the directory name |
 | `Set up Web Components?` | `init` writes the app package | `Datastar Rocket`, `TypeScript, bundled by esbuild (needs Node.js)`, `JavaScript modules` or `None`, the default. Choose one when the app needs JavaScript that would be impractical in Datastar attributes, such as a map or a rich text editor. |
+| `Commit generated files?` | `init` sets up a new project | `Commit to Git`, the default, is for committing `datapagesgen/` and `*_templ.go`. `Ignore and hide` lists them in `.gitignore` and hides them in VS Code, and `make build` and CI generate them. `datapages gen` then fails on a clone while the app uses the generated `href`, `action` or `assets` package. |
+| `Set up CI?` | `init` sets up a new project | `GitHub Actions`, the default, writes `.github/workflows/ci.yml`. `None` writes no workflow. |
 | `Run the app now?` | At the end | Yes runs `make dev` in the project |
 
 Inside a git repository, `init` uses the current directory, or the root of the Go module that contains it.
@@ -94,9 +96,11 @@ Between the last 2 lines, `init` runs `templ generate`, `go mod tidy` and `datap
 datapages init -n --name myapp --module example.com/myapp
 ```
 
-`--name` is required outside a git repository, and `--module` without a `go.mod`. With `-n`, `init` sets up no Web Components and does not start the app. More flags:
+`--name` is required outside a git repository, and `--module` without a `go.mod`. With `-n`, `init` sets up no Web Components, selects `Commit to Git` and `GitHub Actions`, and does not start the app. More flags:
 
 - `--web-components rocket|typescript|javascript|none` selects the Web Components setup.
+- `--generated-code hidden` lists the generated code in `.gitignore` and hides it in VS Code.
+- `--ci none` writes no CI workflow.
 - `--prometheus=false` writes a `cmd/server/main.go` without the Prometheus metrics server.
 - `--no-ai-skills` writes no instructions for coding agents.
 
@@ -112,16 +116,17 @@ datapages init -n --name myapp --module example.com/myapp
 | `datapages.yaml` | Settings of `datapages gen` and `datapages watch`, see [datapages.yaml](configuration.md) |
 | `.env` | `NATS_URL` and a random `SESSION_ENCRYPTION_KEY`, which `cmd/server/main.go` reads. `init` adds `.env` to `.gitignore`. |
 | `compose.yaml` | A NATS server with JetStream on port 4222 |
-| `Makefile` | The targets `dev`, `up`, `down`, `build`, `gen` and `lint` |
+| `Makefile` | The targets `dev`, `up`, `down`, `build`, `gen` and `lint`. `make gen` runs `datapages gen` and `templ generate` |
 | `.vscode/extensions.json` | The recommended editor extensions |
-| `.github/workflows/ci.yml` | A CI job that fails when `templ generate` or `datapages gen` changes a committed file, then runs the tests and builds the server |
+| `.vscode/settings.json` | With `Ignore and hide`, the setting that hides the generated code in VS Code |
+| `.github/workflows/ci.yml` | With `GitHub Actions`, a CI job that runs `templ generate` and `datapages gen`, then the tests, and builds the server. With `Commit to Git`, it fails when a generator changes a committed file |
 | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc`, `.agents/skills/`, `.claude/skills/` | Instructions for coding agents, see [AI agents](ai-agents.md) |
 
 With Web Components, `init` also writes an example component, in `web/` for TypeScript and in `app/static/components/` for the other setups.
 
 The files in the table are yours to edit. `init` never deletes a file. A later run of `init` in the project rewrites only the agent instructions, and keeps a copy of each one you edited. It does not restore a deleted `Makefile` or workflow.
 
-The generators own 2 more sets of files, which carry a `DO NOT EDIT` header. `templ generate` rewrites `app/app_templ.go` from `app/app.templ`, and `datapages gen` rewrites everything in `app/datapagesgen/`. Change the source and generate again instead of editing them.
+The generators own 2 more sets of files, which carry a `DO NOT EDIT` header. `templ generate` rewrites `app/app_templ.go` from `app/app.templ`, and `datapages gen` rewrites everything in `app/datapagesgen/`. Change the source and generate again instead of editing them. With `Ignore and hide`, git ignores both, and a clone has them only after `make gen`.
 
 ## Run the project
 

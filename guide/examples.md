@@ -70,7 +70,7 @@ The code is in [`example/todolist`](../example/todolist/).
 
 ## Calculator
 
-A calculator that evaluates expressions on the server with [`shopspring/decimal`](https://github.com/shopspring/decimal). Each button press sends 3 signals to a `QUERY` action, which answers with an SSE patch of the calculator and its signals. The server keeps no state between requests, and the page has no stream. The same app package runs as an HTTP server and as a [Wails v3](https://v3.wails.io/) desktop app, as the [FAQ](../FAQ.md) describes.
+A calculator that evaluates expressions on the server with [`shopspring/decimal`](https://github.com/shopspring/decimal). Each button press sends 3 signals to a `QUERY` action, which answers with an SSE patch of the calculator and its signals. The server keeps no state between requests, and the page has no stream. The same app package runs as an HTTP server and as a [Wails v3](https://wails.io/) desktop app, as the [FAQ](../FAQ.md) describes.
 
 Features:
 

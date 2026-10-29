@@ -14,7 +14,7 @@ datapages gen
 go build -o server ./cmd/server
 ```
 
-The scaffold's `.github/workflows/ci.yml` runs both generators and fails when their output differs from the committed code. `make build` runs the last step and writes `cmd/server/server`. The scaffold's dependencies need no cgo. For a static Linux binary, run `CGO_ENABLED=0 GOOS=linux go build -o server ./cmd/server`.
+The scaffold's `.github/workflows/ci.yml` runs both generators. When git keeps the generated code, the workflow fails when their output differs from the committed code. `make build` runs the last step and writes `cmd/server/server`. In a project set up with `--generated-code hidden`, `make build` runs both generators first. The scaffold's dependencies need no cgo. For a static Linux binary, run `CGO_ENABLED=0 GOOS=linux go build -o server ./cmd/server`.
 
 Do not set `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` in production. Either variable turns on dev mode, in which the server reads static assets from the source directory and sends pages and assets uncompressed. The server logs `dev mode is on` at startup when either is set. See [Dev mode](assets.md#dev-mode).
 

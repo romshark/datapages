@@ -368,10 +368,10 @@ The sign-in request needs no token, because it carries no session cookie yet. A 
 
 [`datapages lint`](cli.md#datapages-lint) checks the application model and the `.templ` files without writing files, and exits with status 1 on an error. It reports hardcoded URLs and actions of another page among others. `datapages gen` applies the same checks before it generates.
 
-`datapages init` writes `.github/workflows/ci.yml`. The workflow installs Go, templ `v0.3.1100` and the `datapages` CLI of the version in `go.mod`, then:
+`datapages init` writes `.github/workflows/ci.yml` unless `--ci none` is set. The workflow installs Go, templ `v0.3.1100` and the `datapages` CLI of the version in `go.mod`, then:
 
-1. runs `templ generate` and fails when that changes a committed `.go` file,
-2. runs `datapages gen` and fails on an error or on any change to a committed file,
+1. runs `templ generate`, and with committed generated code fails when that changes a committed `.go` file,
+2. runs `datapages gen` and fails on an error, and with committed generated code on any change to a committed file,
 3. runs `go test ./...`,
 4. builds `./cmd/server/`.
 
