@@ -28,7 +28,7 @@ go build ./...
 
 An earlier `templ generate` can produce references to helpers that do not exist yet. Remove those references, run `templ generate`, then run `datapages gen`. Restore the references and run `templ generate` again. After an initial parse failure, the generator may write empty stub helper packages.
 
-Use Templ `v0.3.1070`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
+Use Templ `v0.3.1100`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
 
 ### Never run `templ generate` while `datapages watch` runs
 
@@ -46,6 +46,10 @@ The watcher regenerates changed files. Wait for it. To generate manually, stop t
 The restriction also applies to commands that invoke `templ generate`, including wrapper targets in `make` or Mage.
 
 To restore rendering, save a `.templ` file or restart the watcher.
+
+### Test on a slow or failing network
+
+`datapages watch` also serves the app through Toxiproxy, with latency, bandwidth limits, timeouts, resets and HTTP errors per endpoint, and a settings page for them. Both listen on ports the OS picks unless `watch.toxiproxy.host` and `watch.toxiproxy.ui-host` set them, and watch mode prints their addresses. `watch.toxiproxy` in `datapages.yaml` configures it. `datapages lint` reports an endpoint key of a preset in `watch.toxiproxy.presets` that is not the `net/http.ServeMux` pattern of a route, as in `GET /post/{slug}/{$}`.
 
 ## Rules
 

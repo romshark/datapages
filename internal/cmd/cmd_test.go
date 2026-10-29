@@ -6,12 +6,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -288,9 +290,11 @@ func (PageIndex) OnPing(event EventPing, sse datapages.SSE) error { return nil }
 	var imports, funcs strings.Builder
 	for i, subj := range subjects {
 		name := multiappNames[i]
-		writeFileAt(t, filepath.Join(dir, "app", name, "app.go"),
+		writeFileAt(t,
+			filepath.Join(dir, "app", name, "app.go"),
 			appSrc(name, subj, fields[i]))
-		writeFileAt(t, filepath.Join(dir, "app", name, "datapagesgen", "app_gen.go"), stub)
+		writeFileAt(t,
+			filepath.Join(dir, "app", name, "datapagesgen", "app_gen.go"), stub)
 		_, _ = fmt.Fprintf(&imports, "\t%q\n\t%sgen %q\n",
 			"testproject/app/"+name, name, "testproject/app/"+name+"/datapagesgen")
 		_, _ = fmt.Fprintf(&funcs, `
@@ -372,6 +376,90 @@ func TestLintSubjectAcrossApps(t *testing.T) {
 	}
 }
 
+// TestLintToxiproxy tests that lint reports an endpoint override of a preset
+// that names no route unless the proxy is disabled.
+// The fixture serves "GET /" and "GET /not-found/{$}".
+func TestLintToxiproxy(t *testing.T) {
+	const edge = "    presets:\n      - name: Edge\n        endpoints:\n"
+	for name, tc := range map[string]struct {
+		toxiproxy string // the watch.toxiproxy section, none when empty
+		wantErr   string
+	}{
+		"no section": {},
+		"hosts": {
+			toxiproxy: "    host: localhost:9090\n    ui-host: localhost:9091\n",
+		},
+		"known endpoint": {
+			toxiproxy: edge +
+				"          \"GET /not-found/{$}\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+		},
+		"unknown endpoint": {
+			toxiproxy: edge +
+				"          \"GET /not-found/\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+			wantErr: `watch.toxiproxy.presets["Edge"].endpoints: ` +
+				`no endpoint has the pattern "GET /not-found/"; ` +
+				`did you mean "GET /not-found/{$}"?`,
+		},
+		"unknown endpoint, disabled": {
+			toxiproxy: "    disabled: true\n" + edge +
+				"          \"GET /not-found/\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := setupProject(t, "valid.go")
+			yaml := "cmd: cmd/server\n"
+			if tc.toxiproxy != "" {
+				yaml += "watch:\n  toxiproxy:\n" + tc.toxiproxy
+			}
+			writeFileAt(t, filepath.Join(dir, "datapages.yaml"), yaml)
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), []string{"datapages", "lint"},
+				nil, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+			if tc.wantErr == "" {
+				require.Zero(t, code, "lint stderr: %s", stderr.String())
+				return
+			}
+			require.Equal(t, 1, code)
+			require.Contains(t, stderr.String(), tc.wantErr)
+		})
+	}
+}
+
+// lockedBuffer collects what a command writes while the test reads it.
+type lockedBuffer struct {
+	lock sync.Mutex
+	buf  bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.String()
+}
+
+// freePort returns a free port of the loopback interface.
+func freePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	require.NoError(t, ln.Close())
+	return port
+}
+
 // TestWatch tests the watch command over a scaffolded module: it refuses a
 // directory with no go.mod, and it shuts the engine down when its context ends.
 func TestWatch(t *testing.T) {
@@ -432,6 +520,72 @@ func TestWatch(t *testing.T) {
 		}
 
 		require.Contains(t, stderr.String(), "parsing app package")
+	})
+
+	t.Run("toxiproxy refuses to start", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			hosts, wantErr string // hosts is the watch.toxiproxy section
+		}{
+			"proxy on the port of the dev server": {
+				hosts:   "    host: localhost:7399\n",
+				wantErr: "watch.toxiproxy.host localhost:7399 uses the port of --host",
+			},
+			"settings on the port of the dev server": {
+				hosts:   "    host: localhost:0\n    ui-host: localhost:7399\n",
+				wantErr: "watch.toxiproxy.ui-host localhost:7399 uses the port of --host",
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				dir := setupProject(t, "valid.go")
+				writeFileAt(t, filepath.Join(dir, "datapages.yaml"),
+					"cmd: cmd/server\nwatch:\n  toxiproxy:\n"+tc.hosts)
+
+				var stderr bytes.Buffer
+				code := cmd.Run(
+					context.Background(),
+					[]string{"datapages", "watch", "--host", "localhost:7399"},
+					nil, io.Discard, &stderr,
+					"0.0.0", "xxxxxxx", "2026-2-23",
+				)
+				require.Equal(t, 1, code)
+				require.Contains(t, stderr.String(), tc.wantErr)
+			})
+		}
+	})
+
+	t.Run("toxiproxy by default", func(t *testing.T) {
+		setupProject(t, "invalid.go")
+		port := freePort(t)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stderr := new(lockedBuffer)
+		done := make(chan int, 1)
+		go func() {
+			done <- cmd.Run(ctx, []string{
+				"datapages", "watch", "--host", fmt.Sprintf("localhost:%d", port),
+			}, nil, io.Discard, stderr, "0.0.0", "xxxxxxx", "2026-2-23")
+		}()
+
+		want := regexp.MustCompile(
+			`toxiproxy: http://localhost:\d+ \(settings: http://localhost:\d+/\)`)
+		deadline := time.After(30 * time.Second)
+		for !want.MatchString(stderr.String()) {
+			select {
+			case code := <-done:
+				t.Fatalf("watch exited with code %d; stderr: %s", code, stderr)
+			case <-deadline:
+				t.Fatalf("stderr lacks %s: %s", want, stderr)
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("watch did not stop after cancel")
+		}
 	})
 
 	t.Run("writes default config", func(t *testing.T) {
@@ -1166,9 +1320,20 @@ func TestInit(t *testing.T) {
 				require.FileExists(t, filepath.Join(projectDir,
 					".claude", "skills", "datapages", "SKILL.md"))
 				require.Contains(t, stdout, "Project initialized successfully.")
+
+				// -n commits the generated code.
+				gitignore, err := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+				require.NoError(t, err)
+				require.NotContains(t, string(gitignore), "datapagesgen")
+				require.NotContains(t, string(gitignore), "_templ.go")
+				require.NoFileExists(t,
+					filepath.Join(projectDir, ".vscode", "settings.json"))
+				requireFileContains(t,
+					filepath.Join(projectDir, ".github", "workflows", "ci.yml"),
+					"git diff --exit-code")
 			},
 		},
-		"non-interactive without ai skills": {
+		"non-interactive without git, ai skills and ci": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
@@ -1178,23 +1343,35 @@ func TestInit(t *testing.T) {
 				"-n",
 				"--name", "myapp",
 				"--module", "example.com/myapp",
+				"--no-git",
 				"--no-ai-skills",
+				"--ci", "none",
 			},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
+				require.NoDirExists(t, filepath.Join(projectDir, ".git"))
 				require.NoFileExists(t, filepath.Join(projectDir, "AGENTS.md"))
 				require.NoFileExists(t, filepath.Join(projectDir, "CLAUDE.md"))
 				require.NoDirExists(t, filepath.Join(projectDir, ".claude"))
+				// copilot-instructions.md and ci.yml are all .github holds.
+				require.NoDirExists(t, filepath.Join(projectDir, ".github"))
+				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
 			},
 		},
-		"non-interactive missing name": {
+		"non-interactive in empty directory": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init", "-n"},
-			wantCode: 1,
-			wantErr:  "--name is required",
+			args:     []string{"datapages", "init", "-n", "--module", "example.com/here"},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.DirExists(t, filepath.Join(startDir, ".git"))
+				require.FileExists(t, filepath.Join(startDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(startDir, "app", "app.go"))
+				requireFileContains(t, filepath.Join(startDir, "go.mod"),
+					"module example.com/here")
+			},
 		},
 		"non-interactive in a module subdirectory": {
 			setup: func(t *testing.T) string {
@@ -1363,17 +1540,20 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			args: []string{"datapages", "init"},
-			// The empty line takes the default of the Web Components prompt.
-			stdin:      "y\nmyapp\ny\nmymod\n\nn\n",
+			// A subdirectory and a repository, then the empty lines take the
+			// defaults of the module path, Web Components, generated code,
+			// CI and AI skills prompts.
+			stdin:      "y\nmyapp\ny\n\n\n\n\n\nn\n",
 			projectDir: "myapp",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
+				require.Contains(t, stdout, "Create a subdirectory for the project?")
+				require.Contains(t, stdout, "Write AI agent instructions and skills?")
+				require.FileExists(t, filepath.Join(projectDir, "AGENTS.md"))
 				require.DirExists(t, filepath.Join(projectDir, ".git"))
-				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
-				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
-				require.NoError(t, err)
-				require.Contains(t, string(data), "mymod")
+				requireFileContains(t, filepath.Join(projectDir, "go.mod"),
+					"module myapp\n")
 				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
 				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
 				require.FileExists(t, filepath.Join(projectDir, ".env"))
@@ -1381,26 +1561,22 @@ func TestInit(t *testing.T) {
 				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
 			},
 		},
-		"interactive decline git": {
+		"interactive without git": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init"},
-			stdin:    "n\n",
-			wantCode: 1,
-			wantErr:  "without a git repository",
-		},
-		"interactive decline module": {
-			setup: func(t *testing.T) string {
-				dir := t.TempDir()
-				out, err := exec.Command("git", "init", dir).CombinedOutput()
-				require.NoError(t, err, "git init: %s", out)
-				return dir
+			args: []string{"datapages", "init"},
+			// No subdirectory, no repository, then the defaults, no run.
+			stdin:    "n\nn\n\n\n\n\n\nn\n",
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.Contains(t, stdout, "Not inside a git repository. Create one?")
+				require.NoDirExists(t, filepath.Join(startDir, ".git"))
+				require.FileExists(t, filepath.Join(startDir, "app", "app.go"))
+				requireFileContains(t, filepath.Join(startDir, "go.mod"),
+					"module "+filepath.Base(startDir)+"\n")
+				require.Contains(t, stdout, "Project initialized successfully.")
 			},
-			args:     []string{"datapages", "init"},
-			stdin:    "n\n",
-			wantCode: 1,
-			wantErr:  "without a Go module",
 		},
 		"interactive empty dir name": {
 			setup: func(t *testing.T) string {
@@ -1421,7 +1597,7 @@ func TestInit(t *testing.T) {
 				"--name", "custom-app",
 				"--module", "example.com/custom",
 			},
-			stdin:    "\nn\n",
+			stdin:    "\n\n\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "custom-app")
@@ -1435,21 +1611,31 @@ func TestInit(t *testing.T) {
 				require.Contains(t, stdout, "Project initialized successfully.")
 			},
 		},
-		"flag name skips name prompt": {
+		"flag name inside git repository and module": {
 			setup: func(t *testing.T) string {
-				return t.TempDir()
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
+					[]byte("module example.com/root\n\ngo 1.27.3\n"), 0o644))
+				return dir
 			},
 			projectDir: "myproject",
-			args:       []string{"datapages", "init", "--name", "myproject"},
-			stdin:      "y\nmymod\n\nn\n",
-			wantCode:   0,
+			args: []string{
+				"datapages", "init",
+				"--name", "myproject",
+			},
+			// The module path, then the defaults, no run.
+			stdin:    "mymod\n\n\n\n\nn\n",
+			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
-				require.DirExists(t, filepath.Join(projectDir, ".git"))
-				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
-				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
-				require.NoError(t, err)
-				require.Contains(t, string(data), "mymod")
+				require.NotContains(t, stdout, "Using the Go module in ")
+				require.NoDirExists(t, filepath.Join(projectDir, ".git"))
+				requireFileContains(t, filepath.Join(projectDir, "go.mod"),
+					"module mymod")
+				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
+				require.NoFileExists(t, filepath.Join(startDir, "datapages.yaml"))
 			},
 		},
 		"flag module skips module prompt": {
@@ -1459,8 +1645,11 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err, "git init: %s", out)
 				return dir
 			},
-			args:     []string{"datapages", "init", "--module", "example.com/flagmod"},
-			stdin:    "\nn\n",
+			args: []string{
+				"datapages", "init",
+				"--module", "example.com/flagmod",
+			},
+			stdin:    "n\n\n\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
@@ -1473,7 +1662,9 @@ func TestInit(t *testing.T) {
 			setup:      func(t *testing.T) string { return t.TempDir() },
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "rocket",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1495,17 +1686,23 @@ func TestInit(t *testing.T) {
 			setup:      func(t *testing.T) string { return t.TempDir() },
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "javascript",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
 				dir := filepath.Join(startDir, "myapp")
 				main, err := os.ReadFile(filepath.Join(dir, "cmd", "server", "main.go"))
 				require.NoError(t, err)
-				require.Contains(t, string(main), "datapages.WithAssets(app.StaticFS, false)")
+				require.Contains(t,
+					string(main),
+					"datapages.WithAssets(app.StaticFS, false)")
 				require.NotContains(t, string(main), "WithDatastarJS")
-				require.FileExists(t, filepath.Join(dir, "app", "static", "components", "index.js"))
-				requireFileContains(t, filepath.Join(dir, "AGENTS.md"),
+				require.FileExists(t,
+					filepath.Join(dir, "app", "static", "components", "index.js"))
+				requireFileContains(t,
+					filepath.Join(dir, "AGENTS.md"),
 					"| `app/static/components/` | Web Components as JavaScript modules")
 			},
 		},
@@ -1514,22 +1711,25 @@ func TestInit(t *testing.T) {
 				if runtime.GOOS == "windows" {
 					t.Skip("the fake npm and node are shell scripts")
 				}
-				// npm install would need the network. The fake node writes
-				// the bundle where build.mjs writes it.
+				// npm install would need the network.
+				// The fake node writes the bundle where build.mjs writes it.
 				bin := t.TempDir()
 				for name, script := range map[string]string{
 					"npm": "#!/bin/sh\nexit 0\n",
 					"node": "#!/bin/sh\nmkdir -p ../app/static\n" +
 						"echo 'console.log(1)' > ../app/static/components.js\n",
 				} {
-					require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755))
+					require.NoError(t,
+						os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755))
 				}
 				t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 				return t.TempDir()
 			},
 			projectDir: "myapp",
 			args: []string{
-				"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp",
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
 				"--web-components", "typescript",
 			},
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1562,7 +1762,10 @@ func TestInit(t *testing.T) {
 				t.Setenv("PATH", t.TempDir())
 				return dir
 			},
-			args:     []string{"datapages", "init", "-n", "--web-components", "typescript"},
+			args: []string{
+				"datapages", "init", "-n",
+				"--web-components", "typescript",
+			},
 			wantCode: 1,
 			wantErr:  "TypeScript Web Components need npm",
 			check: func(t *testing.T, startDir string, stdout string) {
@@ -1571,10 +1774,112 @@ func TestInit(t *testing.T) {
 			},
 		},
 		"web components unknown": {
-			setup:    func(t *testing.T) string { return t.TempDir() },
-			args:     []string{"datapages", "init", "-n", "--name", "x", "--web-components", "vue"},
+			setup: func(t *testing.T) string { return t.TempDir() },
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "x",
+				"--web-components", "vue",
+			},
 			wantCode: 1,
 			wantErr:  `unknown Web Components setup "vue"`,
+		},
+		"generated code hidden": {
+			setup:      func(t *testing.T) string { return t.TempDir() },
+			projectDir: "myapp",
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
+				"--generated-code", "hidden",
+			},
+			check: func(t *testing.T, startDir string, stdout string) {
+				dir := filepath.Join(startDir, "myapp")
+				for _, rel := range []string{
+					"app/datapagesgen/app_gen.go",
+					"app/datapagesgen/href/href_gen.go",
+					"app/app_templ.go",
+				} {
+					require.FileExists(t, filepath.Join(dir, rel))
+					c := exec.Command("git", "check-ignore", "-q", rel)
+					c.Dir = dir
+					require.NoError(t, c.Run(), "git does not ignore %s", rel)
+				}
+				c := exec.Command("git", "check-ignore", "-q", "app/app.go")
+				c.Dir = dir
+				require.Error(t, c.Run(), "git ignores app/app.go")
+
+				requireFileContains(t, filepath.Join(dir, ".vscode", "settings.json"),
+					`"**/datapagesgen": true`, `"**/*_templ.go": true`)
+				requireFileContains(t, filepath.Join(dir, "Makefile"), "build: gen\n")
+				ci, err := os.ReadFile(
+					filepath.Join(dir, ".github", "workflows", "ci.yml"),
+				)
+				require.NoError(t, err)
+				require.Contains(t, string(ci), "run: datapages gen")
+				require.NotContains(t, string(ci), "git diff --exit-code")
+			},
+		},
+		"interactive hidden generated code, no ci, no ai skills": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args: []string{"datapages", "init", "--module", "example.com/hidden"},
+			// No subdirectory, default Web Components, the 2nd generated code
+			// and CI options, no AI skills, no run.
+			stdin: "n\n\n2\n2\nn\nn\n",
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.Contains(t, stdout, "Commit generated files?")
+				require.Contains(t, stdout, "Set up CI?")
+				require.Contains(t, stdout, "Write AI agent instructions and skills?")
+				requireFileContains(t, filepath.Join(startDir, ".gitignore"),
+					"datapagesgen/\n", "*_templ.go\n")
+				require.FileExists(t, filepath.Join(startDir, ".vscode", "settings.json"))
+				require.NoFileExists(t,
+					filepath.Join(startDir, ".github", "workflows", "ci.yml"))
+				require.NoFileExists(t, filepath.Join(startDir, "AGENTS.md"))
+				require.NoDirExists(t, filepath.Join(startDir, ".claude"))
+			},
+		},
+		"interactive flag skips ai skills prompt": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args: []string{
+				"datapages", "init",
+				"--module", "example.com/flagskills",
+				"--no-ai-skills=false",
+			},
+			stdin: "n\n\n\n\nn\n",
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.NotContains(t, stdout, "Write AI agent instructions and skills?")
+				require.FileExists(t, filepath.Join(startDir, "AGENTS.md"))
+			},
+		},
+		"ci unknown": {
+			setup: func(t *testing.T) string { return t.TempDir() },
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "x",
+				"--ci", "jenkins",
+			},
+			wantCode: 1,
+			wantErr:  `unknown CI system "jenkins", want one of github-actions, none`,
+		},
+		"generated code unknown": {
+			setup: func(t *testing.T) string { return t.TempDir() },
+			args: []string{
+				"datapages", "init", "-n",
+				"--name", "x",
+				"--generated-code", "vendored",
+			},
+			wantCode: 1,
+			wantErr:  `unknown generated code setting "vendored"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1620,8 +1925,8 @@ func requireFileContains(t *testing.T, path string, want ...string) {
 }
 
 // TestInitInInitializedProject tests that init in a project that is already
-// set up succeeds, writes the agent instructions it was asked for, keeps what
-// it replaces and leaves an AGENTS.md of the project alone.
+// set up succeeds, writes the agent instructions it was asked for,
+// keeps what it replaces and leaves an AGENTS.md of the project alone.
 func TestInitInInitializedProject(t *testing.T) {
 	t.Setenv("GOFLAGS", "-e")
 	repoRoot := repoRootDir(t)
@@ -1638,7 +1943,8 @@ func TestInitInInitializedProject(t *testing.T) {
 		code := cmd.Run(
 			context.Background(),
 			append([]string{
-				"datapages", "init", "-n", "--module", "example.com/initialized",
+				"datapages", "init", "-n",
+				"--module", "example.com/initialized",
 			}, args...),
 			nil, &stdout, &stderr,
 			versionUnstamped, "xxxxxxx", "2026-2-23",
@@ -1763,11 +2069,10 @@ func TestInitPinsTheDatapagesModule(t *testing.T) {
 // TestInitReplacesWithTheLocalCheckout tests what init writes when the build
 // has no version go.mod takes.
 //
-// A "go build" from a modified checkout reports a pseudo-version marked
-// "+dirty", and a binary stamped with a tag that was never pushed reports a
-// version the proxy does not have. go.mod takes neither, hence it names the
-// checkout the binary was compiled from, which keeps the scaffold and the
-// generator on 1 tree.
+// A "go build" from a modified checkout reports a pseudo-version marked "+dirty",
+// and a binary stamped with a tag that was never pushed reports a version the proxy
+// does not have. go.mod takes neither, hence it names the checkout the binary
+// was compiled from, which keeps the scaffold and the generator on 1 tree.
 //
 // This test writes no workspace: the replace alone has to resolve datapages.
 func TestInitReplacesWithTheLocalCheckout(t *testing.T) {
@@ -1804,8 +2109,8 @@ func TestInitReplacesWithTheLocalCheckout(t *testing.T) {
 // Every release up to v0.9.4 carries package main at the module root:
 // the CLI lived there before it moved to cmd/datapages. Without the report
 // every error that follows names the user's own app package and none names
-// the version that cannot be imported. This test writes no workspace, which
-// is what a real project has.
+// the version that cannot be imported. This test writes no workspace,
+// which is what a real project has.
 func TestInitReportsAnUnimportableRoot(t *testing.T) {
 	t.Setenv("GOFLAGS", "-e")
 
@@ -1822,7 +2127,8 @@ func TestInitReportsAnUnimportableRoot(t *testing.T) {
 		nil, &stdout, &stderr,
 		"0.9.4", "xxxxxxx", "2026-2-23",
 	)
-	require.Equal(t, 1, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+	require.Equal(t, 1, code,
+		"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 	require.Contains(t, stderr.String(),
 		"github.com/romshark/datapages v0.9.4 has no importable root package")
 	require.Contains(t, stderr.String(), "add a replace for a local checkout")

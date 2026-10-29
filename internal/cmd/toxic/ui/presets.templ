@@ -1,0 +1,195 @@
+package ui
+
+import (
+	"github.com/romshark/morpheus/neo"
+
+	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/action"
+)
+
+// presetPicker is the header combobox that applies a preset. It selects the
+// preset in effect, else it shows "Unsaved". The trigger shows the label of
+// an option in place of its row.
+templ presetPicker(d pageData) {
+	@neo.InputGroupAttrs(templ.Attributes{"class": "tp-preset-picker"}) {
+		<span aria-hidden="true">Preset</span>
+		// The id lets a morph keep the element a closed dialog returns the focus to.
+		@neo.ComboboxAttrs(pickerOpts(d.activePreset), templ.Attributes{
+			"id":                          "tp-preset-combobox",
+			"data-on:neo-combobox-change": pickPreset(d.activePreset),
+		}) {
+			for _, p := range d.presets {
+				@neo.Option(neo.OptionOpts{
+					Value: neo.Set(p.name), Label: neo.Set(p.name)}) {
+					@neo.LayoutAttrs(neo.LayoutOpts{
+						AlignItems:     neo.Set(neo.AlignItemsCenter),
+						JustifyContent: neo.Set(neo.JustifyContentSpaceBetween),
+						Gap:            neo.Set(neo.GapMd),
+					}, neo.Item(neo.ItemOpts{Width: neo.Set(neo.ItemSizeFull)})) {
+						@iconLabel(p.icon) {
+							{ p.name }
+						}
+						if !p.builtin {
+							@neo.ButtonAttrs(neo.ButtonOpts{
+								Variant: neo.Set(neo.ButtonVariantGhost),
+								Size:    neo.Set("sm"),
+							}, templ.Attributes{
+								"class":         "tp-preset-delete",
+								"aria-label":    "Delete preset " + p.name,
+								"title":         "Delete preset",
+								"data-on:click": askDeletePreset(p.name),
+								// Enter and space would also pick the option.
+								"data-on:keydown": "if (evt.key !== 'Enter' && evt.key !== ' ') return; " +
+									"evt.preventDefault(); " + askDeletePreset(p.name),
+							}) {
+								@neo.Icon("trash-2")
+							}
+						}
+					}
+				}
+			}
+			@neo.Option(neo.OptionOpts{
+				Value: neo.Set(newPresetOption), Label: neo.Set("New preset")}) {
+				@iconLabel("plus") {
+					New preset...
+				}
+			}
+		}
+	}
+}
+
+// iconLabel is a label after a decorative icon.
+templ iconLabel(icon string) {
+	@neo.Layout(neo.LayoutOpts{
+		AlignItems: neo.Set(neo.AlignItemsCenter),
+		Gap:        neo.Set(neo.GapSm),
+	}) {
+		@neo.IconAttrs(icon, templ.Attributes{"aria-hidden": "true"})
+		{ children... }
+	}
+}
+
+// presetDialogs renders the create and delete dialogs. Morphs preserve the
+// create dialog and skip the delete dialog, whose name comes from preset.
+//
+// Create fields post each change. neo-textinput ignores patches while focused.
+//
+// Fixed IDs prevent a morph from replacing an open dialog and losing focus.
+templ presetDialogs(d pageData) {
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
+		"id":                           "tp-preset-new",
+		"data-preserve-attr":           "open",
+		"data-signals:save__ifmissing": "false",
+	}) {
+		<span hidden { neo.DialogTrigger()... }></span>
+		<dialog id="tp-preset-new-dialog" data-preserve-attr="open">
+			@neo.DialogHeader() {
+				@neo.DialogTitleAttrs(templ.Attributes{
+					"id":        "tp-preset-new-title",
+					"data-text": "$save ? 'Save as preset' : 'New preset'",
+				}) {
+					New preset
+				}
+				@neo.DialogDescriptionAttrs(templ.Attributes{
+					"id": "tp-preset-new-desc",
+					"data-text": "$save ? " +
+						jsString("Name these toxics and save presets to "+
+							d.info.ConfigFile+".") +
+						" : 'Name and apply the current toxics.'",
+				}) {
+					Name and apply the current toxics.
+				}
+			}
+			@neo.DialogBody() {
+				@neo.LayoutAttrs(neo.LayoutOpts{
+					Direction: neo.Set(neo.Column),
+					Gap:       neo.Set(neo.GapMd),
+				}, templ.Attributes{"class": "tp-dialog-fields"}) {
+					@field(templ.Attributes{"class": "tp-field"}) {
+						<span class="tp-small">Name</span>
+						@neo.TextInputAttrs(neo.TextInputOpts{
+							Size:  neo.Set("sm"),
+							Value: neo.Set(d.newPreset.name),
+						}, templ.Attributes{
+							"id":                            "tp-preset-name",
+							"aria-label":                    "Name",
+							"data-on:input__debounce.150ms": postPresetDraft(),
+							"data-on:keydown": createPreset(
+								"if (evt.key !== 'Enter') return; "),
+						})
+					}
+					@field(templ.Attributes{"class": "tp-field", "data-show": "!$save"}) {
+						<span class="tp-small">Copy from</span>
+						@neo.ComboboxAttrs(copyOpts(d.newPreset.from), templ.Attributes{
+							"id":                          "tp-preset-from",
+							"data-on:neo-combobox-change": postPresetDraft(),
+						}) {
+							@neo.Option(neo.OptionOpts{Value: neo.Set("")}) {
+								Current toxics
+							}
+							for _, o := range d.copyOptions {
+								@neo.Option(neo.OptionOpts{
+									Value: neo.Set(o.value), Label: neo.Set(o.name)}) {
+									@neo.Layout(neo.LayoutOpts{
+										Direction: neo.Set(neo.Column)}) {
+										<span>{ o.name }</span>
+										<span class="tp-small tp-muted">
+											{ o.source }
+										</span>
+									}
+								}
+							}
+						}
+					}
+					<p
+						id="tp-preset-new-error"
+						class="tp-error"
+						role="alert"
+					>{ d.newPreset.err }</p>
+				}
+			}
+			@neo.DialogFooter() {
+				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+					Cancel
+				}
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant:  neo.Set(neo.ButtonVariantPrimary),
+					Disabled: neo.Set(d.newPreset.taken),
+				}, templ.Attributes{
+					"data-on:click": createPreset(""),
+					"data-text":     "$save ? 'Save' : 'Create'",
+				}) {
+					Create
+				}
+			}
+		</dialog>
+	}
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
+		"id":                "tp-preset-delete",
+		"data-ignore-morph": true,
+	}) {
+		<span hidden { neo.DialogTrigger()... }></span>
+		<dialog id="tp-preset-delete-dialog">
+			@neo.DialogHeader() {
+				@neo.DialogTitle() {
+					Delete preset?
+				}
+				@neo.DialogDescription() {
+					<strong data-text="$preset"></strong> will be deleted.
+					If active, No throttling replaces it.
+				}
+			}
+			@neo.DialogFooter() {
+				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+					Cancel
+				}
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant: neo.Set(neo.ButtonVariantDanger)},
+					withAttrs(neo.DialogClose(), templ.Attributes{
+						"data-on:click": action.PageIndex.DeletePreset.POST(),
+					})) {
+					Delete
+				}
+			}
+		</dialog>
+	}
+}

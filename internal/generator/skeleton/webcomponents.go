@@ -38,17 +38,7 @@ var WebComponentsChoices = []WebComponents{
 
 // ParseWebComponents returns the setup named s.
 func ParseWebComponents(s string) (WebComponents, error) {
-	for _, w := range WebComponentsChoices {
-		if string(w) == s {
-			return w, nil
-		}
-	}
-	names := make([]string, len(WebComponentsChoices))
-	for i, w := range WebComponentsChoices {
-		names[i] = string(w)
-	}
-	return "", fmt.Errorf("unknown Web Components setup %q, want one of %s",
-		s, strings.Join(names, ", "))
+	return parseChoice("Web Components setup", WebComponentsChoices, s)
 }
 
 // RocketJS is the Datastar bundle with Rocket of the release Datapages loads by

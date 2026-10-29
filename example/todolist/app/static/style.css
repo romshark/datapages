@@ -87,6 +87,68 @@ button {
 	}
 }
 
+/* Loading indicators */
+
+/*
+An indicator appears only once its request has run for --indicator-delay,
+which keeps fast connections from flashing it. A response within 100ms feels
+instant (Nielsen, "Response Times: The 3 Important Limits"). The other 50ms
+are headroom.
+*/
+:root {
+	--indicator-delay: 150ms;
+}
+
+@keyframes spin {
+	to {
+		rotate: 1turn;
+	}
+}
+
+/* Hides an element until the animation delay ends. */
+@keyframes reveal {
+	from {
+		visibility: hidden;
+	}
+}
+
+/* Shows an element until the animation delay ends. */
+@keyframes conceal {
+	from {
+		visibility: visible;
+	}
+}
+
+.check.loading::after,
+.form label.saving::after {
+	content: "";
+	border: 2px solid oklch(0.85 0 0);
+	border-block-start-color: oklch(0.55 0.2 260);
+	border-radius: 50%;
+	animation:
+		spin 0.6s linear infinite,
+		reveal 0s var(--indicator-delay) backwards;
+}
+
+/*
+A spinner takes the place of the checkbox. Both share 1 grid cell, which
+keeps the layout in place.
+*/
+.check {
+	display: inline-grid;
+	flex-shrink: 0;
+
+	& > input,
+	&::after {
+		grid-area: 1 / 1;
+	}
+
+	&.loading > input {
+		visibility: hidden;
+		animation: conceal 0s var(--indicator-delay) backwards;
+	}
+}
+
 /* Todo list */
 
 #todo-list {
@@ -94,6 +156,12 @@ button {
 	border-radius: 0.5rem;
 	border: 1px solid oklch(0.9 0 0);
 	overflow: hidden;
+	transition: opacity 0.15s;
+
+	&.loading {
+		opacity: 0.5;
+		transition-delay: var(--indicator-delay);
+	}
 }
 
 .todo-row {
@@ -110,7 +178,6 @@ button {
 		inline-size: 1.125rem;
 		block-size: 1.125rem;
 		cursor: pointer;
-		flex-shrink: 0;
 	}
 
 	& .due {
@@ -250,6 +317,15 @@ button {
 
 		&:first-child {
 			margin-block-start: 0;
+		}
+
+		/* Smaller than the line height, so it does not move the field. */
+		&.saving::after {
+			display: inline-block;
+			vertical-align: middle;
+			inline-size: 0.75rem;
+			block-size: 0.75rem;
+			margin-inline-start: 0.5rem;
 		}
 	}
 

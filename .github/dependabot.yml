@@ -20,6 +20,7 @@ updates:
       - /
       - /magefiles
       - /internal/templatingbench
+      - /internal/tools/render-pages
       - /example/*
     schedule:
       interval: weekly

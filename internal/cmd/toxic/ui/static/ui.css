@@ -1,0 +1,631 @@
+/* Colors and radii come from the Morpheus theme, which follows the OS color scheme. */
+
+:root {
+  /* Morpheus gives popovers the button background, which is lighter than the
+     page in the dark scheme. */
+  --neo-popover-bg: var(--page-bg);
+  --neo-popover-color: var(--page-fg);
+
+  /* WCAG 2.2 SC 1.4.11 requires 3:1 for control outlines and the off track of a switch.
+     --btn-border reaches 1.26:1 in both schemes. */
+  --tp-control-border: color-mix(in oklab, var(--page-fg) 45%, var(--page-bg));
+  --tp-divider: color-mix(in oklab, var(--page-fg) 20%, var(--page-bg));
+  --tp-tint: color-mix(in oklab, var(--page-fg) 6%, var(--page-bg));
+  --neo-button-border-color: var(--tp-control-border);
+  --neo-switch-track-off: var(--tp-control-border);
+  --neo-switch-thumb: var(--page-bg);
+  --neo-popover-border-color: var(--tp-control-border);
+
+  /* Route wildcards and {$}, at 4.5:1 against the page. */
+  --tp-route-wild: oklch(0.5 0.08 235);
+  --tp-route-end: oklch(0.5 0.08 310);
+}
+
+/* Replaces the near-white dark accent, the brightest color on pressed and on controls.
+   Blue keeps 3:1 for controls and 4.5:1 for text, where a gray that dim would match
+   the off track of a switch. It takes the selectors of the theme, which outrank :root,
+   for the OS scheme without a class and for the dark class of the theme select. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light):not(.dark) {
+    --accent: oklch(0.54 0.14 257);
+    --accent-hover: color-mix(in oklab, var(--accent) 88%, white);
+    --accent-fg: oklch(0.985 0 0);
+    --tp-route-wild: oklch(0.78 0.07 235);
+    --tp-route-end: oklch(0.78 0.07 310);
+  }
+}
+
+:root.dark {
+  --accent: oklch(0.54 0.14 257);
+  --accent-hover: color-mix(in oklab, var(--accent) 88%, white);
+  --accent-fg: oklch(0.985 0 0);
+  --tp-route-wild: oklch(0.78 0.07 235);
+  --tp-route-end: oklch(0.78 0.07 310);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--page-font-family);
+  color: var(--page-fg);
+  background: var(--page-bg);
+  line-height: 1.5;
+}
+
+h1,
+h2 {
+  margin: 0;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: 1.375rem;
+}
+
+h2 {
+  font-size: 1.125rem;
+}
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+}
+
+.tp-app {
+  max-width: 120rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+/* Covers the page while its stream reconnects. It stays above the sidebar
+   overlay of a narrow window and below popovers and toasts. */
+.tp-lost {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--neo-popover-z-index) - 1);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in oklab, var(--page-bg) 85%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.tp-lost[hidden] {
+  display: none;
+}
+
+.tp-lost:focus {
+  outline: none;
+}
+
+.tp-lost-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 24rem;
+  padding: 1.5rem;
+  border: 1px solid var(--tp-divider);
+  border-radius: 0.75rem;
+  background: var(--page-bg);
+  text-align: center;
+  --neo-icon-size: 2rem;
+}
+
+.tp-lost-box h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.tp-lost-box p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.tp-header {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--tp-divider);
+}
+
+/* The group sets the minimum width of the combobox to 0.
+   This is the width it has outside a group. */
+neo-input-group.tp-preset-picker > neo-combobox {
+  --neo-combobox-min-width: 12rem;
+}
+
+/* The transform and backdrop filter of an open neo-dialog make it the
+   containing block of the fixed lists of the copy combobox and the theme select,
+   which its overflow then clips. The dialog still enters from its starting style. */
+#tp-preset-new-dialog[open],
+#tp-about-dialog[open] {
+  transform: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.tp-dialog-fields .tp-error:empty {
+  display: none;
+}
+
+.tp-dialog-warning neo-icon {
+  --neo-icon-size: 1.25rem;
+  flex: none;
+  color: var(--danger-bg);
+}
+
+neo-button.tp-menu {
+  --neo-icon-size: 1.25rem;
+  padding: 0.375rem;
+}
+
+/* The menu buttons show only where the sidebar is a panel.
+   neo-sidebar has no overlay state until Morpheus defines it.
+   Until then the width query decides, at the viewport width of its breakpoint. */
+@media (width > 50rem) {
+  .tp-app:not(:has(neo-sidebar:state(overlay))) .tp-menu {
+    display: none;
+  }
+}
+
+/* The server-rendered SVG is 24px tall until neo-icon moves it into its
+   shadow root, 8 icons per frame. Until then the taller SVG lowers the
+   baseline of the icon and makes each card header 4px taller. */
+neo-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+neo-icon.tp-logo {
+  --neo-icon-size: 2.25rem;
+  flex: none;
+}
+
+/* The title opens the about dialog. The negative margin keeps the logo and
+   the name where they are without the padding of the button. */
+neo-button.tp-about {
+  --neo-button-gap: 0.5rem;
+  --neo-button-padding: 0.25rem;
+  margin: -0.25rem;
+}
+
+.tp-about-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.tp-about-list dt {
+  color: var(--muted);
+}
+
+.tp-about-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+a.tp-external {
+  --neo-icon-size: 1em;
+}
+
+a.tp-repo {
+  --neo-icon-size: 1rem;
+  display: inline-flex;
+}
+
+/* The sm size of neo-button, which neo.LinkOpts lacks. */
+a.tp-address {
+  --neo-button-padding: calc(var(--page-spacing, 0.25rem) * 1.25)
+    calc(var(--page-spacing, 0.25rem) * 2.5);
+  --neo-icon-size: 1em;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+/* neo-resizable sets the width of the sidebar, which keeps it as a panel, up to 85vw. */
+neo-resizable.tp-sidebar-size {
+  /* Room inside the clipping list for a 2px focus outline at a 2px offset. */
+  --tp-nav-inset: 0.25rem;
+  --neo-resizable-handle-hover-bg: transparent;
+  flex: none;
+}
+
+neo-sidebar.tp-sidebar {
+  --neo-sidebar-width: min(var(--neo-resizable-width, 20rem), 85vw);
+  --neo-sidebar-bg: var(--page-bg);
+  --neo-sidebar-fg: var(--page-fg);
+}
+
+/* The handle is the divider between the sidebar and the editor, centered in the gap of
+   .tp-body, whose --neo-gap it inherits. Its hit area is wider than the line. */
+neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"] {
+  right: calc(-0.5 * (var(--neo-gap) + var(--neo-resizable-edge-thickness)));
+  opacity: 1;
+}
+
+neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"]::before {
+  content: "";
+  align-self: stretch;
+  width: 1px;
+  background: var(--tp-divider);
+}
+
+neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"]:hover::before,
+neo-resizable.tp-sidebar-size:state(resizing) > [data-neo-resizable-handle="right"]::before {
+  background: var(--tp-control-border);
+}
+
+/* A panel is fixed. Without a box of its own, the wrapper leaves neither its
+   width nor a gap in .tp-body. Morpheus lays out an undefined neo-sidebar
+   as a panel below a 50rem viewport. */
+neo-resizable.tp-sidebar-size:has(> neo-sidebar:state(overlay)) {
+  display: contents;
+}
+
+neo-resizable.tp-sidebar-size:has(> neo-sidebar:state(overlay))
+  > [data-neo-resizable-handle] {
+  display: none;
+}
+
+@media (width <= 50rem) {
+  neo-resizable.tp-sidebar-size:has(> neo-sidebar:not(:defined)) {
+    display: contents;
+  }
+
+  neo-resizable.tp-sidebar-size:has(> neo-sidebar:not(:defined))
+    > [data-neo-resizable-handle] {
+    display: none;
+  }
+}
+
+/* On a wide page the header stays and the sidebar and the editor scroll on
+   their own below it. In a page that scrolls as a whole, a sticky sidebar
+   hides its end below the screen until the page scrolls by the header height.
+   The width query covers an undefined neo-sidebar, which has no overlay state. */
+@media (width > 50rem) {
+  .tp-app:has(> .tp-body > .tp-sidebar-size > neo-sidebar:not(:state(overlay))) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  .tp-app:has(> .tp-body > .tp-sidebar-size > neo-sidebar:not(:state(overlay))) > .tp-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  /* The padding makes room for focus outlines inside the clip.
+     The negative margins keep the cards in line with the header.
+     A top padding would show the cards passing above the sticky scope,
+     whose own top padding leaves room for the outlines. */
+  .tp-app:has(> .tp-body > .tp-sidebar-size > neo-sidebar:not(:state(overlay))) .tp-main {
+    overflow-y: auto;
+    padding: 0 var(--tp-main-inset) var(--tp-main-inset);
+    margin: 0 calc(-1 * var(--tp-main-inset)) calc(-1 * var(--tp-main-inset));
+  }
+
+  /* The margins align the entries with the header and with the scope,
+     1rem below the header. The stretched wrapper gives the sidebar a definite
+     height to fill, which keeps the margins off the sidebar. */
+  neo-resizable.tp-sidebar-size:has(> neo-sidebar:not(:state(overlay))) {
+    margin: calc(1rem - var(--tp-nav-inset)) 0 calc(-1 * var(--tp-nav-inset))
+      calc(-1 * var(--tp-nav-inset));
+  }
+
+  /* Above the margin of the wrapper, the divider meets the border of the header. */
+  neo-resizable.tp-sidebar-size > [data-neo-resizable-handle="right"] {
+    top: calc(var(--tp-nav-inset) - 1rem);
+  }
+
+  neo-sidebar.tp-sidebar:not(:state(overlay)) {
+    border: none;
+  }
+}
+
+neo-sidebar.tp-sidebar:state(overlay) {
+  --tp-nav-inset: var(--neo-sidebar-padding);
+}
+
+/* A top padding would show the entries passing above the sticky head.
+   The first child takes that space as a margin, which scrolls away. */
+neo-sidebar.tp-sidebar > .tp-nav {
+  padding: 0 var(--tp-nav-inset) var(--tp-nav-inset);
+}
+
+neo-sidebar.tp-sidebar > .tp-nav > :first-child {
+  margin-top: var(--tp-nav-inset);
+}
+
+.tp-muted {
+  color: var(--muted);
+}
+
+.tp-small {
+  font-size: 0.8125rem;
+}
+
+.tp-error {
+  margin: 0.5rem 0 0;
+  color: var(--danger-bg);
+  font-size: 0.875rem;
+}
+
+/* The background hides the entries that scroll under the sticky head. */
+.tp-nav-filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-bottom: 0.5rem;
+  background: var(--page-bg);
+}
+
+.tp-nav-filter neo-input-group {
+  width: 100%;
+}
+
+.tp-nav-filter neo-textinput {
+  --neo-input-min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tp-nav-filter neo-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.tp-nav-filter neo-toggle-group > neo-toggle {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.tp-nav-heading {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tp-nav-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid transparent;
+  border-radius: var(--page-radius);
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.tp-nav-item:hover {
+  background: var(--tp-tint);
+}
+
+.tp-nav-item[aria-current="page"] {
+  border-color: var(--tp-control-border);
+  background: var(--tp-tint);
+}
+
+.tp-method {
+  flex: none;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tp-route-method {
+  color: var(--muted);
+}
+
+.tp-route-wild {
+  color: var(--tp-route-wild);
+}
+
+.tp-route-end {
+  color: var(--tp-route-end);
+}
+
+.tp-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-nav-title neo-badge {
+  margin-left: auto;
+}
+
+.tp-main {
+  /* Room for a 2px focus outline at a 2px offset. */
+  --tp-main-inset: 0.25rem;
+}
+
+/* The scope stays outside the grid of the cards. A grid item sticks only
+   within its grid area, which for the scope is its own row.
+   The z-index tops the 2 Morpheus gives a pressed segment of a button group
+   and stays below the 1000 of its popovers. */
+.tp-scope {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  container-type: scroll-state;
+}
+
+/* Holds the look of the scope, since a container query styles only descendants.
+   The transparent border keeps the height when it sticks. */
+.tp-scope-bar {
+  padding: 1rem 0;
+  border-bottom: 1px solid transparent;
+  background: var(--page-bg);
+}
+
+/* The menu button of the scope stands in for the one of the header,
+   which scrolls away. Browsers without scroll-state queries never show it.
+   It is as tall as the info button, which keeps the height when it shows. */
+neo-button.tp-scope-menu {
+  display: none;
+  padding: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+@container scroll-state(stuck: top) {
+  .tp-scope-bar {
+    border-bottom-color: var(--tp-divider);
+  }
+
+  neo-button.tp-scope-menu {
+    display: inline-flex;
+  }
+}
+
+.tp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
+  gap: 1rem;
+}
+
+.tp-scope-bar > p {
+  margin: 0.25rem 0 0;
+}
+
+.tp-scope-head h2 {
+  overflow-wrap: anywhere;
+}
+
+.tp-scope-title neo-icon {
+  color: var(--muted);
+}
+
+/* The dark theme sets the card border on a :root selector that
+   outranks the one of this file. */
+.tp-card {
+  --neo-card-border-color: var(--tp-divider);
+}
+
+/* The head fills the card header, which lets .tp-card-action move to its end. */
+.tp-card-head {
+  flex: 1;
+}
+
+.tp-card-action {
+  margin-left: auto;
+}
+
+.tp-row {
+  margin: 0;
+  padding: 0.75rem 0;
+}
+
+.tp-row + .tp-row {
+  border-top: 1px solid var(--tp-divider);
+}
+
+.tp-row p {
+  margin: 0.5rem 0 0;
+}
+
+.tp-stream {
+  font-weight: 500;
+}
+
+.tp-stream neo-icon {
+  color: var(--muted);
+}
+
+.tp-fields {
+  margin-top: 0.75rem;
+}
+
+.tp-field {
+  min-width: 0;
+  --neo-input-min-width: 0;
+}
+
+/* A field moves to the next row when its row has no room for its basis.
+   The fields of a row share the rest. */
+.tp-fields > .tp-field {
+  flex: 1 1 8rem;
+}
+
+.tp-fields > .tp-field-status {
+  flex-basis: 12rem;
+}
+
+/* The unit select takes about 5rem of the field. */
+.tp-fields > .tp-field-unit {
+  flex-basis: 11rem;
+}
+
+/* The input group grows and shrinks a select like its input. The unit select
+   keeps the width of its label, which would otherwise clip to nothing. */
+.tp-field-unit neo-select {
+  flex: none;
+}
+
+.tp-fields > .tp-field-toxicity {
+  flex-basis: 16rem;
+}
+
+/* The bundle has no placeholder for an undefined neo-slider.
+   This one has the upgraded height, which is a value row at line height 1.2,
+   a 0.5rem gap and the track. */
+neo-slider:not(:defined) {
+  display: block;
+  height: calc(1.2em + 0.5rem + var(--neo-slider-track-height));
+}
+
+/* The height of the info button aligns the inputs of fields with and without one. */
+.tp-field-head {
+  height: 1.5rem;
+}
+
+/* neo-button[size=sm] sets padding with a selector that outranks a class. */
+neo-button.tp-info,
+neo-button.tp-copy {
+  --neo-icon-size: 1rem;
+  padding: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--muted);
+}
+
+.tp-popover {
+  max-width: 20rem;
+  font-size: 0.875rem;
+}
+
+.tp-popover > * {
+  margin: 0;
+}
+
+.tp-popover > * + * {
+  margin-top: 0.5rem;
+}
+
+.tp-popover ul {
+  padding-left: 1.25rem;
+}
+
+.tp-popover li + li {
+  margin-top: 0.5rem;
+}
+
+.tp-unit {
+  padding: 0 0.5rem;
+  /* --muted reaches 4.35:1 on the tinted addon in the light scheme. */
+  color: color-mix(in oklab, var(--muted) 75%, var(--page-fg));
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}

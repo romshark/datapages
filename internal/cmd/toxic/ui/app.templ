@@ -1,0 +1,1204 @@
+package ui
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/romshark/morpheus/neo"
+
+	"github.com/romshark/datapages/internal/cmd/toxic"
+	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/action"
+	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/assets"
+	"github.com/romshark/datapages/internal/cmd/toxic/ui/datapagesgen/href"
+)
+
+// head applies the saved color scheme and loads the Morpheus bundle.
+// Datapages writes the Datastar script before it.
+templ head(info toxic.Info) {
+	@themeScript()
+	@lostScript()
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>{ info.AppName } - Toxiproxy</title>
+	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
+	<link rel="stylesheet" href={ assets.Path("morpheus/morpheus.min.css") }/>
+	<link rel="stylesheet" href={ assets.Path("morpheus/theme-default.css") }/>
+	<link rel="stylesheet" href={ assets.Path("ui.css") }/>
+	<script type="module" src={ assets.Path("morpheus/morpheus.min.js") }></script>
+}
+
+// themeScript applies the stored color scheme before the first paint. Morpheus reads
+// light or dark from the root class and follows the OS when neither is set.
+templ themeScript() {
+	<script>
+		window.tpTheme = {
+			key: "tp-theme",
+			mode() {
+				try {
+					return localStorage.getItem(this.key) || "system"
+				} catch {
+					return "system"
+				}
+			},
+			set(mode) {
+				try {
+					if (mode === "system") localStorage.removeItem(this.key)
+					else localStorage.setItem(this.key, mode)
+				} catch {}
+				this.apply(mode)
+			},
+			apply(mode) {
+				const c = document.documentElement.classList
+				c.toggle("light", mode === "light")
+				c.toggle("dark", mode === "dark")
+			},
+		}
+		tpTheme.apply(tpTheme.mode())
+	</script>
+}
+
+// lostScript shows #tp-lost and makes the regions inert while the stream of
+// the page reconnects, as when datapages watch stops. Datastar reports each
+// reconnect of the stream as a retrying fetch of the template Datapages opens
+// the stream from, the last child of the body. Datastar reports no successful
+// reconnect, and data-indicator stays on while the stream retries. The render
+// of the reconnected stream morphs the regions back, which hides #tp-lost.
+templ lostScript() {
+	<script>
+		document.addEventListener("datastar-fetch", (e) => {
+			const el = e.detail.el
+			if (e.detail.type !== "retrying" || el.tagName !== "TEMPLATE" || el.parentElement !== document.body) return
+			for (const id of ["tp-top", "tp-sidebar", "tp-main"]) {
+				document.getElementById(id)?.setAttribute("inert", "")
+			}
+			const lost = document.getElementById("tp-lost")
+			lost.hidden = false
+			lost.focus()
+		})
+	</script>
+}
+
+// lost covers the page while its stream reconnects. See [lostScript].
+templ lost() {
+	<div
+		id="tp-lost"
+		class="tp-lost"
+		role="alertdialog"
+		aria-modal="true"
+		aria-labelledby="tp-lost-title"
+		aria-describedby="tp-lost-text"
+		tabindex="-1"
+		hidden
+	>
+		<div class="tp-lost-box">
+			@neo.Icon("wifi-off")
+			<h2 id="tp-lost-title">Connection lost</h2>
+			<p id="tp-lost-text">Reconnecting to datapages watch. The page resumes once watch runs again.</p>
+		</div>
+	</div>
+}
+
+// app declares the signals shared by its controls. mode, value and unit edit a
+// toxic. preset selects a preset. name and from define a new preset.
+templ app(d pageData) {
+	<div
+		class="tp-app"
+		data-signals__ifmissing="{mode: '', value: '', unit: '', preset: '', name: '', from: ''}"
+	>
+		@top(d)
+		@neo.LayoutAttrs(neo.LayoutOpts{
+			Gap:        neo.Set(neo.GapLg),
+			AlignItems: neo.Set(neo.AlignItemsFlexStart),
+		}, templ.Attributes{"class": "tp-body"}) {
+			// 18rem keeps the panel's kind toggles on 1 row.
+			// The handle has no grip. ui.css draws it as a divider.
+			@neo.ResizableAttrs(neo.ResizableOpts[float64]{
+				Handles:     neo.Set(neo.ResizableRight),
+				Width:       neo.Set("20rem"),
+				MinWidth:    neo.Set("18rem"),
+				MaxWidth:    neo.Set("36rem"),
+				HandleIcons: map[string]templ.Component{"right": templ.NopComponent},
+			}, templ.Attributes{"class": "tp-sidebar-size"}) {
+				@nav(d)
+			}
+			@editor(d)
+		}
+		@neo.ToasterAttrs(neo.ToasterOpts{}, templ.Attributes{"id": "tp-toaster"})
+		@lost()
+	</div>
+}
+
+// regions are the elements a render morphs by ID. It excludes the resizable
+// sidebar wrapper and toaster to preserve the backdrop, width and toasts.
+// Morphing #tp-lost hides it once a reconnected stream renders.
+templ regions(d pageData) {
+	@top(d)
+	@nav(d)
+	@editor(d)
+	@lost()
+}
+
+// top is the header.
+templ top(d pageData) {
+	<div id="tp-top" class="tp-top">
+		<header class="tp-header">
+			@neo.Layout(neo.LayoutOpts{
+				Wrap:           neo.Set(neo.Wrap),
+				AlignItems:     neo.Set(neo.AlignItemsCenter),
+				JustifyContent: neo.Set(neo.JustifyContentSpaceBetween),
+				Gap:            neo.Set(neo.GapMd),
+			}) {
+				@neo.Layout(neo.LayoutOpts{
+					AlignItems: neo.Set(neo.AlignItemsCenter),
+					Gap:        neo.Set(neo.GapSm),
+				}) {
+					@menuButton("tp-menu")
+					<h1>
+						@neo.ButtonAttrs(neo.ButtonOpts{
+							Variant: neo.Set(neo.ButtonVariantGhost)},
+							templ.Attributes{
+								"class":         "tp-about",
+								"aria-haspopup": "dialog",
+								"aria-controls": "tp-about",
+								"data-on:click": "document.getElementById('tp-about').show()",
+							}) {
+							@neo.IconAttrs("datapages", templ.Attributes{
+								"class":      "tp-logo",
+								"role":       "img",
+								"aria-label": "Datapages",
+							})
+							{ d.info.AppName }
+						}
+					</h1>
+				}
+				@neo.Layout(neo.LayoutOpts{
+					Wrap: neo.Set(neo.Wrap), Gap: neo.Set(neo.GapSm)}) {
+					@addressLink(d.info.URL, d.info.Host, "toxic",
+						neo.LinkVariantButtonSecondary)
+					@addressLink(d.info.UpstreamURL, d.info.Upstream, "non-toxic",
+						neo.LinkVariantButtonSecondary)
+				}
+				@neo.Layout(neo.LayoutOpts{
+					Wrap:       neo.Set(neo.Wrap),
+					AlignItems: neo.Set(neo.AlignItemsCenter),
+					Gap:        neo.Set(neo.GapSm),
+				}) {
+					@presetPicker(d)
+					@neo.ButtonAttrs(neo.ButtonOpts{}, templ.Attributes{
+						"data-on:click": reloadClick(d.saved),
+						"title":         "Discard page changes and reload config",
+					}) {
+						Reload config
+					}
+					// Disabled while the file holds the settings.
+					@neo.ButtonAttrs(neo.ButtonOpts{
+						Variant:  neo.Set(neo.ButtonVariantPrimary),
+						Disabled: neo.Set(d.saved),
+					}, templ.Attributes{
+						"data-on:click": saveClick(d.activePreset),
+						"title": "Save presets to " +
+							d.info.ConfigFile,
+					}) {
+						Save to config
+					}
+				}
+			}
+		</header>
+		@presetDialogs(d)
+		@reloadDialog(d.info.ConfigFile)
+		@clearDialog(d.info.ConfigFile)
+		@discardDialog()
+		@aboutDialog(d.info)
+	</div>
+}
+
+// menuButton opens the sidebar panel.
+templ menuButton(class string) {
+	@neo.ButtonAttrs(neo.ButtonOpts{Variant: neo.Set(neo.ButtonVariantGhost)},
+		templ.Attributes{
+			"class":         class,
+			"aria-label":    "Show endpoints",
+			"aria-controls": "tp-sidebar",
+			"data-on:click": "document.getElementById('tp-sidebar').show()",
+		}) {
+		@neo.Icon("menu")
+	}
+}
+
+// reloadDialog confirms a reload that discards unsaved settings. Script opens it.
+templ reloadDialog(file string) {
+	@confirmDialog("tp-reload", "Discard unsaved changes?", "Discard and reload",
+		action.PageIndex.Reload.POST()) {
+		This discards changes not saved to <code>{ file }</code>.
+	}
+}
+
+// clearDialog confirms clearing the overrides of the endpoint the tab shows.
+// Script opens it. The text names no endpoint, since morphs skip the dialog.
+templ clearDialog(file string) {
+	@confirmDialog("tp-clear", "Clear overrides?", "Clear overrides",
+		action.PageIndex.Clear.POST()) {
+		The endpoint will inherit global toxics.
+		This discards overrides not saved to <code>{ file }</code>.
+	}
+}
+
+// aboutDialog lists the addresses, the configuration file and the versions,
+// and picks the color scheme. The title opens it. neo-dialog requires the
+// hidden trigger. Morphs skip the dialog, which keeps it open and keeps the
+// theme the select shows.
+templ aboutDialog(info toxic.Info) {
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
+		"id":                "tp-about",
+		"data-ignore-morph": true,
+	}) {
+		<span hidden { neo.DialogTrigger()... }></span>
+		<dialog id="tp-about-dialog">
+			@neo.DialogHeader() {
+				@neo.DialogTitle() {
+					{ info.AppName } - Toxiproxy
+				}
+			}
+			@neo.DialogBody() {
+				<dl class="tp-about-list">
+					<dt>Toxic</dt>
+					<dd>
+						@aboutValue() {
+							@externalLink(info.URL, info.Host)
+							@infoButton("About the toxic address") {
+								<p>The app through these toxics.</p>
+							}
+						}
+					</dd>
+					<dt>Non-toxic</dt>
+					<dd>
+						@aboutValue() {
+							@externalLink(info.UpstreamURL, info.Upstream)
+							@infoButton("About the non-toxic address") {
+								<p>The app without toxics, from the dev server.</p>
+							}
+						}
+					</dd>
+					<dt>Config</dt>
+					<dd>
+						@aboutValue() {
+							<code>{ info.ConfigFile }</code>
+							if info.ConfigPath != "" {
+								@copyButton(info.ConfigPath,
+									"Copy path to "+info.ConfigFile)
+							}
+						}
+					</dd>
+					<dt>Datapages</dt>
+					<dd>{ orUnknown(info.Version) }</dd>
+					<dt>Toxiproxy</dt>
+					<dd>
+						@aboutValue() {
+							{ orUnknown(info.ToxiproxyVersion) }
+							@neo.LinkAttrs(neo.LinkOpts{
+								Href: neo.Set(href.External(
+									"https://github.com/Shopify/toxiproxy",
+								)),
+								Target: neo.Set("_blank"),
+								Rel:    neo.Set("noopener"),
+							}, templ.Attributes{
+								"class":      "tp-repo",
+								"aria-label": "Toxiproxy on GitHub",
+								"title":      "Toxiproxy on GitHub",
+							}) {
+								@neo.IconAttrs("github",
+									templ.Attributes{"aria-hidden": "true"})
+							}
+						}
+					</dd>
+					<dt>Theme</dt>
+					<dd>
+						@themeSelect()
+					</dd>
+				</dl>
+			}
+			@neo.DialogFooter() {
+				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+					Close
+				}
+			}
+		</dialog>
+	}
+}
+
+// themeSelect reads the stored mode on init because the server cannot read localStorage.
+// It sets the attribute because a pre-upgrade property would hide neo-select's setter.
+templ themeSelect() {
+	@neo.SelectAttrs(neo.SelectOpts{
+		Value:     neo.Set("system"),
+		Size:      neo.Set("sm"),
+		AriaLabel: neo.Set("Theme"),
+	}, templ.Attributes{
+		"id":                        "tp-theme",
+		"data-init":                 "el.setAttribute('value', tpTheme.mode())",
+		"data-on:neo-select-change": "tpTheme.set(evt.detail.value)",
+	}) {
+		@neo.Option(neo.OptionOpts{Value: neo.Set("system")}) {
+			System
+		}
+		@neo.Option(neo.OptionOpts{Value: neo.Set("light")}) {
+			Light
+		}
+		@neo.Option(neo.OptionOpts{Value: neo.Set("dark")}) {
+			Dark
+		}
+	}
+}
+
+// aboutValue is a value of the about dialog and the buttons and links after it.
+templ aboutValue() {
+	@neo.Layout(neo.LayoutOpts{
+		AlignItems: neo.Set(neo.AlignItemsCenter),
+		Gap:        neo.Set(neo.GapSm),
+	}) {
+		{ children... }
+	}
+}
+
+// copyButton is an icon button that copies value
+// and shows a check mark for a moment after.
+templ copyButton(value, ariaLabel string) {
+	@neo.Clipcopy(neo.ClipcopyOpts{Value: neo.Set(value)}) {
+		@neo.ButtonAttrs(neo.ButtonOpts{
+			Variant: neo.Set(neo.ButtonVariantGhost),
+			Size:    neo.Set("sm"),
+		}, templ.Attributes{
+			"class":      "tp-copy",
+			"aria-label": ariaLabel,
+			"title":      ariaLabel,
+		}) {
+			@neo.ClipcopyIdle() {
+				@neo.IconAttrs("clipboard", templ.Attributes{"aria-hidden": "true"})
+			}
+			@neo.ClipcopyCopied() {
+				@neo.IconAttrs("check", templ.Attributes{"aria-hidden": "true"})
+			}
+		}
+	}
+}
+
+// externalLink opens url in a new tab and shows addr.
+templ externalLink(url, addr string) {
+	@neo.LinkAttrs(neo.LinkOpts{
+		Href:   neo.Set(href.External(url)),
+		Target: neo.Set("_blank"),
+		Rel:    neo.Set("noopener"),
+	}, templ.Attributes{"class": "tp-external"}) {
+		<code>{ addr }</code>
+		@neo.IconAttrs("external-link", templ.Attributes{"aria-hidden": "true"})
+	}
+}
+
+// discardDialog confirms picking the preset of the preset signal,
+// which discards toxics no preset holds. The picker opens it.
+templ discardDialog() {
+	@confirmDialog("tp-discard", "Discard unsaved toxics?", "Discard",
+		action.PageIndex.ApplyPreset.POST()) {
+		This discards toxics not saved as a preset.
+	}
+}
+
+// confirmDialog asks before act. The children describe what the action loses.
+// The hidden trigger satisfies neo-dialog. Morphs skip the open dialog.
+templ confirmDialog(id, title, confirm, act string) {
+	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{
+		"id":                id,
+		"data-ignore-morph": true,
+	}) {
+		<span hidden { neo.DialogTrigger()... }></span>
+		<dialog id={ id + "-dialog" }>
+			@neo.DialogHeader() {
+				@neo.DialogTitleAttrs(templ.Attributes{"class": "tp-dialog-warning"}) {
+					@neo.Layout(neo.LayoutOpts{
+						AlignItems: neo.Set(neo.AlignItemsCenter),
+						Gap:        neo.Set(neo.GapSm),
+					}) {
+						@neo.IconAttrs("triangle-alert",
+							templ.Attributes{"aria-hidden": "true"})
+						{ title }
+					}
+				}
+				@neo.DialogDescription() {
+					{ children... }
+				}
+			}
+			@neo.DialogFooter() {
+				@neo.ButtonAttrs(neo.ButtonOpts{}, neo.DialogClose()) {
+					Cancel
+				}
+				@neo.ButtonAttrs(neo.ButtonOpts{
+					Variant: neo.Set(neo.ButtonVariantDanger)},
+					withAttrs(neo.DialogClose(),
+						templ.Attributes{"data-on:click": act})) {
+					{ confirm }
+				}
+			}
+		</dialog>
+	}
+}
+
+templ toast(n notice) {
+	@neo.Toast(toastOpts(n)) {
+		<span slot="title">{ n.title }</span>
+		<span slot="description">{ n.text }</span>
+	}
+}
+
+templ editor(d pageData) {
+	<main
+		id="tp-main"
+		class="tp-main"
+		{ neo.Item(neo.ItemOpts{Grow: neo.Set(true), MinWidth0: neo.Set(true)})... }
+	>
+		@scopeHeader(d)
+		<div class="tp-cards">
+			for _, t := range d.types {
+				@typeCard(d, t)
+			}
+		</div>
+	</main>
+}
+
+// nav shows endpoints as a column on wide pages and a panel on narrow pages.
+// Its 48rem body breakpoint matches the 50rem viewport breakpoint after padding.
+templ nav(d pageData) {
+	@neo.SidebarAttrs(neo.SidebarOpts{
+		AriaLabel:         neo.Set("Endpoints"),
+		OverlayBreakpoint: neo.Set("48rem"),
+	}, templ.Attributes{"id": "tp-sidebar", "class": "tp-sidebar"}) {
+		<nav class="tp-nav" aria-label="Endpoints" { neo.SidebarContent()... }>
+			@neo.Layout(neo.LayoutOpts{
+				Direction: neo.Set(neo.Column),
+				Gap:       neo.Set(neo.GapXs),
+			}) {
+				@navLink(d.filter, d.scope == "", "") {
+					@navTitle() {
+						Global
+					}
+					<span class="tp-muted tp-small">
+						All endpoints without overrides
+					</span>
+				}
+				@navFilter(d.filter)
+				@neo.Layout(neo.LayoutOpts{
+					Direction: neo.Set(neo.Column),
+					Gap:       neo.Set(neo.GapXs),
+				}) {
+					for _, e := range d.endpoints {
+						@navEntry(d.filter, e, false)
+					}
+					if len(d.unknown) > 0 {
+						<h2 class="tp-nav-heading">Unknown endpoints</h2>
+						for _, e := range d.unknown {
+							@navEntry(d.filter, e, true)
+						}
+					}
+					if len(d.endpoints) == 0 && len(d.unknown) == 0 {
+						<p class="tp-muted tp-small">
+							if d.hidden > 0 {
+								No endpoints match.
+							} else {
+								No endpoints. Compile the app to load them.
+							}
+						</p>
+					}
+				}
+			}
+		</nav>
+	}
+}
+
+// navLink links a scope with its current filter. A plain click uses POSTShow to
+// preserve the search field and close the panel. Other clicks follow the link.
+templ navLink(f filter, selected bool, key string) {
+	<a
+		href={ href.PageIndex(href.QueryPageIndex{
+			Endpoint: key,
+			Search:   f.search,
+			Kinds:    f.kinds,
+		}) }
+		class="tp-nav-item"
+		if selected {
+			aria-current="page"
+		}
+		data-on:click={ action.PageIndex.Show.POST(
+			action.PageIndex.Show.POSTQuery(key),
+			action.WithBefore("if (evt.button !== 0 || evt.metaKey || evt.ctrlKey || "+
+				"evt.shiftKey || evt.altKey) return; evt.preventDefault(); "+
+				"el.closest('neo-sidebar:state(overlay)')?.hide()"),
+		) }
+	>
+		{ children... }
+	</a>
+}
+
+// navFilter searches endpoints and filters their kinds. neo-textinput ignores
+// patches while focused, which keeps a render from undoing typed text.
+templ navFilter(f filter) {
+	@neo.LayoutAttrs(neo.LayoutOpts{
+		Direction: neo.Set(neo.Column),
+		Gap:       neo.Set(neo.GapSm),
+	}, templ.Attributes{"class": "tp-nav-filter"}) {
+		<h2 class="tp-nav-heading">Endpoints</h2>
+		@neo.InputGroup() {
+			@neo.Icon("search")
+			@neo.TextInputAttrs(neo.TextInputOpts{
+				Type:        neo.Set(neo.TextInputTypeSearch),
+				Placeholder: neo.Set("Search"),
+				Size:        neo.Set("sm"),
+				Value:       neo.Set(f.search),
+			}, templ.Attributes{
+				// Not data-bind, because Datastar runs before
+				// Morpheus defines the element.
+				"data-on:input__debounce.150ms": action.PageIndex.Filter.POST(
+					action.WithBefore("$search = el.value")),
+				"aria-label": "Search endpoints",
+			})
+		}
+		@neo.ToggleGroupAttrs(neo.ToggleGroupOpts{
+			Value:     neo.Set(f.pressedKinds()),
+			AriaLabel: neo.Set("Endpoint kinds"),
+		}, templ.Attributes{
+			// An empty kinds signal is every kind, which leaves 'none' for no kind.
+			"data-on:neo-toggle-group-change": action.PageIndex.Filter.POST(
+				action.WithBefore("$kinds = evt.detail.values.join('-') || 'none'")),
+		}) {
+			for _, k := range kinds {
+				// Primary, because the default variant marks pressed with an
+				// 18% tint at 1.5:1.
+				@neo.ToggleAttrs(neo.ToggleOpts{
+					Pressed: neo.Set(f.showsKind(k)),
+					Size:    neo.Set("sm"),
+					Value:   neo.Set(k),
+					Variant: neo.Set(neo.ToggleVariantPrimary),
+				}, templ.Attributes{"title": kindInfos[k].title}) {
+					{ kindInfos[k].label }
+				}
+			}
+		}
+	}
+}
+
+// addressLink opens url in a new tab. It stays an anchor,
+// which keeps middle-click and copying the link working.
+templ addressLink(url, addr, label string, variant neo.LinkVariant) {
+	@neo.LinkAttrs(neo.LinkOpts{
+		Href:    neo.Set(href.External(url)),
+		Target:  neo.Set("_blank"),
+		Rel:     neo.Set("noopener"),
+		Variant: neo.Set(variant),
+	}, templ.Attributes{"class": "tp-address"}) {
+		{ label }
+		<code>{ addr }</code>
+		@neo.IconAttrs("external-link", templ.Attributes{"aria-hidden": "true"})
+	}
+}
+
+// routePath shows a route path with its wildcards and {$} colored.
+templ routePath(path string) {
+	for _, p := range pathParts(path) {
+		if p.class == "" {
+			{ p.text }
+		} else {
+			<span class={ p.class }>{ p.text }</span>
+		}
+	}
+}
+
+templ navEntry(f filter, e navItem, unknown bool) {
+	@navLink(f, e.selected, e.key()) {
+		@navTitle() {
+			<span class="tp-method">{ method(e.pattern) }</span>
+			<code class="tp-path">
+				@routePath(path(e.pattern))
+			</code>
+			if e.overrides > 0 {
+				@neo.BadgeAttrs(neo.BadgeOpts{Variant: neo.Set(badgeVariant(unknown))},
+					templ.Attributes{"title": strconv.Itoa(e.overrides) + " overrides"}) {
+					{ strconv.Itoa(e.overrides) }
+				}
+			}
+		}
+		if e.name != "" {
+			@neo.LayoutAttrs(neo.LayoutOpts{
+				AlignItems: neo.Set(neo.AlignItemsCenter),
+				Gap:        neo.Set(neo.GapSm),
+			}, withAttrs(neo.Item(neo.ItemOpts{MinWidth0: neo.Set(true)}),
+				templ.Attributes{"class": "tp-muted tp-small"})) {
+				@kindIcon(e.kind)
+				{ e.name }
+			}
+		}
+	}
+}
+
+// navTitle is the first line of an entry of the endpoint list.
+templ navTitle() {
+	@neo.LayoutAttrs(neo.LayoutOpts{
+		AlignItems: neo.Set(neo.AlignItemsCenter),
+		Gap:        neo.Set(neo.GapSm),
+	}, withAttrs(neo.Item(neo.ItemOpts{MinWidth0: neo.Set(true)}),
+		templ.Attributes{"class": "tp-nav-title"})) {
+		{ children... }
+	}
+}
+
+// scopeHeader names the selected toxic scope. Help stays behind an info button
+// to keep the sticky header short.
+templ scopeHeader(d pageData) {
+	<section class="tp-scope">
+		<div class="tp-scope-bar">
+			@neo.LayoutAttrs(neo.LayoutOpts{
+				Wrap:           neo.Set(neo.Wrap),
+				AlignItems:     neo.Set(neo.AlignItemsCenter),
+				JustifyContent: neo.Set(neo.JustifyContentSpaceBetween),
+				Gap:            neo.Set(neo.GapSm),
+			}, templ.Attributes{"class": "tp-scope-head"}) {
+				// The scope name and its info button.
+				@neo.LayoutAttrs(neo.LayoutOpts{
+					AlignItems: neo.Set(neo.AlignItemsCenter),
+					Gap:        neo.Set(neo.GapXs),
+				}, neo.Item(neo.ItemOpts{MinWidth0: neo.Set(true)})) {
+					@menuButton("tp-menu tp-scope-menu")
+					if d.scope == "" {
+						<h2>Global toxics</h2>
+					} else {
+						<h2
+							class="tp-scope-title"
+							{ neo.Item(neo.ItemOpts{MinWidth0: neo.Set(true)})... }
+						>
+							@neo.Layout(neo.LayoutOpts{
+								AlignItems: neo.Set(neo.AlignItemsCenter),
+								Gap:        neo.Set(neo.GapSm),
+							}) {
+								@kindIcon(d.scopeKind)
+								<code>
+									<span class="tp-route-method">
+										{ method(d.scope) }
+									</span>{ " " }
+									@routePath(path(d.scope))
+								</code>
+							}
+						</h2>
+					}
+					if d.scope == "" {
+						@infoButton("About these toxics") {
+							<p>
+								Every request uses these toxics
+								unless its endpoint overrides them.
+								Each request uses a separate connection.
+							</p>
+						}
+					} else if d.scopeEndpoint.Pattern != "" {
+						@infoButton("About these toxics") {
+							<p>Served by <code>{ d.scopeEndpoint.Name() }</code>.</p>
+						}
+					}
+				}
+				if d.scope != "" && d.scopeOverrides > 0 {
+					@neo.ButtonAttrs(neo.ButtonOpts{
+						Variant: neo.Set(neo.ButtonVariantGhost)},
+						templ.Attributes{
+							"data-on:click": "document.getElementById('tp-clear').show()",
+						}) {
+						Clear overrides
+					}
+				}
+			}
+			if d.scope != "" && d.scopeEndpoint.Pattern == "" {
+				<p class="tp-error">No app endpoint has this pattern.</p>
+			}
+		</div>
+	</section>
+}
+
+templ typeCard(d pageData, t typeView) {
+	@neo.CardAttrs(neo.CardOpts{Variant: neo.Set(neo.CardVariant("outline"))},
+		templ.Attributes{"class": "tp-card"}) {
+		@neo.CardHeader() {
+			// Outside the title, an h3, which allows only phrasing content.
+			@neo.LayoutAttrs(neo.LayoutOpts{
+				AlignItems: neo.Set(neo.AlignItemsCenter),
+				Gap:        neo.Set(neo.GapXs),
+			}, templ.Attributes{"class": "tp-card-head"}) {
+				@neo.CardTitle() {
+					{ t.info.Title }
+				}
+				@infoButton("About " + strings.ToLower(t.info.Title)) {
+					<p>{ t.info.Doc }</p>
+					switch t.typ {
+						case toxic.ClientBandwidth:
+							@clientBandwidthStreams()
+						case toxic.ServerBandwidth:
+							@serverBandwidthStreams()
+						case toxic.DataCap:
+							@dataCapStreams()
+						case toxic.HTTPError:
+							@httpErrorStreams()
+					}
+				}
+				if t.typ == toxic.DataCap {
+					@neo.ButtonAttrs(neo.ButtonOpts{
+						Variant: neo.Set(neo.ButtonVariantGhost),
+						Size:    neo.Set("sm"),
+					}, templ.Attributes{
+						"class":         "tp-card-action",
+						"title":         "Reset per-client data-cap usage",
+						"data-on:click": action.PageIndex.ResetDataCaps.POST(),
+					}) {
+						Reset
+					}
+				}
+			}
+		}
+		@neo.CardBody() {
+			for _, r := range t.rows {
+				@row(d, t.info, r)
+			}
+		}
+	}
+}
+
+// row shows the toxic of 1 slot.
+templ row(d pageData, info toxic.TypeInfo, r rowView) {
+	<div class="tp-row" id={ "tp-" + r.slot.Name() }>
+		@neo.Layout(neo.LayoutOpts{
+			Wrap:           neo.Set(neo.Wrap),
+			AlignItems:     neo.Set(neo.AlignItemsCenter),
+			JustifyContent: neo.Set(neo.JustifyContentSpaceBetween),
+			Gap:            neo.Set(neo.GapSm),
+		}) {
+			@neo.LayoutAttrs(neo.LayoutOpts{
+				Inline:     neo.Set(true),
+				AlignItems: neo.Set(neo.AlignItemsCenter),
+				Gap:        neo.Set(neo.GapSm),
+			}, templ.Attributes{"class": "tp-stream"}) {
+				@neo.IconAttrs(streamIcon(r.slot.Stream),
+					templ.Attributes{"aria-hidden": "true"})
+				{ streamLabel(r.slot.Stream) }
+			}
+			if r.isGlobal {
+				@neo.SwitchAttrs(neo.SwitchOpts{
+					Checked:   neo.Set(r.mode == modeOn),
+					AriaLabel: neo.Set(info.Title + " " + streamLabel(r.slot.Stream)),
+				}, templ.Attributes{
+					"data-on:neo-switch-change": action.PageIndex.Mode.POST(
+						action.PageIndex.Mode.POSTQuery(r.slot),
+						action.WithBefore("$mode = evt.detail.checked ? 'on' : 'off'"),
+					),
+				})
+			} else {
+				@neo.ButtonGroupAttrs(neo.ButtonGroupOpts{
+					Value:     neo.Set(r.mode),
+					AriaLabel: neo.Set(info.Title + " " + streamLabel(r.slot.Stream)),
+				}, templ.Attributes{
+					"role": "radiogroup",
+					"data-on:neo-buttongroup-change": action.PageIndex.Mode.POST(
+						action.PageIndex.Mode.POSTQuery(r.slot),
+						action.WithBefore("$mode = evt.detail.value"),
+					),
+				}) {
+					@segment(modeInherit, "Global", r.mode)
+					@segment(modeOff, "Off", r.mode)
+					@segment(modeOn, "On", r.mode)
+				}
+			}
+		}
+		switch r.mode {
+			case modeOn:
+				@fields(d, info, r.slot, r.toxic, r.units, false)
+			case modeInherit:
+				if r.global.Disabled {
+					<p class="tp-muted tp-small">Global: off</p>
+				} else {
+					@fields(d, info, r.slot, r.global, r.units, true)
+				}
+		}
+		if r.err != "" {
+			<p class="tp-error" role="alert">{ r.err }</p>
+		}
+	</div>
+}
+
+// segment is 1 button of the mode group with the radio state the group sets on upgrade.
+// neo-buttongroup does not set it again after a morph strips it without a value change,
+// as on the group the user just clicked.
+// It avoids [neo.ButtonAttrs], whose role="button" and tabindex come first and win.
+templ segment(value, label, mode string) {
+	<neo-button
+		role="radio"
+		size="sm"
+		value={ value }
+		aria-checked={ strconv.FormatBool(value == mode) }
+		if value == mode {
+			tabindex="0"
+		} else {
+			tabindex="-1"
+		}
+	>
+		{ label }
+	</neo-button>
+}
+
+// field lays out the head and the input of a field.
+templ field(attrs templ.Attributes) {
+	@neo.LayoutAttrs(neo.LayoutOpts{
+		Direction: neo.Set(neo.Column),
+		Gap:       neo.Set(neo.GapXs),
+	}, attrs) {
+		{ children... }
+	}
+}
+
+// fieldHead is the label of a field and its info button.
+templ fieldHead() {
+	@neo.LayoutAttrs(neo.LayoutOpts{
+		AlignItems: neo.Set(neo.AlignItemsCenter),
+		Gap:        neo.Set(neo.GapXs),
+	}, templ.Attributes{"class": "tp-field-head"}) {
+		{ children... }
+	}
+}
+
+// fields shows the values of x, the byte fields in units,
+// disabled for the global toxic an endpoint inherits.
+templ fields(
+	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic,
+	units [toxic.MaxFields]valueUnit, disabled bool,
+) {
+	@neo.LayoutAttrs(neo.LayoutOpts{
+		Wrap: neo.Set(neo.Wrap),
+		Gap:  neo.Set(neo.GapMd),
+	}, templ.Attributes{"class": "tp-fields"}) {
+		for i, f := range info.Fields {
+			switch f.Unit {
+				case toxic.UnitStatus:
+					@statusField(slot, f, x.Values[i], disabled)
+				case toxic.UnitBytes, toxic.UnitBps:
+					@unitField(slot, f, x.Values[i], units[i], fieldInfo(slot.Type, f), disabled)
+				case toxic.UnitChoice:
+					@choiceField(slot, f, x.Values[i], fieldInfo(slot.Type, f), disabled)
+				default:
+					@numberField(f.Label, setValue(slot, f.Key, ""),
+						strconv.FormatInt(x.Values[i], 10), f.Unit.String(), f.Min,
+						fieldInfo(slot.Type, f), disabled)
+			}
+		}
+		@toxicityField(slot, x, d.info.ConfigFile, disabled)
+	}
+}
+
+// numberField is a number input with its label and unit that runs change on change.
+// A non-nil info renders next to the label. The label is a <span>
+// because a click on the info button inside a <label> would focus the input.
+templ numberField(
+	label, change, value, unit string, min int64, info templ.Component, disabled bool,
+) {
+	@field(templ.Attributes{"class": "tp-field"}) {
+		@fieldHead() {
+			<span class="tp-small">{ label }</span>
+			if info != nil {
+				@info
+			}
+		}
+		@neo.InputGroup() {
+			@neo.TextInputAttrs(neo.TextInputOpts{
+				Value:     neo.Set(value),
+				Type:      neo.Set(neo.TextInputType("number")),
+				Inputmode: neo.Set(neo.TextInputInputmodeNumeric),
+				Size:      neo.Set("sm"),
+				Disabled:  formDisabled(disabled),
+			}, templ.Attributes{
+				"min":            strconv.FormatInt(min, 10),
+				"step":           "1",
+				"aria-label":     label,
+				"data-on:change": change,
+			})
+			<span class="tp-unit">{ unit }</span>
+		}
+	}
+}
+
+// unitField is a number input of the value of the byte or rate field f with
+// a select of the unit u it shows the value in. Picking a unit converts the
+// number. B and B/s take a whole number, the other units a fraction too.
+// A non-nil info renders next to the label.
+templ unitField(
+	slot toxic.Slot, f toxic.Field, value int64, u valueUnit, info templ.Component,
+	disabled bool,
+) {
+	@field(templ.Attributes{"class": "tp-field tp-field-unit"}) {
+		@fieldHead() {
+			<span class="tp-small">{ f.Label }</span>
+			if info != nil {
+				@info
+			}
+		}
+		@neo.InputGroup() {
+			@neo.TextInputAttrs(neo.TextInputOpts{
+				Value:     neo.Set(u.format(value)),
+				Type:      neo.Set(neo.TextInputType("number")),
+				Inputmode: neo.Set(u.inputmode()),
+				Size:      neo.Set("sm"),
+				Disabled:  formDisabled(disabled),
+			}, templ.Attributes{
+				"min":            u.format(f.Min),
+				"step":           u.step(),
+				"aria-label":     f.Label,
+				"data-on:change": setValue(slot, f.Key, u.name),
+			})
+			@neo.SelectAttrs(neo.SelectOpts{
+				Value:     neo.Set(u.name),
+				Size:      neo.Set("sm"),
+				AriaLabel: neo.Set(f.Label + " unit"),
+				Disabled:  formDisabled(disabled),
+			}, templ.Attributes{
+				"data-on:neo-select-change": setUnit(slot, f.Key),
+			}) {
+				for _, o := range unitsOf(f.Unit) {
+					@neo.Option(neo.OptionOpts{Value: neo.Set(o.name)}) {
+						{ o.name }
+					}
+				}
+			}
+		}
+	}
+}
+
+// choiceField selects and posts a configured field choice.
+templ choiceField(
+	slot toxic.Slot, f toxic.Field, value int64, info templ.Component, disabled bool,
+) {
+	@field(templ.Attributes{"class": "tp-field tp-field-choice"}) {
+		@fieldHead() {
+			<span class="tp-small">{ f.Label }</span>
+			if info != nil {
+				@info
+			}
+		}
+		// The input group gives it the height and font of the other fields.
+		@neo.InputGroup() {
+			@neo.SelectAttrs(neo.SelectOpts{
+				Value:     neo.Set(f.Choices[value]),
+				Size:      neo.Set("sm"),
+				AriaLabel: neo.Set(f.Label),
+				Disabled:  formDisabled(disabled),
+			}, templ.Attributes{
+				"data-on:neo-select-change": action.PageIndex.Value.POST(
+					action.PageIndex.Value.POSTQuery(slot, f.Key, ""),
+					action.WithBefore("$value = evt.detail.value")),
+			}) {
+				for _, c := range f.Choices {
+					@neo.Option(neo.OptionOpts{Value: neo.Set(c)}) {
+						{ choiceLabel(c) }
+					}
+				}
+			}
+		}
+	}
+}
+
+// statusField is a combobox of the HTTP statuses of f with value selected.
+// It posts the picked status.
+templ statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) {
+	@field(templ.Attributes{"class": "tp-field tp-field-status"}) {
+		@fieldHead() {
+			<span class="tp-small">{ f.Label }</span>
+		}
+		// The input group gives it the height and font of the other fields.
+		@neo.InputGroup() {
+			@neo.ComboboxAttrs(neo.ComboboxOpts{
+				Value:             neo.Set(strconv.FormatInt(value, 10)),
+				Size:              neo.Set("sm"),
+				AriaLabel:         neo.Set(f.Label),
+				PopoverFitContent: neo.Set(true),
+				Disabled:          formDisabled(disabled),
+			}, templ.Attributes{
+				"data-on:neo-combobox-change": action.PageIndex.Value.POST(
+					action.PageIndex.Value.POSTQuery(slot, f.Key, ""),
+					action.WithBefore("$value = evt.detail.value")),
+			}) {
+				for _, o := range statusOptions(f, value) {
+					@neo.Option(neo.OptionOpts{Value: neo.Set(o.value)}) {
+						{ o.label }
+					}
+				}
+			}
+		}
+	}
+}
+
+// toxicityField is a slider of the share of requests x applies to, in steps of 1%.
+// It posts 50ms after the last move of a drag and on release. The slider shows
+// no label of its own because the field head carries the info button.
+templ toxicityField(slot toxic.Slot, x toxic.Toxic, configFile string, disabled bool) {
+	@field(templ.Attributes{"class": "tp-field tp-field-toxicity"}) {
+		@fieldHead() {
+			<span class="tp-small">Requests affected</span>
+			@toxicityInfo(configFile)
+		}
+		@neo.SliderAttrs(neo.SliderOpts[int]{
+			Min:       neo.Set(0),
+			Max:       neo.Set(100),
+			Step:      neo.Set(1),
+			Value:     neo.Set(toxicityPercent(x)),
+			Unit:      neo.Set("%"),
+			AriaLabel: neo.Set("Requests affected"),
+			Disabled:  neo.Set(disabled),
+		}, templ.Attributes{
+			// neo-slider-input fires on every move of a drag. A keyboard step,
+			// a click and a typed value fire only neo-slider-change.
+			"data-on:neo-slider-input__debounce.50ms": setToxicity(slot),
+			"data-on:neo-slider-change":               setToxicity(slot),
+		})
+	}
+}
+
+// infoButton is an icon button whose popover shows the children.
+// It's ghost because the other variants set a transform,
+// which makes the button the containing block of the fixed popover.
+templ infoButton(ariaLabel string) {
+	@neo.Popover(neo.PopoverOpts{Placement: neo.Set(neo.PlacementTop)}) {
+		@neo.ButtonAttrs(neo.ButtonOpts{
+			Variant: neo.Set(neo.ButtonVariantGhost),
+			Size:    neo.Set("sm"),
+		}, withAttrs(neo.PopoverTrigger(), templ.Attributes{
+			"class":      "tp-info",
+			"aria-label": ariaLabel,
+		})) {
+			@neo.Icon("info")
+		}
+		<div { neo.PopoverContent()... } class="tp-popover">
+			{ children... }
+		</div>
+	}
+}
+
+templ toxicityInfo(configFile string) {
+	@infoButton("About requests affected") {
+		<p>
+			The percentage of requests that get this toxic, chosen at random.
+			At 30%, about 3 in 10 get it.
+		</p>
+		<p>A long-lived stream is chosen once, when it opens.</p>
+		<p>{ configFile } stores it as <code>toxicity</code>, from 0 to 1.</p>
+	}
+}
+
+// clientBandwidthStreams describes client limits in each direction.
+templ clientBandwidthStreams() {
+	<ul>
+		<li>
+			<strong>{ streamLabel(toxic.Downstream) }</strong>: limits data sent to each
+			browser, including pages, assets and page streams.
+		</li>
+		<li>
+			<strong>{ streamLabel(toxic.Upstream) }</strong>: limits data received from
+			each browser, including action signals and uploads.
+		</li>
+	</ul>
+	<p>
+		Use Server bandwidth for a shared limit or Data cap to start limiting after
+		a volume. 1 KB/s equals 1000 B/s.
+	</p>
+}
+
+// serverBandwidthStreams describes shared limits in each direction.
+templ serverBandwidthStreams() {
+	<ul>
+		<li><strong>{ streamLabel(toxic.Downstream) }</strong>: limits data sent to all browsers combined.</li>
+		<li><strong>{ streamLabel(toxic.Upstream) }</strong>: limits data received from all browsers combined.</li>
+	</ul>
+	<p>
+		With Client bandwidth enabled, the lower rate applies. 1 KB/s equals 1000 B/s.
+	</p>
+}
+
+// dataCapStreams describes counted data in each direction.
+templ dataCapStreams() {
+	<ul>
+		<li>
+			<strong>
+				{ streamLabel(toxic.Downstream) }
+			</strong>: counts bytes the browser receives.
+		</li>
+		<li>
+			<strong>
+				{ streamLabel(toxic.Upstream) }
+			</strong>: counts bytes the app receives.
+		</li>
+	</ul>
+	<p>With Client or Server bandwidth enabled, the lowest rate applies.</p>
+}
+
+// perInfo explains how client bandwidth and data-cap volume are shared.
+templ perInfo(t toxic.Type) {
+	@infoButton("How the limit is shared") {
+		<ul>
+			if t == toxic.DataCap {
+				<li>
+					<strong>Client</strong>: all tabs in 1 browser share 1 volume.
+					Reset or changing the toxic restores it.
+				</li>
+				<li><strong>Request</strong>: each request gets the full volume.</li>
+			} else {
+				<li><strong>Client</strong>: all tabs in 1 browser share the rate.</li>
+				<li><strong>Request</strong>: each request gets the full rate.</li>
+			}
+		</ul>
+		<p>
+			The proxy tells browsers apart by the cookie
+			<code>{ toxic.ProfileCookie }</code>.
+		</p>
+	}
+}
+
+// httpErrorStreams explains whether the request reaches the app.
+templ httpErrorStreams() {
+	<ul>
+		<li>
+			<strong>{ streamLabel(toxic.Downstream) }</strong>:
+			the app handles the request,
+			but the browser gets this status instead.
+			Use it to test a retry after the action ran.
+		</li>
+		<li>
+			<strong>{ streamLabel(toxic.Upstream) }</strong>:
+			the proxy returns this status before the request reaches the app.
+		</li>
+	</ul>
+}
+
+// dataCapRateInfo says when the throttled rate of a [toxic.DataCap] toxic applies.
+templ dataCapRateInfo() {
+	@infoButton("About the throttled rate") {
+		<p>
+			Applies once the volume is used up. Until then, the data passes at full
+			speed, or at the Client or Server bandwidth rate when enabled.
+		</p>
+	}
+}
+
+templ jitterInfo() {
+	@infoButton("About jitter") {
+		<p>
+			The maximum random variation added to or subtracted from each chunk's latency.
+		</p>
+		<p>
+			With 100 ms latency and 50 ms jitter, each chunk waits 50 to 150 ms.
+			Chunks keep their order.
+		</p>
+	}
+}
+
+templ kindIcon(kind string) {
+	@neo.IconAttrs(kindInfos[kind].icon, templ.Attributes{
+		"role":       "img",
+		"aria-label": kindInfos[kind].name,
+		"title":      kindInfos[kind].name,
+	})
+}

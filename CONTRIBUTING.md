@@ -1,41 +1,41 @@
 # Contributing to Datapages
 
-Thank you for your interest in contributing to Datapages! This guide will help you get started.
+Contributions are welcome. Report bugs, propose large changes before writing them, and run the project checks before opening a pull request.
 
-## Reporting Bugs
+## Report a bug
 
-If you find a bug, please [open an issue](https://github.com/romshark/datapages/issues) and include:
+[Open an issue](https://github.com/romshark/datapages/issues) with:
 
 - A clear description of the problem.
 - Steps to reproduce the issue.
-- Expected vs. actual behavior.
+- Expected and actual behavior.
 - Go version and OS.
 - Relevant error messages or logs.
 
-## Proposing Changes
+## Propose a change
 
-Before starting work on a new feature or significant change, please [open an issue](https://github.com/romshark/datapages/issues) first to discuss your idea. This helps avoid duplicate effort and ensures your contribution aligns with the project's direction. Bug fixes and small improvements can go straight to a pull request.
+[Open an issue](https://github.com/romshark/datapages/issues) before writing a new feature or large change. The issue confirms the scope before you spend time on the implementation. Bug fixes and small improvements can go straight to a pull request.
 
-## Getting Started
+## Get started
 
 1. Fork the repository and clone your fork.
 2. Create a feature branch from `main`.
 3. Make your changes.
-4. Run `mage test` (this runs linting, formatting checks, and tests).
+4. Run `mage test`, which runs linting, formatting checks and tests.
 5. Commit and push your branch.
 6. Open a pull request against `main`.
 
-For development setup and commands, see [Development](#development) below. For code style, testing conventions and commit message format, see [AGENTS.md](AGENTS.md).
+See [Development](#development) for setup and commands. See [AGENTS.md](AGENTS.md) for code style, test conventions and commit messages.
 
 ## AI
 
-### How AI Is Used in This Project
+### How this project uses AI
 
-The technical design of the Datapages framework is **entirely human-authored**. AI tools were used to generate and review parts of the codebase and documentation, but not to make architectural or design decisions.
+The technical design and architecture of Datapages is authored **by human core contributors**. AI tools are used to write and review parts of the codebase and documentation, but not to make design decisions.
 
-User-facing content and APIs are always reviewed before being published. Internal AI-generated code is reviewed as thoroughly as time constraints allow.
+Core contributors review user-facing content and APIs before publication.
 
-### Contributing with AI
+### Contribute with AI
 
 You may use AI tools for code, tests, documentation and issue research. You don't need to disclose their use. You remain the author and are responsible for everything you submit.
 
@@ -43,7 +43,7 @@ Review and understand your change before opening a pull request.
 
 Start with a problem you found or a change you propose. Explain it in your own words in the issue, pull request and review discussion.
 
-We may close issues and pull requests without review if they appear to contain unreviewed AI output. We may hide comments that appear AI-generated. We don't accept issues or pull requests from automated bots.
+We may close issues and pull requests that appear to contain unreviewed and unpolished AI output. We may hide comments that appear AI-generated. We do not accept issues or pull requests from automated bots.
 
 ## Development
 
@@ -51,7 +51,7 @@ We may close issues and pull requests without review if they appear to contain u
 
 - [Go](https://go.dev/dl/) (see version in `go.mod`)
 - [Mage](https://magefile.org/) (or use `go run github.com/magefile/mage@latest`)
-- A running Docker daemon. `mage test` runs acceptance tests, some of which start a NATS server in a container using testcontainers. Without Docker those tests fail.
+- A running Docker daemon. Some `mage test` tests use testcontainers to start NATS. They fail without Docker.
 
 ### Commands
 
@@ -69,6 +69,7 @@ mage genTempl      # Generate templ templates
 mage genDatapages  # Generate datapages code for all examples
 mage genAISkills   # Generate the AI agent instructions of every example
 mage genDocs       # Generate documentation pages
+mage watchDocs     # Serve the documentation pages and reload them on changes, see DEV.md
 mage checkGen      # Check that all generated code is current
 mage goFix         # Run go fix on all modules
 mage all           # Run fmt, modTidy, genTempl, genDocs, test and vulncheck

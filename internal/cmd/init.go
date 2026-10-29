@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -36,18 +37,28 @@ func newInitCmd(stderr io.Writer, version, modVersion string) *cobra.Command {
 
 By default, init runs interactively and prompts for project settings.
 Use -n/--non-interactive to disable prompts; when a value is needed
-that would normally be prompted for, pass it via --name or --module.
+that would normally be prompted for, pass it via --module.
 
-If not inside a git repository, a new one is created, except in a Go
-module that has a datapages.yaml. If not inside a Go module, a new one
-is initialized. Inside a Go module, init runs in the directory of its
-go.mod. Code generation is run, and finally go mod tidy resolves all
+Outside an initialized project, init asks whether to create a
+subdirectory for the project, and its name. --name answers without the
+prompt, and -n uses the current directory. The subdirectory gets a Go
+module of its own, even inside another one. Otherwise, inside a Go
+module, init runs in the directory of its go.mod. If not inside a Go
+module, init asks for the module path, suggesting one from the git
+remote or the directory name, and initializes one.
+
+If not inside a git repository, init asks whether to create one, except
+in a Go module that has a datapages.yaml. Pass --no-git to answer no
+without the prompt, or --no-git=false to create one. -n creates one.
+
+Code generation is run, and finally go mod tidy resolves all
 dependencies. Init never deletes any files.
 
 Init writes these only when they are missing and never touches them
 again: datapages.yaml, app/app.go, app/app.templ, cmd/server/main.go, .env,
-compose.yaml, Makefile, .vscode/extensions.json and
-.github/workflows/ci.yml. It also adds .env to .gitignore.
+compose.yaml, Makefile, .vscode/extensions.json, .vscode/settings.json for
+hidden generated code and .github/workflows/ci.yml. It also adds .env, and
+the hidden generated code, to .gitignore.
 
 When init writes app/app.go, it asks how to set up Web Components, for
 JavaScript that would be impractical in Datastar attributes. Pass
@@ -63,35 +74,81 @@ JavaScript that would be impractical in Datastar attributes. Pass
 
 Each setup comes with an example component on the welcome page.
 
+When init writes the project files, it asks whether git keeps the generated
+code, datapagesgen/ and *_templ.go. Pass --generated-code to answer without
+the prompt:
+
+  committed  Checked into git, the default with -n. A clone builds as it
+             is, and so does go install of the module. Diffs and merges
+             include the generated files, and CI fails when they are stale.
+  hidden     Listed in .gitignore and hidden in VS Code. Diffs and merges
+             hold only source, and nothing can go stale. A clone builds only
+             after templ generate and datapages gen, which make build and CI
+             run, and go install of the module fails. datapages gen fails on
+             a clone while the app uses the href, action or assets packages,
+             because the app does not compile without them.
+
+It also asks for the CI system to write a workflow for. Pass --ci to answer
+without the prompt:
+
+  github-actions  .github/workflows/ci.yml, the default with -n.
+  none            No CI workflow.
+
 Init rewrites these on every run: AGENTS.md, CLAUDE.md, GEMINI.md,
 .github/copilot-instructions.md, .cursor/rules/datapages.mdc and the
 skills under .agents/skills and .claude/skills. If you edit these files
 then init will create <name>.bak backup files before it replaces them.
 An AGENTS.md that does not end with the datapages stamp is your own and
 stays untouched, and so do skills with other names.
-Pass --no-ai-skills to skip all of these files.`,
+Init asks whether to write these files, and -n writes them. Pass
+--no-ai-skills to skip them without the prompt, or --no-ai-skills=false
+to write them.`,
 	}
 	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
-		"Disable interactive prompts (requires --name/--module when applicable)")
+		"Disable interactive prompts (requires --module when applicable)")
 	name := cmd.Flags().String("name", "",
-		"Project name (used as directory name)")
+		"Directory to create and initialize the project in")
+	noGit := cmd.Flags().Bool("no-git", false,
+		"Skip creating a git repository")
 	module := cmd.Flags().String("module", "",
 		"Go module path")
 	prometheus := cmd.Flags().Bool("prometheus", scaffoldPrometheus,
 		"Enable Prometheus metrics in the generated entry point")
 	noAISkills := cmd.Flags().Bool("no-ai-skills", false,
 		"Skip agent instructions and skills")
+	ci := cmd.Flags().String("ci", "",
+		"CI system to write a workflow for: github-actions or none")
 	webComponents := cmd.Flags().String("web-components", "",
 		"Web Component setup: rocket, typescript, javascript or none")
+	generatedCode := cmd.Flags().String("generated-code", "",
+		"Whether git keeps the generated code: committed or hidden")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
+		var git, aiSkills *bool
+		if c.Flags().Changed("no-git") {
+			git = new(!*noGit)
+		}
+		if c.Flags().Changed("no-ai-skills") {
+			aiSkills = new(!*noAISkills)
+		}
 		// Non-file input uses huh's line-based accessible mode.
 		// Leave in nil for Cobra's *os.File stdin so huh selects the TUI.
 		var in io.Reader
 		if _, ok := c.InOrStdin().(*os.File); !ok {
 			in = c.InOrStdin()
 		}
-		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
-			*name, *module, *webComponents, *prometheus, !*noAISkills, version, modVersion)
+		return runInit(c.Context(), in, c.OutOrStdout(), stderr, initOptions{
+			nonInteractive: *nonInteractive,
+			dir:            *name,
+			module:         *module,
+			webComponents:  *webComponents,
+			generatedCode:  *generatedCode,
+			ci:             *ci,
+			prometheus:     *prometheus,
+			git:            git,
+			aiSkills:       aiSkills,
+			version:        version,
+			modVersion:     modVersion,
+		})
 	}
 	return cmd
 }
@@ -116,12 +173,41 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 	return f.Run()
 }
 
+// initOptions holds what the flags of init set. An empty webComponents,
+// generatedCode or ci and a nil git or aiSkills leave the choice to its
+// prompt, or to the default with nonInteractive.
+type initOptions struct {
+	nonInteractive bool
+
+	// dir is the directory --name creates and init runs in.
+	dir    string
+	module string
+
+	webComponents, generatedCode, ci string
+
+	git, aiSkills *bool
+
+	prometheus bool
+
+	// version and modVersion are as [newInitCmd] describes them.
+	version, modVersion string
+}
+
 func runInit(
-	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool,
-	dir, module, webComponents string, prometheus, aiSkills bool, version, modVersion string,
+	ctx context.Context, in io.Reader, out, stderr io.Writer, opts initOptions,
 ) error {
-	if webComponents != "" {
-		if _, err := skeleton.ParseWebComponents(webComponents); err != nil {
+	if opts.webComponents != "" {
+		if _, err := skeleton.ParseWebComponents(opts.webComponents); err != nil {
+			return err
+		}
+	}
+	if opts.generatedCode != "" {
+		if _, err := skeleton.ParseGeneratedCode(opts.generatedCode); err != nil {
+			return err
+		}
+	}
+	if opts.ci != "" {
+		if _, err := skeleton.ParseCI(opts.ci); err != nil {
 			return err
 		}
 	}
@@ -135,39 +221,58 @@ func runInit(
 		in = oneByteReader{in}
 	}
 
-	var projectDir string
 	var created bool
 	moduleRoot := moduleDirOf(cwd)
-	// An initialized project needs no git repository. gen recommends init -n
-	// to refresh the agent instructions of one that has none.
 	initialized := moduleRoot != "" && config.Exists(moduleRoot)
-	if !initialized && findGitDir(cwd) == "" {
-		dirName, err := resolveGitDir(in, out, nonInteractive, dir)
+	dir := opts.dir
+	if dir == "" && !initialized && !opts.nonInteractive {
+		dir, err = resolveSubdir(in, out, cwd, moduleRoot)
 		if err != nil {
 			return err
 		}
-		projectDir = filepath.Join(cwd, dirName)
+	}
+
+	projectDir := cwd
+	if dir != "" {
+		projectDir = filepath.Join(cwd, dir)
 		if err := os.MkdirAll(projectDir, 0o755); err != nil {
 			return fmt.Errorf("creating project directory: %w", err)
 		}
-		if err := gitInit(projectDir); err != nil {
-			return err
+		// A new directory is a new project, which go mod init below
+		// takes out of an enclosing module.
+		moduleRoot = ""
+		if fileExists(filepath.Join(projectDir, "go.mod")) {
+			moduleRoot = projectDir
 		}
-		_, _ = fmt.Fprintf(out, "Initialized git repository in %s\n", projectDir)
-		created = true
-	} else {
-		projectDir = cwd
+		initialized = moduleRoot != "" && config.Exists(moduleRoot)
+	} else if moduleRoot != "" && moduleRoot != cwd {
 		// The enclosing module is the one gen and lint use from here.
 		// go mod init below its go.mod would take the directory out of it.
-		if moduleRoot != "" && moduleRoot != cwd {
-			projectDir = moduleRoot
-			_, _ = fmt.Fprintf(out, "Using the Go module in %s\n", moduleRoot)
+		projectDir = moduleRoot
+		_, _ = fmt.Fprintf(out, "Using the Go module in %s\n", moduleRoot)
+	}
+
+	// An initialized project needs no git repository. gen recommends init -n
+	// to refresh the agent instructions of one that has none.
+	if !initialized && findGitDir(projectDir) == "" {
+		git, err := resolveGit(in, out, opts.nonInteractive, opts.git)
+		if err != nil {
+			return err
+		}
+		if git {
+			if err := gitInit(projectDir); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(out, "Initialized git repository in %s\n", projectDir)
+			created = true
 		}
 	}
 
 	goModPath := filepath.Join(projectDir, "go.mod")
 	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
-		modulePath, err := resolveModulePath(in, out, projectDir, nonInteractive, module)
+		modulePath, err := resolveModulePath(
+			in, out, projectDir, opts.nonInteractive, opts.module,
+		)
 		if err != nil {
 			return err
 		}
@@ -196,7 +301,9 @@ func runInit(
 	if scan.Fallback &&
 		!fileExists(filepath.Join(projectDir, "app", "app.go")) &&
 		!fileExists(filepath.Join(projectDir, "app", "app.templ")) {
-		components, err = resolveWebComponents(in, out, nonInteractive, webComponents)
+		components, err = resolveWebComponents(
+			in, out, opts.nonInteractive, opts.webComponents,
+		)
 		if err != nil {
 			return err
 		}
@@ -206,11 +313,48 @@ func runInit(
 				return err
 			}
 		}
-	} else if webComponents != "" {
-		_, _ = fmt.Fprintln(out, "Ignored --web-components: init writes no app package here.")
+	} else if opts.webComponents != "" {
+		_, _ = fmt.Fprintln(out,
+			"Ignored --web-components: init writes no app package here.")
 	}
 
-	if wrote, err := writeDefaultConfigIfMissing(projectDir, out, components); err != nil {
+	// These choices shape the files init writes only when it sets created.
+	// The condition holds when 1 of the writes below will set it.
+	// Asked after them, an aborted prompt leaves a project that
+	// a second run reports as initialized and never writes those files for.
+	generated := skeleton.GeneratedCodeCommitted
+	ci := skeleton.CIGitHubActions
+	if created || !config.Exists(projectDir) ||
+		(scan.Fallback && !fileExists(filepath.Join(projectDir, "app", "app.go"))) {
+		generated, err = resolveGeneratedCode(
+			in, out, opts.nonInteractive, opts.generatedCode,
+		)
+		if err != nil {
+			return err
+		}
+		ci, err = resolveCI(in, out, opts.nonInteractive, opts.ci)
+		if err != nil {
+			return err
+		}
+	} else {
+		if opts.generatedCode != "" {
+			_, _ = fmt.Fprintln(out,
+				"Ignored --generated-code: the project is already initialized.")
+		}
+		if opts.ci != "" {
+			_, _ = fmt.Fprintln(out,
+				"Ignored --ci: the project is already initialized.")
+		}
+	}
+
+	aiSkills, err := resolveAISkills(in, out, opts.nonInteractive, opts.aiSkills)
+	if err != nil {
+		return err
+	}
+
+	if wrote, err := writeDefaultConfigIfMissing(
+		projectDir, out, components,
+	); err != nil {
 		return err
 	} else if wrote {
 		created = true
@@ -226,7 +370,7 @@ func runInit(
 
 	// Refresh agent instructions even when init creates no project files.
 	if aiSkills {
-		if err := writeAgentDocs(projectDir, out, version); err != nil {
+		if err := writeAgentDocs(projectDir, out, opts.version); err != nil {
 			return err
 		}
 	}
@@ -234,6 +378,9 @@ func runInit(
 	ignore := []string{".env"}
 	if components == skeleton.WebComponentsTypeScript {
 		ignore = append(ignore, "web/node_modules/")
+	}
+	if generated == skeleton.GeneratedCodeHidden {
+		ignore = append(ignore, skeleton.GeneratedCodeIgnore...)
 	}
 	if err := gitignore(projectDir, ignore...); err != nil {
 		return err
@@ -248,13 +395,7 @@ func runInit(
 		return err
 	}
 
-	// CI must install the version [pinDatapages] writes to go.mod.
-	// Source builds use a pseudo-version instead of a release.
-	ciWorkflow, err := skeleton.CIWorkflow(modVersion)
-	if err != nil {
-		return err
-	}
-	makefile, err := skeleton.Makefile(components)
+	makefile, err := skeleton.Makefile(components, generated)
 	if err != nil {
 		return err
 	}
@@ -266,7 +407,6 @@ func runInit(
 		{"compose.yaml", skeleton.ComposeYAML},
 		{"Makefile", makefile},
 		{".vscode/extensions.json", skeleton.VSCodeExtensions},
-		{".github/workflows/ci.yml", ciWorkflow},
 	} {
 		if _, err := writeIfMissing(
 			projectDir, f.rel, []byte(f.content), out,
@@ -274,9 +414,27 @@ func runInit(
 			return err
 		}
 	}
+	if ci == skeleton.CIGitHubActions {
+		// CI must install the version [pinDatapages] writes to go.mod.
+		// Source builds use a pseudo-version instead of a release.
+		ciWorkflow, err := skeleton.CIWorkflow(opts.modVersion, generated)
+		if err != nil {
+			return err
+		}
+		if _, err := writeIfMissing(projectDir, ".github/workflows/ci.yml",
+			[]byte(ciWorkflow), out); err != nil {
+			return err
+		}
+	}
+	if generated == skeleton.GeneratedCodeHidden {
+		if _, err := writeIfMissing(projectDir, ".vscode/settings.json",
+			[]byte(skeleton.VSCodeSettingsHidden), out); err != nil {
+			return err
+		}
+	}
 
 	// Pin Datapages before go mod tidy can select another version.
-	if err := pinDatapages(ctx, projectDir, modVersion, out, stderr); err != nil {
+	if err := pinDatapages(ctx, projectDir, opts.modVersion, out, stderr); err != nil {
 		return err
 	}
 
@@ -305,7 +463,7 @@ func runInit(
 	if err != nil {
 		return err
 	}
-	sc := scaffold{prometheus: prometheus}
+	sc := scaffold{prometheus: opts.prometheus}
 	if components == skeleton.WebComponentsRocket {
 		sc.datastarJS = skeleton.RocketJS
 	}
@@ -313,8 +471,7 @@ func runInit(
 		return err
 	}
 
-	// The head refers to the components through the assets package,
-	// which exists now.
+	// The head refers to the components through the assets package, which exists now.
 	if components != skeleton.WebComponentsNone {
 		templ, err := skeleton.AppTempl(components, scan.Apps[0].GenImport+"/assets")
 		if err != nil {
@@ -336,7 +493,7 @@ func runInit(
 
 	_, _ = fmt.Fprintln(out, "Project initialized successfully.")
 
-	if !nonInteractive {
+	if !opts.nonInteractive {
 		runNow := true
 		if err := runField(
 			huh.NewConfirm().
@@ -360,30 +517,23 @@ func runInit(
 	return nil
 }
 
-// resolveGitDir returns dir when set. Otherwise it prompts for a repository
-// directory or requires --name in non-interactive mode.
-func resolveGitDir(
-	in io.Reader, out io.Writer, nonInteractive bool, dir string,
-) (string, error) {
-	if dir != "" {
-		return dir, nil
-	}
-	if nonInteractive {
-		return "", fmt.Errorf("--name is required in non-interactive mode " +
-			"when not inside a git repository")
-	}
-
-	ok := true
+// resolveSubdir asks whether to create the project in a new subdirectory
+// of cwd and returns its name, or an empty string for cwd itself.
+// It suggests a subdirectory for a directory with files of its own outside
+// a Go module, such as a home directory, and none for a directory made for
+// the project or an existing module.
+func resolveSubdir(in io.Reader, out io.Writer, cwd, moduleRoot string) (string, error) {
+	sub := moduleRoot == "" && hasVisibleEntries(cwd)
 	if err := runField(
 		huh.NewConfirm().
-			Title("Not inside a git repository. Create one?").
-			Value(&ok),
+			Title("Create a subdirectory for the project?").
+			Value(&sub),
 		in, out,
 	); err != nil {
 		return "", err
 	}
-	if !ok {
-		return "", fmt.Errorf("cannot initialize project without a git repository")
+	if !sub {
+		return "", nil
 	}
 
 	var name string
@@ -401,10 +551,45 @@ func resolveGitDir(
 	); err != nil {
 		return "", err
 	}
+	// Accessible mode returns an empty name on EOF.
 	if name == "" {
 		return "", fmt.Errorf("directory name is required")
 	}
 	return name, nil
+}
+
+// hasVisibleEntries reports whether dir holds an entry other than dotfiles
+// such as .git and .DS_Store.
+func hasVisibleEntries(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool {
+		return !strings.HasPrefix(e.Name(), ".")
+	})
+}
+
+// resolveGit reports whether to create a git repository.
+// A non-nil flag holds the inverse of --no-git. Without it, it asks,
+// or creates one in non-interactive mode.
+func resolveGit(
+	in io.Reader, out io.Writer, nonInteractive bool, flag *bool,
+) (bool, error) {
+	if flag != nil {
+		return *flag, nil
+	}
+	if nonInteractive {
+		return true, nil
+	}
+	choice := true
+	err := runField(
+		huh.NewConfirm().
+			Title("Not inside a git repository. Create one?").
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
 }
 
 // resolveModulePath returns module when set. Otherwise it prompts with a default
@@ -425,38 +610,19 @@ func resolveModulePath(
 		defaultPath = filepath.Base(projectDir)
 	}
 
-	ok := true
-	if err := runField(
-		huh.NewConfirm().
-			Title("No go.mod found. Initialize a Go module?").
-			Value(&ok),
-		in, out,
-	); err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("cannot initialize project without a Go module")
-	}
-
 	modulePath := defaultPath
 	if err := runField(
 		huh.NewInput().
 			Title("Module path").
-			Value(&modulePath).
-			Validate(func(s string) error {
-				if strings.TrimSpace(s) == "" {
-					return fmt.Errorf("module path is required")
-				}
-				return nil
-			}),
+			Value(&modulePath),
 		in, out,
 	); err != nil {
 		return "", err
 	}
-	if modulePath == "" {
-		return "", fmt.Errorf("module path is required")
-	}
-	return modulePath, nil
+	// An empty answer takes the suggestion. Accessible mode shows no
+	// prefilled value and validates the raw answer, so a validator
+	// rejecting an empty one would keep asking.
+	return cmp.Or(strings.TrimSpace(modulePath), defaultPath), nil
 }
 
 // gitRemoteModulePath converts the origin URL to a Go module path.
@@ -533,8 +699,8 @@ func goModTidy(dir string) error {
 	return runIn(dir, "go mod tidy", "go", "mod", "tidy")
 }
 
-// writeDefaultConfigIfMissing writes the default datapages.yaml. For TypeScript
-// components it adds the watcher that bundles them.
+// writeDefaultConfigIfMissing writes the default datapages.yaml.
+// For TypeScript components it adds the watcher that bundles them.
 func writeDefaultConfigIfMissing(
 	projectDir string, w io.Writer, components skeleton.WebComponents,
 ) (bool, error) {
@@ -547,7 +713,11 @@ func writeDefaultConfigIfMissing(
 	if components == skeleton.WebComponentsTypeScript {
 		content += skeleton.TypeScriptWatchYAML
 	}
-	err := os.WriteFile(filepath.Join(projectDir, "datapages.yaml"), []byte(content), 0o644)
+	err := os.WriteFile(
+		filepath.Join(projectDir, "datapages.yaml"),
+		[]byte(content),
+		0o644,
+	)
 	if err != nil {
 		return false, err
 	}
@@ -555,8 +725,8 @@ func writeDefaultConfigIfMissing(
 	return true, nil
 }
 
-// resolveWebComponents returns the setup the flag names. Without the flag it
-// asks, or picks none in non-interactive mode.
+// resolveWebComponents returns the setup the flag names.
+// Without the flag it asks, or picks none in non-interactive mode.
 func resolveWebComponents(
 	in io.Reader, out io.Writer, nonInteractive bool, flag string,
 ) (skeleton.WebComponents, error) {
@@ -572,7 +742,9 @@ func resolveWebComponents(
 		skeleton.WebComponentsJavaScript: "JavaScript modules",
 		skeleton.WebComponentsNone:       "None",
 	}
-	options := make([]huh.Option[skeleton.WebComponents], len(skeleton.WebComponentsChoices))
+	options := make(
+		[]huh.Option[skeleton.WebComponents], len(skeleton.WebComponentsChoices),
+	)
 	for i, c := range skeleton.WebComponentsChoices {
 		options[i] = huh.NewOption(labels[c], c)
 	}
@@ -580,9 +752,97 @@ func resolveWebComponents(
 	err := runField(
 		huh.NewSelect[skeleton.WebComponents]().
 			Title("Set up Web Components?").
-			Description("For JavaScript that would be impractical in Datastar attributes, "+
-				"such as a map or a rich text editor.").
+			Description("For JavaScript that would be impractical in "+
+				"Datastar attributes, such as a map or a rich text editor.").
 			Options(options...).
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
+}
+
+// resolveGeneratedCode returns the choice the flag names.
+// Without the flag it asks, or picks committed in non-interactive mode.
+func resolveGeneratedCode(
+	in io.Reader, out io.Writer, nonInteractive bool, flag string,
+) (skeleton.GeneratedCode, error) {
+	if flag != "" {
+		return skeleton.ParseGeneratedCode(flag)
+	}
+	if nonInteractive {
+		return skeleton.GeneratedCodeCommitted, nil
+	}
+	choice := skeleton.GeneratedCodeCommitted
+	err := runField(
+		huh.NewSelect[skeleton.GeneratedCode]().
+			Title("Commit generated files?").
+			Description("datapagesgen/ and *_templ.go are generated.\n").
+			// huh options have no description field. The 2nd line of a label
+			// serves as one. Trailing newlines separate the options.
+			Options(
+				huh.NewOption("Commit to Git\n"+
+					"Clones build immediately. "+
+					"CI checks that generated files are current.\n",
+					skeleton.GeneratedCodeCommitted),
+				huh.NewOption("Ignore and hide\n"+
+					"Keeps generated files out of diffs. "+
+					"Clones must generate before building,\n"+
+					"which can fail when the app imports generated packages.",
+					skeleton.GeneratedCodeHidden),
+			).
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
+}
+
+// resolveCI returns the CI system the flag names.
+// Without the flag it asks, or picks GitHub Actions in non-interactive mode.
+func resolveCI(
+	in io.Reader, out io.Writer, nonInteractive bool, flag string,
+) (skeleton.CI, error) {
+	if flag != "" {
+		return skeleton.ParseCI(flag)
+	}
+	if nonInteractive {
+		return skeleton.CIGitHubActions, nil
+	}
+	choice := skeleton.CIGitHubActions
+	err := runField(
+		huh.NewSelect[skeleton.CI]().
+			Title("Set up CI?").
+			Description(
+				"Runs the tests and builds the server on every push and pull request.",
+			).
+			Options(
+				huh.NewOption("GitHub Actions", skeleton.CIGitHubActions),
+				huh.NewOption("None", skeleton.CINone),
+			).
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
+}
+
+// resolveAISkills reports whether to write the agent instructions and skills.
+// A non-nil flag holds the inverse of --no-ai-skills. Without it, it asks,
+// or writes them in non-interactive mode.
+func resolveAISkills(
+	in io.Reader, out io.Writer, nonInteractive bool, flag *bool,
+) (bool, error) {
+	if flag != nil {
+		return *flag, nil
+	}
+	if nonInteractive {
+		return true, nil
+	}
+	choice := true
+	err := runField(
+		huh.NewConfirm().
+			Title("Write AI agent instructions and skills?").
+			Description("AGENTS.md, CLAUDE.md, GEMINI.md, Copilot and Cursor rules "+
+				"and the Datapages and Datastar skills.\n"+
+				"Init rewrites them on every run.").
 			Value(&choice),
 		in, out,
 	)
@@ -686,7 +946,8 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 	}
 	for _, rel := range res.Kept {
 		_, _ = fmt.Fprintf(w,
-			"Left %s alone: it has no datapages stamp. Delete it to have init write it.\n",
+			"Left %s alone: it has no datapages stamp. "+
+				"Delete it to have init write it.\n",
 			rel)
 	}
 	return nil

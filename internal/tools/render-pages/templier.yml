@@ -1,0 +1,34 @@
+# templier configuration of the docs dev watcher, which "mage watchDocs" runs
+# in this directory. See DEV.md.
+
+# The page to open. datapages watch uses 7331.
+templier-host: 127.0.0.1:7340
+
+# CI lints. golangci-lint on every change would delay each reload.
+lint: false
+format: false
+
+# The same templ that mage uses and this module requires.
+templ-cmd: go run github.com/a-h/templ/cmd/templ@v0.3.1100
+
+app:
+  host: http://127.0.0.1:7341
+  flags: -version main -serve 127.0.0.1:7341
+  exclude:
+    - .*
+    - "*~"
+    - "*_test.go"
+    - templier.yml
+
+custom-watchers:
+  # serve reads the stylesheet on every request.
+  - name: Reload on stylesheet change
+    include: ["style.css"]
+    requires: reload
+
+  # serve rewrites .reload when the Markdown file of a page or a file of
+  # docs/ changes. Both are outside of this directory, which is all that
+  # templier watches.
+  - name: Reload on Markdown or docs/ change
+    include: [".reload"]
+    requires: reload
