@@ -59,8 +59,8 @@ type settings struct {
 	dir    string
 }
 
-// configFile is the datapages.yaml of startSettings, which has the preset
-// Slow. The front starts without it, which leaves its presets unsaved.
+// configFile is the datapages.yaml of startSettings, which has the preset Slow.
+// The front starts without it, which leaves its presets unsaved.
 const configFile = "cmd: cmd/server\nwatch:\n  toxiproxy:\n    presets:\n" +
 	"      - name: Slow\n        toxics:\n          latency:\n" +
 	"            downstream:\n              latency: 100ms\n"
@@ -241,8 +241,7 @@ var (
 )
 
 // TestPage tests loading the global scope with the about dialog of the title,
-// an endpoint scope and a filtered endpoint list, and the static files the
-// head loads.
+// an endpoint scope and a filtered endpoint list, and the static files the head loads.
 func TestPage(t *testing.T) {
 	s := startSettings(t)
 	base := s.url
@@ -314,9 +313,9 @@ func TestPage(t *testing.T) {
 	require.Contains(t, body, `aria-label="About these toxics"`)
 	require.Equal(t,
 		1,
-		strings.Count(body, "Each request opens a connection of its own."))
-	// The header and the scope have a menu button. ui.css shows the one of the
-	// scope while the scope sticks.
+		strings.Count(body, "Each request uses a separate connection."))
+	// The header and the scope have a menu button.
+	// ui.css shows the one of the scope while the scope sticks.
 	require.Equal(t, 2, strings.Count(body, `aria-controls="tp-sidebar"`))
 	// The sidebar sits in a neo-resizable with a handle on its right edge,
 	// which has no grip. ui.css draws it as a divider.
@@ -787,7 +786,7 @@ func TestDataCap(t *testing.T) {
 	at = tb.at()
 	code = tb.command(t, "/reset-data-caps/", "{}")
 	require.Equal(t, http.StatusOK, code)
-	tb.waitFrom(t, at, "Restored each browser's full volume.")
+	tb.waitFrom(t, at, "Restored each browser&#39;s full volume.")
 }
 
 // TestChangedFromOutside tests that an EventChanged published on the broker,
@@ -814,9 +813,8 @@ var saveButton = regexp.MustCompile(
 )
 
 // TestSave tests that a save keeps the file outside watch.toxiproxy and
-// disables the save button until the presets or the file change. Toxics no
-// preset holds take a name first, and a change of a preset of the app saves
-// without one.
+// disables the save button until the presets or the file change. Toxics no preset
+// holds take a name first, and a change of a preset of the app saves without one.
 func TestSave(t *testing.T) {
 	s := startSettings(t)
 	tb := openTab(t, s.url)
@@ -909,7 +907,7 @@ func TestDiscardConfirm(t *testing.T) {
 var (
 	// reloadButton matches the opening tag of the reload button.
 	reloadButton = regexp.MustCompile(
-		`<neo-button[^>]*title="Discard the changes made on this page"[^>]*>`,
+		`<neo-button[^>]*title="Discard page changes and reload config"[^>]*>`,
 	)
 	// reloadDialog matches the dialog that confirms a reload.
 	reloadDialog = regexp.MustCompile(
@@ -932,7 +930,7 @@ func TestReloadConfirm(t *testing.T) {
 	require.Contains(t, dialog, "Discard unsaved changes?")
 	require.Contains(t, dialog, "lucide-triangle-alert")
 	require.Contains(t, dialog,
-		"Changes not saved to <code>datapages.yaml</code> cannot be restored.")
+		"This discards changes not saved to <code>datapages.yaml</code>.")
 	require.Regexp(t,
 		`<neo-button[^>]*@post\(&#39;/reload/&#39;\)[^>]*>\s*Discard and reload`,
 		dialog)
@@ -965,8 +963,9 @@ func TestClearConfirm(t *testing.T) {
 	dialog := clearDialog.FindString(body)
 	require.Contains(t, dialog, `<dialog id="tp-clear-dialog">`)
 	require.Contains(t, dialog, "Clear overrides?")
+	require.Contains(t, dialog, "The endpoint will inherit global toxics.")
 	require.Contains(t, dialog,
-		"Overrides not saved to <code>datapages.yaml</code> cannot be restored.")
+		"This discards overrides not saved to <code>datapages.yaml</code>.")
 	require.Regexp(t,
 		`<neo-button[^>]*@post\(&#39;/clear/&#39;\)[^>]*>\s*Clear overrides`,
 		dialog)
