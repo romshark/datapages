@@ -152,7 +152,7 @@ func (p PageInbox) OnMessageReceived(
 }
 ```
 
-The application needs a session type, see [Sessions and auth](sessions.md). An event has at most 1 `SubjectUser` field, and the field takes no `signal` tag. A page whose events are all user-addressed, and which holds no per-tab state, opens its stream only for a signed-in visitor. A page that also handles public events or holds per-tab state serves signed-out visitors a second stream at `_$/anon/`, which carries no user-addressed events.
+The application needs a session type. See [Sessions and auth](sessions.md). An event has at most 1 `SubjectUser` field, and the field takes no `signal` tag. A page whose events are all user-addressed and which holds no per-tab state opens its stream only for a signed-in visitor. A page that also handles public events or holds per-tab state serves signed-out visitors a second stream at `_$/anon/`, which carries no user-addressed events.
 
 ### Scope by a signal
 

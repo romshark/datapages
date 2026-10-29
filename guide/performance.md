@@ -114,7 +114,11 @@ if err != nil {
 compressor, err := assetcompress.New(assetcompress.Config{Store: store})
 ```
 
-The store serves each copy from its file instead of from memory. Skip it for a few assets at the default levels, which recompress in a few milliseconds after a restart. Give the store a directory that only the server can write to. `disk.New` creates a missing directory with mode 0700. On Unix it refuses a directory that every user can write to or that belongs to a user other than the server's and root. For a Kubernetes `emptyDir` volume, pass a subdirectory of its mount point. When a server starts, the store deletes the copies that no server opened for 7 days. Set `disk.Config.MaxUnused` to keep them longer.
+The store serves copies from files instead of memory. Skip it for a few assets at the default levels, which recompress in a few milliseconds after a restart.
+
+Give the store a directory that only the server can write to. `disk.New` creates a missing directory with mode 0700. On Unix it rejects a directory that every user can write to or that belongs to anyone other than the server user or root. For a Kubernetes `emptyDir`, pass a subdirectory of the mount point.
+
+At startup, the store deletes copies that no server opened for 7 days. Set `disk.Config.MaxUnused` to change this age.
 
 ### Use another store
 

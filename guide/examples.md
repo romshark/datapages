@@ -114,7 +114,14 @@ make dev    # http://localhost:7331/
 make down
 ```
 
-`make dev` starts NATS, Prometheus and Grafana in containers and then `datapages watch`. The app itself listens on port 52000, as `.env.dev` sets. <http://localhost:7332/> serves the app through the [Toxiproxy proxy](network.md) of `datapages watch`, and <http://localhost:7333/> is its settings page. Its preset Flaky network delays responses by 100ms to 200ms, limits each browser to 512 kB/s except for static files, delays sent messages by 1s and resets the stream of the messages page 60s after its first event. Grafana is at <http://localhost:3000/> and Prometheus at <http://localhost:9091/>. `make load` runs the k6 load test against the running app. `make stage` builds the server and runs it with TLS through `sudo`. It needs [mkcert](https://github.com/FiloSottile/mkcert) and the `HOST` of `.env.stage` in `/etc/hosts`.
+`make dev` starts NATS, Prometheus and Grafana in containers, then runs `datapages watch`. The services use these addresses:
+
+- App through Toxiproxy at <http://localhost:7332/>
+- Toxiproxy settings at <http://localhost:7333/>
+- Grafana at <http://localhost:3000/>
+- Prometheus at <http://localhost:9091/>
+
+The Flaky network preset delays responses, limits bandwidth, delays sent messages and resets the messages stream. `make load` runs the k6 load test. `make stage` runs the server with TLS through `sudo`; it needs [mkcert](https://github.com/FiloSottile/mkcert) and the `HOST` from `.env.stage` in `/etc/hosts`.
 
 The code is in [`example/classifieds`](../example/classifieds/).
 

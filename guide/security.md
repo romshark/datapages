@@ -26,7 +26,7 @@ The application or deployment is responsible for the controls below. [SECURITY.m
 - volumetric abuse and slow clients, see [Limit abuse](#limit-abuse)
 - TLS, see [Use TLS](#use-tls)
 
-The application also sets the `Content-Security-Policy`, see [Set a Content Security Policy](#set-a-content-security-policy).
+The application also sets the `Content-Security-Policy`. See [Set a Content Security Policy](#set-a-content-security-policy).
 
 ## Use CSRF protection
 

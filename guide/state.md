@@ -6,7 +6,7 @@
 
 An event handler normally renders the same stored data for every tab of a page. Some fragments also depend on a value specific to 1 tab, such as a filter, selection or open editor. The handler cannot take current signals because the tab sends them only when its stream connects. Keep such values in per-tab state.
 
-Keep durable data in a store. Per-tab state disappears with the tab's stream. Do not use it as a session store either. It belongs to 1 tab, not to a user, see [Sessions and auth](sessions.md). Values that the browser alone needs, such as an open menu, stay in local Datastar signals.
+Keep durable data in a store. Per-tab state disappears with the tab's stream. Do not use it as a session store. It belongs to 1 tab, not to a user. See [Sessions and auth](sessions.md). Values that only the browser needs, such as an open menu, stay in local Datastar signals.
 
 ## Keep an editor open while the list changes
 

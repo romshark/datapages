@@ -4,7 +4,7 @@ Test domain logic with plain Go tests. Test the generated HTTP server with `net/
 
 ## The application under test
 
-The tests on this page test a notes board in the module `example.com/noteboard`:
+The examples use a notes board in the module `example.com/noteboard`:
 
 - `PageIndex` at `/` renders the notes in `<ul id="notes">`.
 - `POSTAdd` at `/add` takes the signal `text`, adds a note, dispatches `EventNotesChanged` and clears the signal with `sse.PatchSignals`.
@@ -99,7 +99,7 @@ func newServer(t *testing.T) *httptest.Server {
 }
 ```
 
-Name the same 4 type arguments as `cmd/server/main.go`. `datapages gen` reads every `NewServer` call of the module, test files included, and fails when 2 calls for 1 app name different session types or metrics modes. The scaffold names `datapages.EnablePrometheus`, which requires `WithPrometheus`. The in-memory modules need neither NATS nor Docker. Each test builds its own `App` and server and shares nothing with the others.
+Use the same 4 type arguments as `cmd/server/main.go`. `datapages gen` reads `NewServer` calls in test files and rejects conflicting session types or metrics modes for 1 app. The scaffold uses `datapages.EnablePrometheus`, which requires `WithPrometheus`. The in-memory modules need neither NATS nor Docker. Each test builds its own `App` and server.
 
 ## Load a page
 
@@ -128,7 +128,7 @@ The server compresses responses. `srv.Client()` uses a transport that requests g
 
 ## Send an action
 
-An action that takes signals or `datapages.SSE` requires the header `Datastar-Request: true` and answers 406 without it. Datastar sends the signals as JSON in the body, and for `GET` and `DELETE` actions in the query parameter `datastar`. These 2 helpers build and send such a request:
+An action that takes signals or `datapages.SSE` requires `Datastar-Request: true` and answers 406 without it. Datastar sends signals as JSON in the request body. `GET` and `DELETE` actions receive them in the `datastar` query parameter. These 2 helpers build and send a POST request:
 
 ```go title="app/app_test.go"
 // newAction builds the request Datastar sends for a POST action:
@@ -176,7 +176,7 @@ func TestAddClearsInput(t *testing.T) {
 }
 ```
 
-An action with `sse` answers with a `text/event-stream` body, which ends when the handler returns. Each patch is an `event:` line followed by `data:` lines:
+An action that takes `sse datapages.SSE` answers with a `text/event-stream` body. The body ends when the handler returns. Each patch is an `event:` line followed by `data:` lines:
 
 ```text
 event: datastar-patch-signals
@@ -185,7 +185,7 @@ data: signals {"text":""}
 
 `sse.PatchElement` writes `event: datastar-patch-elements` and the HTML after `data: elements `. Assert on these lines.
 
-The scaffold's `App.RecoverError` changes what a failing action answers. When the app defines it, an action that returns an error to a Datastar request answers 200 with the events that `RecoverError` writes, and the test asserts on those events. The CSRF check and the `Datastar-Request` check answer before the handler runs and keep their statuses 403 and 406.
+When the app defines `App.RecoverError`, a failed Datastar action answers 200 with the events that `RecoverError` writes. Test those events. The CSRF and `Datastar-Request` checks run before the handler and keep their statuses 403 and 406.
 
 ## Test an event in another tab
 

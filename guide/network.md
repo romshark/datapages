@@ -1,6 +1,6 @@
 # Slow and failing networks
 
-`datapages watch` also serves the app through a [Toxiproxy](https://github.com/Shopify/toxiproxy) proxy, which injects network faults, called toxics, into each request. Toxics add latency, limit bandwidth, cut connections and answer with HTTP errors. A settings page applies presets of toxics, changes them while the app runs and saves them into `datapages.yaml`. Use it to see how pages, actions and streams behave on a slow mobile network, on a flaky connection and while the server is unreachable.
+`datapages watch` can serve the app through a [Toxiproxy](https://github.com/Shopify/toxiproxy) proxy. Its toxics add latency, limit bandwidth, cut connections and return HTTP errors. A settings page applies presets, changes them while the app runs and saves them to `datapages.yaml`. Use the proxy to test pages, actions and streams on slow or failing networks.
 
 ## Open the app through the proxy
 
@@ -35,7 +35,7 @@ The ports must differ from those of `--host` and [`app-host`](configuration.md#a
 
 ## Apply a preset
 
-The preset combobox in the header of the settings page applies a preset. It lists No throttling first, Unreachable last and the presets of `datapages.yaml` between them. Every start of `datapages watch` begins with No throttling. The preset in effect is not saved.
+Choose a preset in the header of the settings page. The list starts with No throttling, ends with Unreachable and shows the presets from `datapages.yaml` between them. Each `datapages watch` run starts with No throttling. It does not save the selected preset.
 
 | Preset | Toxics |
 | ------ | ------ |
@@ -53,11 +53,11 @@ Unreachable is not the Offline mode of Chrome. The browser stays online, with `n
 
 ## Change the toxics
 
-The settings page changes the toxics for every endpoint and for 1 endpoint. A change applies to the next request and to open connections, such as the SSE stream of a page.
+The settings page changes toxics globally or for 1 endpoint. A change applies to new requests and open connections, including page streams.
 
-A change goes into the preset of `datapages.yaml` in effect, and Save to config writes it. A change of No throttling or Unreachable leaves toxics that no preset holds, which the combobox shows as "Unsaved". Save to config asks for a name for them, and picking another preset asks before it discards them. The last option of the combobox, New preset, creates a preset from the current toxics and overrides, or from a copy of a preset. A preset of `datapages.yaml` has a Delete preset button that deletes it after a confirmation. No throttling replaces a deleted preset that is in effect.
+Changes update the selected configured preset in memory. Changes to No throttling or Unreachable appear as Unsaved. Save to config asks for a name, and changing presets asks before discarding unsaved changes. New preset copies the current settings. Configured presets can be deleted; No throttling replaces a deleted selection.
 
-Save to config writes the presets into the `watch.toxiproxy` section of `datapages.yaml`. It keeps the rest of the file and drops the comments inside the section. It writes `host` and `ui-host` only when the file sets them. Reload config reads `presets` from the file again, after a confirmation when it discards unsaved changes. A change of `host` or `ui-host` applies when `datapages watch` restarts. Neither Save to config nor an edit of the file restarts the app, which keeps the state it holds in memory.
+Save to config rewrites `watch.toxiproxy` in `datapages.yaml` and removes comments inside that section. It preserves the rest of the file and writes `host` and `ui-host` only when already set. Reload config reads the presets from disk. Host changes apply after `datapages watch` restarts. Saving or editing the file does not restart the app.
 
 ## Write a preset
 
@@ -125,9 +125,9 @@ Upstream, the proxy answers at once and skips the other toxics. Downstream, the 
 
 The proxy also applies `client-bandwidth`, `server-bandwidth` and `data-cap` itself.
 
-Per client, the requests of 1 browser share the rate of `client-bandwidth` and use up 1 `volume` of `data-cap`, as the requests of 1 device share its network and its data plan. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets and removes from the requests the app gets. The tabs of a browser share it, and a private window gets its own. A client without cookies, such as curl, gets the rate and volume per request. Cookies ignore ports, which sends the cookie to `--host` too.
+With `per: client`, requests from 1 browser share the `client-bandwidth` rate and the `data-cap` volume. The proxy identifies a browser with the `datapages_toxiproxy` cookie and removes the cookie before forwarding a request to the app. Browser tabs share it; a private window gets another. A client without cookies, such as curl, gets a rate and volume per request. Cookies ignore ports, which sends this cookie to `--host` too.
 
-Per request, each request gets the whole rate and volume. All requests share the rate of `server-bandwidth`, as the requests of all users share the uplink of a server. An endpoint that overrides 1 of the 3 has a rate or volume of its own. A change of a `data-cap` toxic, the Reset button of its card on the settings page and a restart of `datapages watch` give the whole volume back. With more than 1 of them on a stream, the data waits for the slowest.
+With `per: request`, each request gets the full rate and volume. All requests share `server-bandwidth`. An endpoint override gets a separate rate or volume. Changing or resetting `data-cap`, or restarting `datapages watch`, restores its full volume. When several bandwidth toxics apply, the slowest controls the transfer.
 
 ## Target 1 endpoint
 

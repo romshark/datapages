@@ -264,9 +264,9 @@ datapages watch [flags]
 
 `watch` also serves the app through a Toxiproxy proxy, which simulates slow and failing networks, and a settings page for it. It prints both addresses at startup. See [Slow and failing networks](network.md).
 
-`watch` runs [templier](https://github.com/romshark/templier) v0.13.4 as a library and reads its settings from the [`watch` section](configuration.md#watch) of `datapages.yaml`. It needs `templ` on the PATH, and `golangci-lint` when [`lint`](configuration.md#lint) is on.
+`watch` reads its settings from the [`watch` section](configuration.md#watch) of `datapages.yaml`. It needs `templ` on the PATH, and `golangci-lint` when [`lint`](configuration.md#lint) is on.
 
-Start `watch` in the module root. It runs `go build` in the current directory with the path of the main package relative to the module root, as `./cmd/server/`. From a subdirectory that path names no package and the build fails.
+Start `watch` in the module root. From a subdirectory, the module-relative main package path passed to `go build`, such as `./cmd/server/`, names no package.
 
 ### On startup
 
@@ -309,7 +309,9 @@ While a step fails, the dev server answers every request with an error page inst
 
 ### Exit status
 
-1 when `watch` cannot start, such as outside a Go module, with an invalid `datapages.yaml`, with more than 1 app package and no `--app`, with an `--app` that names no app package, without `templ` on the PATH, or with a `--host` address in use. 1 also when `datapages.yaml` has a `watch.toxiproxy` section and the proxy cannot start, as on a port in use or on the port of `--host` or `app-host`. Without the section, `watch` warns and runs without the proxy. A failed `datapages gen` at startup does not end `watch`. After Ctrl+C or SIGTERM, `watch` stops the app, templ and the dev server and exits with 0.
+0 after Ctrl+C or SIGTERM, once `watch` stops the app, templ and the dev server.
+
+1 when startup fails, including outside a Go module, with invalid configuration, without a required `--app`, without `templ` or with an address in use. A configured Toxiproxy section also makes a proxy startup failure fatal. Without the section, `watch` warns and runs without the proxy. A failed `datapages gen` does not stop startup.
 
 ### Examples
 
@@ -370,7 +372,7 @@ datapages version --full
 
 ### Module
 
-`gen`, `lint` and `watch` work on the Go module whose `go.mod` is in the current directory or the nearest directory above it. Without one they fail with `not inside a Go module (no go.mod found in any parent directory)`. `--app`, the [`cmd`](configuration.md#cmd) key and the file names in errors about `datapages.NewServer` calls are relative to the module root. `gen` and `lint` run from any directory of the module. `watch` runs from the module root. `init` finds its directory as described in [Where init creates the project](#where-init-creates-the-project).
+`gen` and `lint` use the Go module whose `go.mod` is in the current directory or its nearest parent. `watch` uses the module root. Without a module, the commands fail with `not inside a Go module (no go.mod found in any parent directory)`. `--app`, the [`cmd`](configuration.md#cmd) key and file names in `datapages.NewServer` errors are relative to the module root. `init` finds its directory as described in [Where init creates the project](#where-init-creates-the-project).
 
 ### App packages
 
@@ -404,10 +406,6 @@ The scan also rejects every import of a package under `github.com/romshark/datap
 Each app package that a call names is 1 application. `gen` and `lint` process all of them, and `watch` runs the one that `--app` selects. See [Multiple applications](multiple-applications.md).
 
 A module without a call has 1 app package, `app/`, generated into `app/datapagesgen/`. `gen` then writes the entry point `<cmd>/main.go` with a call, which ends this fallback. Without an `app/` directory, the commands fail with `app: no such directory, the default app package of a module without a datapages.NewServer call`.
-
-### Configuration file
-
-See [datapages.yaml](configuration.md).
 
 ## Version checks
 

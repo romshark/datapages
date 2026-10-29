@@ -329,7 +329,9 @@ Without these pages, the server answers with the status and its standard text, s
 
 ## Streams
 
-A page gets an SSE stream when it handles an event with an `OnXXX` method, declares `StreamOpen` or `StreamClose`, or takes [per-tab state](state.md), itself or through a [stream embed](../SPECIFICATION.md#stream-embeds). Its document then carries a `data-init` attribute that connects to the page route plus `_$/`, and the event handlers patch the tab over that connection. A page without any of these has no stream. A page whose events are all addressed to users, and which has no per-tab state, opens its stream only for a signed-in visitor.
+A page gets an SSE stream when it handles an event, declares `StreamOpen` or `StreamClose`, or takes [per-tab state](state.md), directly or through a [stream embed](../SPECIFICATION.md#stream-embeds). Its document connects to the page route plus `_$/`, and event handlers patch the tab over that connection.
+
+A page without these features has no stream. A page that handles only user-addressed events and has no per-tab state opens its stream only for a signed-in visitor.
 
 By default, the browser closes the stream while the tab is hidden, and the page reloads when the tab becomes visible again. The reload renders what changed while the stream was closed. 2 return values of `GET` change this:
 

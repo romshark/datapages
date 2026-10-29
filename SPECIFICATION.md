@@ -550,7 +550,14 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 By default, an SSE response uses the first coding explicitly accepted by the request in the order zstd, brotli, gzip. A wildcard selects gzip only. If no configured coding is accepted, the response is uncompressed. The default zstd and brotli windows are 1 MiB.
 
-`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `datapages.WithNoSSECompression` disables SSE compression. `datapages.SSECompressionBalanced` returns the defaults, `datapages.SSECompressionLowMemory` 256 KiB windows for many streams with small fragments, `datapages.SSECompressionLowBandwidth` brotli first for slow or metered clients, and `datapages.SSECompressionLargeFragments` 4 MiB windows for fragments above about 1 MB. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled. A stream whose response carries `Cache-Control: no-transform` before it opens, such as from a middleware, is uncompressed and keeps the directive. The coding depends only on the request's `Accept-Encoding`, not on the client address.
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `datapages.WithNoSSECompression` disables compression. These presets return common configurations:
+
+- `datapages.SSECompressionBalanced` returns the defaults.
+- `datapages.SSECompressionLowMemory` uses 256 KiB windows for many streams with small fragments.
+- `datapages.SSECompressionLowBandwidth` prefers brotli for slow or metered clients.
+- `datapages.SSECompressionLargeFragments` uses 4 MiB windows for fragments above about 1 MB.
+
+A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams. An action's `StreamConfigXXX` overrides it for that action. SSE responses include `Vary: Accept-Encoding` unless compression is disabled. A stream with `Cache-Control: no-transform` before it opens is uncompressed and keeps the directive. The coding depends only on `Accept-Encoding`, not on the client address.
 
 See [datapages.go](datapages.go) for method definitions.
 
@@ -847,11 +854,15 @@ type memBody struct{ *bytes.Reader }
 func (memBody) Close() error { return nil }
 ```
 
-[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. An `ETag` with a character outside `etagc` of that section produces 500. A handler with a session parameter sends [`Vary: Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary). Serve a file that is the same for every visitor from a handler without a session parameter. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options). Serve a visitor-uploaded file with `Disposition.Download`. To serve it inline, restrict `Type` to an allowlist and set `Content-Security-Policy: sandbox` in `Header`.
+[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. A character outside `etagc` of that section makes the `ETag` invalid and produces 500.
+
+A handler with a session parameter sends [`Vary: Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary). Serve a file that is the same for every visitor from a handler without a session parameter. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options).
+
+Serve a visitor-uploaded file with `Disposition.Download`. To serve it inline, restrict `Type` to an allowlist and set `Content-Security-Policy: sandbox` in `Header`.
 
 [Response compression](#response-compression) leaves a `datapages.File` unchanged, whatever its `Type`. A `Content-Encoding` set in `Header` goes out with the body as it is. `ServeContent` then serves ranges of the encoded bytes and omits `Content-Length` from a full response.
 
-An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with [`Sec-Fetch-Dest: document`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest), status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. A panic in `Body` takes the same path. Once the status went out, it's logged with its stack and the response ends early, also for a request with several ranges. A panic before the status gets an error response without the headers of the file.
+An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with [`Sec-Fetch-Dest: document`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest), status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. A panic in `Body` takes the same path. After the server writes the status, it logs the panic with its stack and ends the response early, also for a request with several ranges. A panic before the status gets an error response without the file headers.
 
 See [datapages.go](datapages.go) for field definitions.
 
@@ -1201,6 +1212,12 @@ Serving a navigation works as follows:
 - Offline and the URL is cached: the worker returns the stored offline body.
 - Offline and the URL is not cached: the worker returns `PageOffline`. The worker caches this page during installation. Its route comes from the generated `WithOffline` option. Datapages uses a minimal default when the application does not define `PageOffline` or installation could not cache it.
 
-The worker caches same-origin requests on first load except Datastar actions, page hydration and event streams, which always use the network. The response decides 3 exceptions. A response marked `Cache-Control: no-store` is never stored. Installation stores the files in `Config.Assets` whatever their headers, and a revalidation answered with `no-store` removes such a copy. A stored response marked `no-cache`, as a [`datapages.File`](#return-value-datapagesfile) with the zero `Cache` is, is fetched from the network first and answers only while offline. A 401, 403, 404 or 410 from the network removes the stored copy. For cross-origin requests, it caches only destinations enabled by the application. The defaults are stylesheets, scripts, fonts and images. `Config.ExcludePaths` excludes same-origin path prefixes. Files listed in `Config.Assets` are cached during worker installation. Any other asset must load once while online before it is available offline.
+The worker caches same-origin requests on first load. Datastar actions, page hydration and event streams always use the network. Response headers change caching as follows:
+
+- `Cache-Control: no-store` prevents storage, except that installation stores files in `Config.Assets` regardless of their headers. A later revalidation with `no-store` removes the stored copy.
+- `Cache-Control: no-cache` makes the worker try the network first and use the stored copy only while offline. A [`datapages.File`](#return-value-datapagesfile) with a zero `Cache` has this behavior.
+- A 401, 403, 404 or 410 response removes the stored copy.
+
+For cross-origin requests, the worker caches only destinations enabled by the application. The defaults are stylesheets, scripts, fonts and images. `Config.ExcludePaths` excludes same-origin path prefixes. Files in `Config.Assets` are cached during worker installation. Any other asset must load once while online before it is available offline.
 
 For a cached same-origin asset, the worker returns the cached response. When the response has no `max-age`, or its age counted from its `Date` and `Age` headers reaches its `max-age`, the worker then updates it from the network, and a later request receives the update. The worker never updates a cached cross-origin asset. A changed one needs a new URL or a new `offline.Config.WorkerVersion`.

@@ -193,7 +193,7 @@ Send authenticated forms through Datastar actions. See [Plain Forms and CSRF](..
 
 ## Show that an action runs
 
-Show at once that a click or a submission arrived, and keep showing it until the result is on the page. [The Tao of Datastar](https://data-star.dev/guide/the_tao_of_datastar) recommends a loading indicator on every element that sends a request. It advises against optimistic updates, which show the result before the server confirms it and take it back when the action fails. Do not change the page in the browser to show what the action will do, such as adding the new item with JavaScript on submit. The patch from the server is the confirmation.
+Show that a request is running until its result reaches the page. Put a loading indicator on each element that sends one. Avoid optimistic updates that change the page before the server confirms the result. The server patch is the confirmation. See [The Tao of Datastar](https://data-star.dev/guide/the_tao_of_datastar).
 
 `data-indicator` sets a signal to true while the request of its element runs. Put it on the element with the `data-on` attribute that calls the action:
 

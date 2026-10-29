@@ -120,7 +120,9 @@ error: this module builds 2 applications (app/admin, app/frontend), pass the dir
 
 The flag takes the whole directory. `--app admin` fails with `no app package in "admin", the module builds: app/admin, app/frontend`.
 
-The dev server builds and runs the main package that holds the `NewServer` call of the selected application. It reads the `watch` section of the module's 1 `datapages.yaml`, whose settings apply to whichever application runs. Each entry point must therefore accept the arguments in [`flags`](configuration.md#flags) and listen where [`app-host`](configuration.md#app-host) points, `http://localhost:8080` by default. The `-host` flag of the entry points above serves that purpose. Since both applications get the same `flags` and the same `app-host`, 2 watches of 1 module started at the same time compete for that address. The built-in watcher reruns `datapages gen` for every application of the module after a change to any of their Go files, not only for the one that runs. See [`datapages watch`](cli.md#datapages-watch).
+The dev server builds and runs the main package with the `NewServer` call of the selected application. Every application uses the `watch` section of the module's `datapages.yaml`. Each entry point must therefore accept [`flags`](configuration.md#flags) and listen on [`app-host`](configuration.md#app-host), `http://localhost:8080` by default. The `-host` flag above does that.
+
+Two `watch` processes in the same module compete for that address. A change to the Go files of any app package reruns `datapages gen` for every application, not only the one that runs. See [`datapages watch`](cli.md#datapages-watch).
 
 ## Share events
 

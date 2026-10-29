@@ -94,7 +94,7 @@ Options for pages:
 | [`WithDatastarJS`](https://pkg.go.dev/github.com/romshark/datapages#WithDatastarJS) | Datastar 1.0.4 from `cdn.jsdelivr.net` | The URL of the Datastar bundle |
 | [`WithStateConfig`](https://pkg.go.dev/github.com/romshark/datapages#WithStateConfig) | 10,000 instances | The per-tab state limit of the server |
 
-The default level of `WithLogger` is DEBUG in dev mode. Declaring `PageOffline` generates a `datapagesgen.WithOffline` option, see [Offline and shims](offline.md).
+The default level of `WithLogger` is DEBUG in dev mode. Declaring `PageOffline` generates a `datapagesgen.WithOffline` option. See [Offline and shims](offline.md).
 
 ### HTTP server
 
