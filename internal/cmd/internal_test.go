@@ -668,3 +668,30 @@ func TestWatchLockHeld(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "other.txt"), nil, 0o666))
 	require.False(t, watchLockHeld(), "file that is no lock")
 }
+
+// TestHasVisibleEntries tests which directories init suggests creating
+// a project subdirectory in.
+func TestHasVisibleEntries(t *testing.T) {
+	for name, tc := range map[string]struct {
+		entries []string // a trailing slash makes a directory
+		want    bool
+	}{
+		"empty":         {nil, false},
+		"dotfiles only": {[]string{".git/", ".DS_Store"}, false},
+		"file":          {[]string{".git/", "notes.txt"}, true},
+		"directory":     {[]string{"Documents/"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, e := range tc.entries {
+				p := filepath.Join(dir, e)
+				if strings.HasSuffix(e, "/") {
+					require.NoError(t, os.Mkdir(p, 0o755))
+					continue
+				}
+				require.NoError(t, os.WriteFile(p, nil, 0o644))
+			}
+			require.Equal(t, tc.want, hasVisibleEntries(dir))
+		})
+	}
+}

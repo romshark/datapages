@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -36,12 +37,21 @@ func newInitCmd(stderr io.Writer, version, modVersion string) *cobra.Command {
 
 By default, init runs interactively and prompts for project settings.
 Use -n/--non-interactive to disable prompts; when a value is needed
-that would normally be prompted for, pass it via --name or --module.
+that would normally be prompted for, pass it via --module.
 
-If not inside a git repository, a new one is created, except in a Go
-module that has a datapages.yaml. If not inside a Go module, a new one
-is initialized. Inside a Go module, init runs in the directory of its
-go.mod. Code generation is run, and finally go mod tidy resolves all
+Outside an initialized project, init asks whether to create a
+subdirectory for the project, and its name. --name answers without the
+prompt, and -n uses the current directory. The subdirectory gets a Go
+module of its own, even inside another one. Otherwise, inside a Go
+module, init runs in the directory of its go.mod. If not inside a Go
+module, init asks for the module path, suggesting one from the git
+remote or the directory name, and initializes one.
+
+If not inside a git repository, init asks whether to create one, except
+in a Go module that has a datapages.yaml. Pass --no-git to answer no
+without the prompt, or --no-git=false to create one. -n creates one.
+
+Code generation is run, and finally go mod tidy resolves all
 dependencies. Init never deletes any files.
 
 Init writes these only when they are missing and never touches them
@@ -95,9 +105,11 @@ Init asks whether to write these files, and -n writes them. Pass
 to write them.`,
 	}
 	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
-		"Disable interactive prompts (requires --name/--module when applicable)")
+		"Disable interactive prompts (requires --module when applicable)")
 	name := cmd.Flags().String("name", "",
-		"Project name (used as directory name)")
+		"Directory to create and initialize the project in")
+	noGit := cmd.Flags().Bool("no-git", false,
+		"Skip creating a git repository")
 	module := cmd.Flags().String("module", "",
 		"Go module path")
 	prometheus := cmd.Flags().Bool("prometheus", scaffoldPrometheus,
@@ -111,7 +123,10 @@ to write them.`,
 	generatedCode := cmd.Flags().String("generated-code", "",
 		"Whether git keeps the generated code: committed or hidden")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		var aiSkills *bool
+		var git, aiSkills *bool
+		if c.Flags().Changed("no-git") {
+			git = new(!*noGit)
+		}
 		if c.Flags().Changed("no-ai-skills") {
 			aiSkills = new(!*noAISkills)
 		}
@@ -129,6 +144,7 @@ to write them.`,
 			generatedCode:  *generatedCode,
 			ci:             *ci,
 			prometheus:     *prometheus,
+			git:            git,
 			aiSkills:       aiSkills,
 			version:        version,
 			modVersion:     modVersion,
@@ -158,18 +174,18 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 }
 
 // initOptions holds what the flags of init set. An empty webComponents,
-// generatedCode or ci and a nil aiSkills leave the choice to its prompt,
-// or to the default with nonInteractive.
+// generatedCode or ci and a nil git or aiSkills leave the choice to its
+// prompt, or to the default with nonInteractive.
 type initOptions struct {
 	nonInteractive bool
 
-	// dir is the directory --name creates outside a git repository.
+	// dir is the directory --name creates and init runs in.
 	dir    string
 	module string
 
 	webComponents, generatedCode, ci string
 
-	aiSkills *bool
+	git, aiSkills *bool
 
 	prometheus bool
 
@@ -205,33 +221,50 @@ func runInit(
 		in = oneByteReader{in}
 	}
 
-	var projectDir string
 	var created bool
 	moduleRoot := moduleDirOf(cwd)
-	// An initialized project needs no git repository. gen recommends init -n
-	// to refresh the agent instructions of one that has none.
 	initialized := moduleRoot != "" && config.Exists(moduleRoot)
-	if !initialized && findGitDir(cwd) == "" {
-		dirName, err := resolveGitDir(in, out, opts.nonInteractive, opts.dir)
+	dir := opts.dir
+	if dir == "" && !initialized && !opts.nonInteractive {
+		dir, err = resolveSubdir(in, out, cwd, moduleRoot)
 		if err != nil {
 			return err
 		}
-		projectDir = filepath.Join(cwd, dirName)
+	}
+
+	projectDir := cwd
+	if dir != "" {
+		projectDir = filepath.Join(cwd, dir)
 		if err := os.MkdirAll(projectDir, 0o755); err != nil {
 			return fmt.Errorf("creating project directory: %w", err)
 		}
-		if err := gitInit(projectDir); err != nil {
-			return err
+		// A new directory is a new project, which go mod init below
+		// takes out of an enclosing module.
+		moduleRoot = ""
+		if fileExists(filepath.Join(projectDir, "go.mod")) {
+			moduleRoot = projectDir
 		}
-		_, _ = fmt.Fprintf(out, "Initialized git repository in %s\n", projectDir)
-		created = true
-	} else {
-		projectDir = cwd
+		initialized = moduleRoot != "" && config.Exists(moduleRoot)
+	} else if moduleRoot != "" && moduleRoot != cwd {
 		// The enclosing module is the one gen and lint use from here.
 		// go mod init below its go.mod would take the directory out of it.
-		if moduleRoot != "" && moduleRoot != cwd {
-			projectDir = moduleRoot
-			_, _ = fmt.Fprintf(out, "Using the Go module in %s\n", moduleRoot)
+		projectDir = moduleRoot
+		_, _ = fmt.Fprintf(out, "Using the Go module in %s\n", moduleRoot)
+	}
+
+	// An initialized project needs no git repository. gen recommends init -n
+	// to refresh the agent instructions of one that has none.
+	if !initialized && findGitDir(projectDir) == "" {
+		git, err := resolveGit(in, out, opts.nonInteractive, opts.git)
+		if err != nil {
+			return err
+		}
+		if git {
+			if err := gitInit(projectDir); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(out, "Initialized git repository in %s\n", projectDir)
+			created = true
 		}
 	}
 
@@ -484,30 +517,23 @@ func runInit(
 	return nil
 }
 
-// resolveGitDir returns dir when set. Otherwise it prompts for a repository
-// directory or requires --name in non-interactive mode.
-func resolveGitDir(
-	in io.Reader, out io.Writer, nonInteractive bool, dir string,
-) (string, error) {
-	if dir != "" {
-		return dir, nil
-	}
-	if nonInteractive {
-		return "", fmt.Errorf("--name is required in non-interactive mode " +
-			"when not inside a git repository")
-	}
-
-	ok := true
+// resolveSubdir asks whether to create the project in a new subdirectory
+// of cwd and returns its name, or an empty string for cwd itself.
+// It suggests a subdirectory for a directory with files of its own outside
+// a Go module, such as a home directory, and none for a directory made for
+// the project or an existing module.
+func resolveSubdir(in io.Reader, out io.Writer, cwd, moduleRoot string) (string, error) {
+	sub := moduleRoot == "" && hasVisibleEntries(cwd)
 	if err := runField(
 		huh.NewConfirm().
-			Title("Not inside a git repository. Create one?").
-			Value(&ok),
+			Title("Create a subdirectory for the project?").
+			Value(&sub),
 		in, out,
 	); err != nil {
 		return "", err
 	}
-	if !ok {
-		return "", fmt.Errorf("cannot initialize project without a git repository")
+	if !sub {
+		return "", nil
 	}
 
 	var name string
@@ -525,10 +551,45 @@ func resolveGitDir(
 	); err != nil {
 		return "", err
 	}
+	// Accessible mode returns an empty name on EOF.
 	if name == "" {
 		return "", fmt.Errorf("directory name is required")
 	}
 	return name, nil
+}
+
+// hasVisibleEntries reports whether dir holds an entry other than dotfiles
+// such as .git and .DS_Store.
+func hasVisibleEntries(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool {
+		return !strings.HasPrefix(e.Name(), ".")
+	})
+}
+
+// resolveGit reports whether to create a git repository.
+// A non-nil flag holds the inverse of --no-git. Without it, it asks,
+// or creates one in non-interactive mode.
+func resolveGit(
+	in io.Reader, out io.Writer, nonInteractive bool, flag *bool,
+) (bool, error) {
+	if flag != nil {
+		return *flag, nil
+	}
+	if nonInteractive {
+		return true, nil
+	}
+	choice := true
+	err := runField(
+		huh.NewConfirm().
+			Title("Not inside a git repository. Create one?").
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
 }
 
 // resolveModulePath returns module when set. Otherwise it prompts with a default
@@ -549,38 +610,19 @@ func resolveModulePath(
 		defaultPath = filepath.Base(projectDir)
 	}
 
-	ok := true
-	if err := runField(
-		huh.NewConfirm().
-			Title("No go.mod found. Initialize a Go module?").
-			Value(&ok),
-		in, out,
-	); err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("cannot initialize project without a Go module")
-	}
-
 	modulePath := defaultPath
 	if err := runField(
 		huh.NewInput().
 			Title("Module path").
-			Value(&modulePath).
-			Validate(func(s string) error {
-				if strings.TrimSpace(s) == "" {
-					return fmt.Errorf("module path is required")
-				}
-				return nil
-			}),
+			Value(&modulePath),
 		in, out,
 	); err != nil {
 		return "", err
 	}
-	if modulePath == "" {
-		return "", fmt.Errorf("module path is required")
-	}
-	return modulePath, nil
+	// An empty answer takes the suggestion. Accessible mode shows no
+	// prefilled value and validates the raw answer, so a validator
+	// rejecting an empty one would keep asking.
+	return cmp.Or(strings.TrimSpace(modulePath), defaultPath), nil
 }
 
 // gitRemoteModulePath converts the origin URL to a Go module path.

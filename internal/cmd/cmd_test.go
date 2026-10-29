@@ -1181,7 +1181,7 @@ func TestInit(t *testing.T) {
 					"git diff --exit-code")
 			},
 		},
-		"non-interactive without ai skills and ci": {
+		"non-interactive without git, ai skills and ci": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
@@ -1191,12 +1191,14 @@ func TestInit(t *testing.T) {
 				"-n",
 				"--name", "myapp",
 				"--module", "example.com/myapp",
+				"--no-git",
 				"--no-ai-skills",
 				"--ci", "none",
 			},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
+				require.NoDirExists(t, filepath.Join(projectDir, ".git"))
 				require.NoFileExists(t, filepath.Join(projectDir, "AGENTS.md"))
 				require.NoFileExists(t, filepath.Join(projectDir, "CLAUDE.md"))
 				require.NoDirExists(t, filepath.Join(projectDir, ".claude"))
@@ -1205,13 +1207,19 @@ func TestInit(t *testing.T) {
 				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
 			},
 		},
-		"non-interactive missing name": {
+		"non-interactive in empty directory": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init", "-n"},
-			wantCode: 1,
-			wantErr:  "--name is required",
+			args:     []string{"datapages", "init", "-n", "--module", "example.com/here"},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.DirExists(t, filepath.Join(startDir, ".git"))
+				require.FileExists(t, filepath.Join(startDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(startDir, "app", "app.go"))
+				requireFileContains(t, filepath.Join(startDir, "go.mod"),
+					"module example.com/here")
+			},
 		},
 		"non-interactive in a module subdirectory": {
 			setup: func(t *testing.T) string {
@@ -1380,20 +1388,20 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			args: []string{"datapages", "init"},
-			// The empty lines take the defaults of the Web Components,
-			// generated code, CI and AI skills prompts.
-			stdin:      "y\nmyapp\ny\nmymod\n\n\n\n\nn\n",
+			// A subdirectory and a repository, then the empty lines take the
+			// defaults of the module path, Web Components, generated code,
+			// CI and AI skills prompts.
+			stdin:      "y\nmyapp\ny\n\n\n\n\n\nn\n",
 			projectDir: "myapp",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
+				require.Contains(t, stdout, "Create a subdirectory for the project?")
 				require.Contains(t, stdout, "Write AI agent instructions and skills?")
 				require.FileExists(t, filepath.Join(projectDir, "AGENTS.md"))
 				require.DirExists(t, filepath.Join(projectDir, ".git"))
-				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
-				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
-				require.NoError(t, err)
-				require.Contains(t, string(data), "mymod")
+				requireFileContains(t, filepath.Join(projectDir, "go.mod"),
+					"module myapp\n")
 				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
 				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
 				require.FileExists(t, filepath.Join(projectDir, ".env"))
@@ -1401,26 +1409,22 @@ func TestInit(t *testing.T) {
 				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
 			},
 		},
-		"interactive decline git": {
+		"interactive without git": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init"},
-			stdin:    "n\n",
-			wantCode: 1,
-			wantErr:  "without a git repository",
-		},
-		"interactive decline module": {
-			setup: func(t *testing.T) string {
-				dir := t.TempDir()
-				out, err := exec.Command("git", "init", dir).CombinedOutput()
-				require.NoError(t, err, "git init: %s", out)
-				return dir
+			args: []string{"datapages", "init"},
+			// No subdirectory, no repository, then the defaults, no run.
+			stdin:    "n\nn\n\n\n\n\n\nn\n",
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.Contains(t, stdout, "Not inside a git repository. Create one?")
+				require.NoDirExists(t, filepath.Join(startDir, ".git"))
+				require.FileExists(t, filepath.Join(startDir, "app", "app.go"))
+				requireFileContains(t, filepath.Join(startDir, "go.mod"),
+					"module "+filepath.Base(startDir)+"\n")
+				require.Contains(t, stdout, "Project initialized successfully.")
 			},
-			args:     []string{"datapages", "init"},
-			stdin:    "n\n",
-			wantCode: 1,
-			wantErr:  "without a Go module",
 		},
 		"interactive empty dir name": {
 			setup: func(t *testing.T) string {
@@ -1441,7 +1445,7 @@ func TestInit(t *testing.T) {
 				"--name", "custom-app",
 				"--module", "example.com/custom",
 			},
-			stdin:    "\n\n\n\nn\n",
+			stdin:    "\n\n\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "custom-app")
@@ -1455,21 +1459,28 @@ func TestInit(t *testing.T) {
 				require.Contains(t, stdout, "Project initialized successfully.")
 			},
 		},
-		"flag name skips name prompt": {
+		"flag name inside git repository and module": {
 			setup: func(t *testing.T) string {
-				return t.TempDir()
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
+					[]byte("module example.com/root\n\ngo 1.27.3\n"), 0o644))
+				return dir
 			},
 			projectDir: "myproject",
 			args:       []string{"datapages", "init", "--name", "myproject"},
-			stdin:      "y\nmymod\n\n\n\n\nn\n",
-			wantCode:   0,
+			// The module path, then the defaults, no run.
+			stdin:    "mymod\n\n\n\n\nn\n",
+			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
-				require.DirExists(t, filepath.Join(projectDir, ".git"))
-				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
-				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
-				require.NoError(t, err)
-				require.Contains(t, string(data), "mymod")
+				require.NotContains(t, stdout, "Using the Go module in ")
+				require.NoDirExists(t, filepath.Join(projectDir, ".git"))
+				requireFileContains(t, filepath.Join(projectDir, "go.mod"),
+					"module mymod")
+				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
+				require.NoFileExists(t, filepath.Join(startDir, "datapages.yaml"))
 			},
 		},
 		"flag module skips module prompt": {
@@ -1483,7 +1494,7 @@ func TestInit(t *testing.T) {
 				"datapages", "init",
 				"--module", "example.com/flagmod",
 			},
-			stdin:    "\n\n\n\nn\n",
+			stdin:    "n\n\n\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
@@ -1661,9 +1672,9 @@ func TestInit(t *testing.T) {
 				return dir
 			},
 			args: []string{"datapages", "init", "--module", "example.com/hidden"},
-			// Default Web Components, the 2nd generated code and CI options,
-			// no AI skills, no run.
-			stdin: "\n2\n2\nn\nn\n",
+			// No subdirectory, default Web Components, the 2nd generated code
+			// and CI options, no AI skills, no run.
+			stdin: "n\n\n2\n2\nn\nn\n",
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.Contains(t, stdout, "Commit generated files?")
 				require.Contains(t, stdout, "Set up CI?")
@@ -1689,7 +1700,7 @@ func TestInit(t *testing.T) {
 				"--module", "example.com/flagskills",
 				"--no-ai-skills=false",
 			},
-			stdin: "\n\n\nn\n",
+			stdin: "n\n\n\n\nn\n",
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.NotContains(t, stdout, "Write AI agent instructions and skills?")
 				require.FileExists(t, filepath.Join(startDir, "AGENTS.md"))
