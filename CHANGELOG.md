@@ -40,6 +40,7 @@ Run `datapages gen` to apply these.
 - Scaffold Web Components instead of requiring manual frontend setup. Choose Datastar Rocket, esbuild-bundled TypeScript, JavaScript modules or none interactively or with `--web-components rocket|typescript|javascript|none`; `-n` defaults to none. Each setup adds an attribute-and-event example. Rocket loads the matching CDN bundle. TypeScript requires Node.js; init installs and builds it, and `datapages watch` rebuilds changes.
 - Ask whether to commit the generated code, `datapagesgen/` and `*_templ.go`, interactively or with `--generated-code committed|hidden`; `-n` defaults to committed. Hidden lists it in `.gitignore`, hides it in VS Code with `.vscode/settings.json` and makes `make build` and CI generate it. CI no longer compares it with the commit. A clone of a hidden project builds only after `templ generate` and `datapages gen`, and `datapages gen` fails there while the app uses the `href`, `action` or `assets` packages.
 - Ask whether to write the GitHub Actions workflow `.github/workflows/ci.yml`, interactively or with `--ci github-actions|none`; `-n` defaults to `github-actions`.
+- Ask whether to write the AI agent instructions and skills, interactively or with `--no-ai-skills`; `-n` writes them.
 
 ### Changed
 
@@ -95,6 +96,7 @@ Run `datapages gen` to apply these.
 - Teach generated AI instructions to use isolated Web Components for browser libraries or client logic too complex for Datastar expressions. The earlier instructions did not say where such JavaScript belongs. Run `datapages init` in an existing project to update them.
 - Generate a new project's templates with templ v0.3.1100 and install that version in its `.github/workflows/ci.yml`. A project scaffolded earlier keeps v0.3.1020 in its workflow: change the version in the `go install github.com/a-h/templ/cmd/templ@` step to match the templ version in its `go.mod`.
 - Run `templ generate` after `datapages gen` in a new project's `make gen`. It left `*_templ.go` stale after a `.templ` change.
+- Ask whether to create a subdirectory for the project, or take its name from `--name`; `-n` uses the current directory and no longer requires `--name`. Ask whether to create a git repository instead of failing without one, or take the answer from `--no-git`; `-n` creates one. Ask for the module path directly; an empty answer takes the suggested one.
 
 ### Removed
 
