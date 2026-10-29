@@ -1381,12 +1381,14 @@ func TestInit(t *testing.T) {
 			},
 			args: []string{"datapages", "init"},
 			// The empty lines take the defaults of the Web Components,
-			// generated code and CI prompts.
-			stdin:      "y\nmyapp\ny\nmymod\n\n\n\nn\n",
+			// generated code, CI and AI skills prompts.
+			stdin:      "y\nmyapp\ny\nmymod\n\n\n\n\nn\n",
 			projectDir: "myapp",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
+				require.Contains(t, stdout, "Write AI agent instructions and skills?")
+				require.FileExists(t, filepath.Join(projectDir, "AGENTS.md"))
 				require.DirExists(t, filepath.Join(projectDir, ".git"))
 				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
 				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
@@ -1439,7 +1441,7 @@ func TestInit(t *testing.T) {
 				"--name", "custom-app",
 				"--module", "example.com/custom",
 			},
-			stdin:    "\n\n\nn\n",
+			stdin:    "\n\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "custom-app")
@@ -1459,7 +1461,7 @@ func TestInit(t *testing.T) {
 			},
 			projectDir: "myproject",
 			args:       []string{"datapages", "init", "--name", "myproject"},
-			stdin:      "y\nmymod\n\n\n\nn\n",
+			stdin:      "y\nmymod\n\n\n\n\nn\n",
 			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
@@ -1481,7 +1483,7 @@ func TestInit(t *testing.T) {
 				"datapages", "init",
 				"--module", "example.com/flagmod",
 			},
-			stdin:    "\n\n\nn\n",
+			stdin:    "\n\n\n\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
@@ -1651,7 +1653,7 @@ func TestInit(t *testing.T) {
 				require.NotContains(t, string(ci), "git diff --exit-code")
 			},
 		},
-		"interactive hidden generated code and no ci": {
+		"interactive hidden generated code, no ci, no ai skills": {
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
 				out, err := exec.Command("git", "init", dir).CombinedOutput()
@@ -1659,16 +1661,38 @@ func TestInit(t *testing.T) {
 				return dir
 			},
 			args: []string{"datapages", "init", "--module", "example.com/hidden"},
-			// Default Web Components, the 2nd generated code and CI options, no run.
-			stdin: "\n2\n2\nn\n",
+			// Default Web Components, the 2nd generated code and CI options,
+			// no AI skills, no run.
+			stdin: "\n2\n2\nn\nn\n",
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.Contains(t, stdout, "Commit generated files?")
 				require.Contains(t, stdout, "Set up CI?")
+				require.Contains(t, stdout, "Write AI agent instructions and skills?")
 				requireFileContains(t, filepath.Join(startDir, ".gitignore"),
 					"datapagesgen/\n", "*_templ.go\n")
 				require.FileExists(t, filepath.Join(startDir, ".vscode", "settings.json"))
 				require.NoFileExists(t,
 					filepath.Join(startDir, ".github", "workflows", "ci.yml"))
+				require.NoFileExists(t, filepath.Join(startDir, "AGENTS.md"))
+				require.NoDirExists(t, filepath.Join(startDir, ".claude"))
+			},
+		},
+		"interactive flag skips ai skills prompt": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args: []string{
+				"datapages", "init",
+				"--module", "example.com/flagskills",
+				"--no-ai-skills=false",
+			},
+			stdin: "\n\n\nn\n",
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.NotContains(t, stdout, "Write AI agent instructions and skills?")
+				require.FileExists(t, filepath.Join(startDir, "AGENTS.md"))
 			},
 		},
 		"ci unknown": {

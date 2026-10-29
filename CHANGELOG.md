@@ -38,6 +38,7 @@ Run `datapages gen` to apply these.
 - Scaffold Web Components instead of requiring manual frontend setup. Choose Datastar Rocket, esbuild-bundled TypeScript, JavaScript modules or none interactively or with `--web-components rocket|typescript|javascript|none`; `-n` defaults to none. Each setup adds an attribute-and-event example. Rocket loads the matching CDN bundle. TypeScript requires Node.js; init installs and builds it, and `datapages watch` rebuilds changes.
 - Ask whether to commit the generated code, `datapagesgen/` and `*_templ.go`, interactively or with `--generated-code committed|hidden`; `-n` defaults to committed. Hidden lists it in `.gitignore`, hides it in VS Code with `.vscode/settings.json` and makes `make build` and CI generate it. CI no longer compares it with the commit. A clone of a hidden project builds only after `templ generate` and `datapages gen`, and `datapages gen` fails there while the app uses the `href`, `action` or `assets` packages.
 - Ask whether to write the GitHub Actions workflow `.github/workflows/ci.yml`, interactively or with `--ci github-actions|none`; `-n` defaults to `github-actions`.
+- Ask whether to write the AI agent instructions and skills, interactively or with `--no-ai-skills`; `-n` writes them.
 
 ### Changed
 

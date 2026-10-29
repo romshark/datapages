@@ -90,7 +90,9 @@ skills under .agents/skills and .claude/skills. If you edit these files
 then init will create <name>.bak backup files before it replaces them.
 An AGENTS.md that does not end with the datapages stamp is your own and
 stays untouched, and so do skills with other names.
-Pass --no-ai-skills to skip all of these files.`,
+Init asks whether to write these files, and -n writes them. Pass
+--no-ai-skills to skip them without the prompt, or --no-ai-skills=false
+to write them.`,
 	}
 	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
 		"Disable interactive prompts (requires --name/--module when applicable)")
@@ -109,6 +111,10 @@ Pass --no-ai-skills to skip all of these files.`,
 	generatedCode := cmd.Flags().String("generated-code", "",
 		"Whether git keeps the generated code: committed or hidden")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
+		var aiSkills *bool
+		if c.Flags().Changed("no-ai-skills") {
+			aiSkills = new(!*noAISkills)
+		}
 		// Non-file input uses huh's line-based accessible mode.
 		// Leave in nil for Cobra's *os.File stdin so huh selects the TUI.
 		var in io.Reader
@@ -123,7 +129,7 @@ Pass --no-ai-skills to skip all of these files.`,
 			generatedCode:  *generatedCode,
 			ci:             *ci,
 			prometheus:     *prometheus,
-			aiSkills:       !*noAISkills,
+			aiSkills:       aiSkills,
 			version:        version,
 			modVersion:     modVersion,
 		})
@@ -152,8 +158,8 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 }
 
 // initOptions holds what the flags of init set. An empty webComponents,
-// generatedCode or ci leaves the choice to its prompt, or to the default with
-// nonInteractive.
+// generatedCode or ci and a nil aiSkills leave the choice to its prompt,
+// or to the default with nonInteractive.
 type initOptions struct {
 	nonInteractive bool
 
@@ -163,7 +169,9 @@ type initOptions struct {
 
 	webComponents, generatedCode, ci string
 
-	prometheus, aiSkills bool
+	aiSkills *bool
+
+	prometheus bool
 
 	// version and modVersion are as [newInitCmd] describes them.
 	version, modVersion string
@@ -306,6 +314,11 @@ func runInit(
 		}
 	}
 
+	aiSkills, err := resolveAISkills(in, out, opts.nonInteractive, opts.aiSkills)
+	if err != nil {
+		return err
+	}
+
 	if wrote, err := writeDefaultConfigIfMissing(
 		projectDir, out, components,
 	); err != nil {
@@ -323,7 +336,7 @@ func runInit(
 	}
 
 	// Refresh agent instructions even when init creates no project files.
-	if opts.aiSkills {
+	if aiSkills {
 		if err := writeAgentDocs(projectDir, out, opts.version); err != nil {
 			return err
 		}
@@ -763,6 +776,31 @@ func resolveCI(
 				huh.NewOption("GitHub Actions", skeleton.CIGitHubActions),
 				huh.NewOption("None", skeleton.CINone),
 			).
+			Value(&choice),
+		in, out,
+	)
+	return choice, err
+}
+
+// resolveAISkills reports whether to write the agent instructions and skills.
+// A non-nil flag holds the inverse of --no-ai-skills. Without it, it asks,
+// or writes them in non-interactive mode.
+func resolveAISkills(
+	in io.Reader, out io.Writer, nonInteractive bool, flag *bool,
+) (bool, error) {
+	if flag != nil {
+		return *flag, nil
+	}
+	if nonInteractive {
+		return true, nil
+	}
+	choice := true
+	err := runField(
+		huh.NewConfirm().
+			Title("Write AI agent instructions and skills?").
+			Description("AGENTS.md, CLAUDE.md, GEMINI.md, Copilot and Cursor rules "+
+				"and the Datapages and Datastar skills.\n"+
+				"Init rewrites them on every run.").
 			Value(&choice),
 		in, out,
 	)
