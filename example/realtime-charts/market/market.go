@@ -1,5 +1,4 @@
-// Package market simulates the prices of fictional indexes and writes them into a
-// time-series database, one series per index.
+// Package market simulates fictional indexes in a time-series database.
 package market
 
 import (
@@ -22,8 +21,7 @@ type Index struct {
 	Sector string
 }
 
-// Market simulates the prices of [Indexes] and writes them into a database.
-// It's safe for concurrent use.
+// Market simulates [Indexes] in a database. It's safe for concurrent use.
 type Market struct {
 	db      *tsdb.DB
 	history int64
@@ -33,7 +31,6 @@ type Market struct {
 	walks []walk
 }
 
-// walk is the price process of one index.
 type walk struct {
 	rng      *rand.Rand
 	open     float64
@@ -42,8 +39,8 @@ type walk struct {
 	sigma    float64
 }
 
-// New returns a market whose indexes have a price in db for every Step of the history
-// before now. Markets created at the same millisecond write the same prices.
+// New fills db at every Step through now.
+// The same millisecond produces the same prices.
 func New(db *tsdb.DB, now time.Time, history time.Duration) *Market {
 	m := &Market{
 		db:      db,
@@ -51,8 +48,7 @@ func New(db *tsdb.DB, now time.Time, history time.Duration) *Market {
 		walks:   make([]walk, len(Indexes)),
 	}
 	for i := range Indexes {
-		// Each index has its own generator, which keeps its
-		// prices independent of how many other indexes the market holds.
+		// Per-index generators make prices independent of the number of indexes.
 		rng := rand.New(rand.NewPCG(uint64(i)+1, 0x9e3779b97f4a7c15))
 		price := math.Round((20+rng.Float64()*380)*100) / 100
 		m.walks[i] = walk{
@@ -69,7 +65,7 @@ func New(db *tsdb.DB, now time.Time, history time.Duration) *Market {
 	return m
 }
 
-// History returns how far back before its creation the market wrote prices.
+// History returns the configured history.
 func (m *Market) History() time.Duration {
 	return time.Duration(m.history) * time.Millisecond
 }
@@ -88,12 +84,9 @@ func (m *Market) Open(i int) float64 {
 	return m.walks[i].open
 }
 
-// Tick writes a price for every index and every Step from the last tick to now.
-// A tick at or before the last one writes nothing.
+// Tick writes every Step through now. A tick at or before the last one writes nothing.
 //
-// Tick does not simulate a gap longer than the history, such as after the host was
-// suspended, step by step: prices continue from where they were and the database drops
-// the points before the gap.
+// A gap longer than History skips expired steps but continues the prior prices.
 func (m *Market) Tick(now time.Time) {
 	t := now.UnixMilli()
 	t -= t % Step
@@ -109,19 +102,16 @@ func (m *Market) Tick(now time.Time) {
 		for ts := from; ts <= t; ts += Step {
 			points = append(points, tsdb.Point{Time: ts, Value: m.walks[i].step()})
 		}
-		// The times are newer than every point written before, which is all Append
-		// checks.
+		// These times are newer than every existing point, which is all Append checks.
 		_ = m.db.Append(Indexes[i].Symbol, points...)
 	}
 	m.now = t
 }
 
-// Run ticks the market at the start of every second until ctx is done.
-// After each tick it calls notify with the symbol of every index.
+// Run ticks at each full second and notifies every index until ctx ends.
 func (m *Market) Run(ctx context.Context, notify func(symbol string)) {
-	// A timer reset to the next full second fires once per Unix second, where a ticker
-	// started at an arbitrary offset can fire twice within one second and skip the next
-	// when it runs late.
+	// Resetting to each full second avoids duplicate
+	// or skipped Unix seconds after delays.
 	next := func(t time.Time) time.Duration {
 		return time.Until(t.Truncate(time.Second).Add(time.Second))
 	}
@@ -141,11 +131,8 @@ func (m *Market) Run(ctx context.Context, notify func(symbol string)) {
 	}
 }
 
-// step moves the price one Step and returns it.
 func (w *walk) step() float64 {
-	// An Ornstein-Uhlenbeck process on the log price. The pull towards the opening price
-	// keeps a market that runs for days in a plausible range, where a plain random walk
-	// would drift towards zero or infinity.
+	// Mean reversion keeps a long-running log-price walk away from 0 and infinity.
 	w.logPrice += 1e-4*(w.logMean-w.logPrice) + w.sigma*w.rng.NormFloat64()
 	return math.Exp(w.logPrice)
 }

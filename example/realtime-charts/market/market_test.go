@@ -10,7 +10,7 @@ import (
 	"github.com/romshark/datapages/example/realtime-charts/tsdb"
 )
 
-// t0 is when the market of every test starts, two seconds into a five second bar.
+// t0 starts each test 2 seconds into a 5-second bar.
 var t0 = time.Unix(1_800_000_002, 0)
 
 const history = time.Hour
@@ -20,8 +20,7 @@ func newMarket() (*market.Market, *tsdb.DB) {
 	return market.New(db, t0, history), db
 }
 
-// TestNew tests that a new market writes a price for every step of the history before it
-// starts.
+// TestNew tests history prefill.
 func TestNew(t *testing.T) {
 	m, db := newMarket()
 	require.Equal(t, t0.UnixMilli(), m.Now())
@@ -34,8 +33,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-// TestNewIsDeterministic tests that markets created at the same millisecond write the
-// same prices.
+// TestNewIsDeterministic tests equal seeds at the same millisecond.
 func TestNewIsDeterministic(t *testing.T) {
 	_, a := newMarket()
 	_, b := newMarket()
@@ -58,16 +56,19 @@ func TestTick(t *testing.T) {
 		"one step":       {at: t0.Add(250 * time.Millisecond), added: 1},
 		"one second":     {at: t0.Add(time.Second), added: 4},
 		"half an hour":   {at: t0.Add(30 * time.Minute), added: 7200},
-		// The market simulates only the last hour, and the database keeps nothing from
-		// before the gap.
+		// Only the retained hour is simulated after the gap.
 		"longer than the history": {
-			at: t0.Add(10 * time.Hour), added: int(history.Milliseconds()/market.Step) + 1,
+			at:    t0.Add(10 * time.Hour),
+			added: int(history.Milliseconds()/market.Step) + 1,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m, db := newMarket()
 			m.Tick(tc.at)
-			newest := max(t0.UnixMilli(), tc.at.UnixMilli()-tc.at.UnixMilli()%market.Step)
+			newest := max(
+				t0.UnixMilli(),
+				tc.at.UnixMilli()-tc.at.UnixMilli()%market.Step,
+			)
 			require.Equal(t, newest, m.Now())
 			for _, in := range market.Indexes {
 				added := db.Range(in.Symbol, t0.UnixMilli()+1, newest)
@@ -79,14 +80,15 @@ func TestTick(t *testing.T) {
 					}
 				}
 				first, _ := db.First(in.Symbol)
-				require.GreaterOrEqual(t, first.Time, newest-history.Milliseconds(), in.Symbol)
+				require.GreaterOrEqual(t,
+					first.Time,
+					newest-history.Milliseconds(), in.Symbol)
 			}
 		})
 	}
 }
 
-// TestSectors tests that every index belongs to one of
-// the sectors and every sector has an index.
+// TestSectors tests complete bidirectional membership.
 func TestSectors(t *testing.T) {
 	counts := map[string]int{}
 	for _, in := range market.Indexes {

@@ -24,8 +24,7 @@ import (
 func main() {
 	host := envOr("HOST", "localhost")
 	port := envOr("PORT", "8080")
-	// The history is how far back the database keeps prices, which is as far back as a
-	// paused link and a tab that resumes can reach.
+	// History bounds retained prices and reachable paused links.
 	history, err := time.ParseDuration(envOr("HISTORY", "1h"))
 	if err != nil || history <= 0 {
 		slog.Error("HISTORY is not a positive duration",
@@ -36,20 +35,16 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// The market prefills the database with the history and writes into it from its own
-	// goroutine once the server runs.
+	// The market prefills history before its goroutine starts.
 	db := tsdb.New(history)
 	m := market.New(db, time.Now(), history)
 
-	// The database and every stream that shows it live in this process. A broker between
-	// processes would carry the ticks of databases that differ. The market publishes the
-	// events of all indexes at once. A buffer for all of them keeps a busy stream from
-	// dropping the events of the last indexes, which a tab that shows only those would
-	// miss pushes for.
+	// The database and streams share 1 process.
+	// The buffer holds a full tick,
+	// preventing a busy stream from dropping later index events.
 	broker := inmem.New(4 * len(market.Indexes))
 
-	// The chart elements are Rocket components. The pages load Datastar with Rocket from
-	// the file the elements import, which keeps one Datastar on the page.
+	// Pages and Rocket chart elements share this Datastar bundle.
 	s, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,
@@ -67,10 +62,9 @@ func main() {
 	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
-// runMarket ticks m every second and publishes an event for every index after each tick,
-// each on the subject of its index. The market runs outside of any handler, which is why
-// it publishes on the broker directly instead of through a [datapages.Dispatcher]. A
-// dispatcher escapes the subject value. Symbols need no escaping, see [market.Indexes].
+// runMarket publishes 1 event per index after each tick.
+// It uses the broker directly because it runs outside a handler.
+// Symbols need no subject escaping; see [market.Indexes].
 func runMarket(ctx context.Context, m *market.Market, p messaging.Publisher) {
 	m.Run(ctx, func(symbol string) {
 		// Marshaling a struct of a string cannot fail.

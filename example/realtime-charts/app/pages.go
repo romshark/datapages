@@ -6,20 +6,12 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// The view pages show the same indexes with the same settings: the chart page as charts
-// of the chart type of the settings, the market map among all indexes and the portfolio
-// page as a portfolio. [Dashboard] holds their stream. Each page loads the library that
-// draws it in its head.
-//
-// Datapages reloads a page whose hidden tab is shown again. The view pages turn that off:
-// a reload would end a pause and drop the bars the charts have drawn. The stream
-// reconnects and catches up on its own, see [Dashboard.StreamOpen].
+// The view pages share [Dashboard] and disable visibility reloads.
+// Their streams catch up without ending a pause or dropping bars already drawn.
 
 // PageIndex is /
 //
-// It draws a chart of every index the sidebar selects, as candlesticks, OHLC bars, a line
-// through the closing prices, the same line filled below or filled towards the opening
-// price, or a column for the change of every bar.
+// It shows selected indexes in 6 chart types.
 type PageIndex struct {
 	App *App
 	Dashboard
@@ -36,8 +28,7 @@ func (p PageIndex) GET(
 
 // PageMap is /map
 //
-// It shows every index as a tile of its sector, colored by its change since the open, and
-// outlines the indexes of the sidebar.
+// It shows every index by sector and outlines selected indexes.
 type PageMap struct {
 	App *App
 	Dashboard
@@ -54,8 +45,7 @@ func (p PageMap) GET(
 
 // PagePortfolio is /portfolio
 //
-// It shows the indexes as a portfolio: an equal part of the capital in each, bought at
-// its opening price.
+// It invests an equal part of the capital in each selected index.
 type PagePortfolio struct {
 	App *App
 	Dashboard

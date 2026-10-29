@@ -1,15 +1,13 @@
 package market
 
-// Sectors are in the order the portfolio page shows them, which also gives every sector
-// its color.
+// Sectors defines portfolio order and colors.
 var Sectors = []string{
 	"Technology", "Communication", "Consumer", "Energy", "Financials",
 	"Health", "Industrials", "Materials", "Real estate", "Utilities",
 }
 
-// Indexes lists what every [Market] simulates. Symbols consist of uppercase ASCII letters
-// only, which lets templates put them into signal paths and element IDs without escaping
-// and lets a hyphen separate them in a URL.
+// Indexes lists what [Market] simulates. Uppercase ASCII symbols need no escaping in
+// signal paths or element IDs and can be joined with hyphens in URLs.
 var Indexes = []Index{
 	{"AURA", "Aurora Robotics", "Technology"},
 	{"BLTX", "Boltline Energy", "Energy"},

@@ -6,8 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBinWidth tests that a bin width is 1, 2 or 5 times a power of ten that splits
-// 0..extreme into at most eight bins.
+// TestBinWidth tests round widths capped at 8 positive bins.
 func TestBinWidth(t *testing.T) {
 	for extreme, want := range map[float64]float64{
 		0:    0.01,
@@ -21,8 +20,7 @@ func TestBinWidth(t *testing.T) {
 	}
 }
 
-// TestDistribution tests that the returns from one value to the next fall into the bins
-// of their centers.
+// TestDistribution tests consecutive returns by bin center.
 func TestDistribution(t *testing.T) {
 	require.Nil(t, distribution([]float64{100}))
 	require.Equal(t, []point{{0, 2}}, distribution([]float64{100, 100, 100}))
@@ -39,8 +37,7 @@ func TestDistribution(t *testing.T) {
 	}
 }
 
-// TestSectorShares tests the shares of the sectors, in the order of the sectors, and the
-// gaps between them on the ring.
+// TestSectorShares tests sector order, percentages and ring gaps.
 func TestSectorShares(t *testing.T) {
 	shares := sectorShares([]string{"VEIL", "BLTX", "AURA", "GLWT"})
 	require.Len(t, shares, 2)
@@ -60,8 +57,7 @@ func TestSectorShares(t *testing.T) {
 	require.Equal(t, []share{{"Health", 5, 100, 0, 100}}, sectorShares([]string{"CRUX"}))
 }
 
-// TestDollars tests that dollars rounds to whole dollars, puts a comma between thousands
-// and shows a minus sign only for a value that rounds below zero.
+// TestDollars tests rounding, separators and negative zero.
 func TestDollars(t *testing.T) {
 	for v, want := range map[float64]string{
 		102837.4:  "$102,837",

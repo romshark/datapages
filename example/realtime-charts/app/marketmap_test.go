@@ -1,5 +1,4 @@
-// Tests the market map and its stream over HTTP, with the env and the tab of the tests of
-// the chart pages.
+// Tests reuse the chart-page HTTP environment.
 
 package app_test
 
@@ -11,13 +10,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/html"
 
 	"github.com/romshark/datapages/example/realtime-charts/app"
 	"github.com/romshark/datapages/example/realtime-charts/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/realtime-charts/market"
 )
 
-// TestMapPage tests the tree, the head and the footer of the market map.
+// TestMapPage tests the complete initial market map.
 func TestMapPage(t *testing.T) {
 	e := newEnv(t)
 	resp := e.get(t, views["map"].href(app.ViewQuery{}))
@@ -46,64 +46,80 @@ func TestMapPage(t *testing.T) {
 		}
 	}
 	require.Len(t, listed, len(market.Indexes))
+	e.requireMap(t, tilesOf(t, doc), t0.Unix())
+	require.Equal(t, indexesParam(defaults), attrOf(marketMap, "selection"))
 
 	requireSidebar(t, resp.ElementByID(t, "sidebar"), defaults)
 	requireTabs(t, resp.ElementByID(t, "tabs"), "map",
-		app.ViewQuery{Type: "candles", Layout: "grid", Refresh: "1s", Range: "15m", Indexes: indexesParam(defaults)})
-	one(t, doc, "the ECharts script", tag("script"),
+		app.ViewQuery{
+			Type:    "candles",
+			Layout:  "grid",
+			Refresh: "1s",
+			Range:   "15m",
+			Indexes: indexesParam(defaults),
+		})
+	one(t, doc,
+		"the ECharts script", tag("script"),
 		attr("src", "https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"))
-	one(t, doc, "the market map module", tag("script"), attr("src", assets.Path("market-map.js")))
-	one(t, doc, "the ECharts credit", tag("a"), attr("href", "https://echarts.apache.org/"))
+	one(t, doc,
+		"the market map module", tag("script"), attr("src", assets.Path("market-map.js")))
+	one(t, doc,
+		"the ECharts credit", tag("a"), attr("href", "https://echarts.apache.org/"))
 	require.NotContains(t, resp.Body, "lightweight-charts")
 	require.NotContains(t, resp.Body, "uPlot")
 }
 
-// TestMapStream tests that the market map receives the tile of every index with every
-// push, whichever indexes the sidebar selects.
+// TestMapStream tests that every push includes every index.
 func TestMapStream(t *testing.T) {
 	e := newEnv(t)
-	tb := e.openTab(t, views["map"].href(app.ViewQuery{}), `{"view":"map","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"none"}`)
-	p := tb.pushes(t, 1)[0]
-	require.Equal(t, t0.Unix(), p.Pushed)
-	e.requireMap(t, p.Map, t0.Unix())
+	tb := e.openTab(t, views["map"].href(app.ViewQuery{}),
+		`{"view":"map","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"none"}`)
+	r := tb.renders(t, 1)[0]
+	require.Equal(t, t0.Unix(), r.At)
+	e.requireMap(t, tilesOf(t, r.Main), t0.Unix())
 
 	e.tick(t, 1)
-	p = tb.pushes(t, 2)[1]
-	require.Equal(t, t0.Unix()+1, p.Pushed)
-	e.requireMap(t, p.Map, t0.Unix()+1)
+	r = tb.renders(t, 2)[1]
+	require.Equal(t, t0.Unix()+1, r.At)
+	e.requireMap(t, tilesOf(t, r.Main), t0.Unix()+1)
 }
 
-// TestMapPausedPage tests that a market map opened paused at a second shows the tiles of
-// that second.
+// TestMapPausedPage tests a shared paused map URL.
 func TestMapPausedPage(t *testing.T) {
 	e := newEnv(t)
 	e.market.Tick(t0.Add(20 * time.Second))
-	p := e.openTab(t, views["map"].href(app.ViewQuery{}), fmt.Sprintf(
+	r := e.openTab(t, views["map"].href(app.ViewQuery{}), fmt.Sprintf(
 		`{"view":"map","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"AURA","paused":%d}`, t0.Unix()+7,
-	)).pushes(t, 1)[0]
-	require.Equal(t, t0.Unix()+7, p.Pushed)
-	e.requireMap(t, p.Map, t0.Unix()+7)
+	)).renders(t, 1)[0]
+	require.Equal(t, t0.Unix()+7, r.At)
+	e.requireMap(t, tilesOf(t, r.Main), t0.Unix()+7)
 }
 
-// TestMapToggle tests that a toggle on the market map patches the sidebar and the indexes
-// signal, which the map outlines, and sends no tiles.
+// TestMapToggle tests selection across the map, sidebar, tabs and URL signal.
 func TestMapToggle(t *testing.T) {
 	e := newEnv(t)
-	tb := e.openTab(t, views["map"].href(app.ViewQuery{}), `{"view":"map","type":"candles","layout":"grid","refresh":"2s","range":"15m","indexes":"AURA"}`)
-	tb.pushes(t, 1)
+	tb := e.openTab(t, views["map"].href(app.ViewQuery{}),
+		`{"view":"map","type":"candles","layout":"grid","refresh":"2s","range":"15m","indexes":"AURA"}`)
+	tb.renders(t, 1)
 
 	evs := tb.toggle(t, "GLWT")
-	p := onlyPatch(t, evs)
-	require.Equal(t, "AURA-GLWT", p.Indexes)
-	require.Nil(t, p.Map)
+	require.Equal(t, "AURA-GLWT", indexesOf(t, evs))
+	r := onlyRender(t, evs)
+	marketMap := one(t, r.Main, "the market map", tag("market-map"))
+	require.Equal(t, "AURA-GLWT", attrOf(marketMap, "selection"))
+	e.requireMap(t, tilesOf(t, r.Main), t0.Unix())
 	requireSidebar(t, mustPatch(t, evs, "sidebar"), []string{"AURA", "GLWT"})
 	requireTabs(t, mustPatch(t, evs, "tabs"), "map",
-		app.ViewQuery{Type: "candles", Layout: "grid", Refresh: "2s", Range: "15m", Indexes: "AURA-GLWT"})
-	one(t, mustPatch(t, evs, "market"), "the market map", tag("market-map"))
+		app.ViewQuery{
+			Type:    "candles",
+			Layout:  "grid",
+			Refresh: "2s",
+			Range:   "15m",
+			Indexes: "AURA-GLWT",
+		})
 }
 
-// requireMap checks that tiles are the tiles of all indexes at the second at: their
-// prices and their changes since the open.
+// requireMap checks every index price and change at a second.
 func (e *env) requireMap(t *testing.T, tiles [][3]any, at int64) {
 	t.Helper()
 	require.Len(t, tiles, len(market.Indexes))
@@ -112,6 +128,16 @@ func (e *env) requireMap(t *testing.T, tiles [][3]any, at int64) {
 		require.True(t, ok, in.Symbol)
 		require.Equal(t, in.Symbol, tiles[i][0])
 		require.InDelta(t, price.Value, tiles[i][1], 0.006, in.Symbol)
-		require.InDelta(t, (price.Value/e.market.Open(i)-1)*100, tiles[i][2], 0.006, in.Symbol)
+		require.InDelta(t,
+			(price.Value/e.market.Open(i)-1)*100,
+			tiles[i][2], 0.006, in.Symbol)
 	}
+}
+
+func tilesOf(t *testing.T, n *html.Node) [][3]any {
+	t.Helper()
+	var tiles [][3]any
+	marketMap := one(t, n, "the market map", tag("market-map"))
+	require.NoError(t, json.Unmarshal([]byte(attrOf(marketMap, "tiles")), &tiles))
+	return tiles
 }

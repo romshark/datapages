@@ -1,5 +1,4 @@
-// <market-map> draws the market map with Apache ECharts: every index a tile of its
-// sector, colored by its change since the open.
+// <market-map> draws sector tiles colored by their change since open.
 //
 // Apache ECharts
 // Copyright 2017-2026 The Apache Software Foundation
@@ -9,20 +8,16 @@
 //
 // Licensed under the Apache License 2.0.
 //
-// The sectors attribute is the tree of the map as JSON: the sectors, each with the
-// [symbol, name] of its indexes. The server sends the tiles as signals, rows
-// [symbol, price, change in percent], which the page assigns to the data property. The
-// page assigns the indexes signal to the selection property, and the map outlines those
-// indexes. A change of the scale attribute in percent or more either way gets the full up
-// or down color, a smaller one a mix of it with the neutral color.
+// sectors contains [symbol, name] pairs by sector. tiles contains
+// [symbol, price, percent change] rows. selection outlines hyphen-separated symbols.
+// scale is the percent change that reaches full color.
 import { rocket } from "./datastar-rocket.js";
 
 const E = window.echarts;
 const font = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const scheme = matchMedia("(prefers-color-scheme: dark)");
 
-// colorsOf reads the colors from the custom properties of the page stylesheet, which
-// switches them with the color scheme.
+// colorsOf reads theme colors from page custom properties.
 const colorsOf = (el) => {
   const css = getComputedStyle(el);
   const color = (name) => css.getPropertyValue(name).trim();
@@ -39,7 +34,7 @@ const colorsOf = (el) => {
   };
 };
 
-// mix returns the color the fraction t of the way from the hex color a to b.
+// mix interpolates hex colors by t.
 const mix = (a, b, t) => {
   const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const [from, to] = [rgb(a), rgb(b)];
@@ -49,13 +44,17 @@ const mix = (a, b, t) => {
 const percent = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 const escape = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
-const options = (host, { sectors, scale }, tiles, selection) => {
+const options = (host, { sectors, scale, tiles: rows, selection: symbols }) => {
   const c = colorsOf(host);
-  // The tiles of a narrow map are small, and so are their labels.
+  // The JSON codec decodes null as {}.
+  const tiles = new Map(
+    (Array.isArray(rows) ? rows : []).map(([symbol, price, change]) => [symbol, { price, change }]),
+  );
+  const selection = new Set(symbols.split("-"));
   const small = host.clientWidth < 500;
   const data = sectors.map((sector) => ({
     name: sector.name,
-    // The sector shows between its tiles and behind its name.
+    // The sector color shows in gaps and behind its name.
     itemStyle: { color: c.surface },
     children: sector.indexes.map(([symbol, name]) => {
       const tile = { ...tiles.get(symbol), name, sector: sector.name };
@@ -82,7 +81,7 @@ const options = (host, { sectors, scale }, tiles, selection) => {
     },
     textStyle: { fontFamily: font },
     tooltip: {
-      // The tooltip stays inside the map, which on a phone is the width of the screen.
+      // Keep phone tooltips within the viewport-width map.
       confine: true,
       backgroundColor: c.surface,
       borderColor: c.border,
@@ -109,7 +108,7 @@ const options = (host, { sectors, scale }, tiles, selection) => {
       animationDurationUpdate: 400,
       label: {
         show: true,
-        // A sector has no tile. Its name is the label above its tiles.
+        // Sector nodes have no tile and label their children.
         formatter: ({ data }) => {
           if (!data.tile) {
             return data.name;
@@ -119,14 +118,28 @@ const options = (host, { sectors, scale }, tiles, selection) => {
             : `{symbol|${data.name}}\n{change|${percent(data.tile.change)}}`;
         },
         rich: {
-          symbol: { fontSize: small ? 11 : 13, fontWeight: 700, lineHeight: small ? 14 : 18, color: "#fff" },
-          change: { fontSize: small ? 10 : 11, lineHeight: small ? 12 : 15, color: "#fff" },
+          symbol: {
+            fontSize: small ? 11 : 13,
+            fontWeight: 700,
+            lineHeight: small ? 14 : 18,
+            color: "#fff"
+          },
+          change: {
+            fontSize: small ? 10 : 11,
+            lineHeight: small ? 12 : 15,
+            color: "#fff"
+          },
         },
       },
-      upperLabel: { show: true, height: 20, color: c.muted, fontSize: 11, fontWeight: 600 },
+      upperLabel: {
+        show: true,
+        height: 20,
+        color: c.muted,
+        fontSize: 11,
+        fontWeight: 600
+      },
       levels: [
-        // A node paints the gaps between its children in its border color: the page
-        // between the sectors, and between the tiles.
+        // Border colors paint gaps between sectors and tiles.
         {
           itemStyle: {
             borderColor: c.bg,
@@ -148,22 +161,22 @@ const options = (host, { sectors, scale }, tiles, selection) => {
 };
 
 rocket("market-map", {
-  props: ({ json, number }) => ({
+  props: ({ json, number, string }) => ({
     sectors: json.default(() => []),
     scale: number.default(10),
+    tiles: json.default(() => []),
+    selection: string,
   }),
-  // A render would empty the box that ECharts draws into.
+  // Rendering again would empty ECharts' box.
   renderOnPropChange: false,
   render: ({ html }) => html`
     <style>:host{display:block;position:relative}.box{position:absolute;inset:0}</style>
     <div class="box" data-ref:box></div>
   `,
-  onFirstRender: ({ host, props, refs, cleanup, defineHostProp }) => {
+  onFirstRender: ({ host, props, refs, cleanup, observeProps }) => {
     const chart = E.init(refs.box);
-    const tiles = new Map();
-    let selection = new Set();
-    const draw = () => chart.setOption(options(host, props, tiles, selection));
-    // A resize can change the size of the labels.
+    const draw = () => chart.setOption(options(host, props));
+    // Resize also recalculates label sizes.
     const resize = new ResizeObserver(() => {
       chart.resize();
       draw();
@@ -175,20 +188,7 @@ rocket("market-map", {
       scheme.removeEventListener("change", draw);
       chart.dispose();
     });
-    defineHostProp("data", {
-      set(rows) {
-        for (const [symbol, price, change] of rows ?? []) {
-          tiles.set(symbol, { price, change });
-        }
-        draw();
-      },
-    });
-    defineHostProp("selection", {
-      set(indexes) {
-        selection = new Set(typeof indexes === "string" ? indexes.split("-") : []);
-        draw();
-      },
-    });
+    observeProps(draw, "tiles", "selection");
     draw();
   },
 });

@@ -4,56 +4,33 @@
 // Copyright (c) 2025 TradingView, Inc. https://www.tradingview.com/
 // Licensed under the Apache License 2.0.
 //
-// The type attribute names the series: candles, bars, line, area, baseline or histogram.
-// A baseline chart fills the area between its line and the price in the base attribute.
-// The bar attribute is the length of a bar in seconds: the time axis and the crosshair
-// show seconds only for bars shorter than a minute. The crosshair shows the date as well,
-// since a range of hours can reach into the day before.
+// type selects the series. base sets the baseline price.
+// bar sets bar length in seconds and controls time-axis precision.
 //
-// The server decides what a chart shows. It sends points as signals and the page assigns
-// them to the bars property with data-effect. A point is [time, open, high, low, close]
-// for candles and bars and [time, value] for the other types, with time in Unix seconds.
-// The element merges the points it receives into the ones it has:
+// bars contains [Unix second, open, high, low, close] or [Unix second, value] rows.
+// Incoming rows merge with existing data.
 //
-//   - a point of another type is skipped: after a change of the chart type the old chart
-//     receives the points of the new one until a morph replaces it, and the chart library
-//     throws on them;
-//   - a point older than the newest one is skipped, it is drawn already;
-//   - a point at the time of the newest one replaces it, which is how the bar that is
-//     still forming moves;
-//   - a newer point is appended.
+//   - A gap replaces all rows.
+//   - Older rows are ignored.
+//   - The newest row is updated in place.
+//   - Later rows are appended.
 //
-// Merging the same points twice changes nothing: a stream that reconnects sends every bar
-// again. A chart that a morph removes drops its series, and the points of the same patch
-// then change nothing.
+// Repeated rows are idempotent. The chart retains older bars up to maxBars.
 //
-// The first points a chart draws fill its width, which shows the time range of the tab
-// across the whole chart. New bars then scroll it. Dragging and zooming stop at the first
-// bar the chart holds.
+// Initial data fits the width. Later bars scroll the chart.
 //
-// A chart takes the wheel, drags and pinches only while it is active, which leaves the
-// wheel over the charts to the page. A mouse press activates it before the chart library
-// sees the press, which lets the same press drag the chart. On a touch screen a tap
-// activates it, which leaves a swipe that starts on the chart to the page. The chart
-// library cancels the click of a tap, which is why the tap comes from the pointer events.
-// A press or focus anywhere else deactivates the chart. Focus cannot be the activity
-// itself: the chart library blurs the focused element on every press on a chart. The
-// custom state active marks an active chart, and the crosshair follows the pointer either
-// way.
+// Only an active chart handles wheel, drag and pinch gestures.
+// Mouse presses and touch taps activate it; focus or a press elsewhere deactivates it.
+// Pointer events detect taps because the chart library cancels their click.
 //
-// The sync property makes a chart follow the source, the chart the pointer entered last,
-// while both have it on. The crosshair of the source moves to the bar of the same time on
-// the others, and they show the bars it scrolls or zooms to. Charts hold different
-// numbers of bars, one added later fewer, but all of them receive the same bars at the
-// same times: the newest bar is the same bar on each. A chart shows the range of the
-// source counted back from its own newest bar. A chart that turns sync on or draws its
-// first bars takes the range of the source.
+// sync shares the crosshair and visible range from the last chart under the pointer.
+// Ranges are offsets from each chart's newest bar,
+// which supports different history lengths.
 import { rocket } from "./datastar-rocket.js";
 
 const LC = window.LightweightCharts;
 
-// A chart keeps at most maxBars. Trimming redraws the whole series, which is why it cuts
-// back to keepBars instead of by one bar at a time.
+// Trim in batches because each trim redraws the series.
 const maxBars = 5000;
 const keepBars = 4000;
 
@@ -65,8 +42,7 @@ const localTime = (t, format) =>
 const localDate = (t, format) =>
   new Date(t * 1000).toLocaleDateString([], format);
 
-// tickMark labels a mark of the time axis. Lightweight Charts puts a mark of a day, a
-// month or a year where one begins, which only a window of days reaches.
+// tickMark uses calendar labels at day, month and year boundaries.
 const tickMark = (t, type) => {
   switch (type) {
     case LC.TickMarkType.Year:
@@ -83,12 +59,10 @@ const tickMark = (t, type) => {
 
 const scheme = matchMedia("(prefers-color-scheme: dark)");
 
-// source is the chart the pointer entered last.
 const charts = new Set();
 let source = null;
 
-// types maps a type to its series definition and to the series options that take the
-// colors of the page stylesheet.
+// types maps names to series constructors and themed options.
 const types = {
   candles: [LC.CandlestickSeries, (c) => ({
     upColor: c.up,
@@ -114,12 +88,11 @@ const types = {
     bottomFillColor2: c.downFill,
     lineWidth: 2,
   })],
-  // The points of a histogram carry their colors, which point sets.
+  // Histogram points carry their colors.
   histogram: [LC.HistogramSeries, () => ({})],
 };
 
-// colorsOf reads the colors from the custom properties of the page stylesheet, which
-// switches them with the color scheme.
+// colorsOf reads theme colors from page custom properties.
 const colorsOf = (el) => {
   const css = getComputedStyle(el);
   const color = (name) => css.getPropertyValue(name).trim();
@@ -157,7 +130,7 @@ const chartOptions = (bar) => {
       barSpacing: 4,
       rightOffset: 2,
       fixLeftEdge: true,
-      // The default formatters show UTC.
+      // Default formatters use UTC.
       tickMarkFormatter: tickMark,
     },
     localization: {
@@ -167,22 +140,24 @@ const chartOptions = (bar) => {
 };
 
 rocket("rt-chart", {
-  props: ({ number, oneOf }) => ({
+  props: ({ bool, json, number, oneOf }) => ({
     type: oneOf(...Object.keys(types)),
     bar: number.default(5),
     base: number,
+    sync: bool,
+    bars: json.default(() => []),
   }),
-  // A render would empty the box that the chart library draws into.
+  // Rendering again would empty the chart box.
   renderOnPropChange: false,
   render: ({ html }) => html`
     <style>:host{display:block;position:relative}.box{position:absolute;inset:0}</style>
     <div class="box" data-ref:box></div>
   `,
-  onFirstRender: ({ host, props: { type, bar, base }, refs, cleanup, defineHostProp }) => {
+  onFirstRender: ({ host, props, refs, cleanup, observeProps }) => {
+    const { type, bar, base } = props;
     const chart = LC.createChart(refs.box, chartOptions(bar));
     let series = chart.addSeries(types[type][0],
       type === "baseline" ? { baseValue: { type: "price", price: base } } : {});
-    const width = type === "candles" || type === "bars" ? 5 : 2;
     const states = host.attachInternals().states;
     let rows = [];
     let colors = null;
@@ -191,16 +166,14 @@ rocket("rt-chart", {
     let active = false;
     let tap = null;
 
-    // self is what the other charts reach of this one.
     const self = {
       sync: false,
-      // range counts the visible logical range back from the newest bar.
+      // Range offsets are relative to the newest bar.
       range() {
         const range = chart.timeScale().getVisibleLogicalRange();
         const newest = rows.length - 1;
         return range && { from: range.from - newest, to: range.to - newest };
       },
-      // follow shows a range that range returned on another chart.
       follow(range) {
         if (!range || !series || rows.length === 0) {
           return;
@@ -211,8 +184,7 @@ rocket("rt-chart", {
           to: range.to + newest,
         });
       },
-      // crosshairAt shows the crosshair at the close or the value of the bar of the given
-      // time, and hides it when the chart has no such bar.
+      // Hide the crosshair when this chart lacks the source time.
       crosshairAt(time) {
         const index = time === undefined ? null : chart.timeScale().timeToIndex(time);
         const point = index === null ? null : series.dataByIndex(index);
@@ -224,8 +196,7 @@ rocket("rt-chart", {
       },
     };
 
-    // share calls f with every other chart that has sync on, if this one has it on and is
-    // the source.
+    // Share only from the active sync source to other synced charts.
     const share = (f) => {
       if (!self.sync || source !== self) {
         return;
@@ -277,13 +248,11 @@ rocket("rt-chart", {
         grid: { vertLines: grid, horzLines: grid },
       });
       series.applyOptions(types[type][1](colors));
-      // A new chart has not drawn its points yet, and the points of a histogram carry the
-      // colors of its columns.
+      // Redraw to apply histogram point colors and initialize a new chart.
       draw();
     };
 
-    // activate gives the wheel, drags and pinches on the chart to the chart library, or
-    // leaves them to the page.
+    // Activation gives wheel, drag and pinch gestures to the chart.
     const activate = (on) => {
       if (on === active) {
         return;
@@ -299,8 +268,7 @@ rocket("rt-chart", {
 
     chart.subscribeCrosshairMove((param) =>
       share((other) => other.crosshairAt(param.time)));
-    // A push moves the range of every chart alike, and the charts do not share that move:
-    // a chart that has not drawn the push yet would end up a bar off.
+    // Do not share push-driven moves before every chart draws the new bar.
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
       if (!updating) {
         const range = self.range();
@@ -346,55 +314,53 @@ rocket("rt-chart", {
     });
     applyTheme();
 
-    defineHostProp("sync", {
-      set(on) {
-        on = Boolean(on);
-        if (on === self.sync) {
-          return;
+    const sync = (on) => {
+      if (on === self.sync) {
+        return;
+      }
+      self.sync = on;
+      if (on) {
+        followSource();
+      }
+    };
+    const merge = (data) => {
+      if (!data?.length) {
+        return;
+      }
+      if (rows.length > 0 && data[0][0] > rows.at(-1)[0]) {
+        rows = [];
+        fitted = false;
+      }
+      const redraw = rows.length === 0;
+      const changed = [];
+      for (const row of data) {
+        const last = rows.at(-1);
+        if (last && row[0] < last[0]) {
+          continue;
         }
-        self.sync = on;
-        if (on) {
-          followSource();
+        if (last && row[0] === last[0]) {
+          rows[rows.length - 1] = row;
+        } else {
+          rows.push(row);
         }
-      },
-    });
-    defineHostProp("bars", {
-      set(data) {
-        if (!data?.length) {
-          return;
+        changed.push(row);
+      }
+      if (rows.length > maxBars) {
+        rows = rows.slice(-keepBars);
+        draw();
+      } else if (redraw) {
+        draw();
+      } else if (series) {
+        updating = true;
+        for (const row of changed) {
+          series.update(point(row));
         }
-        const redraw = rows.length === 0;
-        const changed = [];
-        for (const row of data) {
-          if (row.length !== width) {
-            continue;
-          }
-          const last = rows.at(-1);
-          if (last && row[0] < last[0]) {
-            continue;
-          }
-          // The signal holds its value in proxies; a copy outlives them.
-          const copy = [...row];
-          if (last && row[0] === last[0]) {
-            rows[rows.length - 1] = copy;
-          } else {
-            rows.push(copy);
-          }
-          changed.push(copy);
-        }
-        if (rows.length > maxBars) {
-          rows = rows.slice(-keepBars);
-          draw();
-        } else if (redraw) {
-          draw();
-        } else if (series) {
-          updating = true;
-          for (const row of changed) {
-            series.update(point(row));
-          }
-          updating = false;
-        }
-      },
-    });
+        updating = false;
+      }
+    };
+    observeProps(() => sync(props.sync), "sync");
+    observeProps(() => merge(props.bars), "bars");
+    sync(props.sync);
+    merge(props.bars);
   },
 });

@@ -154,7 +154,7 @@ Documents go to `documents`; `-dir` selects another directory. Use `-host 0.0.0.
 
 The [realtime charts example](../example/realtime-charts/) simulates 48 indexes updated every second. Its chart, market map and portfolio pages use [Lightweight Charts](https://github.com/tradingview/lightweight-charts), [Apache ECharts](https://echarts.apache.org/) and [uPlot](https://github.com/leeoniya/uPlot). A goroutine writes prices to an in-memory time-series database and publishes updates under 1 event subject per index.
 
-A shared stream embed pushes only changed bars as signals and patches HTML when the view changes. State-addressed events update 1 tab. Reflected query fields preserve the selection, chart type, time range and paused second. Datastar Rocket wraps the chart libraries in custom elements.
+A shared stream embed renders the whole view as HTML on every push, with the data of each chart in a JSON attribute, and stream compression sends little more than what changed. State-addressed events update 1 tab. Reflected query fields preserve the selection, chart type, time range and paused second. Datastar Rocket wraps the chart libraries in custom elements.
 
 ```sh
 go run ./cmd/server   # http://localhost:8080/

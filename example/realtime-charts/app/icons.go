@@ -2,8 +2,7 @@ package app
 
 import _ "embed"
 
-// The icons of the tabs and the toolbar draw in the color of the text around them. The
-// page inlines them: an img would draw them in black.
+// Icons are inlined so currentColor follows surrounding text.
 var (
 	//go:embed icons/charts.svg
 	iconCharts string

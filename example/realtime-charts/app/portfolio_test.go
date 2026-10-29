@@ -1,9 +1,9 @@
-// Tests the portfolio page and its stream over HTTP, with the env and the tab of the
-// tests of the chart pages. The tests compute the portfolio from the database themselves.
+// Tests compute expected portfolios independently from the database.
 
 package app_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -23,27 +23,27 @@ import (
 	"github.com/romshark/datapages/example/realtime-charts/market"
 )
 
+// portfolio is the rendered panel data.
 type portfolio struct {
-	Returns      [][]float64 `json:"returns"`
-	Allocation   [][]float64 `json:"allocation"`
-	Drawdown     [][]float64 `json:"drawdown"`
-	Distribution [][]float64 `json:"distribution"`
-	Profit       [][2]any    `json:"profit"`
-	Value        string      `json:"value"`
-	Change       tile        `json:"change"`
-	Market       tile        `json:"market"`
-	Best         tile        `json:"best"`
-	Worst        tile        `json:"worst"`
+	Returns      [][]float64
+	Allocation   [][]float64
+	Drawdown     [][]float64
+	Distribution [][]float64
+	Profit       [][2]any
+	Value        string
+	Change       tile
+	Market       tile
+	Best         tile
+	Worst        tile
 }
 
 type tile struct {
-	Text string `json:"text"`
-	Up   bool   `json:"up"`
-	Note string `json:"note"`
+	Text string
+	Up   bool
+	Note string
 }
 
-// TestPortfolioPage tests the panels, the sectors, the head and the footer of a load of
-// the portfolio page.
+// TestPortfolioPage tests the complete initial portfolio.
 func TestPortfolioPage(t *testing.T) {
 	e := newEnv(t)
 	resp := e.get(t, views["portfolio"].href(app.ViewQuery{}))
@@ -51,13 +51,16 @@ func TestPortfolioPage(t *testing.T) {
 	doc := resp.Document()
 
 	require.Equal(t, "portfolio", resp.Signals(t)["view"])
-	for _, kind := range []string{"spark", "lines", "stacked", "bars", "area", "histogram"} {
+	for _, kind := range []string{
+		"spark", "lines", "stacked", "bars", "area", "histogram",
+	} {
 		one(t, doc, "the "+kind+" chart", tag("pf-chart"), attr("kind", kind))
 	}
 	// The IDs of the charts name the holdings.
 	resp.ElementByID(t, "pf-returns-AURA-BLTX-CRUX-DUNS-ECHN-FERN")
 	require.Equal(t, "AURA,BLTX,CRUX,DUNS,ECHN,FERN",
 		attrOf(one(t, doc, "the allocation chart", attr("kind", "stacked")), "labels"))
+	e.requirePortfolio(t, portfolioOf(t, doc), defaults, t0.Unix())
 	require.Equal(t, map[string]string{
 		"Technology": "17%", "Energy": "17%", "Health": "17%",
 		"Materials": "17%", "Communication": "17%", "Consumer": "17%",
@@ -67,10 +70,13 @@ func TestPortfolioPage(t *testing.T) {
 		app.ViewQuery{Type: "candles", Layout: "grid", Refresh: "1s", Range: "15m", Indexes: indexesParam(defaults)})
 
 	// Every page loads only the library that draws it, and credits it.
-	one(t, doc, "the uPlot script", tag("script"),
+	one(t, doc,
+		"the uPlot script", tag("script"),
 		attr("src", "https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"))
-	one(t, doc, "the chart module", tag("script"), attr("src", assets.Path("pf-chart.js")))
-	one(t, doc, "the uPlot credit", tag("a"), attr("href", "https://github.com/leeoniya/uPlot"))
+	one(t, doc,
+		"the chart module", tag("script"), attr("src", assets.Path("pf-chart.js")))
+	one(t, doc,
+		"the uPlot credit", tag("a"), attr("href", "https://github.com/leeoniya/uPlot"))
 	require.NotContains(t, resp.Body, "lightweight-charts")
 	charts := e.get(t, views["charts"].href(app.ViewQuery{}))
 	one(t, charts.Document(), "the Lightweight Charts script", tag("script"),
@@ -88,102 +94,107 @@ func TestPortfolioPage(t *testing.T) {
 	require.Empty(t, find(empty, tag("pf-chart")))
 }
 
-// TestPortfolioStream tests that a stream receives the whole window of the portfolio
-// first, and then the bars that changed since its previous push.
+// TestPortfolioStream tests full-window pushes.
 func TestPortfolioStream(t *testing.T) {
 	e := newEnv(t)
 	holdings := []string{"AURA", "GLWT", "VRGE"}
-	tb := e.openTab(t, views["portfolio"].href(app.ViewQuery{}), `{"view":"portfolio","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"AURA-GLWT-VRGE"}`)
-	p := tb.pushes(t, 1)[0]
-	require.Equal(t, t0.Unix(), p.Pushed)
-	e.requirePortfolio(t, p.Portfolio, holdings, 0, t0.Unix())
+	tb := e.openTab(t, views["portfolio"].href(app.ViewQuery{}),
+		`{"view":"portfolio","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"AURA-GLWT-VRGE"}`)
+	r := tb.renders(t, 1)[0]
+	require.Equal(t, t0.Unix(), r.At)
+	e.requirePortfolio(t, portfolioOf(t, r.Main), holdings, t0.Unix())
 
 	for push := 1; push <= 3; push++ {
 		e.tick(t, push)
-		p := tb.pushes(t, push+1)[push]
+		r := tb.renders(t, push+1)[push]
 		now := t0.Unix() + int64(push)
-		require.Equal(t, now, p.Pushed)
-		e.requirePortfolio(t, p.Portfolio, holdings, now-1, now)
+		require.Equal(t, now, r.At)
+		e.requirePortfolio(t, portfolioOf(t, r.Main), holdings, now)
 	}
 }
 
-// TestPortfolioToggle tests that other holdings replace the charts of the portfolio page
-// and send the whole window of the new portfolio.
+// TestPortfolioToggle tests replacing panels after a holding changes.
 func TestPortfolioToggle(t *testing.T) {
 	e := newEnv(t)
-	tb := e.openTab(t, views["portfolio"].href(app.ViewQuery{}), `{"view":"portfolio","type":"candles","layout":"grid","refresh":"2s","range":"15m","indexes":"AURA-BLTX"}`)
-	tb.pushes(t, 1)
+	tb := e.openTab(t, views["portfolio"].href(app.ViewQuery{}),
+		`{"view":"portfolio","type":"candles","layout":"grid","refresh":"2s","range":"15m","indexes":"AURA-BLTX"}`)
+	tb.renders(t, 1)
 
 	evs := tb.toggle(t, "CRUX")
-	p := onlyPatch(t, evs)
-	require.Equal(t, "AURA-BLTX-CRUX", p.Indexes)
-	e.requirePortfolio(t, p.Portfolio, []string{"AURA", "BLTX", "CRUX"}, 0, t0.Unix())
-	panels := mustPatch(t, evs, "portfolio")
+	require.Equal(t, "AURA-BLTX-CRUX", indexesOf(t, evs))
+	panels := onlyRender(t, evs).Main
+	e.requirePortfolio(t,
+		portfolioOf(t, panels), []string{"AURA", "BLTX", "CRUX"}, t0.Unix())
+
 	require.NotNil(t, datapagestest.ElementByID(panels, "pf-returns-AURA-BLTX-CRUX"))
 	require.Nil(t, datapagestest.ElementByID(panels, "pf-returns-AURA-BLTX"))
 	require.Equal(t, map[string]string{"Technology": "33%", "Energy": "33%", "Health": "33%"},
 		sharesOf(t, panels))
 	requireSidebar(t, mustPatch(t, evs, "sidebar"), []string{"AURA", "BLTX", "CRUX"})
 	requireTabs(t, mustPatch(t, evs, "tabs"), "portfolio",
-		app.ViewQuery{Type: "candles", Layout: "grid", Refresh: "2s", Range: "15m", Indexes: "AURA-BLTX-CRUX"})
+		app.ViewQuery{
+			Type:    "candles",
+			Layout:  "grid",
+			Refresh: "2s",
+			Range:   "15m",
+			Indexes: "AURA-BLTX-CRUX",
+		})
 
 	tb.toggle(t, "AURA")
 	tb.toggle(t, "BLTX")
 	evs = tb.toggle(t, "CRUX")
-	p = onlyPatch(t, evs)
-	require.Equal(t, "none", p.Indexes)
-	require.Nil(t, p.Portfolio)
-	requireEmptyView(t, mustPatch(t, evs, "portfolio"))
+	require.Equal(t, "none", indexesOf(t, evs))
+	panels = onlyRender(t, evs).Main
+	require.Nil(t, portfolioOf(t, panels))
+	requireEmptyView(t, panels)
 }
 
-// TestPortfolioSelect tests that selecting all indexes makes a portfolio of all of them,
-// and selecting none leaves no portfolio.
+// TestPortfolioSelect tests all and no holdings.
 func TestPortfolioSelect(t *testing.T) {
 	e := newEnv(t)
-	tb := e.openTab(t, views["portfolio"].href(app.ViewQuery{}), `{"view":"portfolio","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"DUNS"}`)
-	tb.pushes(t, 1)
+	tb := e.openTab(t, views["portfolio"].href(app.ViewQuery{}),
+		`{"view":"portfolio","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"DUNS"}`)
+	tb.renders(t, 1)
 
 	evs := tb.change(t, "/select/all/", "")
-	e.requirePortfolio(t, onlyPatch(t, evs).Portfolio, allIndexes(), 0, t0.Unix())
-	require.ElementsMatch(t, market.Sectors,
-		slices.Collect(maps.Keys(sharesOf(t, mustPatch(t, evs, "portfolio")))))
+	panels := onlyRender(t, evs).Main
+	e.requirePortfolio(t, portfolioOf(t, panels), allIndexes(), t0.Unix())
+	require.ElementsMatch(t,
+		market.Sectors, slices.Collect(maps.Keys(sharesOf(t, panels))))
 	requireSelectButtons(t, mustPatch(t, evs, "sidebar"), false, true)
 
 	evs = tb.change(t, "/select/none/", "")
-	require.Nil(t, onlyPatch(t, evs).Portfolio)
-	one(t, mustPatch(t, evs, "portfolio"), "the empty view", class("empty"))
+	panels = onlyRender(t, evs).Main
+	require.Nil(t, portfolioOf(t, panels))
+	one(t, panels, "the empty view", class("empty"))
 	requireSelectButtons(t, mustPatch(t, evs, "sidebar"), true, false)
 }
 
-// TestPortfolioPausedPage tests that a portfolio page opened paused at a second shows
-// what a live page showed at that second.
+// TestPortfolioPausedPage tests a shared paused portfolio URL.
 func TestPortfolioPausedPage(t *testing.T) {
 	e := newEnv(t)
 	signals := `{"view":"portfolio","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"DUNS-HALA"}`
 	e.market.Tick(t0.Add(7 * time.Second))
-	live := e.openTab(t, views["portfolio"].href(app.ViewQuery{}), signals).pushes(t, 1)[0]
-	require.Equal(t, t0.Unix()+7, live.Pushed)
+	live := e.openTab(t, views["portfolio"].href(app.ViewQuery{}), signals).renders(t, 1)[0]
+	require.Equal(t, t0.Unix()+7, live.At)
 
 	e.market.Tick(t0.Add(20 * time.Second))
 	paused := e.openTab(t, views["portfolio"].href(app.ViewQuery{}), fmt.Sprintf(
-		`{"view":"portfolio","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"DUNS-HALA","paused":%d}`, t0.Unix()+7,
-	)).pushes(t, 1)[0]
-	require.Equal(t, live, paused)
-	e.requirePortfolio(t, paused.Portfolio, []string{"DUNS", "HALA"}, 0, t0.Unix()+7)
+		`{"view":"portfolio","type":"candles","layout":"grid","refresh":"1s","range":"15m","indexes":"DUNS-HALA","paused":%d}`,
+		t0.Unix()+7,
+	)).renders(t, 1)[0]
+	require.Equal(t, live.At, paused.At)
+	require.Equal(t, htmlOf(t, live.Main), htmlOf(t, paused.Main))
+	e.requirePortfolio(t,
+		portfolioOf(t, paused.Main), []string{"DUNS", "HALA"}, t0.Unix()+7)
 }
 
-// requirePortfolio checks that p is the portfolio of symbols with the window of bars up
-// to the second at, its returns and allocation with the bars that changed after the
-// second since, all of them when since is zero.
-func (e *env) requirePortfolio(t *testing.T, p *portfolio, symbols []string, since, at int64) {
+// requirePortfolio checks a portfolio window through at.
+func (e *env) requirePortfolio(t *testing.T, p *portfolio, symbols []string, at int64) {
 	t.Helper()
 	require.NotNil(t, p)
 	to := at * 1000
 	from := to - to%5000 - 119*5000
-	first := from
-	if since != 0 {
-		first = max(from, since*1000-since*1000%5000)
-	}
 
 	times, _ := e.closes(symbols[0], from, to)
 	require.Len(t, times, 120)
@@ -216,9 +227,6 @@ func (e *env) requirePortfolio(t *testing.T, p *portfolio, symbols []string, sin
 
 	var rows int
 	for k, tm := range times {
-		if tm < first {
-			continue
-		}
 		sec := float64(tm / 1000)
 		ret, alloc := p.Returns[rows], p.Allocation[rows]
 		require.Equal(t, []float64{sec}, ret[:1], "returns row %d", rows)
@@ -276,8 +284,7 @@ func (e *env) requirePortfolio(t *testing.T, p *portfolio, symbols []string, sin
 	require.Equal(t, holdingTile(worst), p.Worst)
 }
 
-// requireDistribution checks that rows count the returns of values from one to the next
-// by bins of equal width, centered on zero.
+// requireDistribution checks consecutive returns in zero-centered bins.
 func requireDistribution(t *testing.T, values []float64, rows [][]float64) {
 	t.Helper()
 	require.Greater(t, len(rows), 1)
@@ -317,7 +324,7 @@ func indexOf(t *testing.T, symbol string) int {
 	return 0
 }
 
-// sharesOf returns the share of each sector the donut under n lists, such as "17%".
+// sharesOf reads displayed sector percentages.
 func sharesOf(t *testing.T, n *html.Node) map[string]string {
 	t.Helper()
 	shares := map[string]string{}
@@ -327,4 +334,54 @@ func sharesOf(t *testing.T, n *html.Node) map[string]string {
 		shares[sector] = share
 	}
 	return shares
+}
+
+// portfolioOf reads rendered panel data.
+func portfolioOf(t *testing.T, n *html.Node) *portfolio {
+	t.Helper()
+	if len(find(n, tag("pf-chart"))) == 0 {
+		return nil
+	}
+	p := &portfolio{}
+	data := func(kind string) string {
+		return attrOf(one(t,
+			n, "the "+kind+" chart", tag("pf-chart"), attr("kind", kind)), "data")
+	}
+	for kind, v := range map[string]any{
+		"lines":     &p.Returns,
+		"stacked":   &p.Allocation,
+		"area":      &p.Drawdown,
+		"histogram": &p.Distribution,
+		"bars":      &p.Profit,
+	} {
+		require.NoError(t, json.Unmarshal([]byte(data(kind)), v), kind)
+	}
+	require.Equal(t, data("lines"), data("spark"), "the spark shows the returns")
+	for _, article := range find(n, tag("article"), class("tile")) {
+		label := datapagestest.Text(one(t, article, "the label of a tile", tag("h2")))
+		value := one(t, article, "the value of "+label, class("tile-value"))
+		note := one(t, article, "the note of "+label, class("tile-note"))
+		if label == "Value" {
+			p.Value = datapagestest.Text(value)
+			change := one(t, note, "the change of the value", tag("span"))
+			p.Change = tile{Text: datapagestest.Text(change), Up: hasClass(change, "up")}
+			continue
+		}
+		shown := tile{
+			Text: datapagestest.Text(value),
+			Up:   hasClass(value, "up"),
+			Note: datapagestest.Text(note),
+		}
+		switch label {
+		case "All indexes":
+			p.Market = shown
+		case "Best":
+			p.Best = shown
+		case "Worst":
+			p.Worst = shown
+		default:
+			require.FailNow(t, "a tile "+label)
+		}
+	}
+	return p
 }

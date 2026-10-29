@@ -19,17 +19,15 @@ var StaticFS embed.FS
 
 // EventIndexTicked is "index.ticked"
 //
-// The market loop in cmd/server publishes it for every index after every tick, each index
-// on a subject of its own: index.ticked.GLWT for GLWT. The event carries nothing else: a
-// stream reads the prices from the database.
+// The market loop publishes 1 event per index after each tick.
+// Streams read prices from the database.
 type EventIndexTicked struct {
 	Index datapages.Subject `json:"index"`
 }
 
 // EventSettingsChanged is "settings.changed"
 //
-// [App.POSTSettings], [App.POSTToggle] and [App.POSTSelect] dispatch it to the tab whose
-// settings they changed. The settings are in the state of that tab.
+// The settings actions dispatch it after updating a tab's state.
 type EventSettingsChanged struct {
 	Tab datapages.SubjectStateID `json:"tab"`
 }
@@ -54,11 +52,8 @@ func (*App) RecoverError(err error, sse datapages.SSE) error {
 
 // POSTSettings is /settings/{$}
 //
-// It changes the chart type, the refresh interval, the time range and the layout of the
-// calling tab, pauses or resumes it and turns the sync of its charts on or off. Every
-// view page calls it, which makes it an action of App, and an App action cannot patch the
-// page that called it. It dispatches an event to the calling tab instead, and
-// [Dashboard.OnSettingsChanged] renders the change on the stream of that tab.
+// Updates the calling tab and dispatches [EventSettingsChanged] because an App action
+// cannot patch its originating page.
 func (a *App) POSTSettings(
 	r *http.Request,
 	state datapages.State[StateCharts],
@@ -100,9 +95,6 @@ func (a *App) POSTSettings(
 }
 
 // POSTToggle is /toggle/{symbol}/{$}
-//
-// It shows or hides the chart of an index on the calling tab, the way [App.POSTSettings]
-// changes the settings.
 func (a *App) POSTToggle(
 	r *http.Request,
 	path datapages.Path[struct {
@@ -122,9 +114,6 @@ func (a *App) POSTToggle(
 }
 
 // POSTSelect is /select/{selection}/{$}
-//
-// It shows the charts of all indexes on the calling tab when the selection is all and
-// hides them when it is none, the way [App.POSTToggle] shows or hides one.
 func (a *App) POSTSelect(
 	r *http.Request,
 	path datapages.Path[struct {
@@ -149,20 +138,23 @@ func (a *App) POSTSelect(
 	})
 }
 
-// now returns the time of the newest prices in Unix seconds.
 func (a *App) now() int64 { return a.market.Now() / 1000 }
 
-// pausedAt returns the Unix second p freezes the charts at: zero for a live tab, else p
-// moved into the seconds the database holds. A link to a moment the database no longer
-// holds shows the oldest one it does.
+// pausedAt clamps p to the retained market seconds. Zero keeps the tab live.
 func (a *App) pausedAt(p int64) int64 {
 	if p <= 0 {
 		return 0
 	}
-	// Every index has a price at the same times, which makes the first index stand for
-	// all of them.
+	// Every index has the same timestamps, so the first represents all of them.
 	first, _ := a.db.First(market.Indexes[0].Symbol)
 	return min(max(p, (first.Time+999)/1000), a.now())
+}
+
+func (a *App) shownAt(paused int64) int64 {
+	if paused != 0 {
+		return paused
+	}
+	return a.now()
 }
 
 var position = func() map[string]int {

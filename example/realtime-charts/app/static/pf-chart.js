@@ -3,38 +3,27 @@
 // uPlot, Copyright (c) Leon Sorokin. https://github.com/leeoniya/uPlot
 // Licensed under the MIT License.
 //
-// The kind attribute names the chart:
+// kind selects the chart.
 //
-//   - lines: a line for every series, named by the labels attribute;
-//   - stacked: the series stacked into areas that add up to 100;
-//   - area: one series, filled towards zero;
-//   - spark: the first series as a small line without axes;
-//   - bars: a column for every [label, value], in the up or down color;
-//   - histogram: a column for every [x, count].
+//   - lines draws 1 line per label.
+//   - stacked draws areas totaling 100.
+//   - area fills 1 series towards 0.
+//   - spark draws 1 small line without axes.
+//   - bars draws [label, value] columns.
+//   - histogram draws [x, count] columns.
 //
-// The unit attribute, % or $, formats the values of the value axis, and those of the x
-// axis of a histogram.
-//
-// The server decides what a chart shows. It sends the data as signals and the page
-// assigns them to the data property with data-effect. A time chart gets rows
-// [time, value...], with time in Unix seconds, and merges them into the rows it has: a
-// row replaces the one of its time, and the others are added. It keeps the rows of the
-// last span seconds, the span attribute. Merging the same rows twice changes nothing. The
-// bars and the histogram replace their columns.
-//
-// The time charts share their cursor: the cursor of one shows its time on all of them.
+// unit formats axes. data contains [Unix second, values...], [label, value] or
+// [x, count] rows. Each update replaces all rows. Time charts share their cursor.
 import { rocket } from "./datastar-rocket.js";
 
 const U = window.uPlot;
-const timeKinds = new Set(["lines", "stacked", "area", "spark"]);
 const font = "11px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 const scheme = matchMedia("(prefers-color-scheme: dark)");
 
-// A stacked chart lists its series below the plot up to this many.
+// Hide a stacked legend beyond this number of series.
 const maxLegend = 12;
 
-// colorsOf reads the colors from the custom properties of the page stylesheet, which
-// switches them with the color scheme.
+// colorsOf reads theme colors from page custom properties.
 const colorsOf = (el) => {
   const css = getComputedStyle(el);
   const color = (name) => css.getPropertyValue(name).trim();
@@ -58,36 +47,17 @@ const formatOf = (unit) => {
   return (v) => `${+v.toFixed(3)}${unit}`;
 };
 
-// A value in the legend shows its sign and two decimals.
 const legendFormatOf = (unit) => (v) =>
   `${v > 0 ? "+" : ""}${v.toFixed(2)}${unit}`;
 
-// timeTicks labels the ticks of a time axis in local time, with seconds when they are
-// closer than a minute.
+// timeTicks includes seconds below 1-minute spacing.
 const hm = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 const hms = { ...hm, second: "2-digit" };
 const timeTicks = (u, splits, axis, space, incr) =>
   splits.map((t) => new Date(t * 1000).toLocaleTimeString([], incr < 60 ? hms : hm));
 
-// merge returns the rows of a and b by time, b replacing a row of a with the same time,
-// without those older than span seconds before the newest.
-const merge = (a, b, span) => {
-  const out = [];
-  let i = 0;
-  let j = 0;
-  while (i < a.length || j < b.length) {
-    if (j === b.length || (i < a.length && a[i][0] < b[j][0])) {
-      out.push(a[i++]);
-    } else {
-      if (i < a.length && a[i][0] === b[j][0]) {
-        i++;
-      }
-      out.push(b[j++]);
-    }
-  }
-  const newest = out.at(-1)?.[0] ?? 0;
-  return out.filter((row) => row[0] > newest - span);
-};
+// The JSON codec decodes null as {}.
+const rowsOf = (data) => (Array.isArray(data) ? data : []);
 
 const axis = (c, extra) => ({
   stroke: c.text,
@@ -97,7 +67,6 @@ const axis = (c, extra) => ({
   ...extra,
 });
 
-// columns transposes the rows into the arrays uPlot draws, one per series.
 const columns = (kind, labels, rows) => {
   const column = (c) => rows.map((row) => row[c] ?? null);
   switch (kind) {
@@ -119,32 +88,29 @@ const columns = (kind, labels, rows) => {
   }
 };
 
-// The legend and the labels of the bars call rowsOf whenever uPlot draws, which gives
-// them the rows the chart holds at that moment.
-const options = (host, { kind, unit }, labels, rowsOf) => {
+// current gives formatters the rows held when uPlot draws.
+const options = (host, { kind, unit }, labels, current) => {
   const c = colorsOf(host);
   const format = formatOf(unit);
   const values = (u, splits) => splits.map(format);
-  // The legend shows the value of the series at column i at the cursor, or the newest
-  // one.
+  // Show the cursor value, or the newest value without a cursor.
   const legendFormat = legendFormatOf(unit);
   const legendValue = (i) => (u, v, s, idx) => {
-    const rows = rowsOf();
+    const rows = current();
     const value = rows[idx ?? rows.length - 1]?.[i];
     return value == null ? "–" : legendFormat(value);
   };
   const base = {
     width: Math.max(host.clientWidth, 1),
     height: Math.max(host.clientHeight, 1),
-    // The padding on the right leaves room for the label of the newest time.
+    // Leave room for the newest time label.
     padding: [10, 20, 0, 0],
     legend: { show: false },
     cursor: { show: false },
     axes: [axis(c, { size: 30, space: 64, values: timeTicks }), axis(c, { size: 60, values })],
   };
   const bars = (size) => ({ paths: U.paths.bars({ size }), points: { show: false } });
-  // The cursor of a time chart follows the time under the cursor of the others. Only its
-  // vertical line means the same on all of them.
+  // Sync only the shared time axis.
   const cursor = (opts) =>
     ({ ...opts, y: false, sync: { key: "portfolio", scales: ["x", null] } });
   const drag = { x: false, y: false };
@@ -157,13 +123,12 @@ const options = (host, { kind, unit }, labels, rowsOf) => {
         series: [{}, ...labels.map((label, s) => ({
           label,
           value: legendValue(s + 1),
-          // The first series is the portfolio, the second what it is compared with.
+          // The first series is the portfolio; the second is its comparison.
           ...(s === 0 ? { stroke: c.line, width: 2 } : { stroke: c.muted, width: 1.5, dash: [4, 3] }),
         }))],
       };
     case "stacked":
-      // The legend names the holdings without values, which keeps it short enough to
-      // leave the plot most of the height.
+      // Omit values to keep the holdings legend short.
       return {
         ...base,
         legend: { show: labels.length <= maxLegend, live: false },
@@ -212,10 +177,10 @@ const options = (host, { kind, unit }, labels, rowsOf) => {
           axis(c, {
             size: 30,
             splits: (u) => u.data[0],
-            // The axis shows the labels that fit, which with many holdings are only some.
+            // Show only labels that fit.
             values: (u, splits) => {
               const every = Math.ceil(splits.length * 34 / Math.max(u.bbox.width / devicePixelRatio, 1));
-              return splits.map((i) => (i % every ? "" : rowsOf()[i]?.[0] ?? ""));
+              return splits.map((i) => (i % every ? "" : current()[i]?.[0] ?? ""));
             },
           }),
           base.axes[1],
@@ -249,16 +214,15 @@ const options = (host, { kind, unit }, labels, rowsOf) => {
 };
 
 rocket("pf-chart", {
-  props: ({ string, number, oneOf }) => ({
+  props: ({ json, string, oneOf }) => ({
     kind: oneOf("lines", "stacked", "area", "spark", "bars", "histogram"),
     labels: string,
     unit: string,
-    span: number,
+    data: json.default(() => []),
   }),
-  // A render would empty the box that uPlot draws into.
+  // Rendering again would empty uPlot's box.
   renderOnPropChange: false,
-  // The stylesheet of uPlot does not reach into the shadow root. The page links it with
-  // the ID uplot-css, and the chart copies the link.
+  // Copy uPlot's page stylesheet into the shadow root.
   render: ({ html }) => html`
     ${document.getElementById("uplot-css")?.cloneNode()}
     <style>
@@ -266,17 +230,16 @@ rocket("pf-chart", {
       .box{position:absolute;inset:0}
       .u-legend{font:${font};color:var(--chart-text);padding-top:2px}
       .u-legend th{font-weight:normal}
-      /* A legend with values starts with the time at the cursor, which the axis shows
-         already. */
+      /* The axis already shows the cursor time. */
       .u-legend.u-live .u-series:first-child{display:none}
     </style>
     <div class="box" data-ref:box></div>
   `,
-  onFirstRender: ({ host, props, refs, cleanup, defineHostProp }) => {
+  onFirstRender: ({ host, props, refs, cleanup, observeProps }) => {
     const labels = props.labels.split(",").filter(Boolean);
-    let rows = [];
+    let rows = rowsOf(props.data);
     let plot = null;
-    // fit sizes the plot to the element, less the legend below it.
+    // Fit the plot above its legend.
     const fit = () => {
       const legend = plot.root.querySelector(".u-legend");
       const width = host.clientWidth;
@@ -286,13 +249,15 @@ rocket("pf-chart", {
       }
     };
     const resize = new ResizeObserver(fit);
-    // build draws a new plot, which takes the colors of the color scheme. uPlot lays out
-    // the legend after the constructor returns. The plot fits the element again once the
-    // legend has its height.
+    // Rebuild for theme changes, then refit after uPlot lays out the legend.
     const build = () => {
       resize.disconnect();
       plot?.destroy();
-      plot = new U(options(host, props, labels, () => rows), columns(props.kind, labels, rows), refs.box);
+      plot = new U(
+        options(host, props, labels, () => rows),
+        columns(props.kind, labels, rows),
+        refs.box
+      );
       resize.observe(host);
       const legend = plot.root.querySelector(".u-legend");
       if (legend) {
@@ -307,16 +272,9 @@ rocket("pf-chart", {
       scheme.removeEventListener("change", build);
       plot.destroy();
     });
-    defineHostProp("data", {
-      set(data) {
-        if (!data?.length) {
-          return;
-        }
-        // The signal holds its value in proxies; a copy outlives them.
-        const copy = Array.from(data, (row) => [...row]);
-        rows = timeKinds.has(props.kind) ? merge(rows, copy, props.span || Infinity) : copy;
-        plot.setData(columns(props.kind, labels, rows));
-      },
-    });
+    observeProps(() => {
+      rows = rowsOf(props.data);
+      plot.setData(columns(props.kind, labels, rows));
+    }, "data");
   },
 });

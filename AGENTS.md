@@ -96,7 +96,7 @@ Examples, 1 module each:
 - `example/offline-cache/` - service-worker offline support, handler-written cache and a `PageOffline` fallback, on a ticketing app.
 - `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through a GET action, both directions paced by a server-side rate limit.
 - `example/docs/` - collaborative rich text editor that survives temporary disconnections using Quill in a Web Component, operational transformation of Quill deltas ported to Go, remote cursors, documents stored as snapshot and change log.
-- `example/realtime-charts/` - charts of a simulated market in six chart types, a market map and a portfolio, one page each: a goroutine outside any handler writes an in-memory time-series database and publishes one subject per index, streams subscribe to them by wildcard, the pages share their stream handlers by embedding, `*App` actions reach their tab through a `SubjectStateID` event and signal patches carry the bars to custom elements around three chart libraries.
+- `example/realtime-charts/` - charts of a simulated market in six chart types, a market map and a portfolio, one page each: a goroutine outside any handler writes an in-memory time-series database and publishes one subject per index, streams subscribe to them by wildcard, the pages share their stream handlers by embedding, `*App` actions reach their tab through a `SubjectStateID` event and fat morphs carry the data of the charts as JSON attributes to custom elements around 3 chart libraries.
 
 Where code goes:
 

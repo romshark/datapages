@@ -21,32 +21,20 @@ templ head() {
 	<link rel="stylesheet" href={ assets.Path("style.css") }/>
 }
 
-// chartsHead loads the chart library of the chart pages and the module of <rt-chart>,
-// which reads the global of the library. The integrity hash pins the file the CDN serves.
+// chartsHead loads pinned Lightweight Charts and the <rt-chart> module.
 templ chartsHead() {
-	<script
-		src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"
-		integrity="sha384-KkYqTZlM13Zya6fVUF3IGCBOQ1ehFeJVVgxaVvD/0MebineF9EI8Jkd3NnWNChqN"
-		crossorigin="anonymous"
-	></script>
+	<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js" integrity="sha384-KkYqTZlM13Zya6fVUF3IGCBOQ1ehFeJVVgxaVvD/0MebineF9EI8Jkd3NnWNChqN" crossorigin="anonymous"></script>
 	<script type="module" src={ assets.Path("rt-chart.js") }></script>
 }
 
-// mapHead loads Apache ECharts, the chart library of the market map, and the module of
-// <market-map>, which reads the global of the library.
+// mapHead loads pinned Apache ECharts and the <market-map> module.
 templ mapHead() {
-	<script
-		src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"
-		integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD"
-		crossorigin="anonymous"
-	></script>
+	<script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js" integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD" crossorigin="anonymous"></script>
 	<script type="module" src={ assets.Path("market-map.js") }></script>
 }
 
-// portfolioHead loads uPlot, the chart library of the portfolio page, and the module of
-// <pf-chart>, which reads the global of the library. A <pf-chart> draws into a shadow
-// root, which the stylesheet of uPlot does not reach, and copies the link of the
-// stylesheet into it.
+// portfolioHead loads pinned uPlot and <pf-chart>.
+// The element copies uPlot's stylesheet link into its shadow root.
 templ portfolioHead() {
 	<link
 		id="uplot-css"
@@ -55,36 +43,21 @@ templ portfolioHead() {
 		integrity="sha384-IfV0B7MIOYuO95kO9G5ySKPz/85zqFNOAs8iy4tkK5zd9izhJAB8b7lHrwYqqmYE"
 		crossorigin="anonymous"
 	/>
-	<script
-		src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"
-		integrity="sha384-Gx3t0zdBAuQOuvvmaLZj7HKEiSgWTAs+VdtNY7wt19QDPTDQjFIwAuXDj0zeN00c"
-		crossorigin="anonymous"
-	></script>
+	<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js" integrity="sha384-Gx3t0zdBAuQOuvvmaLZj7HKEiSgWTAs+VdtNY7wt19QDPTDQjFIwAuXDj0zeN00c" crossorigin="anonymous"></script>
 	<script type="module" src={ assets.Path("pf-chart.js") }></script>
 }
 
-// pageView declares the settings signals with the values the page shows. They replace the
-// values Datapages seeds from the raw query, which a hand-edited URL can set to something
-// the page does not offer.
+// pageView replaces raw query signals with the normalized values the page shows.
 //
-// A phone shows the logo without its name, which fits it into the row of the tabs. The
-// media query of the source is the phone breakpoint of the stylesheet.
+// The live button's label states its current mode and its title states the action,
+// so it's not a toggle button. Pausing copies the displayed second into the URL signal.
 //
-// The live button pauses and resumes the pushes to the tab. Its label says which of the
-// two the tab gets, Live or Paused, and its title what a click does. A button whose label
-// changes is not a toggle button and has no aria-pressed. Pausing sets the paused signal
-// to the second of the charts on screen, which the URL then carries.
+// Hidden labels keep the live button and status widths stable as their text changes.
 //
-// The live button and the status keep their width when their text changes, which keeps
-// the controls in place. The button holds both labels and hides one. The status holds
-// hidden sizers with its widest texts, a pause at a two-digit hour in the morning and in
-// the afternoon in the format of the browser.
-//
-// The navigation bar and the sidebar share a wrapper. On a narrow screen the wrapper
-// sticks to the top as one block, which keeps the sidebar below a navigation bar whose
-// height depends on how often it wraps.
+// On narrow screens the navigation and sidebar stick as 1 block because the navigation
+// height changes when it wraps.
 templ pageView(
-	v view, q ViewQuery, ranges []time.Duration, selected []string,
+	v view, q ViewQuery, ranges []time.Duration, selected []string, pushed int64,
 	content templ.Component,
 ) {
 	<div
@@ -98,7 +71,7 @@ templ pageView(
 		data-signals:paused={ strconv.FormatInt(q.Paused, 10) }
 		data-signals:sync={ strconv.FormatBool(q.Sync) }
 		data-signals:layout={ jsString(q.Layout) }
-		data-signals:pushed="0"
+		data-signals:_pushed={ strconv.FormatInt(pushed, 10) }
 	>
 		<div class="top">
 			<nav class="navbar">
@@ -134,7 +107,7 @@ templ pageView(
 							data-class:paused="$paused !== 0"
 							data-attr:title="$paused ? 'Resume updates' : 'Pause updates'"
 							data-on:click={ action.App.Settings.POST(
-								action.WithBefore("$paused = $paused ? 0 : $pushed"),
+								action.WithBefore("$paused = $paused ? 0 : $_pushed"),
 							) }
 						>
 							<span class="when-live">Live</span>
@@ -170,10 +143,8 @@ templ pageView(
 							Paused at 10:00:00 PM
 						</span>
 						<span
-							data-text="$pushed ? ($paused ? 'Paused at ' : 'Updated ') + new Date($pushed * 1000).toLocaleTimeString() : 'Connecting...'"
-						>
-							Connecting...
-						</span>
+							data-text="($paused ? 'Paused at ' : 'Updated ') + new Date($_pushed * 1000).toLocaleTimeString()"
+						></span>
 					</span>
 				</div>
 			</nav>
@@ -206,17 +177,12 @@ templ pageView(
 	</div>
 }
 
-// The chart type and the time range selects redraw the charts, the time range select over
-// the ranges the database holds prices for. Both stay enabled while the tab is paused:
-// the charts redraw up to the second they are paused at.
+// Chart and range changes redraw through the paused second when paused.
 //
-// On a phone the layout and sync buttons show only their icons, and their names stay in
-// the page for assistive technology. The class rows of main sets the layout, not a class
-// of the grid, which a morph would reset.
+// Small screens hide button text visually.
+// main owns the rows class so a grid morph doesn't reset the layout.
 //
-// The sync button makes the charts follow the crosshair, the scrolling and the zoom of
-// the chart under the pointer. Its name does not change, which makes it a toggle button
-// with aria-pressed.
+// Sync is a toggle button because its name stays fixed.
 templ toolbar(v view, q ViewQuery, ranges []time.Duration) {
 	if v == viewCharts {
 		<div class="toolbar">
@@ -280,9 +246,7 @@ templ layoutButton(l layout, svg string, q ViewQuery) {
 	</button>
 }
 
-// tabs links to the view pages with the settings of the current one. A settings change
-// patches them with the new settings. Tabs that do not fit scroll sideways, and the
-// current one scrolls into view.
+// tabs preserves current settings in every view link.
 templ tabs(active view, q ViewQuery) {
 	<nav
 		id="tabs"
@@ -323,12 +287,11 @@ templ tabs(active view, q ViewQuery) {
 	</nav>
 }
 
-// icon writes svg verbatim, which must be one of the embedded icons such as iconCharts.
+// icon writes only trusted embedded SVG constants with templ.Raw.
 templ icon(svg string) {
 	@templ.Raw(svg)
 }
 
-// sidebar is patched with the new selection after every toggle.
 templ sidebar(selected []string) {
 	<aside id="sidebar" class="sidebar" aria-label="Indexes">
 		<div class="sidebar-header">
@@ -366,16 +329,11 @@ templ sidebar(selected []string) {
 	</aside>
 }
 
-// grid is the part of the page that is patched as HTML when the selection, the chart type
-// or the time range changes. The bars arrive as signals. The baseline of a baseline chart
-// is the price the index opened with, the reference of the change in the card header. The
-// IDs of the charts name the chart type and the time range, which makes a morph replace
-// the charts of other ones: a new chart starts empty and takes the bars of the new type
-// and range.
+// grid is patched whole. Each bars attribute carries JSON. Chart IDs include type and
+// range so changing either replaces the element and starts a new series.
 //
-// The button after the name shows while the chart is active and needs no action: a press
-// on it is a press outside the chart, which deactivates it.
-templ grid(t chartType, cards []card, rng time.Duration) {
+// The active-chart button deactivates the chart by receiving focus outside it.
+templ grid(t chartType, cards []card, rng time.Duration, sync bool) {
 	<div id="grid" class="grid">
 		if len(cards) == 0 {
 			@emptyView("Select indexes in the sidebar to show their charts.")
@@ -402,16 +360,10 @@ templ grid(t chartType, cards []card, rng time.Duration) {
 						</button>
 					</div>
 					<div class="quote">
-						<span
-							class="price"
-							data-text={ feedSignal(c.Index, "price") + " ?? ''" }
-						></span>
-						<span
-							class="change"
-							data-text={ feedSignal(c.Index, "change") + " ?? ''" }
-							data-class:up={ feedSignal(c.Index, "up") + " === true" }
-							data-class:down={ feedSignal(c.Index, "up") + " === false" }
-						></span>
+						<span class="price">{ c.Price }</span>
+						<span class={ "change", templ.KV("up", c.Up), templ.KV("down", !c.Up) }>
+							{ c.Change }
+						</span>
 					</div>
 				</header>
 				<rt-chart
@@ -419,19 +371,22 @@ templ grid(t chartType, cards []card, rng time.Duration) {
 					type={ string(t) }
 					bar={ strconv.FormatInt(int64(barOf(rng)/time.Second), 10) }
 					base={ price(c.Open) }
-					data-effect={ "el.sync = $sync; el.bars = " + feedSignal(c.Index, "bars") }
+					sync?={ sync }
+					bars={ jsonOf(c.Bars) }
 				></rt-chart>
 			</article>
 		}
 	</div>
 }
 
-templ marketMapView() {
+// marketMapView is patched whole. tiles contains [symbol, price, percent change] rows.
+templ marketMapView(tiles []mapTile, selection string) {
 	<div id="market" class="market">
 		<market-map
 			sectors={ mapSectors }
 			scale={ strconv.Itoa(mapScale) }
-			data-effect="el.data = $_map; el.selection = $indexes"
+			tiles={ jsonOf(tiles) }
+			selection={ selection }
 		></market-map>
 		<div class="map-legend" aria-hidden="true">
 			<span>{ fmt.Sprintf("-%d%%", mapScale) }</span>
@@ -441,11 +396,9 @@ templ marketMapView() {
 	</div>
 }
 
-// portfolio is the part of the portfolio page that is patched as HTML when the holdings
-// change. The numbers arrive as signals. The IDs of the charts name the holdings, which
-// makes a morph replace the charts of other holdings: a new chart starts empty and takes
-// the data of the new ones.
-templ portfolio(holdings []string, shares []share) {
+// portfolio is patched whole. Chart IDs include holdings so a changed selection replaces
+// each affected element.
+templ portfolio(holdings []string, shares []share, p portfolioData) {
 	<div id="portfolio" class="portfolio">
 		if len(holdings) == 0 {
 			@emptyView("Select indexes in the sidebar to build the portfolio.")
@@ -453,25 +406,22 @@ templ portfolio(holdings []string, shares []share) {
 			<section class="tiles" aria-label="Summary">
 				<article class="tile">
 					<h2>Value</h2>
-					<p class="tile-value" data-text="$_portfolio.value ?? ''"></p>
+					<p class="tile-value">{ p.Value }</p>
 					<p class="tile-note">
-						<span
-							data-text="$_portfolio.change?.text ?? ''"
-							data-class:up="$_portfolio.change?.up === true"
-							data-class:down="$_portfolio.change?.up === false"
-						></span>
+						<span class={ templ.KV("up", p.Change.Up), templ.KV("down", !p.Change.Up) }>
+							{ p.Change.Text }
+						</span>
 						since open
 					</p>
 					<pf-chart
 						id={ chartID("spark", holdings) }
 						kind="spark"
-						span={ windowSpan }
-						data-effect="el.data = $_portfolio.returns"
+						data={ jsonOf(p.Returns) }
 					></pf-chart>
 				</article>
-				@summaryTile("All indexes", "market")
-				@summaryTile("Best", "best")
-				@summaryTile("Worst", "worst")
+				@summaryTile("All indexes", p.Market)
+				@summaryTile("Best", p.Best)
+				@summaryTile("Worst", p.Worst)
 			</section>
 			<section class="panels">
 				<article class="panel panel-wide">
@@ -481,8 +431,7 @@ templ portfolio(holdings []string, shares []share) {
 						kind="lines"
 						labels="Portfolio,All indexes"
 						unit="%"
-						span={ windowSpan }
-						data-effect="el.data = $_portfolio.returns"
+						data={ jsonOf(p.Returns) }
 					></pf-chart>
 				</article>
 				<article class="panel">
@@ -496,8 +445,7 @@ templ portfolio(holdings []string, shares []share) {
 						kind="stacked"
 						labels={ strings.Join(holdings, ",") }
 						unit="%"
-						span={ windowSpan }
-						data-effect="el.data = $_portfolio.allocation"
+						data={ jsonOf(p.Allocation) }
 					></pf-chart>
 				</article>
 				<article class="panel">
@@ -506,7 +454,7 @@ templ portfolio(holdings []string, shares []share) {
 						id={ chartID("profit", holdings) }
 						kind="bars"
 						unit="$"
-						data-effect="el.data = $_portfolio.profit"
+						data={ jsonOf(p.Profit) }
 					></pf-chart>
 				</article>
 				<article class="panel">
@@ -516,8 +464,7 @@ templ portfolio(holdings []string, shares []share) {
 						kind="area"
 						labels="Drawdown"
 						unit="%"
-						span={ windowSpan }
-						data-effect="el.data = $_portfolio.drawdown"
+						data={ jsonOf(p.Drawdown) }
 					></pf-chart>
 				</article>
 				<article class="panel">
@@ -526,7 +473,7 @@ templ portfolio(holdings []string, shares []share) {
 						id={ chartID("distribution", holdings) }
 						kind="histogram"
 						unit="%"
-						data-effect="el.data = $_portfolio.distribution"
+						data={ jsonOf(p.Distribution) }
 					></pf-chart>
 				</article>
 			</section>
@@ -534,21 +481,15 @@ templ portfolio(holdings []string, shares []share) {
 	</div>
 }
 
-templ summaryTile(label, field string) {
+templ summaryTile(label string, t tile) {
 	<article class="tile">
 		<h2>{ label }</h2>
-		<p
-			class="tile-value"
-			data-text={ "$_portfolio." + field + "?.text ?? ''" }
-			data-class:up={ "$_portfolio." + field + "?.up === true" }
-			data-class:down={ "$_portfolio." + field + "?.up === false" }
-		></p>
-		<p class="tile-note" data-text={ "$_portfolio." + field + "?.note ?? ''" }></p>
+		<p class={ "tile-value", templ.KV("up", t.Up), templ.KV("down", !t.Up) }>{ t.Text }</p>
+		<p class="tile-note">{ t.Note }</p>
 	</article>
 }
 
-// donut draws the shares of the sectors as a ring, each share a dash of one circle, and
-// lists them.
+// donut draws each sector as a dashed segment of 1 circle.
 templ donut(shares []share) {
 	<div class="donut">
 		<svg viewBox="-1 -1 2 2" aria-hidden="true">

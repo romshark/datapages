@@ -1,6 +1,4 @@
-// Package tsdb is an in-memory time-series database. It keeps named series of timestamped
-// values for a retention period, returns the values of any time range and aggregates
-// ranges into open, high, low and close buckets.
+// Package tsdb stores retained time series in memory and aggregates OHLC buckets.
 package tsdb
 
 import (
@@ -18,7 +16,7 @@ type Point struct {
 	Value float64
 }
 
-// Bucket is the open, high, low and close of the points of one step.
+// Bucket is the open, high, low and close of 1 step.
 type Bucket struct {
 	// Time is the start of the bucket in Unix milliseconds, a multiple of its step.
 	Time                   int64
@@ -36,15 +34,14 @@ type DB struct {
 	series map[string][]Point
 }
 
-// New returns an empty database that keeps the points of a series for the retention
-// before the newest point of that series.
+// New returns an empty database with the given per-series retention.
 func New(retention time.Duration) *DB {
 	return &DB{retention: retention.Milliseconds(), series: map[string][]Point{}}
 }
 
-// Append adds points, oldest first, to the series name and creates it when it does not
-// exist. Every point must be newer than the one before it, or Append adds nothing and
-// returns [ErrOutOfOrder]. Append drops the points older than the retention.
+// Append adds points oldest first and creates the series.
+// Out-of-order input adds nothing and returns [ErrOutOfOrder].
+// Points beyond retention are dropped.
 func (db *DB) Append(name string, points ...Point) error {
 	if len(points) == 0 {
 		return nil
@@ -64,9 +61,7 @@ func (db *DB) Append(name string, points ...Point) error {
 		prev, have = p.Time, true
 	}
 	s = append(s, points...)
-	// Reslicing drops the old points without moving the others. The array behind them is
-	// freed once the builtin append outgrows it and copies only the points the series
-	// keeps.
+	// Reslicing avoids a copy. A later append frees the skipped prefix when it grows.
 	newest := s[len(s)-1].Time
 	s = s[sort.Search(len(s), func(i int) bool {
 		return s[i].Time >= newest-db.retention
@@ -116,9 +111,8 @@ func (db *DB) Last(name string) (Point, bool) {
 	return s[len(s)-1], true
 }
 
-// OHLC aggregates the points of name with from <= Time <= to into buckets of step
-// milliseconds that start at multiples of step, oldest first. A step without points has
-// no bucket.
+// OHLC aggregates from <= Time <= to into aligned
+// step-millisecond buckets, oldest first. Empty steps have no bucket.
 func (db *DB) OHLC(name string, from, to, step int64) []Bucket {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
@@ -139,7 +133,6 @@ func (db *DB) OHLC(name string, from, to, step int64) []Bucket {
 	return buckets
 }
 
-// within returns the points of s with from <= Time <= to.
 func within(s []Point, from, to int64) []Point {
 	i := sort.Search(len(s), func(i int) bool { return s[i].Time >= from })
 	j := sort.Search(len(s), func(i int) bool { return s[i].Time > to })

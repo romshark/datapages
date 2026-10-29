@@ -8,48 +8,38 @@ import (
 	"github.com/romshark/datapages/example/realtime-charts/market"
 )
 
-// capital is what the portfolio invests at the open, in dollars.
 const capital = 100_000
 
-// A time series of a portfolioPatch is rows [time, value...] with time in Unix seconds,
-// one row per bar, which the <pf-chart> element merges by time. The other fields replace
-// what their panel shows.
-type portfolioPatch struct {
-	// Returns compares the portfolio with all indexes together since the open, in
-	// percent. Allocation is the share of every holding in the value of the portfolio, in
-	// percent. Both carry the bars that changed since the previous push.
-	Returns    []point `json:"returns"`
-	Allocation []point `json:"allocation"`
+// portfolioData contains the page panels. Time-series rows are [Unix second, values...].
+type portfolioData struct {
+	// Returns compares the portfolio with all indexes.
+	// Allocation holds each position's percentage of portfolio value.
+	Returns    []point
+	Allocation []point
 
 	// Drawdown is how far the portfolio is below its high within the window, in percent.
-	// It carries every bar of the window: a new high moves the rows after it.
-	Drawdown []point `json:"drawdown"`
+	Drawdown []point
 
-	// Distribution counts the returns of the portfolio from one bar to the next within
-	// the window, by bins of equal width: rows [center in percent, count].
-	Distribution []point `json:"distribution"`
+	// Distribution rows are [bin center in percent, count].
+	Distribution []point
 
-	// Profit holds the gain or loss of every holding, in dollars.
-	Profit []bar `json:"profit"`
+	// Profit holds each position's gain or loss in dollars.
+	Profit []bar
 
-	Value  string `json:"value"`
-	Change tile   `json:"change"`
-	Market tile   `json:"market"`
-	Best   tile   `json:"best"`
-	Worst  tile   `json:"worst"`
+	Value                       string
+	Change, Market, Best, Worst tile
 }
 
-// bar is [label, value], the column of a category.
+// bar is [label, value].
 type bar [2]any
 
 type tile struct {
-	Text string `json:"text"`
-	Up   bool   `json:"up"` // shows a gain
-	Note string `json:"note,omitempty"`
+	Text string
+	Up   bool
+	Note string
 }
 
-// holding is an index of the portfolio: the shares that an equal part of the capital
-// bought at its opening price.
+// holding is the shares bought by 1 equal part of capital at the opening price.
 type holding struct {
 	symbol string
 	open   float64
@@ -65,20 +55,18 @@ func (a *App) holdings(symbols []string) []holding {
 	return hs
 }
 
-// portfolio returns the update of the panels of the portfolio of symbols with the window
-// of bars up to the Unix second at. The returns and the allocation carry the bars that
-// changed after the Unix second since, all of them when since is zero. A portfolio
-// without holdings has no update.
-func (a *App) portfolio(symbols []string, since, at int64) *portfolioPatch {
+// portfolio returns panels through at. A portfolio without holdings shows nothing.
+func (a *App) portfolio(symbols []string, at int64) portfolioData {
+	var p portfolioData
 	if len(symbols) == 0 {
-		return nil
+		return p
 	}
 	hs := a.holdings(symbols)
 	to := at * 1000
 	from := to - to%period - (window-1)*period
 	times, closes := a.closes(symbols, from, to)
 	if len(times) == 0 {
-		return nil
+		return p
 	}
 	values := make([]float64, len(times))
 	for k := range times {
@@ -87,16 +75,10 @@ func (a *App) portfolio(symbols []string, since, at int64) *portfolioPatch {
 		}
 	}
 
-	// The bars since the previous push, among them the one forming then.
-	first := from
-	if since != 0 {
-		first = max(from, since*1000-since*1000%period)
-	}
-	average := a.marketReturns(first, to)
-	p := &portfolioPatch{}
+	average := a.marketReturns(from, to)
 	for k, t := range times {
 		m, ok := average[t]
-		if t < first || !ok {
+		if !ok {
 			continue
 		}
 		sec := float64(t / 1000)
@@ -117,8 +99,6 @@ func (a *App) portfolio(symbols []string, since, at int64) *portfolioPatch {
 	}
 	p.Distribution = distribution(values)
 
-	// The tiles and the profit show the prices at the last bar, which the charts end
-	// with.
 	last := len(times) - 1
 	value := values[last]
 	p.Value = dollars(value)
@@ -149,10 +129,7 @@ func (a *App) portfolio(symbols []string, since, at int64) *portfolioPatch {
 	return p
 }
 
-// closes returns the start times of the bars of from..to that every index of symbols has,
-// and the closing prices of every index in those bars. Every index has a price at the
-// same times, but a stream can read the database while the market writes one index after
-// the other.
+// closes returns bars common to every symbol. A stream can read between per-index writes.
 func (a *App) closes(symbols []string, from, to int64) ([]int64, [][]float64) {
 	byTime := make([]map[int64]float64, len(symbols))
 	for i, sym := range symbols {
@@ -183,9 +160,7 @@ func (a *App) closes(symbols []string, from, to int64) ([]int64, [][]float64) {
 	return times, closes
 }
 
-// marketReturns maps the start time of every bar of from..to to the average return of all
-// indexes since the open, in percent, which the portfolio page compares the portfolio
-// with.
+// marketReturns maps bar times to the average index return since open, in percent.
 func (a *App) marketReturns(from, to int64) map[int64]float64 {
 	times, closes := a.closes(everyIndex, from, to)
 	returns := make(map[int64]float64, len(times))
@@ -207,9 +182,7 @@ func holdingTile(h holding, price float64) tile {
 	}
 }
 
-// distribution counts the returns of values from one to the next, in percent, by bins of
-// equal width centered on zero. It returns a row [center, count] for every bin from the
-// lowest return to the highest.
+// distribution bins consecutive percentage returns around zero as [center, count].
 func distribution(values []float64) []point {
 	if len(values) < 2 {
 		return nil
@@ -233,8 +206,7 @@ func distribution(values []float64) []point {
 	return rows
 }
 
-// binWidth returns a round width, 1, 2 or 5 times a power of ten, that splits 0..extreme
-// into at most eight bins.
+// binWidth splits 0..extreme into at most 8 round bins.
 func binWidth(extreme float64) float64 {
 	if extreme <= 0 {
 		return 0.01
@@ -249,13 +221,12 @@ func binWidth(extreme float64) float64 {
 	return 10 * pow
 }
 
-// share is the part of the capital the holdings of a sector got at the open.
+// share is a sector's part of opening capital.
 type share struct {
 	Sector string
-	// Color is the position of the sector in [market.Sectors].
+	// Color indexes [market.Sectors].
 	Color int
-	// Offset is the sum of the shares before this one. Dash is the part of the ring the
-	// share covers, less a gap before the next one.
+	// Offset starts the ring segment. Dash excludes its trailing gap.
 	Percent, Offset, Dash float64
 }
 
@@ -281,9 +252,6 @@ func sectorShares(symbols []string) []share {
 	return shares
 }
 
-// A time chart of the portfolio page keeps windowSpan seconds of rows.
-var windowSpan = strconv.Itoa(window * period / 1000)
-
 func chartID(kind string, holdings []string) string {
 	return "pf-" + kind + "-" + formatIndexes(holdings)
 }
@@ -297,7 +265,7 @@ func round(v float64, digits int) float64 {
 	return math.Round(v*p) / p
 }
 
-// dollars formats v as whole dollars with a comma between thousands.
+// dollars rounds to whole dollars and adds thousands separators.
 func dollars(v float64) string {
 	s := strconv.FormatInt(int64(math.Round(math.Abs(v))), 10)
 	for i := len(s) - 3; i > 0; i -= 3 {

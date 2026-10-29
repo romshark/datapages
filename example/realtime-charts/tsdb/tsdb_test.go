@@ -9,8 +9,7 @@ import (
 	"github.com/romshark/datapages/example/realtime-charts/tsdb"
 )
 
-// TestAppend tests that Append keeps the order of a series and adds nothing when a point
-// is not newer than the one before it.
+// TestAppend tests ordered, atomic appends.
 func TestAppend(t *testing.T) {
 	for name, tc := range map[string]struct {
 		points []tsdb.Point
@@ -44,8 +43,7 @@ func TestAppend(t *testing.T) {
 	}
 }
 
-// TestRetention tests that a series keeps the points of the retention before its newest
-// point.
+// TestRetention tests the window relative to each series' newest point.
 func TestRetention(t *testing.T) {
 	db := tsdb.New(10 * time.Millisecond)
 	for ts := int64(1); ts <= 30; ts++ {
@@ -108,8 +106,7 @@ func TestAt(t *testing.T) {
 	require.False(t, ok)
 }
 
-// TestOHLC tests that the buckets start at multiples of the step, carry the open, high,
-// low and close of their points and leave out empty steps.
+// TestOHLC tests aligned values and omitted empty buckets.
 func TestOHLC(t *testing.T) {
 	db := tsdb.New(time.Hour)
 	require.NoError(t, db.Append("a",

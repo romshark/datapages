@@ -1,6 +1,6 @@
 cmd: cmd/server
 watch:
   exclude:
-    - ".git/**" # git internals
+    - ".git/**"
     - ".*"      # hidden files/directories
     - "*~"      # editor backup files
