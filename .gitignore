@@ -9,6 +9,7 @@
 *.dylib
 /datapages
 /internal/tools/render-pages/render-pages
+/genapp
 
 # npm
 **/node_modules/

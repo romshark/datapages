@@ -3,6 +3,7 @@ module github.com/romshark/datapages
 go 1.27.3
 
 require (
+	github.com/Shopify/toxiproxy/v2 v2.13.0
 	github.com/a-h/templ v0.3.1100
 	github.com/andybalholm/brotli v1.2.7
 	github.com/charmbracelet/huh v1.0.0
@@ -11,11 +12,14 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.55.0
 	github.com/prometheus/client_golang v1.25.0
+	github.com/romshark/morpheus v0.3.1
 	github.com/romshark/templier v0.13.4
 	github.com/romshark/yamagiconf v1.1.2
+	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go/modules/nats v0.44.0
+	go.yaml.in/yaml/v4 v4.0.0-rc.6
 	golang.org/x/mod v0.42.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/tools v0.52.0
@@ -66,6 +70,7 @@ require (
 	github.com/go-playground/universal-translator v0.18.2 // indirect
 	github.com/go-playground/validator/v10 v10.30.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/go-uuid v1.0.4 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -100,6 +105,7 @@ require (
 	github.com/prometheus/common v0.73.0 // indirect
 	github.com/prometheus/procfs v0.23.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rs/xid v1.6.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.9 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
@@ -115,9 +121,9 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
+	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 )

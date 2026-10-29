@@ -78,7 +78,7 @@ Datapages defines conventions for that repeated work and checks them with the CL
 - `datapages init` creates a project with a working server, development setup and CI workflow.
 - `datapages gen` generates the routes, streams and typed template helpers from Go declarations.
 - `datapages lint` checks the declarations and templates in CI without writing files.
-- `datapages watch` rebuilds the application and reports build errors in the browser.
+- `datapages watch` rebuilds the application, reports build errors in the browser and serves it through [Toxiproxy](https://github.com/Shopify/toxiproxy) to test slow and failing networks.
 
 These conventions also give coding agents a stable application model. The generated instructions describe the model, and the CLI reports violations with source positions and fixes.
 

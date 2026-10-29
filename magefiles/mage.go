@@ -76,10 +76,9 @@ func Test() error {
 // the test suite runs. The second is how much of the code the generator writes
 // the acceptance cases run.
 //
-// The second number is collected inside the case modules under
-// internal/acceptance, where the generated packages live. The profile of the
-// cases also covers the datapages packages generated code imports, which the
-// second number leaves out.
+// The second number is collected inside the case modules under internal/acceptance,
+// where the generated packages live. The profile of the cases also covers
+// the datapages packages generated code imports, which the second number leaves out.
 func Coverage() error {
 	dir, err := os.MkdirTemp("", "datapages-coverage")
 	if err != nil {
@@ -242,6 +241,7 @@ func CheckGen() error {
 		{"mage genAISkills", GenAISkills},
 		{"mage genDocs", GenDocs},
 		{"mage genOfflineWorker", GenOfflineWorker},
+		{"mage genMorpheus", GenMorpheus},
 	}
 
 	// A file 1 generator changed stays changed for the rest of the run.
@@ -408,7 +408,7 @@ func GoFixExamples() error {
 }
 
 // Gen runs all code generation
-// (templ, datapages, AI skills, docs, offline worker).
+// (templ, datapages, AI skills, docs, offline worker, Morpheus bundle).
 func Gen() error {
 	if err := GenTempl(); err != nil {
 		return err
@@ -422,14 +422,18 @@ func Gen() error {
 	if err := GenDocs(); err != nil {
 		return err
 	}
-	return GenOfflineWorker()
+	if err := GenOfflineWorker(); err != nil {
+		return err
+	}
+	return GenMorpheus()
 }
 
 // GenDatapages builds the datapages CLI from source and runs "datapages gen"
-// on each example and each acceptance case.
+// on each example and each acceptance case. internal/tools/genapp generates
+// the Toxiproxy settings page, because "datapages gen" refuses this module.
 //
-// The generated code of both is committed. TestExamplesAreUpToDate and
-// TestAcceptance regenerate and compare,
+// The generated code is committed. TestExamplesAreUpToDate,
+// TestToxicUIIsUpToDate and TestAcceptance regenerate and compare,
 // and tell whoever reads the failure to run this target.
 func GenDatapages() error {
 	tmp, err := os.MkdirTemp("", "datapages-gen-*")
@@ -450,7 +454,8 @@ func GenDatapages() error {
 			return err
 		}
 	}
-	return nil
+	fmt.Println("==> genapp", toxicUIDir)
+	return run("go", "run", "./internal/tools/genapp", toxicUIDir)
 }
 
 // buildCLI builds cmd/datapages from source into bin.
@@ -466,8 +471,8 @@ func buildCLI(bin string) error {
 // acceptanceRoot holds the acceptance cases, 1 module each.
 const acceptanceRoot = "internal/acceptance"
 
-// GenAISkills runs "datapages init" in every example module, which writes
-// AGENTS.md and the task skills AI coding agents read.
+// GenAISkills runs "datapages init" in every example module,
+// which writes AGENTS.md and the task skills AI coding agents read.
 //
 // The run is expected to change nothing: the examples are initialized already,
 // so init writes the instructions and reports each project as initialized.
@@ -491,9 +496,14 @@ func GenAISkills() error {
 	})
 }
 
-// GenTempl generates templ templates for examples and parser testdata.
+// GenTempl generates templ templates for examples, parser testdata and
+// the Toxiproxy settings page of the CLI.
 func GenTempl() error {
 	if err := CheckWatch(); err != nil {
+		return err
+	}
+	fmt.Println("==> templ generate in", toxicUIDir)
+	if err := goRun(toolTempl, "generate", "-path", "./"+toxicUIDir); err != nil {
 		return err
 	}
 	for _, root := range submoduleRoots {
@@ -518,15 +528,15 @@ const docsModule = "internal/tools/render-pages"
 // that docsModule renders and the "morpheus bundle" command.
 const morpheusModule = "github.com/romshark/morpheus"
 
-// morpheusComponents are the Morpheus components that the docs pages render.
+// docsMorpheusComponents are the Morpheus components that the docs pages render.
 // "morpheus bundle" adds the components they require.
-var morpheusComponents = []string{
+var docsMorpheusComponents = []string{
 	"button", "clipcopy", "dialog", "menu", "select", "sidebar",
 }
 
-// morpheusIcons are the icons of Morpheus that the components of the docs
+// docsMorpheusIcons are the icons of Morpheus that the components of the docs
 // pages load: the caret of <neo-select>.
-var morpheusIcons = []string{"chevrons-up-down"}
+var docsMorpheusIcons = []string{"chevrons-up-down"}
 
 // GenDocs generates documentation pages from the working tree, as the pages of
 // the main branch. The Pages workflow renders the pages of a release from its tag.
@@ -537,7 +547,7 @@ func GenDocs() error {
 	if err := goRun(toolTempl, "generate", "-path", docsModule); err != nil {
 		return err
 	}
-	if err := genMorpheus(); err != nil {
+	if err := genDocsMorpheus(); err != nil {
 		return err
 	}
 	// The pages of a version load a copy of docs/style.css, which the
@@ -550,13 +560,13 @@ func GenDocs() error {
 	return runIn(docsModule, "go", "run", ".", "-version", "main")
 }
 
-// genMorpheus writes the Morpheus bundle of the docs pages into docs/morpheus/:
-// the components of [morpheusComponents] with those they require and the icons
-// of [morpheusIcons]. It takes the version that docsModule requires, which its
+// genDocsMorpheus writes the Morpheus bundle of the docs pages into docs/morpheus/:
+// the components of [docsMorpheusComponents] with those they require and the icons
+// of [docsMorpheusIcons]. It takes the version that docsModule requires, which its
 // templ wrappers render and the bundle must match. The bundle has no theme:
 // the stylesheet of docsModule sets the theme tokens of Morpheus to the colors
 // of the site, which the dark mode of theme-default.css would replace.
-func genMorpheus() error {
+func genDocsMorpheus() error {
 	const dir = "docs/morpheus"
 	version, err := output("go", "-C", docsModule,
 		"list", "-m", "-f", "{{.Version}}", morpheusModule)
@@ -570,7 +580,7 @@ func genMorpheus() error {
 	}
 	fmt.Println("==> morpheus bundle", version, "->", dir)
 	if err := goRun(morpheusModule+"@"+version, "bundle",
-		"-components", strings.Join(morpheusComponents, ","),
+		"-components", strings.Join(docsMorpheusComponents, ","),
 		"-themes", "none", "-o", dir); err != nil {
 		return err
 	}
@@ -583,7 +593,7 @@ func genMorpheus() error {
 	if err := os.MkdirAll(filepath.Join(dir, "icons"), 0o755); err != nil {
 		return err
 	}
-	for _, name := range morpheusIcons {
+	for _, name := range docsMorpheusIcons {
 		svg, err := os.ReadFile(filepath.Join(icons, name+".svg"))
 		if err != nil {
 			return err
@@ -651,6 +661,49 @@ func GenOfflineWorker() error {
 	const src, dst = "modules/offline/sw.js", "modules/offline/sw.min.js"
 	fmt.Println("==> minify", src, "->", dst)
 	return goRun(toolMinify, "-o", dst, src)
+}
+
+// toxicUIDir is the app package of the Toxiproxy settings page.
+const toxicUIDir = "internal/cmd/toxic/ui"
+
+// morpheusComponents lists the Morpheus components the settings page renders.
+// The bundler adds their dependencies.
+var morpheusComponents = []string{
+	"badge",
+	"button",
+	"buttongroup",
+	"card",
+	"clipcopy",
+	"combobox",
+	"dialog",
+	"icon",
+	"input-group",
+	"layout",
+	"popover",
+	"resizable",
+	"select",
+	"sidebar",
+	"slider",
+	"switch",
+	"textinput",
+	"toaster",
+	"toggle-group",
+}
+
+// GenMorpheus builds the Morpheus bundle the Toxiproxy settings page embeds,
+// at the version go.mod requires, which matches the templ wrappers it renders.
+//
+// Running the bundler by version keeps its esbuild dependency out of go.mod.
+func GenMorpheus() error {
+	version, err := output("go", "list", "-m", "-f", "{{.Version}}",
+		"github.com/romshark/morpheus")
+	if err != nil {
+		return fmt.Errorf("reading the Morpheus version of go.mod: %w", err)
+	}
+	dst := toxicUIDir + "/static/morpheus"
+	fmt.Println("==> morpheus bundle ->", dst)
+	return goRun("github.com/romshark/morpheus@"+strings.TrimSpace(version),
+		"bundle", "-components", strings.Join(morpheusComponents, ","), "-o", dst)
 }
 
 // All runs test, vulncheck, fmt, mod-tidy, gen-templ, and gen-docs.
