@@ -281,5 +281,6 @@ Applications that share a user-addressed event must use the same user IDs. [Mult
 - [Event delivery](../SPECIFICATION.md#event-delivery): when a stream misses events.
 - [Pages](../SPECIFICATION.md#pages): the signatures of `OnXXX`, `StreamOpen` and `StreamClose`.
 - [Per-tab state](state.md): values an event handler reads for 1 tab, and events addressed to 1 tab.
+- [When the result arrives through an event](templates.md#when-the-result-arrives-through-an-event): keep a loading indicator on until the event handler patches the tab.
 - [Sessions and auth](sessions.md): the session behind user-addressed events.
 - [`example/todolist`](../example/todolist/): a list that every tab re-renders on each change.

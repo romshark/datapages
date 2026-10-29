@@ -252,9 +252,9 @@ templ pageIndex(v view) {
 				Signed in as { v.User }
 				<button data-on:click={ action.App.SignOut.POST() }>Sign out</button>
 			</p>
-			<form data-on:submit__prevent={ action.PageIndex.Add.POST() }>
+			<form data-indicator:_adding data-on:submit__prevent={ action.PageIndex.Add.POST() }>
 				<input data-bind="name" required/>
-				<button>Add</button>
+				<button data-attr:disabled="$_adding">Add</button>
 			</form>
 		}
 		@itemList(v)

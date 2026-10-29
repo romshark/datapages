@@ -47,15 +47,17 @@ The preset combobox in the header of the settings page applies a preset. It list
 
 `datapages init` writes Fast 4G, Slow 4G and 3G into a new `datapages.yaml`, and `datapages watch` writes the same file into a module without one. They have the values of the network presets of Chrome DevTools, with the latency rounded to whole milliseconds. Chrome shares the bandwidth per tab, the proxy per browser.
 
+Under Slow 4G and 3G, every action takes long enough to see what the page shows between the click and the result. A control that shows no change in that time needs a [loading indicator](templates.md#show-that-an-action-runs).
+
 Unreachable is not the Offline mode of Chrome. The browser stays online, with `navigator.onLine` true and no `offline` event, while no request reaches the server, as when the server is down or a network passes no traffic. An app that relies on `navigator.onLine`, such as through the `is-offline` class of the [offline module](offline.md), sees no change. Test the browser offline with the network throttling of its developer tools.
 
 ## Change the toxics
 
 The settings page changes the toxics for every endpoint and for 1 endpoint. A change applies to the next request and to open connections, such as the SSE stream of a page.
 
-A change goes into the preset of `datapages.yaml` in effect, and Save writes it. A change of No throttling or Unreachable leaves toxics that no preset holds, which the combobox shows as "Unsaved". Save asks for a name for them, and picking another preset asks before it discards them. The last option of the combobox creates a preset from the current toxics and overrides, or from a copy of a preset. A preset of `datapages.yaml` has a button that deletes it after a confirmation. No throttling replaces a deleted preset that is in effect.
+A change goes into the preset of `datapages.yaml` in effect, and Save to config writes it. A change of No throttling or Unreachable leaves toxics that no preset holds, which the combobox shows as "Unsaved". Save to config asks for a name for them, and picking another preset asks before it discards them. The last option of the combobox, New preset, creates a preset from the current toxics and overrides, or from a copy of a preset. A preset of `datapages.yaml` has a Delete preset button that deletes it after a confirmation. No throttling replaces a deleted preset that is in effect.
 
-Save writes the presets into the `watch.toxiproxy` section of `datapages.yaml`. It keeps the rest of the file and drops the comments inside the section. It writes `host` and `ui-host` only when the file sets them. Reload reads `presets` from the file again, after a confirmation when it discards unsaved changes. A change of `host` or `ui-host` applies when `datapages watch` restarts. Neither Save nor an edit of the file restarts the app, which keeps the state it holds in memory.
+Save to config writes the presets into the `watch.toxiproxy` section of `datapages.yaml`. It keeps the rest of the file and drops the comments inside the section. It writes `host` and `ui-host` only when the file sets them. Reload config reads `presets` from the file again, after a confirmation when it discards unsaved changes. A change of `host` or `ui-host` applies when `datapages watch` restarts. Neither Save to config nor an edit of the file restarts the app, which keeps the state it holds in memory.
 
 ## Write a preset
 
@@ -125,7 +127,7 @@ The proxy also applies `client-bandwidth`, `server-bandwidth` and `data-cap` its
 
 Per client, the requests of 1 browser share the rate of `client-bandwidth` and use up 1 `volume` of `data-cap`, as the requests of 1 device share its network and its data plan. The proxy tells browsers apart by the cookie `datapages_toxiproxy`, which it sets and removes from the requests the app gets. The tabs of a browser share it, and a private window gets its own. A client without cookies, such as curl, gets the rate and volume per request. Cookies ignore ports, which sends the cookie to `--host` too.
 
-Per request, each request gets the whole rate and volume. All requests share the rate of `server-bandwidth`, as the requests of all users share the uplink of a server. An endpoint that overrides 1 of the 3 has a rate or volume of its own. A change of a `data-cap` toxic, the Reset button of the settings page and a restart of `datapages watch` give the whole volume back. With more than 1 of them on a stream, the data waits for the slowest.
+Per request, each request gets the whole rate and volume. All requests share the rate of `server-bandwidth`, as the requests of all users share the uplink of a server. An endpoint that overrides 1 of the 3 has a rate or volume of its own. A change of a `data-cap` toxic, the Reset button of its card on the settings page and a restart of `datapages watch` give the whole volume back. With more than 1 of them on a stream, the data waits for the slowest.
 
 ## Target 1 endpoint
 

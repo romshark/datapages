@@ -116,7 +116,7 @@ templ reviewForm(p Product) {
 | `data-text` | sets the text of the element to the value of the expression |
 | `data-show="$_posting"` | shows the element only while `$_posting` is true |
 | `data-attr:disabled="$_posting"` | sets the `disabled` attribute from the expression |
-| `data-indicator:_posting` | sets `$_posting` to true while a request of the form runs |
+| `data-indicator:_posting` | sets `$_posting` to true while a request of the form runs. See [Show that an action runs](#show-that-an-action-runs) |
 | `data-on:submit__prevent` | runs the action on submit and prevents the browser's own submission |
 
 The [attribute reference](https://data-star.dev/reference/attributes) lists the other attributes and the modifiers, such as `__debounce.300ms`.
@@ -190,6 +190,67 @@ func (p PageIndex) POSTSubscribe(
 - Only the form of a guest reaches an action that takes none of these.
 
 Send authenticated forms through Datastar actions. See [Plain Forms and CSRF](../SPECIFICATION.md#plain-forms-and-csrf).
+
+## Show that an action runs
+
+Show at once that a click or a submission arrived, and keep showing it until the result is on the page. [The Tao of Datastar](https://data-star.dev/guide/the_tao_of_datastar) recommends a loading indicator on every element that sends a request. It advises against optimistic updates, which show the result before the server confirms it and take it back when the action fails. Do not change the page in the browser to show what the action will do, such as adding the new item with JavaScript on submit. The patch from the server is the confirmation.
+
+`data-indicator` sets a signal to true while the request of its element runs. Put it on the element with the `data-on` attribute that calls the action:
+
+```templ title="app/app.templ"
+templ addForm() {
+	<form
+		data-indicator:_adding
+		data-on:submit__prevent={ action.PageIndex.Add.POST() }
+	>
+		<input data-bind="name" required/>
+		<button type="submit" data-attr:disabled="$_adding">Add</button>
+		<span data-show="$_adding">Adding...</span>
+	</form>
+}
+```
+
+The disabled button also keeps Enter from submitting the form a 2nd time. The signal stays true until the response ends. For an action that takes `sse`, the response ends when the action returns, after the patches it sends.
+
+### When the result arrives through an event
+
+An action that dispatches an [event](events.md) and leaves the patch to the event handler returns before the tab shows the result. The handler patches the tab over its page stream after the broker delivers the event. `data-indicator` turns false when the action returns, and in between the tab shows neither the indicator nor the result.
+
+Set a signal before the call with `action.WithBefore`, and clear it in the handler that patches the result:
+
+```templ title="app/app.templ"
+templ addForm() {
+	<form
+		data-signals:_adding="false"
+		data-indicator:_sending
+		data-on:submit__prevent={ action.PageIndex.Add.POST(action.WithBefore("$_adding = true")) }
+	>
+		<input data-bind="name" required/>
+		<button type="submit" data-attr:disabled="$_sending || $_adding">Add</button>
+		<span data-show="$_sending || $_adding">Adding...</span>
+	</form>
+}
+```
+
+```go title="app/app.go"
+func (p PageIndex) OnItemsChanged(event EventItemsChanged, sse datapages.SSE) error {
+	if err := sse.PatchElement(itemList(view{Items: p.App.Items()})); err != nil {
+		return err
+	}
+	return sse.PatchSignals(map[string]bool{"_adding": false})
+}
+
+func (*App) RecoverError(err error, sse datapages.SSE) error {
+	if err := sse.PatchSignals(map[string]bool{"_adding": false}); err != nil {
+		return err
+	}
+	return sse.ExecuteScript(`alert("Something went wrong. Please try again.")`)
+}
+```
+
+When the action fails, no event follows. [`RecoverError`](actions.md#show-errors-in-the-page) handles the error of the action, so clear every signal that a `WithBefore` sets there too. The event reaches every tab and also clears `$_adding` in a tab whose own request still runs, and `$_sending` keeps the indicator on until that request ends.
+
+Open the app through the [Toxiproxy proxy](network.md) with the Slow 4G or 3G preset to see each indicator and the gaps without one.
 
 ## Web Components
 

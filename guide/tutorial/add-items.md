@@ -50,9 +50,9 @@ import (
 templ pageIndex(v view) {
 	<main>
 		<h1>Shopping list</h1>
-		<form data-on:submit__prevent={ action.PageIndex.Add.POST() }>
+		<form data-indicator:_adding data-on:submit__prevent={ action.PageIndex.Add.POST() }>
 			<input data-bind="name" required/>
-			<button>Add</button>
+			<button data-attr:disabled="$_adding">Add</button>
 		</form>
 		@itemList(v)
 	</main>
@@ -60,6 +60,8 @@ templ pageIndex(v view) {
 ```
 
 `data-bind="name"` binds the input to the signal `name`. `data-on:submit__prevent` runs the action when the form is submitted and prevents the browser's own submission. `action.PageIndex.Add.POST()` is the helper that `datapages gen` generates for `POSTAdd`, and it returns the Datastar expression `@post('/items/')`. `required` makes the browser refuse an empty input before it sends anything.
+
+`data-indicator:_adding` sets the signal `_adding` to true while the request of the form runs, and `data-attr:disabled` disables the button meanwhile. The button shows at once that the submission arrived, and Enter cannot submit the form a 2nd time. Datastar sends no signal whose name starts with `_` to the server. See [Show that an action runs](../templates.md#show-that-an-action-runs).
 
 > [!IMPORTANT]
 > Save `app/app.go` first and wait until the browser reloads. Then save `app/app.templ`.

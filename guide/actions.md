@@ -300,4 +300,5 @@ An action that answers with an event stream uses the SSE compression settings of
 - [`datapages.File`](../SPECIFICATION.md#return-value-datapagesfile) and [GET Actions](../SPECIFICATION.md#get-actions): file responses, caching and downloads.
 - [Return Value `error`](../SPECIFICATION.md#return-value-error-or-err-error) and [App](../SPECIFICATION.md#app): sentinels, `RecoverError` and panics.
 - [Templates and forms](templates.md): call actions from templates and submit forms.
+- [Show that an action runs](templates.md#show-that-an-action-runs): loading indicators while an action runs and until its result arrives.
 - [Events](events.md): update other tabs after an action.

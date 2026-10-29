@@ -40,6 +40,8 @@ The event carries no data. Each handler reads the current list from `App`, which
 
 The tab that sent the request receives the event through its own stream as well. `POSTAdd` therefore no longer patches the list and only clears the input, which would otherwise send the list 2 times.
 
+The Add button is now enabled again when `POSTAdd` returns, which can be a moment before `OnItemsChanged` patches the list. [When the result arrives through an event](../templates.md#when-the-result-arrives-through-an-event) keeps the indicator on until the list arrives.
+
 Save `app/app.go` and open http://localhost:7331 in a 2nd browser window. Add an item in 1 window, and it appears in both.
 
 > [!NOTE]

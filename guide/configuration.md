@@ -77,7 +77,7 @@ watch:
 - The file is in the module root, next to `go.mod`, and is named `datapages.yaml` or `datapages.yml`. Both at once are an error.
 - `datapages gen`, `datapages lint`, `datapages watch` and `datapages init` read it. `lint` uses only the endpoint keys of [`presets`](#presets), and fails on an invalid file like the others. `datapages version` does not read it.
 - Without the file, every key has its default. `watch` and `init` then write the scaffold file, and `gen` does not. A file that `watch` writes applies from its next start.
-- `watch` reads the file once, when it starts. A change to the file neither regenerates the code nor restarts the app. The `watch` settings apply from the next start. The Reload button of the [settings page](network.md#change-the-toxics) reads `watch.toxiproxy.presets` again, and its Save button writes them into the file.
+- `watch` reads the file once, when it starts. A change to the file neither regenerates the code nor restarts the app. The `watch` settings apply from the next start. The Reload config button of the [settings page](network.md#change-the-toxics) reads `watch.toxiproxy.presets` again, and its Save to config button writes them into the file.
 
 The parser accepts a strict subset of YAML:
 
@@ -223,7 +223,7 @@ The time `watch` waits after the last change before rebuilding the app. Each cha
 
 Type list of glob patterns. Default none. The scaffold sets 3.
 
-A changed file whose path matches a pattern does not rebuild the app. Custom watchers that include the file still run. `watch` adds `datapages.yaml` and `datapages.yml` to the patterns, which keeps a Save of the [settings page](network.md#change-the-toxics) from restarting the app. `watch` matches the path relative to [`dir-work`](#dir-work), with `/` as the separator on every system.
+A changed file whose path matches a pattern does not rebuild the app. Custom watchers that include the file still run. `watch` adds `datapages.yaml` and `datapages.yml` to the patterns, which keeps the Save to config button of the [settings page](network.md#change-the-toxics) from restarting the app. `watch` matches the path relative to [`dir-work`](#dir-work), with `/` as the separator on every system.
 
 The patterns use the syntax of [doublestar](https://github.com/bmatcuk/doublestar). `*` matches within 1 path element, `**` matches any number of elements, and `?`, `[...]` and `{a,b}` work as in shell globs:
 
@@ -441,7 +441,7 @@ The address of the settings page, which `watch` prints with the address of the p
 
 Type list of mappings. Default none.
 
-The named sets of toxics that the settings page applies. The page lists them between its built-in presets No throttling and Unreachable. Its Save button writes this list, and its Reload button reads it again. [Write a preset](network.md#write-a-preset) shows an example.
+The named sets of toxics that the settings page applies. The page lists them between its built-in presets No throttling and Unreachable. Its Save to config button writes this list, and its Reload config button reads it again. [Write a preset](network.md#write-a-preset) shows an example.
 
 | Key | Type | Default | Value |
 | --- | ---- | ------- | ----- |
