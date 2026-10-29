@@ -773,6 +773,10 @@ func TestDataCap(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	got := tb.waitFrom(t, at, `aria-label="Volume unit"`)
 	require.Regexp(t, `<neo-textinput aria-label="Volume"[^>]* value="1"`, got)
+	// 16000 B/s shows as 16 KB/s.
+	require.Regexp(t, `<neo-textinput aria-label="Throttled rate"[^>]* value="16"`, got)
+	require.Regexp(t, `<neo-select value="KB/s"[^>]* aria-label="Throttled rate unit"`, got)
+	require.Contains(t, got, `aria-label="About the throttled rate"`)
 	require.Regexp(t, `<neo-select value="MiB"[^>]* aria-label="Volume unit"`, got)
 	require.Regexp(t, `<neo-select value="client"[^>]* aria-label="Shared by"`, got)
 

@@ -44,18 +44,18 @@ func TestLinksReserve(t *testing.T) {
 	ms := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Millisecond) }
 	a := linkKey{profile: "a"}
 
-	// 1 KB/s carries 1 byte per ms.
-	require.Equal(t, ms(100), l.reserve(a, 100, 1, t0))
-	require.Equal(t, ms(200), l.reserve(a, 100, 1, t0))
+	// 1000 B/s carries 1 byte per ms.
+	require.Equal(t, ms(100), l.reserve(a, 100, 1000, t0))
+	require.Equal(t, ms(200), l.reserve(a, 100, 1000, t0))
 	for name, k := range map[string]linkKey{
 		"profile": {profile: "b"},
 		"scope":   {profile: "a", scope: "GET /{$}"},
 		"stream":  {profile: "a", stream: Upstream},
 	} {
-		require.Equal(t, ms(100), l.reserve(k, 100, 1, t0), name)
+		require.Equal(t, ms(100), l.reserve(k, 100, 1000, t0), name)
 	}
-	require.Equal(t, ms(600), l.reserve(a, 100, 1, ms(500)))
-	require.Equal(t, ms(610), l.reserve(a, 1000, 100, ms(500)))
+	require.Equal(t, ms(600), l.reserve(a, 100, 1000, ms(500)))
+	require.Equal(t, ms(610), l.reserve(a, 1000, 100_000, ms(500)))
 }
 
 // TestLinksSweep tests that idle links are dropped once there are more than minSweep,
@@ -64,14 +64,14 @@ func TestLinksSweep(t *testing.T) {
 	l := newLinks()
 	t0 := time.Unix(0, 0)
 	busy := linkKey{profile: "busy"}
-	l.reserve(busy, 10_000, 1, t0)
+	l.reserve(busy, 10_000, 1000, t0)
 	for i := range minSweep - 1 {
-		l.reserve(linkKey{profile: strconv.Itoa(i)}, 1, 1, t0)
+		l.reserve(linkKey{profile: strconv.Itoa(i)}, 1, 1000, t0)
 	}
 	require.Len(t, l.free, minSweep)
 
 	last := linkKey{profile: "last"}
-	l.reserve(last, 1, 1, t0.Add(time.Second))
+	l.reserve(last, 1, 1000, t0.Add(time.Second))
 	require.Len(t, l.free, 2)
 	require.Contains(t, l.free, busy)
 	require.Contains(t, l.free, last)
@@ -170,7 +170,7 @@ func TestFrontProfileCookie(t *testing.T) {
 func TestFrontBandwidthShared(t *testing.T) {
 	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
-		Settings:  Settings{Global: Set{rateDown: toxicWith(8)}},
+		Settings:  Settings{Global: Set{rateDown: toxicWith(8000)}},
 	})
 	// both fetches 1 response for each of p1 and p2 at once and returns the time it took.
 	both := func(p1, p2 string) time.Duration {
@@ -196,7 +196,7 @@ func TestFrontBandwidthUpstream(t *testing.T) {
 	var got atomic.Int64
 	_, base := startFrontWith(t, Config{
 		Endpoints: endpoints("POST /"),
-		Settings:  Settings{Global: Set{rateUp: toxicWith(8)}},
+		Settings:  Settings{Global: Set{rateUp: toxicWith(8000)}},
 	}, func(_ http.ResponseWriter, r *http.Request) {
 		n, _ := io.Copy(io.Discard, r.Body)
 		got.Store(n)
@@ -216,7 +216,7 @@ func TestFrontBandwidthUpstream(t *testing.T) {
 func TestFrontBandwidthChange(t *testing.T) {
 	f, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
-		Settings:  Settings{Global: Set{rateDown: toxicWith(1)}},
+		Settings:  Settings{Global: Set{rateDown: toxicWith(1000)}},
 	})
 	updated := make(chan error, 1)
 	time.AfterFunc(200*time.Millisecond, func() {
@@ -240,7 +240,7 @@ func TestFrontBandwidthChange(t *testing.T) {
 func TestFrontBandwidthPerRequest(t *testing.T) {
 	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
-		Settings:  Settings{Global: Set{rateDown: toxicWith(8, PerRequest)}},
+		Settings:  Settings{Global: Set{rateDown: toxicWith(8000, PerRequest)}},
 	})
 	start := time.Now()
 	var wg sync.WaitGroup
@@ -262,7 +262,7 @@ func TestFrontBandwidthPerRequest(t *testing.T) {
 func TestFrontServerBandwidth(t *testing.T) {
 	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
-		Settings:  Settings{Global: Set{serverDown: toxicWith(8)}},
+		Settings:  Settings{Global: Set{serverDown: toxicWith(8000)}},
 	})
 	require.GreaterOrEqual(t, fetchBoth(t, base+"/", "a", "b"), 1024*time.Millisecond)
 }
@@ -273,16 +273,16 @@ func TestFrontClientAndServerBandwidth(t *testing.T) {
 	f, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
 		Settings: Settings{Global: Set{
-			rateDown:   toxicWith(8, PerClient),
-			serverDown: toxicWith(8),
+			rateDown:   toxicWith(8000, PerClient),
+			serverDown: toxicWith(8000),
 		}},
 	})
 	require.GreaterOrEqual(t, fetchBoth(t, base+"/", "a", "b"), 1024*time.Millisecond,
 		"the server rate")
 
 	require.NoError(t, f.Update(func(s *Settings) error {
-		s.Global[rateDown] = toxicWith(4, PerClient)
-		s.Global[serverDown] = toxicWith(64)
+		s.Global[rateDown] = toxicWith(4000, PerClient)
+		s.Global[serverDown] = toxicWith(64_000)
 		return nil
 	}))
 	require.GreaterOrEqual(t, timedFetch(t, base+"/", "c"), 1024*time.Millisecond,
@@ -321,7 +321,7 @@ func timedFetch(t *testing.T, target, profile string) time.Duration {
 func TestFrontDataCap(t *testing.T) {
 	f, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
-		Settings:  Settings{Global: Set{capDown: toxicWith(bodySize, 4, PerClient)}},
+		Settings:  Settings{Global: Set{capDown: toxicWith(bodySize, 4000, PerClient)}},
 	})
 	const fast = 500 * time.Millisecond
 	require.Less(t, timedFetch(t, base+"/", "a"), fast, "within the volume")
@@ -339,7 +339,7 @@ func TestFrontDataCap(t *testing.T) {
 		"another toxic keeps the volume used")
 
 	require.NoError(t, f.Update(func(s *Settings) error {
-		s.Global[capDown] = toxicWith(bodySize, 5, PerClient)
+		s.Global[capDown] = toxicWith(bodySize, 5000, PerClient)
 		return nil
 	}))
 	require.Less(t, timedFetch(t, base+"/", "a"), fast, "after the change")
@@ -352,7 +352,7 @@ func TestFrontDataCapPerRequest(t *testing.T) {
 	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
 		Settings: Settings{Global: Set{
-			capDown: toxicWith(bodySize/2, 4, PerRequest),
+			capDown: toxicWith(bodySize/2, 4000, PerRequest),
 		}},
 	})
 	for range 2 {
@@ -368,8 +368,8 @@ func TestFrontDataCapBandwidth(t *testing.T) {
 	_, base := startFront(t, Config{
 		Endpoints: endpoints("GET /"),
 		Settings: Settings{Global: Set{
-			rateDown: toxicWith(8, PerClient),
-			capDown:  toxicWith(0, 4, PerClient),
+			rateDown: toxicWith(8000, PerClient),
+			capDown:  toxicWith(0, 4000, PerClient),
 		}},
 	})
 	require.GreaterOrEqual(t, timedFetch(t, base+"/", "a"), 1024*time.Millisecond)

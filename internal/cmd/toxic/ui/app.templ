@@ -868,7 +868,7 @@ templ fieldHead() {
 // disabled for the global toxic an endpoint inherits.
 templ fields(
 	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic,
-	units [toxic.MaxFields]byteUnit, disabled bool,
+	units [toxic.MaxFields]valueUnit, disabled bool,
 ) {
 	@neo.LayoutAttrs(neo.LayoutOpts{
 		Wrap: neo.Set(neo.Wrap),
@@ -878,8 +878,8 @@ templ fields(
 			switch f.Unit {
 				case toxic.UnitStatus:
 					@statusField(slot, f, x.Values[i], disabled)
-				case toxic.UnitBytes:
-					@bytesField(slot, f, x.Values[i], units[i], disabled)
+				case toxic.UnitBytes, toxic.UnitBps:
+					@unitField(slot, f, x.Values[i], units[i], fieldInfo(slot.Type, f), disabled)
 				case toxic.UnitChoice:
 					@choiceField(slot, f, x.Values[i], fieldInfo(slot.Type, f), disabled)
 				default:
@@ -923,13 +923,20 @@ templ numberField(
 	}
 }
 
-// bytesField is a number input of the value of the byte field f, in bytes,
-// with a select of the unit u it shows the value in. Picking a unit converts
-// the number. B takes a whole number, the other units a fraction too.
-templ bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disabled bool) {
-	@field(templ.Attributes{"class": "tp-field tp-field-bytes"}) {
+// unitField is a number input of the value of the byte or rate field f with
+// a select of the unit u it shows the value in. Picking a unit converts the
+// number. B and B/s take a whole number, the other units a fraction too.
+// A non-nil info renders next to the label.
+templ unitField(
+	slot toxic.Slot, f toxic.Field, value int64, u valueUnit, info templ.Component,
+	disabled bool,
+) {
+	@field(templ.Attributes{"class": "tp-field tp-field-unit"}) {
 		@fieldHead() {
 			<span class="tp-small">{ f.Label }</span>
+			if info != nil {
+				@info
+			}
 		}
 		@neo.InputGroup() {
 			@neo.TextInputAttrs(neo.TextInputOpts{
@@ -952,7 +959,7 @@ templ bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disabl
 			}, templ.Attributes{
 				"data-on:neo-select-change": setUnit(slot, f.Key),
 			}) {
-				for _, o := range byteUnits {
+				for _, o := range unitsOf(f.Unit) {
 					@neo.Option(neo.OptionOpts{Value: neo.Set(o.name)}) {
 						{ o.name }
 					}
@@ -1164,6 +1171,16 @@ templ httpErrorStreams() {
 			the proxy returns this status before the request reaches the app.
 		</li>
 	</ul>
+}
+
+// dataCapRateInfo says when the throttled rate of a [toxic.DataCap] toxic applies.
+templ dataCapRateInfo() {
+	@infoButton("About the throttled rate") {
+		<p>
+			Applies once the volume is used up. Until then, the data passes at full
+			speed, or at the Client or Server bandwidth rate when enabled.
+		</p>
+	}
 }
 
 templ jitterInfo() {

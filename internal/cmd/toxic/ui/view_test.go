@@ -187,53 +187,65 @@ func TestSetField(t *testing.T) {
 		`shared by must be client or request, not "tab"`)
 }
 
-// TestDefaultByteUnit tests that a value shows in the largest unit that shows
-// it with up to 3 decimals.
-func TestDefaultByteUnit(t *testing.T) {
+// TestDefaultUnit tests that a value shows in the unit that shows it in the
+// fewest characters with up to 3 decimals, the larger of 2 that tie.
+func TestDefaultUnit(t *testing.T) {
 	for name, tc := range map[string]struct {
-		v    int64
-		want string
+		units []valueUnit
+		v     int64
+		want  string
 	}{
-		"zero":        {0, "B"},
-		"below 1 KB":  {999, "B"},
-		"KB":          {1000, "KB"},
-		"3 decimals":  {1023, "KB"},
-		"KiB":         {1024, "KiB"},
-		"half KiB":    {1536, "KiB"},
-		"MB over KiB": {1_024_000, "MB"},
-		"MiB":         {3 << 20, "MiB"},
-		"half MiB":    {3 << 19, "MiB"},
-		"GB":          {2e9, "GB"},
-		"GiB":         {5 << 30, "GiB"},
-		"TiB":         {1 << 40, "GiB"},
+		"zero":             {byteUnits, 0, "B"},
+		"below 1 KB":       {byteUnits, 999, "B"},
+		"KB":               {byteUnits, 1000, "KB"},
+		"shorter in B":     {byteUnits, 1023, "B"},
+		"KiB":              {byteUnits, 1024, "KiB"},
+		"half KiB":         {byteUnits, 1536, "KiB"},
+		"KiB ties KB":      {byteUnits, 1_024_000, "KiB"},
+		"MiB":              {byteUnits, 3 << 20, "MiB"},
+		"half MiB":         {byteUnits, 3 << 19, "MiB"},
+		"GB":               {byteUnits, 2e9, "GB"},
+		"GiB":              {byteUnits, 5 << 30, "GiB"},
+		"TiB":              {byteUnits, 1 << 40, "GiB"},
+		"Fast 4G down":     {rateUnits, 1_012_500, "Mbit/s"},
+		"Fast 4G up":       {rateUnits, 168_750, "Mbit/s"},
+		"Slow 4G up":       {rateUnits, 84_375, "kbit/s"},
+		"3G":               {rateUnits, 50_000, "KB/s"},
+		"KB/s over kbit":   {rateUnits, 16_000, "KB/s"},
+		"Mbit/s":           {rateUnits, 125_000, "Mbit/s"},
+		"MB/s ties Mbit/s": {rateUnits, 1_000_000, "MB/s"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.want, defaultByteUnit(tc.v).name)
+			require.Equal(t, tc.want, defaultUnit(tc.units, tc.v).name)
 		})
 	}
 }
 
-// TestByteUnitParse tests reading a number in a unit as bytes,
-// rounded to the nearest byte, and the numbers it refuses.
-func TestByteUnitParse(t *testing.T) {
+// TestUnitParse tests reading a number in a unit as bytes or bytes per second,
+// rounded to the nearest whole, and the numbers it refuses.
+func TestUnitParse(t *testing.T) {
 	for name, tc := range map[string]struct {
+		units    []valueUnit
 		in, unit string
 		want     int64
 		err      string
 	}{
-		"B":            {in: "1024", unit: "B", want: 1024},
-		"KiB fraction": {in: "1.5", unit: "KiB", want: 1536},
-		"MB fraction":  {in: "1.1", unit: "MB", want: 1_100_000},
-		"GiB":          {in: "2", unit: "GiB", want: 2 << 30},
-		"rounds":       {in: "0.0005", unit: "KB", want: 1},
-		"empty":        {in: " ", unit: "MB", want: 0},
-		"B fraction":   {in: "1.5", unit: "B", err: `"1.5" is not a whole number`},
-		"not a number": {in: "abc", unit: "KiB", err: `"abc" is not a number`},
-		"NaN":          {in: "NaN", unit: "KiB", err: `"NaN" is not a number`},
-		"too large":    {in: "1e10", unit: "GiB", err: "1e10 GiB is too large"},
+		"B":            {units: byteUnits, in: "1024", unit: "B", want: 1024},
+		"KiB fraction": {units: byteUnits, in: "1.5", unit: "KiB", want: 1536},
+		"MB fraction":  {units: byteUnits, in: "1.1", unit: "MB", want: 1_100_000},
+		"GiB":          {units: byteUnits, in: "2", unit: "GiB", want: 2 << 30},
+		"rounds":       {units: byteUnits, in: "0.0005", unit: "KB", want: 1},
+		"empty":        {units: byteUnits, in: " ", unit: "MB", want: 0},
+		"Mbit/s":       {units: rateUnits, in: "1.5", unit: "Mbit/s", want: 187_500},
+		"kbit/s":       {units: rateUnits, in: "128", unit: "kbit/s", want: 16_000},
+		"B fraction":   {units: byteUnits, in: "1.5", unit: "B", err: `"1.5" is not a whole number`},
+		"B/s fraction": {units: rateUnits, in: "0.5", unit: "B/s", err: `"0.5" is not a whole number`},
+		"not a number": {units: byteUnits, in: "abc", unit: "KiB", err: `"abc" is not a number`},
+		"NaN":          {units: byteUnits, in: "NaN", unit: "KiB", err: `"NaN" is not a number`},
+		"too large":    {units: byteUnits, in: "1e10", unit: "GiB", err: "1e10 GiB is too large"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			u, ok := lookupByteUnit(tc.unit)
+			u, ok := lookupUnit(tc.units, tc.unit)
 			require.True(t, ok)
 			got, err := u.parse(tc.in)
 			if tc.err != "" {
@@ -246,20 +258,23 @@ func TestByteUnitParse(t *testing.T) {
 	}
 }
 
-// TestByteUnitFormat tests showing bytes in a unit with no trailing zeros.
-func TestByteUnitFormat(t *testing.T) {
+// TestUnitFormat tests showing a value in a unit with no trailing zeros.
+func TestUnitFormat(t *testing.T) {
 	for name, tc := range map[string]struct {
+		units      []valueUnit
 		v          int64
 		unit, want string
 	}{
-		"B":        {1024, "B", "1024"},
-		"KiB":      {1536, "KiB", "1.5"},
-		"KB":       {1536, "KB", "1.536"},
-		"whole MB": {3e6, "MB", "3"},
-		"small GB": {1, "GB", "0.000000001"},
+		"B":        {byteUnits, 1024, "B", "1024"},
+		"KiB":      {byteUnits, 1536, "KiB", "1.5"},
+		"KB":       {byteUnits, 1536, "KB", "1.536"},
+		"whole MB": {byteUnits, 3e6, "MB", "3"},
+		"small GB": {byteUnits, 1, "GB", "0.000000001"},
+		"Mbit/s":   {rateUnits, 1_012_500, "Mbit/s", "8.1"},
+		"kbit/s":   {rateUnits, 84_375, "kbit/s", "675"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			u, ok := lookupByteUnit(tc.unit)
+			u, ok := lookupUnit(tc.units, tc.unit)
 			require.True(t, ok)
 			require.Equal(t, tc.want, u.format(tc.v))
 		})

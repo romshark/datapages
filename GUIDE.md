@@ -482,9 +482,9 @@ watch:
               jitter: 0s
           client-bandwidth:
             downstream:
-              rate: 1013
+              rate: 1012500
             upstream:
-              rate: 169
+              rate: 168750
       # Slow 4G and 3G follow.
 ```
 
@@ -519,12 +519,12 @@ watch:
               jitter: 100ms
           client-bandwidth:
             downstream:
-              rate: 256
+              rate: 256000
         endpoints:
           "POST /upload/{$}":
             client-bandwidth:
               upstream:
-                rate: 16
+                rate: 16000
             latency:
               downstream:
                 disabled: true
@@ -552,18 +552,18 @@ Each preset takes:
 
 Each toxic type takes a `downstream` toxic for the data the server sends and an `upstream` toxic for the data the browser sends:
 
-| Type               | Fields                                                                                            | Effect                                                                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `latency`          | `latency`, `jitter`: whole milliseconds, up to 24h                                                | Delays the data by `latency`, plus or minus up to `jitter`.                                                                               |
-| `client-bandwidth` | `rate`: KB/s, from 1 to 10000000; `per`: `client` or `request`, default `client`                  | Limits the rate of each browser. Per client, the requests of 1 browser share it.                                                          |
-| `server-bandwidth` | `rate`: KB/s, from 1 to 10000000                                                                  | Limits the rate of all browsers together.                                                                                                 |
-| `data-cap`         | `volume`: bytes; `rate`: KB/s, from 1 to 10000000; `per`: `client` or `request`, default `client` | Limits the rate to `rate` once `volume` bytes have passed. Per client, the requests of 1 browser use up 1 volume.                         |
-| `slow-close`       | `delay`: whole milliseconds, up to 24h                                                            | Delays closing the connection.                                                                                                            |
-| `timeout`          | `timeout`: whole milliseconds, up to 24h                                                          | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up.                           |
-| `reset-peer`       | `timeout`: whole milliseconds, up to 24h                                                          | Resets the connection with a TCP RST once data arrives, after `timeout`.                                                                  |
-| `slicer`           | `average-size`, `size-variation`: bytes; `delay`: whole microseconds, up to 24h                   | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each by `delay`.                    |
-| `limit-data`       | `bytes`: bytes                                                                                    | Closes the connection after `bytes` bytes.                                                                                                |
-| `http-error`       | `status`: 400 to 599                                                                              | Answers with `status`. Upstream, the app never gets the request. Downstream, the browser gets `status` in place of the answer of the app. |
+| Type               | Fields                                                                                                           | Effect                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `latency`          | `latency`, `jitter`: whole milliseconds, up to 24h                                                               | Delays the data by `latency`, plus or minus up to `jitter`.                                                                               |
+| `client-bandwidth` | `rate`: bytes per second, from 1 to 10000000000; `per`: `client` or `request`, default `client`                  | Limits the rate of each browser. Per client, the requests of 1 browser share it.                                                          |
+| `server-bandwidth` | `rate`: bytes per second, from 1 to 10000000000                                                                  | Limits the rate of all browsers together.                                                                                                 |
+| `data-cap`         | `volume`: bytes; `rate`: bytes per second, from 1 to 10000000000; `per`: `client` or `request`, default `client` | Limits the rate to `rate` once `volume` bytes have passed. Per client, the requests of 1 browser use up 1 volume.                         |
+| `slow-close`       | `delay`: whole milliseconds, up to 24h                                                                           | Delays closing the connection.                                                                                                            |
+| `timeout`          | `timeout`: whole milliseconds, up to 24h                                                                         | Stops all data and closes the connection after `timeout`. `0s` holds the connection until the browser gives up.                           |
+| `reset-peer`       | `timeout`: whole milliseconds, up to 24h                                                                         | Resets the connection with a TCP RST once data arrives, after `timeout`.                                                                  |
+| `slicer`           | `average-size`, `size-variation`: bytes; `delay`: whole microseconds, up to 24h                                  | Splits the data into chunks of `average-size` bytes, plus or minus up to `size-variation`, and delays each by `delay`.                    |
+| `limit-data`       | `bytes`: bytes                                                                                                   | Closes the connection after `bytes` bytes.                                                                                                |
+| `http-error`       | `status`: 400 to 599                                                                                             | Answers with `status`. Upstream, the app never gets the request. Downstream, the browser gets `status` in place of the answer of the app. |
 
 Every toxic also takes:
 
@@ -579,12 +579,12 @@ The preset combobox in the header of the settings page applies a preset. It list
 | Preset        | Toxics                                                                                                                                          |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | No throttling | Built in. None.                                                                                                                                 |
-| Fast 4G       | Datapages. `latency` 165ms downstream, `client-bandwidth` 1013 KB/s downstream and 169 KB/s upstream.                                           |
-| Slow 4G       | Datapages. `latency` 563ms downstream, `client-bandwidth` 180 KB/s downstream and 84 KB/s upstream.                                             |
-| 3G            | Datapages. `latency` 2000ms downstream, `client-bandwidth` 50 KB/s downstream and upstream.                                                     |
+| Fast 4G       | Datapages. `latency` 165ms downstream, `client-bandwidth` 8.1 Mbit/s downstream and 1.35 Mbit/s upstream.                                       |
+| Slow 4G       | Datapages. `latency` 563ms downstream, `client-bandwidth` 1.44 Mbit/s downstream and 675 kbit/s upstream.                                       |
+| 3G            | Datapages. `latency` 2000ms downstream, `client-bandwidth` 400 kbit/s downstream and upstream.                                                  |
 | Unreachable   | Built in. `reset-peer` with a `timeout` of 0s downstream and upstream. A request ends before the app gets it, an open stream at its next event. |
 
-The values are those of Chrome, rounded to whole milliseconds and KB/s. Chrome shares the bandwidth per tab, the proxy per browser.
+The values are those of Chrome, with the latency rounded to whole milliseconds. Chrome shares the bandwidth per tab, the proxy per browser.
 
 Unreachable is not the Offline of Chrome. The browser stays online, with `navigator.onLine` true and no `offline` event, while no request reaches the server, as when the server is down or a network passes no traffic. An app that relies on `navigator.onLine`, such as through the `is-offline` class of the offline module, sees no change. Test the browser offline with the Offline throttling of its developer tools.
 

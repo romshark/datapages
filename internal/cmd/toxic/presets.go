@@ -22,10 +22,10 @@ type Preset struct {
 
 // DefaultPresets returns the presets of [config.DefaultYAML]. They are the
 // throttling presets of Chrome DevTools in the order of its menu, from
-// [NetworkManager.ts] and [ThrottlingPresets.ts], rounded to whole ms and
-// KB/s of 1000 bytes. Chrome delays each response by the latency, as the
-// downstream latency toxic does. Chrome shares the bandwidth among the
-// requests of a tab, the [Front] among those of a browser profile.
+// [NetworkManager.ts] and [ThrottlingPresets.ts], rounded to whole ms.
+// Chrome delays each response by the latency, as the downstream latency toxic does.
+// Chrome shares the bandwidth among the requests of a tab, the [Front] among
+// those of a browser profile.
 //
 // [NetworkManager.ts]: https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/core/sdk/NetworkManager.ts
 // [ThrottlingPresets.ts]: https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/panels/mobile_throttling/ThrottlingPresets.ts
@@ -51,11 +51,11 @@ func DefaultPresets() []Preset {
 	}
 	return []Preset{
 		// 60 ms * 2.75, 9 Mbps * 0.9 down, 1.5 Mbps * 0.9 up.
-		throttled("Fast 4G", 165, 1013, 169),
+		throttled("Fast 4G", 165, 1_012_500, 168_750),
 		// 150 ms * 3.75, 1.6 Mbps * 0.9 down, 750 Kbps * 0.9 up.
-		throttled("Slow 4G", 563, 180, 84),
+		throttled("Slow 4G", 563, 180_000, 84_375),
 		// 400 ms * 5, 500 Kbps * 0.8 down and up.
-		throttled("3G", 2000, 50, 50),
+		throttled("3G", 2000, 50_000, 50_000),
 	}
 }
 

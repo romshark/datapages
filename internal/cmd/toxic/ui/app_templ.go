@@ -3676,7 +3676,7 @@ func fieldHead() templ.Component {
 // disabled for the global toxic an endpoint inherits.
 func fields(
 	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic,
-	units [toxic.MaxFields]byteUnit, disabled bool,
+	units [toxic.MaxFields]valueUnit, disabled bool,
 ) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -3713,8 +3713,8 @@ func fields(
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-				case toxic.UnitBytes:
-					templ_7745c5c3_Err = bytesField(slot, f, x.Values[i], units[i], disabled).Render(ctx, templ_7745c5c3_Buffer)
+				case toxic.UnitBytes, toxic.UnitBps:
+					templ_7745c5c3_Err = unitField(slot, f, x.Values[i], units[i], fieldInfo(slot.Type, f), disabled).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -3888,10 +3888,14 @@ func numberField(
 	})
 }
 
-// bytesField is a number input of the value of the byte field f, in bytes,
-// with a select of the unit u it shows the value in. Picking a unit converts
-// the number. B takes a whole number, the other units a fraction too.
-func bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disabled bool) templ.Component {
+// unitField is a number input of the value of the byte or rate field f with
+// a select of the unit u it shows the value in. Picking a unit converts the
+// number. B and B/s take a whole number, the other units a fraction too.
+// A non-nil info renders next to the label.
+func unitField(
+	slot toxic.Slot, f toxic.Field, value int64, u valueUnit, info templ.Component,
+	disabled bool,
+) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -3939,15 +3943,21 @@ func bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disable
 				var templ_7745c5c3_Var164 string
 				templ_7745c5c3_Var164, templ_7745c5c3_Err = templ.JoinStringErrs(f.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 932, Col: 35}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 936, Col: 35}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var164))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 133, "</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 133, "</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
+				}
+				if info != nil {
+					templ_7745c5c3_Err = info.Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 				}
 				return nil
 			})
@@ -3994,7 +4004,7 @@ func bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disable
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					for _, o := range byteUnits {
+					for _, o := range unitsOf(f.Unit) {
 						templ_7745c5c3_Var167 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
@@ -4010,7 +4020,7 @@ func bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disable
 							var templ_7745c5c3_Var168 string
 							templ_7745c5c3_Var168, templ_7745c5c3_Err = templ.JoinStringErrs(o.name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 957, Col: 14}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 964, Col: 14}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var168))
 							if templ_7745c5c3_Err != nil {
@@ -4044,7 +4054,7 @@ func bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disable
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = field(templ.Attributes{"class": "tp-field tp-field-bytes"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var162), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = field(templ.Attributes{"class": "tp-field tp-field-unit"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var162), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -4103,7 +4113,7 @@ func choiceField(
 				var templ_7745c5c3_Var172 string
 				templ_7745c5c3_Var172, templ_7745c5c3_Err = templ.JoinStringErrs(f.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 971, Col: 35}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 978, Col: 35}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var172))
 				if templ_7745c5c3_Err != nil {
@@ -4169,7 +4179,7 @@ func choiceField(
 							var templ_7745c5c3_Var176 string
 							templ_7745c5c3_Var176, templ_7745c5c3_Err = templ.JoinStringErrs(choiceLabel(c))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 990, Col: 22}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 997, Col: 22}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var176))
 							if templ_7745c5c3_Err != nil {
@@ -4263,7 +4273,7 @@ func statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) tem
 				var templ_7745c5c3_Var180 string
 				templ_7745c5c3_Var180, templ_7745c5c3_Err = templ.JoinStringErrs(f.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1003, Col: 35}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1010, Col: 35}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var180))
 				if templ_7745c5c3_Err != nil {
@@ -4323,7 +4333,7 @@ func statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) tem
 							var templ_7745c5c3_Var184 string
 							templ_7745c5c3_Var184, templ_7745c5c3_Err = templ.JoinStringErrs(o.label)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1020, Col: 15}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1027, Col: 15}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var184))
 							if templ_7745c5c3_Err != nil {
@@ -4598,7 +4608,7 @@ func toxicityInfo(configFile string) templ.Component {
 			var templ_7745c5c3_Var193 string
 			templ_7745c5c3_Var193, templ_7745c5c3_Err = templ.JoinStringErrs(configFile)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1081, Col: 17}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1088, Col: 17}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var193))
 			if templ_7745c5c3_Err != nil {
@@ -4643,7 +4653,7 @@ func clientBandwidthStreams() templ.Component {
 		var templ_7745c5c3_Var195 string
 		templ_7745c5c3_Var195, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Downstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1089, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1096, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var195))
 		if templ_7745c5c3_Err != nil {
@@ -4656,7 +4666,7 @@ func clientBandwidthStreams() templ.Component {
 		var templ_7745c5c3_Var196 string
 		templ_7745c5c3_Var196, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Upstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1093, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1100, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var196))
 		if templ_7745c5c3_Err != nil {
@@ -4695,7 +4705,7 @@ func serverBandwidthStreams() templ.Component {
 		var templ_7745c5c3_Var198 string
 		templ_7745c5c3_Var198, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Downstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1106, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1113, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var198))
 		if templ_7745c5c3_Err != nil {
@@ -4708,7 +4718,7 @@ func serverBandwidthStreams() templ.Component {
 		var templ_7745c5c3_Var199 string
 		templ_7745c5c3_Var199, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Upstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1107, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1114, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var199))
 		if templ_7745c5c3_Err != nil {
@@ -4747,7 +4757,7 @@ func dataCapStreams() templ.Component {
 		var templ_7745c5c3_Var201 string
 		templ_7745c5c3_Var201, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Downstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1119, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1126, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var201))
 		if templ_7745c5c3_Err != nil {
@@ -4760,7 +4770,7 @@ func dataCapStreams() templ.Component {
 		var templ_7745c5c3_Var202 string
 		templ_7745c5c3_Var202, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Upstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1124, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1131, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var202))
 		if templ_7745c5c3_Err != nil {
@@ -4826,7 +4836,7 @@ func perInfo(t toxic.Type) templ.Component {
 			var templ_7745c5c3_Var205 string
 			templ_7745c5c3_Var205, templ_7745c5c3_Err = templ.JoinStringErrs(toxic.ProfileCookie)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1148, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1155, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var205))
 			if templ_7745c5c3_Err != nil {
@@ -4871,7 +4881,7 @@ func httpErrorStreams() templ.Component {
 		var templ_7745c5c3_Var207 string
 		templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Downstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1157, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1164, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var207))
 		if templ_7745c5c3_Err != nil {
@@ -4884,7 +4894,7 @@ func httpErrorStreams() templ.Component {
 		var templ_7745c5c3_Var208 string
 		templ_7745c5c3_Var208, templ_7745c5c3_Err = templ.JoinStringErrs(streamLabel(toxic.Upstream))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1163, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app.templ`, Line: 1170, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var208))
 		if templ_7745c5c3_Err != nil {
@@ -4898,7 +4908,8 @@ func httpErrorStreams() templ.Component {
 	})
 }
 
-func jitterInfo() templ.Component {
+// dataCapRateInfo says when the throttled rate of a [toxic.DataCap] toxic applies.
+func dataCapRateInfo() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -4927,13 +4938,56 @@ func jitterInfo() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 164, "<p>The maximum random variation added to or subtracted from each chunk's latency.</p><p>With 100 ms latency and 50 ms jitter, each chunk waits 50 to 150 ms. Chunks keep their order.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 164, "<p>Applies once the volume is used up. Until then, the data passes at full speed, or at the Client or Server bandwidth rate when enabled.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = infoButton("About jitter").Render(templ.WithChildren(ctx, templ_7745c5c3_Var210), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = infoButton("About the throttled rate").Render(templ.WithChildren(ctx, templ_7745c5c3_Var210), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+func jitterInfo() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var212 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 165, "<p>The maximum random variation added to or subtracted from each chunk's latency.</p><p>With 100 ms latency and 50 ms jitter, each chunk waits 50 to 150 ms. Chunks keep their order.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = infoButton("About jitter").Render(templ.WithChildren(ctx, templ_7745c5c3_Var212), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

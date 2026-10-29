@@ -72,9 +72,9 @@ type StateIndex struct {
 
 	NewPreset presetDraft
 
-	// Units stores each byte unit selected in this tab. [defaultByteUnit] picks
-	// the unit of a missing entry.
-	Units map[fieldRef]byteUnit
+	// Units stores each unit of a byte or rate field selected in this tab.
+	// [defaultUnit] picks the unit of a missing entry.
+	Units map[fieldRef]valueUnit
 }
 
 func (s *StateIndex) clearOutcome() { s.Notice, s.Err = notice{}, slotError{} }
@@ -218,8 +218,8 @@ func (p PageIndex) POSTMode(
 
 // POSTValue is /value
 //
-// Sets 1 slot field and turns the toxic on. A byte field uses the unit query parameter,
-// or B when absent. A rejected value appears in the slot row.
+// Sets 1 slot field and turns the toxic on. A byte or rate field uses the unit
+// query parameter, or B or B/s when absent. A rejected value appears in the slot row.
 func (p PageIndex) POSTValue(
 	_ *http.Request,
 	query datapages.Query[struct {
@@ -265,7 +265,7 @@ func (p PageIndex) POSTValue(
 
 // POSTUnit is /unit
 //
-// Changes how this tab displays a byte field without changing its value.
+// Changes how this tab displays a byte or rate field without changing its value.
 func (p PageIndex) POSTUnit(
 	_ *http.Request,
 	query datapages.Query[struct {
@@ -281,11 +281,15 @@ func (p PageIndex) POSTUnit(
 ) error {
 	ref := fieldRef{query.Values.Slot, query.Values.Field}
 	i := fieldIndex(ref.slot.Type, ref.key)
-	if i < 0 || toxic.Types[ref.slot.Type].Fields[i].Unit != toxic.UnitBytes {
-		return fmt.Errorf("%w: %s has no byte field %q",
+	var units []valueUnit
+	if i >= 0 {
+		units = unitsOf(toxic.Types[ref.slot.Type].Fields[i].Unit)
+	}
+	if units == nil {
+		return fmt.Errorf("%w: %s has no field %q with units",
 			datapages.ErrBadRequest, ref.slot.Name(), ref.key)
 	}
-	u, ok := lookupByteUnit(signals.Values.Unit)
+	u, ok := lookupUnit(units, signals.Values.Unit)
 	if !ok {
 		return fmt.Errorf("%w: %w %q",
 			datapages.ErrBadRequest, errUnknownUnit, signals.Values.Unit)
@@ -293,7 +297,7 @@ func (p PageIndex) POSTUnit(
 	s := state.Values
 	s.clearOutcome()
 	if s.Units == nil {
-		s.Units = map[fieldRef]byteUnit{}
+		s.Units = map[fieldRef]valueUnit{}
 	}
 	s.Units[ref] = u
 	return viewChanged.Dispatch(EventViewChanged{Tab: datapages.SubjectStateID(stateID)})

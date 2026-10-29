@@ -75,8 +75,8 @@ func newLinks() *links {
 	return &links{free: map[linkKey]time.Time{}, sweepAt: minSweep}
 }
 
-// reserve queues n bytes at rate KB/s on the link of key and returns the time
-// the link finishes them.
+// reserve queues n bytes at rate bytes per second on the link of key and
+// returns the time the link finishes them.
 func (l *links) reserve(key linkKey, n int, rate int64, now time.Time) time.Time {
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -84,8 +84,7 @@ func (l *links) reserve(key linkKey, n int, rate int64, now time.Time) time.Time
 	if start.Before(now) {
 		start = now
 	}
-	// A KB is 1000 bytes, as for Toxiproxy, which makes the rate bytes per ms.
-	done := start.Add(time.Duration(n) * time.Millisecond / time.Duration(rate))
+	done := start.Add(time.Duration(n) * time.Second / time.Duration(rate))
 	l.free[key] = done
 	if len(l.free) > l.sweepAt {
 		for k, t := range l.free {
@@ -102,9 +101,9 @@ func (l *links) reserve(key linkKey, n int, rate int64, now time.Time) time.Time
 // A shorter one takes turns more often and wakes more timers.
 const chunkTime = 20 * time.Millisecond
 
-// chunkSize returns the bytes a link at rate KB/s carries in chunkTime.
+// chunkSize returns the bytes a link at rate bytes per second carries in chunkTime.
 func chunkSize(rate int64) int {
-	return max(1, int(rate*chunkTime.Milliseconds()))
+	return max(1, int(rate*int64(chunkTime)/int64(time.Second)))
 }
 
 // caps tracks per-client [DataCap] usage.

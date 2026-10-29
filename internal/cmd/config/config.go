@@ -252,9 +252,9 @@ watch:
               jitter: 0s
           client-bandwidth:
             downstream:
-              rate: 1013
+              rate: 1012500
             upstream:
-              rate: 169
+              rate: 168750
       - name: "Slow 4G"
         toxics:
           latency:
@@ -263,9 +263,9 @@ watch:
               jitter: 0s
           client-bandwidth:
             downstream:
-              rate: 180
+              rate: 180000
             upstream:
-              rate: 84
+              rate: 84375
       - name: "3G"
         toxics:
           latency:
@@ -274,9 +274,9 @@ watch:
               jitter: 0s
           client-bandwidth:
             downstream:
-              rate: 50
+              rate: 50000
             upstream:
-              rate: 50
+              rate: 50000
 `
 
 // WriteDefault writes a default datapages.yaml to moduleDir.

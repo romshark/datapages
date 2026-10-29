@@ -38,7 +38,7 @@ watch:
               jitter: 50ms
           client-bandwidth:
             downstream:
-              rate: 512
+              rate: 512000
         endpoints:
           # A sent message reaches the server 1s late.
           "POST /messages/sendmessage/{$}":

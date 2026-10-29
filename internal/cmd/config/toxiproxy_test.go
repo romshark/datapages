@@ -126,15 +126,15 @@ func TestLoadToxiproxy(t *testing.T) {
 		},
 		"zero rate": {
 			yaml:    toxic("client-bandwidth", "downstream", "rate: 0"),
-			wantErr: "rate 0 must be from 1 to 10000000 KB/s",
+			wantErr: "rate 0 must be from 1 to 10000000000 B/s",
 		},
 		"rate above 10 GB/s": {
-			yaml:    toxic("client-bandwidth", "downstream", "rate: 10000001"),
-			wantErr: "rate 10000001 must be from 1 to 10000000 KB/s",
+			yaml:    toxic("client-bandwidth", "downstream", "rate: 10000000001"),
+			wantErr: "rate 10000000001 must be from 1 to 10000000000 B/s",
 		},
 		"zero server rate": {
 			yaml:    toxic("server-bandwidth", "upstream", "rate: 0"),
-			wantErr: "rate 0 must be from 1 to 10000000 KB/s",
+			wantErr: "rate 0 must be from 1 to 10000000000 B/s",
 		},
 		"server per": {
 			yaml:    toxic("server-bandwidth", "upstream", "rate: 8", "per: client"),
@@ -150,7 +150,7 @@ func TestLoadToxiproxy(t *testing.T) {
 		},
 		"data cap without rate": {
 			yaml:    toxic("data-cap", "upstream", "volume: 1024"),
-			wantErr: "rate 0 must be from 1 to 10000000 KB/s",
+			wantErr: "rate 0 must be from 1 to 10000000000 B/s",
 		},
 		"slicer variation above average": {
 			yaml: toxic(

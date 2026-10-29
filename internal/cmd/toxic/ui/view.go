@@ -33,7 +33,8 @@ var (
 )
 
 // setField parses and sets 1 field or the toxicity percentage.
-// Byte fields use unit, or B when empty. Choice fields use their configuration name.
+// Byte and rate fields use unit, or B and B/s when empty.
+// Choice fields use their configuration name.
 func setField(x *toxic.Toxic, t toxic.Type, key, value, unit string) error {
 	if key == "toxicity" {
 		pct, err := parseInt(value)
@@ -60,8 +61,8 @@ func setField(x *toxic.Toxic, t toxic.Type, key, value, unit string) error {
 		return nil
 	}
 	parse := parseInt
-	if f.Unit == toxic.UnitBytes {
-		u, ok := lookupByteUnit(unit)
+	if units := unitsOf(f.Unit); units != nil {
+		u, ok := lookupUnit(units, unit)
 		if !ok {
 			return fmt.Errorf("%w %q", errUnknownUnit, unit)
 		}
@@ -99,60 +100,92 @@ func fieldIndex(t toxic.Type, key string) int {
 	})
 }
 
-// byteUnit is a unit a byte field shows its value in.
-type byteUnit struct {
+// valueUnit is a unit a byte or rate field shows its value in. size is the
+// bytes, or bytes per second, of 1 of it.
+type valueUnit struct {
 	name string
 	size int64
 }
 
-// byteUnits lists the units of the unit select of a byte field in its order.
-var byteUnits = [...]byteUnit{
-	{"B", 1},
-	{"KB", 1e3},
-	{"MB", 1e6},
-	{"GB", 1e9},
-	{"KiB", 1 << 10},
-	{"MiB", 1 << 20},
-	{"GiB", 1 << 30},
+// byteUnits and rateUnits list the units of the unit select of a byte and a rate
+// field in their order. The first is the unit the field holds its value in.
+var (
+	byteUnits = []valueUnit{
+		{"B", 1},
+		{"KB", 1e3},
+		{"MB", 1e6},
+		{"GB", 1e9},
+		{"KiB", 1 << 10},
+		{"MiB", 1 << 20},
+		{"GiB", 1 << 30},
+	}
+	rateUnits = []valueUnit{
+		{"B/s", 1},
+		{"KB/s", 1e3},
+		{"MB/s", 1e6},
+		{"GB/s", 1e9},
+		{"KiB/s", 1 << 10},
+		{"MiB/s", 1 << 20},
+		{"GiB/s", 1 << 30},
+		{"kbit/s", 125},
+		{"Mbit/s", 125e3},
+		{"Gbit/s", 125e6},
+	}
+)
+
+// unitsOf returns the units a field of unit u shows its value in, nil for none.
+func unitsOf(u toxic.Unit) []valueUnit {
+	switch u {
+	case toxic.UnitBytes:
+		return byteUnits
+	case toxic.UnitBps:
+		return rateUnits
+	}
+	return nil
 }
 
-// lookupByteUnit returns the unit with name, B for an empty name.
-func lookupByteUnit(name string) (byteUnit, bool) {
+// lookupUnit returns the unit of units with name, the first for an empty name.
+func lookupUnit(units []valueUnit, name string) (valueUnit, bool) {
 	if name == "" {
-		return byteUnits[0], true
+		return units[0], true
 	}
-	for _, u := range byteUnits {
+	for _, u := range units {
 		if u.name == name {
 			return u, true
 		}
 	}
-	return byteUnit{}, false
+	return valueUnit{}, false
 }
 
-// defaultByteUnit returns the largest unit that shows v with up to 3 decimals,
-// as in 1.5 KiB for 1536. It is the unit of a field the tab picked none for.
-func defaultByteUnit(v int64) byteUnit {
-	best := byteUnits[0]
-	for _, u := range byteUnits[1:] {
+// defaultUnit returns the unit of units that shows v in the fewest characters
+// with up to 3 decimals, the larger of 2 that tie, as in 1.5 KiB for 1536 and
+// 8.1 Mbit/s for 1012500 B/s. It is the unit of a field the tab picked none for.
+func defaultUnit(units []valueUnit, v int64) valueUnit {
+	best, bestLen := units[0], len(units[0].format(v))
+	for _, u := range units[1:] {
 		// v%u.size is below 2^30, which keeps the product in range.
-		if v >= u.size && u.size > best.size && v%u.size*1000%u.size == 0 {
-			best = u
+		if v < u.size || v%u.size*1000%u.size != 0 {
+			continue
+		}
+		if n := len(u.format(v)); n < bestLen || n == bestLen && u.size > best.size {
+			best, bestLen = u, n
 		}
 	}
 	return best
 }
 
-// format returns v bytes in u, as in "1.5" for 1536 in KiB.
-func (u byteUnit) format(v int64) string {
+// format returns v in u, as in "1.5" for 1536 bytes in KiB.
+func (u valueUnit) format(v int64) string {
 	if u.size == 1 {
 		return strconv.FormatInt(v, 10)
 	}
 	return strconv.FormatFloat(float64(v)/float64(u.size), 'f', -1, 64)
 }
 
-// parse returns the bytes of the number s in u. B takes a whole number,
-// the other units a fraction too, rounded to the nearest byte. An empty s reads as 0.
-func (u byteUnit) parse(s string) (int64, error) {
+// parse returns the number s in u in the unit of the first of its units.
+// That unit takes a whole number, the others a fraction too, rounded to the
+// nearest whole. An empty s reads as 0.
+func (u valueUnit) parse(s string) (int64, error) {
 	if u.size == 1 {
 		return parseInt(s)
 	}
@@ -172,7 +205,7 @@ func (u byteUnit) parse(s string) (int64, error) {
 }
 
 // step returns the step attribute of a number input in u.
-func (u byteUnit) step() string {
+func (u valueUnit) step() string {
 	if u.size == 1 {
 		return "1"
 	}
@@ -180,7 +213,7 @@ func (u byteUnit) step() string {
 }
 
 // inputmode returns the virtual keyboard of a number input in u.
-func (u byteUnit) inputmode() neo.TextInputInputmode {
+func (u valueUnit) inputmode() neo.TextInputInputmode {
 	if u.size == 1 {
 		return neo.TextInputInputmodeNumeric
 	}
@@ -193,12 +226,12 @@ type fieldRef struct {
 	key  string
 }
 
-// unit returns the unit the byte field ref shows v in.
-func (s StateIndex) unit(ref fieldRef, v int64) byteUnit {
+// unit returns the unit of units the field ref shows v in.
+func (s StateIndex) unit(ref fieldRef, units []valueUnit, v int64) valueUnit {
 	if u, ok := s.Units[ref]; ok {
 		return u
 	}
-	return defaultByteUnit(v)
+	return defaultUnit(units, v)
 }
 
 // current returns the toxic slot turns on with in scope, which is its own,
@@ -358,8 +391,8 @@ type rowView struct {
 	global   toxic.Toxic
 	isGlobal bool
 	err      string
-	// units holds the unit of each byte field of toxic.
-	units [toxic.MaxFields]byteUnit
+	// units holds the unit of each byte and rate field of toxic.
+	units [toxic.MaxFields]valueUnit
 }
 
 // view returns the page data of a tab in state tab.
@@ -450,8 +483,8 @@ func (a *App) view(tab StateIndex) pageData {
 				r.err = tab.Err.msg
 			}
 			for i, f := range info.Fields {
-				if f.Unit == toxic.UnitBytes {
-					r.units[i] = tab.unit(fieldRef{slot, f.Key}, r.toxic.Values[i])
+				if units := unitsOf(f.Unit); units != nil {
+					r.units[i] = tab.unit(fieldRef{slot, f.Key}, units, r.toxic.Values[i])
 				}
 			}
 			tv.rows = append(tv.rows, r)
@@ -561,12 +594,16 @@ func fieldInfo(t toxic.Type, f toxic.Field) templ.Component {
 		return jitterInfo()
 	case "per":
 		return perInfo(t)
+	case "rate":
+		if t == toxic.DataCap {
+			return dataCapRateInfo()
+		}
 	}
 	return nil
 }
 
 // setValue returns the action expression that posts the value of the field key
-// of slot, a number in unit for a byte field and in no unit, "", for the others.
+// of slot, a number in unit for a byte or rate field and in no unit, "", for the others.
 func setValue(slot toxic.Slot, key, unit string) string {
 	return action.PageIndex.Value.POST(action.PageIndex.Value.POSTQuery(slot, key, unit),
 		action.WithBefore("$value = el.value"))

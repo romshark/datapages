@@ -331,10 +331,10 @@ func TestToxicValidate(t *testing.T) {
 			typ: ClientBandwidth, toxic: toxicWith(0),
 			wantErr: "rate must be at least 1",
 		},
-		"rate of 10 GB/s": {typ: ClientBandwidth, toxic: toxicWith(10_000_000)},
+		"rate of 10 GB/s": {typ: ClientBandwidth, toxic: toxicWith(10_000_000_000)},
 		"rate above 10 GB/s": {
-			typ: ClientBandwidth, toxic: toxicWith(10_000_001),
-			wantErr: "rate must be at most 10000000",
+			typ: ClientBandwidth, toxic: toxicWith(10_000_000_001),
+			wantErr: "rate must be at most 10000000000",
 		},
 		"slicer": {typ: Slicer, toxic: toxicWith(10, 10, 0)},
 		"slicer delay above 24h": {

@@ -564,13 +564,13 @@ neo-button.tp-scope-menu {
 }
 
 /* The unit select takes about 5rem of the field. */
-.tp-fields > .tp-field-bytes {
+.tp-fields > .tp-field-unit {
   flex-basis: 11rem;
 }
 
 /* The input group grows and shrinks a select like its input. The unit select
    keeps the width of its label, which would otherwise clip to nothing. */
-.tp-field-bytes neo-select {
+.tp-field-unit neo-select {
   flex: none;
 }
 

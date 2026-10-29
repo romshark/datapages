@@ -60,7 +60,7 @@ type Unit int8
 const (
 	UnitMillis Unit = iota
 	UnitMicros
-	UnitKBps
+	UnitBps // bytes per second
 	UnitBytes
 	UnitStatus // an HTTP status code
 	UnitChoice // the index of 1 of [Field.Choices]
@@ -73,8 +73,8 @@ func (u Unit) String() string {
 		return "ms"
 	case UnitMicros:
 		return "µs"
-	case UnitKBps:
-		return "KB/s"
+	case UnitBps:
+		return "B/s"
 	case UnitStatus, UnitChoice:
 		return ""
 	}
@@ -157,7 +157,7 @@ var Types = [...]TypeInfo{
 		Fields: []Field{
 			{
 				Key: "rate", Label: "Rate",
-				Unit: UnitKBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 64,
+				Unit: UnitBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 64_000,
 			},
 			perField,
 		},
@@ -169,7 +169,7 @@ var Types = [...]TypeInfo{
 		Fields: []Field{
 			{
 				Key: "rate", Label: "Rate",
-				Unit: UnitKBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 1000,
+				Unit: UnitBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 1_000_000,
 			},
 		},
 		Front: true,
@@ -180,8 +180,8 @@ var Types = [...]TypeInfo{
 		Fields: []Field{
 			{Key: "volume", Label: "Volume", Unit: UnitBytes, Initial: 1 << 20},
 			{
-				Key: "rate", Label: "Rate",
-				Unit: UnitKBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 16,
+				Key: "rate", Label: "Throttled rate",
+				Unit: UnitBps, Min: 1, Max: config.MaxBandwidthRate, Initial: 16_000,
 			},
 			perField,
 		},

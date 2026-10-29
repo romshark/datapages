@@ -31,10 +31,10 @@ func TestDefaultPresets(t *testing.T) {
 				int64(math.Round(c.latency)),
 			),
 			rateDown: toxicWith(
-				int64(math.Round(c.down / 1000)),
+				int64(math.Round(c.down)),
 			),
 			{Type: ClientBandwidth, Stream: Upstream}: toxicWith(
-				int64(math.Round(c.up / 1000)),
+				int64(math.Round(c.up)),
 			),
 		}, p.Toxics, c.name)
 		for slot, x := range p.Toxics {
