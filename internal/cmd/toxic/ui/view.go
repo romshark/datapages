@@ -27,12 +27,15 @@ const (
 	modeInherit = "inherit" // endpoint only, the global toxic applies
 )
 
-var errUnknownField = errors.New("unknown field")
+var (
+	errUnknownField = errors.New("unknown field")
+	errUnknownUnit  = errors.New("unknown unit")
+)
 
 // setField sets the field of x with the key to the whole number in value.
 // The key names a field of type t, or is "toxicity" for the percentage of
-// requests affected.
-func setField(x *toxic.Toxic, t toxic.Type, key, value string) error {
+// requests affected. A byte field reads value in the [byteUnit] named unit, B when empty.
+func setField(x *toxic.Toxic, t toxic.Type, key, value, unit string) error {
 	if key == "toxicity" {
 		pct, err := parseInt(value)
 		if err != nil || pct < 0 || pct > 100 {
@@ -43,12 +46,19 @@ func setField(x *toxic.Toxic, t toxic.Type, key, value string) error {
 		x.Toxicity = float32(pct) / 100
 		return nil
 	}
-	fields := toxic.Types[t].Fields
-	i := slices.IndexFunc(fields, func(f toxic.Field) bool { return f.Key == key })
+	fields, i := toxic.Types[t].Fields, fieldIndex(t, key)
 	if i < 0 {
 		return fmt.Errorf("%w %q of %s", errUnknownField, key, toxic.Types[t].Name)
 	}
-	v, err := parseInt(value)
+	parse := parseInt
+	if fields[i].Unit == toxic.UnitBytes {
+		u, ok := lookupByteUnit(unit)
+		if !ok {
+			return fmt.Errorf("%w %q", errUnknownUnit, unit)
+		}
+		parse = u.parse
+	}
+	v, err := parse(value)
 	if err != nil {
 		return fmt.Errorf("%s: %w", strings.ToLower(fields[i].Label), err)
 	}
@@ -68,6 +78,115 @@ func parseInt(s string) (int64, error) {
 		return 0, fmt.Errorf("%q is not a whole number", s)
 	}
 	return v, nil
+}
+
+// fieldIndex returns the index of the field of t with the key, or -1.
+func fieldIndex(t toxic.Type, key string) int {
+	return slices.IndexFunc(toxic.Types[t].Fields, func(f toxic.Field) bool {
+		return f.Key == key
+	})
+}
+
+// byteUnit is a unit a byte field shows its value in.
+type byteUnit struct {
+	name string
+	size int64
+}
+
+// byteUnits lists the units of the unit select of a byte field in its order.
+var byteUnits = [...]byteUnit{
+	{"B", 1},
+	{"KB", 1e3},
+	{"MB", 1e6},
+	{"GB", 1e9},
+	{"KiB", 1 << 10},
+	{"MiB", 1 << 20},
+	{"GiB", 1 << 30},
+}
+
+// lookupByteUnit returns the unit with name, B for an empty name.
+func lookupByteUnit(name string) (byteUnit, bool) {
+	if name == "" {
+		return byteUnits[0], true
+	}
+	for _, u := range byteUnits {
+		if u.name == name {
+			return u, true
+		}
+	}
+	return byteUnit{}, false
+}
+
+// defaultByteUnit returns the largest unit that shows v with up to 3 decimals,
+// as in 1.5 KiB for 1536. It is the unit of a field the tab picked none for.
+func defaultByteUnit(v int64) byteUnit {
+	best := byteUnits[0]
+	for _, u := range byteUnits[1:] {
+		// v%u.size is below 2^30, which keeps the product in range.
+		if v >= u.size && u.size > best.size && v%u.size*1000%u.size == 0 {
+			best = u
+		}
+	}
+	return best
+}
+
+// format returns v bytes in u, as in "1.5" for 1536 in KiB.
+func (u byteUnit) format(v int64) string {
+	if u.size == 1 {
+		return strconv.FormatInt(v, 10)
+	}
+	return strconv.FormatFloat(float64(v)/float64(u.size), 'f', -1, 64)
+}
+
+// parse returns the bytes of the number s in u. B takes a whole number,
+// the other units a fraction too, rounded to the nearest byte. An empty s reads as 0.
+func (u byteUnit) parse(s string) (int64, error) {
+	if u.size == 1 {
+		return parseInt(s)
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, fmt.Errorf("%q is not a number", s)
+	}
+	b := math.Round(f * float64(u.size))
+	if math.Abs(b) >= math.MaxInt64 {
+		return 0, fmt.Errorf("%s %s is too large", s, u.name)
+	}
+	return int64(b), nil
+}
+
+// step returns the step attribute of a number input in u.
+func (u byteUnit) step() string {
+	if u.size == 1 {
+		return "1"
+	}
+	return "any"
+}
+
+// inputmode returns the virtual keyboard of a number input in u.
+func (u byteUnit) inputmode() neo.TextInputInputmode {
+	if u.size == 1 {
+		return neo.TextInputInputmodeNumeric
+	}
+	return neo.TextInputInputmodeDecimal
+}
+
+// fieldRef names 1 field of a slot.
+type fieldRef struct {
+	slot toxic.Slot
+	key  string
+}
+
+// unit returns the unit the byte field ref shows v in.
+func (s StateIndex) unit(ref fieldRef, v int64) byteUnit {
+	if u, ok := s.Units[ref]; ok {
+		return u
+	}
+	return defaultByteUnit(v)
 }
 
 // current returns the toxic slot turns on with in scope, which is its own,
@@ -213,6 +332,7 @@ func scopeKey(pattern string, eps []toxic.Endpoint) string {
 }
 
 type typeView struct {
+	typ  toxic.Type
 	info toxic.TypeInfo
 	rows []rowView
 }
@@ -226,6 +346,8 @@ type rowView struct {
 	global   toxic.Toxic
 	isGlobal bool
 	err      string
+	// units holds the unit of each byte field of toxic.
+	units [toxic.MaxFields]byteUnit
 }
 
 // view returns the page data of a tab in state tab.
@@ -289,7 +411,7 @@ func (a *App) view(tab StateIndex) pageData {
 
 	override := s.Endpoints[scope]
 	for t, info := range toxic.Types {
-		tv := typeView{info: info}
+		tv := typeView{typ: toxic.Type(t), info: info}
 		for _, st := range toxic.Streams {
 			slot := toxic.Slot{Type: toxic.Type(t), Stream: st}
 			g, hasGlobal := s.Global[slot]
@@ -314,6 +436,11 @@ func (a *App) view(tab StateIndex) pageData {
 			}
 			if tab.Err.slot == slot {
 				r.err = tab.Err.msg
+			}
+			for i, f := range info.Fields {
+				if f.Unit == toxic.UnitBytes {
+					r.units[i] = tab.unit(fieldRef{slot, f.Key}, r.toxic.Values[i])
+				}
 			}
 			tv.rows = append(tv.rows, r)
 		}
@@ -423,10 +550,25 @@ func fieldInfo(f toxic.Field) templ.Component {
 	return nil
 }
 
-// setValue returns the action expression that posts the value of the field key of slot.
-func setValue(slot toxic.Slot, key string) string {
-	return action.PageIndex.Value.POST(action.PageIndex.Value.POSTQuery(slot, key),
+// setValue returns the action expression that posts the value of the field key
+// of slot, a number in unit for a byte field and in no unit, "", for the others.
+func setValue(slot toxic.Slot, key, unit string) string {
+	return action.PageIndex.Value.POST(action.PageIndex.Value.POSTQuery(slot, key, unit),
 		action.WithBefore("$value = el.value"))
+}
+
+// setUnit returns the action expression that posts the unit picked for the byte
+// field key of slot.
+func setUnit(slot toxic.Slot, key string) string {
+	return action.PageIndex.Unit.POST(action.PageIndex.Unit.POSTQuery(slot, key),
+		action.WithBefore("$unit = evt.detail.value"))
+}
+
+// setToxicity returns the action expression that posts the value of the toxicity
+// slider of slot. The value signal is a string, the value of the event a number.
+func setToxicity(slot toxic.Slot) string {
+	return action.PageIndex.Value.POST(action.PageIndex.Value.POSTQuery(slot, "toxicity", ""),
+		action.WithBefore("$value = String(evt.detail.value)"))
 }
 
 // statusOption is 1 option of the status combobox,
@@ -456,6 +598,17 @@ func withAttrs(a, b templ.Attributes) templ.Attributes {
 	m := maps.Clone(a)
 	maps.Copy(m, b)
 	return m
+}
+
+// formDisabled returns the Disabled option of a form-associated Morpheus control,
+// such as neo-combobox and neo-textinput. [neo.Set] renders false as
+// disabled="false", which disables such a control because the browser reads the
+// attribute by presence.
+func formDisabled(disabled bool) neo.Attr[bool] {
+	if disabled {
+		return neo.Set(true)
+	}
+	return neo.Attr[bool]{}
 }
 
 func method(pattern string) string {

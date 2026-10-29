@@ -133,7 +133,7 @@ var Types = [...]TypeInfo{
 	},
 	Bandwidth: {
 		Name: "bandwidth", Key: "bandwidth", Title: "Bandwidth",
-		Doc: "Limits the rate of the data, which the requests of 1 browser share.",
+		Doc: "Limits the rate of the data, as a slow network does.",
 		Fields: []Field{
 			{
 				Key: "rate", Label: "Rate",
@@ -201,8 +201,7 @@ var Types = [...]TypeInfo{
 	},
 	HTTPError: {
 		Name: "http_error", Key: "http-error", Title: "HTTP error",
-		Doc: "Answers with the status. On the request, the app never gets it. " +
-			"On the response, the app answers and the browser gets the status instead.",
+		Doc: "Answers with the status instead of the app.",
 		Fields: []Field{
 			{
 				Key: "status", Label: "Status",

@@ -446,6 +446,9 @@ func setupHandlers(s *Server) {
 		"POST /value/{$}",
 		pageIndexHandlers{s}.POSTValue)
 	s.Mux().HandleFunc(
+		"POST /unit/{$}",
+		pageIndexHandlers{s}.POSTUnit)
+	s.Mux().HandleFunc(
 		"POST /clear/{$}",
 		pageIndexHandlers{s}.POSTClear)
 	s.Mux().HandleFunc(
@@ -862,6 +865,7 @@ func (s pageIndexHandlers) POSTValue(
 	var query datapages.Query[struct {
 		Slot  dpToxic.Slot `query:"slot"`
 		Field string       `query:"field"`
+		Unit  string       `query:"unit"`
 	}]
 	{
 		if q := httpread.QueryValue(r.URL.RawQuery, "slot"); q != "" {
@@ -872,6 +876,7 @@ func (s pageIndexHandlers) POSTValue(
 		}
 	}
 	query.Values.Field = httpread.QueryValue(r.URL.RawQuery, "field")
+	query.Values.Unit = httpread.QueryValue(r.URL.RawQuery, "unit")
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
 	if slot.dead {
@@ -897,6 +902,74 @@ func (s pageIndexHandlers) POSTValue(
 	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Value", err)
+		return
+	}
+}
+
+func (s pageIndexHandlers) POSTUnit(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Unit")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateIndex(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	stateID := stateRouteKey(instanceID)
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Unit string `json:"unit"`
+	}]
+	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	var query datapages.Query[struct {
+		Slot  dpToxic.Slot `query:"slot"`
+		Field string       `query:"field"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "slot"); q != "" {
+			if err := query.Values.Slot.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: slot", err)
+				return
+			}
+		}
+	}
+	query.Values.Field = httpread.QueryValue(r.URL.RawQuery, "field")
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	dispatchViewChanged := dispatcherEventViewChanged{s: s.Server, ctx: r.Context()}
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTUnit(
+		r,
+		query,
+		signals,
+		datapages.State[dpapp.StateIndex]{Values: slot.state},
+		stateID,
+		dispatchViewChanged,
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Unit", err)
 		return
 	}
 }

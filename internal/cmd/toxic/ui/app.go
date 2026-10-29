@@ -74,6 +74,10 @@ type StateIndex struct {
 	Err    slotError
 
 	NewPreset presetDraft
+
+	// Units holds the unit the tab picked for a byte field.
+	// A field without one shows the unit [defaultByteUnit] picks.
+	Units map[fieldRef]byteUnit
 }
 
 func (s *StateIndex) clearOutcome() { s.Notice, s.Err = notice{}, slotError{} }
@@ -220,13 +224,15 @@ func (p PageIndex) POSTMode(
 // POSTValue is /value
 //
 // Sets the field of the slot, a key such as "jitter" or "toxicity", to the
-// value signal and turns the toxic on. A value Toxiproxy would refuse shows in
+// value signal and turns the toxic on. A byte field reads the value in the unit
+// query parameter, B when absent. A value Toxiproxy would refuse shows in
 // the row of the slot.
 func (p PageIndex) POSTValue(
 	_ *http.Request,
 	query datapages.Query[struct {
 		Slot  toxic.Slot `query:"slot"`
 		Field string     `query:"field"`
+		Unit  string     `query:"unit"`
 	}],
 	signals datapages.Signals[struct {
 		Value string `json:"value"`
@@ -240,7 +246,8 @@ func (p PageIndex) POSTValue(
 	scope := p.App.scope(s.Endpoint)
 	err := p.App.Front.Update(func(st *toxic.Settings) error {
 		x := current(*st, scope, slot)
-		err := setField(&x, slot.Type, query.Values.Field, signals.Values.Value)
+		err := setField(&x, slot.Type, query.Values.Field, signals.Values.Value,
+			query.Values.Unit)
 		if err != nil {
 			return err
 		}
@@ -250,7 +257,7 @@ func (p PageIndex) POSTValue(
 		setSlot(st, scope, slot, modeOn, x)
 		return nil
 	})
-	if errors.Is(err, errUnknownField) {
+	if errors.Is(err, errUnknownField) || errors.Is(err, errUnknownUnit) {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 	s.clearOutcome()
@@ -261,6 +268,43 @@ func (p PageIndex) POSTValue(
 		)
 	}
 	return changed.Dispatch(EventChanged{})
+}
+
+// POSTUnit is /unit
+//
+// Shows the byte field of the slot in the unit signal, in this tab only.
+// The value of the field stays.
+func (p PageIndex) POSTUnit(
+	_ *http.Request,
+	query datapages.Query[struct {
+		Slot  toxic.Slot `query:"slot"`
+		Field string     `query:"field"`
+	}],
+	signals datapages.Signals[struct {
+		Unit string `json:"unit"`
+	}],
+	state datapages.State[StateIndex],
+	stateID string,
+	viewChanged datapages.Dispatcher[EventViewChanged],
+) error {
+	ref := fieldRef{query.Values.Slot, query.Values.Field}
+	i := fieldIndex(ref.slot.Type, ref.key)
+	if i < 0 || toxic.Types[ref.slot.Type].Fields[i].Unit != toxic.UnitBytes {
+		return fmt.Errorf("%w: %s has no byte field %q",
+			datapages.ErrBadRequest, ref.slot.Name(), ref.key)
+	}
+	u, ok := lookupByteUnit(signals.Values.Unit)
+	if !ok {
+		return fmt.Errorf("%w: %w %q",
+			datapages.ErrBadRequest, errUnknownUnit, signals.Values.Unit)
+	}
+	s := state.Values
+	s.clearOutcome()
+	if s.Units == nil {
+		s.Units = map[fieldRef]byteUnit{}
+	}
+	s.Units[ref] = u
+	return viewChanged.Dispatch(EventViewChanged{Tab: datapages.SubjectStateID(stateID)})
 }
 
 // POSTClear is /clear

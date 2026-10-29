@@ -57,13 +57,13 @@ templ themeScript() {
 	</script>
 }
 
-// app is the page. The mode and value signals carry a change to 1 toxic.
-// preset names the preset to apply or delete. name and from are the name of a
-// new preset and the preset it copies.
+// app is the page. The mode and value signals carry a change to 1 toxic, unit
+// the unit picked for a byte field. preset names the preset to apply or delete.
+// name and from are the name of a new preset and the preset it copies.
 templ app(d pageData) {
 	<div
 		class="tp-app"
-		data-signals__ifmissing="{mode: '', value: '', preset: '', name: '', from: ''}"
+		data-signals__ifmissing="{mode: '', value: '', unit: '', preset: '', name: '', from: ''}"
 	>
 		@top(d)
 		@neo.LayoutAttrs(neo.LayoutOpts{
@@ -697,6 +697,12 @@ templ typeCard(d pageData, t typeView) {
 				}
 				@infoButton("What " + strings.ToLower(t.info.Title) + " does") {
 					<p>{ t.info.Doc }</p>
+					switch t.typ {
+						case toxic.Bandwidth:
+							@bandwidthStreams()
+						case toxic.HTTPError:
+							@httpErrorStreams()
+					}
 				}
 			}
 		}
@@ -747,7 +753,7 @@ templ row(d pageData, info toxic.TypeInfo, r rowView) {
 						action.WithBefore("$mode = evt.detail.value"),
 					),
 				}) {
-					@segment(modeInherit, "Inherit", r.mode)
+					@segment(modeInherit, "Global", r.mode)
 					@segment(modeOff, "Off", r.mode)
 					@segment(modeOn, "On", r.mode)
 				}
@@ -755,12 +761,12 @@ templ row(d pageData, info toxic.TypeInfo, r rowView) {
 		}
 		switch r.mode {
 			case modeOn:
-				@fields(d, info, r.slot, r.toxic, false)
+				@fields(d, info, r.slot, r.toxic, r.units, false)
 			case modeInherit:
 				if r.global.Disabled {
 					<p class="tp-muted tp-small">Global: off</p>
 				} else {
-					@fields(d, info, r.slot, r.global, true)
+					@fields(d, info, r.slot, r.global, r.units, true)
 				}
 		}
 		if r.err != "" {
@@ -809,21 +815,26 @@ templ fieldHead() {
 	}
 }
 
-// fields shows the values of x, disabled for the global toxic an endpoint inherits.
+// fields shows the values of x, the byte fields in units, disabled for the
+// global toxic an endpoint inherits.
 templ fields(
-	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic, disabled bool,
+	d pageData, info toxic.TypeInfo, slot toxic.Slot, x toxic.Toxic,
+	units [toxic.MaxFields]byteUnit, disabled bool,
 ) {
 	@neo.LayoutAttrs(neo.LayoutOpts{
 		Wrap: neo.Set(neo.Wrap),
 		Gap:  neo.Set(neo.GapMd),
 	}, templ.Attributes{"class": "tp-fields"}) {
 		for i, f := range info.Fields {
-			if f.Unit == toxic.UnitStatus {
-				@statusField(slot, f, x.Values[i], disabled)
-			} else {
-				@numberField(f.Label, setValue(slot, f.Key),
-					strconv.FormatInt(x.Values[i], 10), f.Unit.String(), f.Min,
-					fieldInfo(f), disabled)
+			switch f.Unit {
+				case toxic.UnitStatus:
+					@statusField(slot, f, x.Values[i], disabled)
+				case toxic.UnitBytes:
+					@bytesField(slot, f, x.Values[i], units[i], disabled)
+				default:
+					@numberField(f.Label, setValue(slot, f.Key, ""),
+						strconv.FormatInt(x.Values[i], 10), f.Unit.String(), f.Min,
+						fieldInfo(f), disabled)
 			}
 		}
 		@toxicityField(slot, x, d.info.ConfigFile, disabled)
@@ -849,7 +860,7 @@ templ numberField(
 				Type:      neo.Set(neo.TextInputType("number")),
 				Inputmode: neo.Set(neo.TextInputInputmodeNumeric),
 				Size:      neo.Set("sm"),
-				Disabled:  neo.Set(disabled),
+				Disabled:  formDisabled(disabled),
 			}, templ.Attributes{
 				"min":            strconv.FormatInt(min, 10),
 				"step":           "1",
@@ -857,6 +868,45 @@ templ numberField(
 				"data-on:change": change,
 			})
 			<span class="tp-unit">{ unit }</span>
+		}
+	}
+}
+
+// bytesField is a number input of the value of the byte field f, in bytes,
+// with a select of the unit u it shows the value in. Picking a unit converts
+// the number. B takes a whole number, the other units a fraction too.
+templ bytesField(slot toxic.Slot, f toxic.Field, value int64, u byteUnit, disabled bool) {
+	@field(templ.Attributes{"class": "tp-field tp-field-bytes"}) {
+		@fieldHead() {
+			<span class="tp-small">{ f.Label }</span>
+		}
+		@neo.InputGroup() {
+			@neo.TextInputAttrs(neo.TextInputOpts{
+				Value:     neo.Set(u.format(value)),
+				Type:      neo.Set(neo.TextInputType("number")),
+				Inputmode: neo.Set(u.inputmode()),
+				Size:      neo.Set("sm"),
+				Disabled:  formDisabled(disabled),
+			}, templ.Attributes{
+				"min":            u.format(f.Min),
+				"step":           u.step(),
+				"aria-label":     f.Label,
+				"data-on:change": setValue(slot, f.Key, u.name),
+			})
+			@neo.SelectAttrs(neo.SelectOpts{
+				Value:     neo.Set(u.name),
+				Size:      neo.Set("sm"),
+				AriaLabel: neo.Set(f.Label + " unit"),
+				Disabled:  formDisabled(disabled),
+			}, templ.Attributes{
+				"data-on:neo-select-change": setUnit(slot, f.Key),
+			}) {
+				for _, o := range byteUnits {
+					@neo.Option(neo.OptionOpts{Value: neo.Set(o.name)}) {
+						{ o.name }
+					}
+				}
+			}
 		}
 	}
 }
@@ -873,10 +923,10 @@ templ statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) {
 			Size:              neo.Set("sm"),
 			AriaLabel:         neo.Set(f.Label),
 			PopoverFitContent: neo.Set(true),
-			Disabled:          neo.Set(disabled),
+			Disabled:          formDisabled(disabled),
 		}, templ.Attributes{
 			"data-on:neo-combobox-change": action.PageIndex.Value.POST(
-				action.PageIndex.Value.POSTQuery(slot, f.Key),
+				action.PageIndex.Value.POSTQuery(slot, f.Key, ""),
 				action.WithBefore("$value = evt.detail.value")),
 		}) {
 			for _, o := range statusOptions(f, value) {
@@ -889,8 +939,8 @@ templ statusField(slot toxic.Slot, f toxic.Field, value int64, disabled bool) {
 }
 
 // toxicityField is a slider of the share of requests x applies to, in steps of 1%.
-// It posts on release. The slider shows no label of its own because
-// the field head carries the info button.
+// It posts 50ms after the last move of a drag and on release. The slider shows
+// no label of its own because the field head carries the info button.
 templ toxicityField(slot toxic.Slot, x toxic.Toxic, configFile string, disabled bool) {
 	@field(templ.Attributes{"class": "tp-field tp-field-toxicity"}) {
 		@fieldHead() {
@@ -906,10 +956,10 @@ templ toxicityField(slot toxic.Slot, x toxic.Toxic, configFile string, disabled 
 			AriaLabel: neo.Set("Requests affected"),
 			Disabled:  neo.Set(disabled),
 		}, templ.Attributes{
-			// The value signal is a string, the value of the event a number.
-			"data-on:neo-slider-change": action.PageIndex.Value.POST(
-				action.PageIndex.Value.POSTQuery(slot, "toxicity"),
-				action.WithBefore("$value = String(evt.detail.value)")),
+			// neo-slider-input fires on every move of a drag. A keyboard step,
+			// a click and a typed value fire only neo-slider-change.
+			"data-on:neo-slider-input__debounce.50ms": setToxicity(slot),
+			"data-on:neo-slider-change":               setToxicity(slot),
 		})
 	}
 }
@@ -944,6 +994,37 @@ templ toxicityInfo(configFile string) {
 		<p>A stream, such as the SSE stream of a page, is picked once, when it opens.</p>
 		<p>{ configFile } calls it toxicity and writes it as a fraction from 0 to 1.</p>
 	}
+}
+
+// bandwidthStreams says what the streams of [toxic.Bandwidth] slow down.
+templ bandwidthStreams() {
+	<ul>
+		<li>
+			<strong>{ streamLabel(toxic.Downstream) }</strong>: slows what the browser
+			receives, such as pages, assets and page streams.
+		</li>
+		<li>
+			<strong>{ streamLabel(toxic.Upstream) }</strong>: slows what the app
+			receives, such as action signals and uploads.
+		</li>
+	</ul>
+	<p>The tabs of 1 browser share the rate. 1 KB/s is 1000 bytes per second.</p>
+}
+
+// httpErrorStreams tells the streams of [toxic.HTTPError] apart. Its rows are
+// labeled by the direction of the data, which does not say whether the app ran.
+templ httpErrorStreams() {
+	<ul>
+		<li>
+			<strong>{ streamLabel(toxic.Downstream) }</strong>: the app handles the
+			request and its changes take effect. The browser gets the status instead
+			of the answer of the app. Use it to test a retry of an action that already ran.
+		</li>
+		<li>
+			<strong>{ streamLabel(toxic.Upstream) }</strong>: the app never gets the
+			request and nothing changes, as when a proxy rejects it.
+		</li>
+	</ul>
 }
 
 templ jitterInfo() {

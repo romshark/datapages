@@ -701,6 +701,8 @@ func TestStatusCombobox(t *testing.T) {
 	code := tb.command(t, "/mode/?slot=http_error_upstream", `{"mode":"on"}`)
 	require.Equal(t, http.StatusOK, code)
 	got := tb.waitFrom(t, at, `<neo-combobox value="500"`)
+	// Any disabled attribute, "false" too, disables the form-associated combobox.
+	require.NotRegexp(t, `<neo-combobox value="500"[^>]* disabled`, got)
 	require.Contains(t, got, `value="503">503 Service Unavailable</neo-option>`)
 	require.Contains(t, got, `$value = evt.detail.value`)
 	require.NotContains(t, got, `aria-label="Status" type="number"`)
@@ -718,6 +720,47 @@ func TestStatusCombobox(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	tb.waitFrom(t, at, "status must be at least 400")
 	require.Equal(t, int64(503), status())
+}
+
+// TestByteUnit tests that picking the unit of a byte field converts the number
+// the tab shows and keeps the value, and that a number typed then reads in that unit.
+func TestByteUnit(t *testing.T) {
+	s := startSettings(t)
+	tb := openTab(t, s.url)
+	value := func() int64 { return s.front.Settings().Global[limitDown].Values[0] }
+	input := func(v string) string {
+		return `<neo-textinput aria-label="Bytes"[^>]* value="` + v + `"`
+	}
+
+	at := tb.at()
+	code := tb.command(t, "/mode/?slot=limit_data_downstream", `{"mode":"on"}`)
+	require.Equal(t, http.StatusOK, code)
+	got := tb.waitFrom(t, at, `aria-label="Bytes unit"`)
+	require.Regexp(t, input("1"), got)
+	require.Regexp(t, `<neo-select value="KiB"[^>]* aria-label="Bytes unit"`, got)
+
+	at = tb.at()
+	code = tb.command(t, "/unit/?slot=limit_data_downstream&field=bytes", `{"unit":"KB"}`)
+	require.Equal(t, http.StatusOK, code)
+	got = tb.waitFrom(t, at, `<neo-select value="KB"`)
+	require.Regexp(t, input("1.024"), got)
+	require.Equal(t, int64(1024), value())
+
+	at = tb.at()
+	code = tb.command(t, "/value/?slot=limit_data_downstream&field=bytes&unit=KB",
+		`{"value":"2.5"}`)
+	require.Equal(t, http.StatusOK, code)
+	got = tb.waitFrom(t, at, `<neo-select value="KB"`)
+	require.Regexp(t, input("2.5"), got)
+	require.Equal(t, int64(2500), value())
+
+	code = tb.command(t, "/unit/?slot=limit_data_downstream&field=bytes", `{"unit":"TB"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	code = tb.command(t, "/unit/?slot=latency_downstream&field=latency", `{"unit":"KB"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	code = tb.command(t, "/value/?slot=limit_data_downstream&field=bytes&unit=TB",
+		`{"value":"1"}`)
+	require.Equal(t, http.StatusBadRequest, code)
 }
 
 // TestChangedFromOutside tests that an EventChanged published on the broker,
@@ -925,4 +968,8 @@ func TestInherit(t *testing.T) {
 		`<neo-textinput aria-label="Latency"[^>]* disabled[^>]* value="300"`, got)
 	require.Regexp(t,
 		`<neo-slider[^>]* value="100"[^>]* disabled`, got)
+
+	_, body = do(t, http.MethodGet, s.url, "", nil)
+	require.NotRegexp(t,
+		`<neo-textinput aria-label="Latency"[^>]* disabled`, row.FindString(body))
 }

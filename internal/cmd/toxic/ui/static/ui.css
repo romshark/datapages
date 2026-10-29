@@ -509,6 +509,17 @@ neo-button.tp-scope-menu {
   flex-basis: 12rem;
 }
 
+/* The unit select takes about 5rem of the field. */
+.tp-fields > .tp-field-bytes {
+  flex-basis: 11rem;
+}
+
+/* The input group grows and shrinks a select like its input. The unit select
+   keeps the width of its label, which would otherwise clip to nothing. */
+.tp-field-bytes neo-select {
+  flex: none;
+}
+
 .tp-fields > .tp-field-toxicity {
   flex-basis: 16rem;
 }
@@ -541,11 +552,19 @@ neo-button.tp-copy {
   font-size: 0.875rem;
 }
 
-.tp-popover p {
+.tp-popover > * {
   margin: 0;
 }
 
-.tp-popover p + p {
+.tp-popover > * + * {
+  margin-top: 0.5rem;
+}
+
+.tp-popover ul {
+  padding-left: 1.25rem;
+}
+
+.tp-popover li + li {
   margin-top: 0.5rem;
 }
 

@@ -196,6 +196,7 @@ type pageIndex struct {
 	Reload       pageIndex_Reload
 	Save         pageIndex_Save
 	Show         pageIndex_Show
+	Unit         pageIndex_Unit
 	Value        pageIndex_Value
 }
 
@@ -471,11 +472,11 @@ func (pageIndex_Show) POSTQuery(vEndpoint string) pageIndex_Show_POSTQuery {
 	}
 }
 
-type pageIndex_Value struct{}
+type pageIndex_Unit struct{}
 
-// POST references /value/
-func (pageIndex_Value) POST(
-	query pageIndex_Value_POSTQuery,
+// POST references /unit/
+func (pageIndex_Unit) POST(
+	query pageIndex_Unit_POSTQuery,
 	options ...Option,
 ) string {
 	var (
@@ -495,7 +496,7 @@ func (pageIndex_Value) POST(
 
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	l := bl + len("@post('/value/'") + actionexpr.OptionsLen(options) + len(")") + al
+	l := bl + len("@post('/unit/'") + actionexpr.OptionsLen(options) + len(")") + al
 	if anyQuery {
 		l += len("?")
 	}
@@ -517,7 +518,7 @@ func (pageIndex_Value) POST(
 	b.Grow(l)
 
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/value/")
+	b.WriteString("@post('/unit/")
 	if anyQuery {
 		b.WriteString("?")
 	}
@@ -545,17 +546,129 @@ func (pageIndex_Value) POST(
 	return b.String()
 }
 
+type pageIndex_Unit_POSTQuery struct {
+	Slot  encoding.TextMarshaler `query:"slot"`
+	Field string                 `query:"field"`
+}
+
+func (pageIndex_Unit) POSTQuery(
+	vSlot encoding.TextMarshaler,
+	vField string,
+) pageIndex_Unit_POSTQuery {
+	return pageIndex_Unit_POSTQuery{
+		Slot:  vSlot,
+		Field: vField,
+	}
+}
+
+type pageIndex_Value struct{}
+
+// POST references /value/
+func (pageIndex_Value) POST(
+	query pageIndex_Value_POSTQuery,
+	options ...Option,
+) string {
+	var (
+		slotStr  string
+		fieldStr string
+		unitStr  string
+	)
+
+	if query.Slot != nil {
+		slotStr = url.QueryEscape(textOf(query.Slot))
+	}
+	if query.Field != "" {
+		fieldStr = url.QueryEscape(query.Field)
+	}
+	if query.Unit != "" {
+		unitStr = url.QueryEscape(query.Unit)
+	}
+
+	anyQuery := query.Slot != nil ||
+		query.Field != "" ||
+		query.Unit != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/value/'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Slot != nil {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("slot=") + len(slotStr)
+	}
+	if query.Field != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("field=") + len(fieldStr)
+	}
+	if query.Unit != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("unit=") + len(unitStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/value/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Slot != nil {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("slot=")
+		b.WriteString(slotStr)
+	}
+	if query.Field != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("field=")
+		b.WriteString(fieldStr)
+	}
+	if query.Unit != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("unit=")
+		b.WriteString(unitStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
 type pageIndex_Value_POSTQuery struct {
 	Slot  encoding.TextMarshaler `query:"slot"`
 	Field string                 `query:"field"`
+	Unit  string                 `query:"unit"`
 }
 
 func (pageIndex_Value) POSTQuery(
 	vSlot encoding.TextMarshaler,
 	vField string,
+	vUnit string,
 ) pageIndex_Value_POSTQuery {
 	return pageIndex_Value_POSTQuery{
 		Slot:  vSlot,
 		Field: vField,
+		Unit:  vUnit,
 	}
 }
