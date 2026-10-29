@@ -6,12 +6,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -374,6 +376,90 @@ func TestLintSubjectAcrossApps(t *testing.T) {
 	}
 }
 
+// TestLintToxiproxy tests that lint reports an endpoint override of a preset
+// that names no route unless the proxy is disabled.
+// The fixture serves "GET /" and "GET /not-found/{$}".
+func TestLintToxiproxy(t *testing.T) {
+	const edge = "    presets:\n      - name: Edge\n        endpoints:\n"
+	for name, tc := range map[string]struct {
+		toxiproxy string // the watch.toxiproxy section, none when empty
+		wantErr   string
+	}{
+		"no section": {},
+		"hosts": {
+			toxiproxy: "    host: localhost:9090\n    ui-host: localhost:9091\n",
+		},
+		"known endpoint": {
+			toxiproxy: edge +
+				"          \"GET /not-found/{$}\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+		},
+		"unknown endpoint": {
+			toxiproxy: edge +
+				"          \"GET /not-found/\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+			wantErr: `watch.toxiproxy.presets["Edge"].endpoints: ` +
+				`no endpoint has the pattern "GET /not-found/"; ` +
+				`did you mean "GET /not-found/{$}"?`,
+		},
+		"unknown endpoint, disabled": {
+			toxiproxy: "    disabled: true\n" + edge +
+				"          \"GET /not-found/\":\n            latency:\n" +
+				"              downstream:\n                latency: 1s\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := setupProject(t, "valid.go")
+			yaml := "cmd: cmd/server\n"
+			if tc.toxiproxy != "" {
+				yaml += "watch:\n  toxiproxy:\n" + tc.toxiproxy
+			}
+			writeFileAt(t, filepath.Join(dir, "datapages.yaml"), yaml)
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), []string{"datapages", "lint"},
+				nil, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+			if tc.wantErr == "" {
+				require.Zero(t, code, "lint stderr: %s", stderr.String())
+				return
+			}
+			require.Equal(t, 1, code)
+			require.Contains(t, stderr.String(), tc.wantErr)
+		})
+	}
+}
+
+// lockedBuffer collects what a command writes while the test reads it.
+type lockedBuffer struct {
+	lock sync.Mutex
+	buf  bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	return b.buf.String()
+}
+
+// freePort returns a free port of the loopback interface.
+func freePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := ln.Addr().(*net.TCPAddr).Port
+	require.NoError(t, ln.Close())
+	return port
+}
+
 // TestWatch tests the watch command over a scaffolded module: it refuses a
 // directory with no go.mod, and it shuts the engine down when its context ends.
 func TestWatch(t *testing.T) {
@@ -434,6 +520,72 @@ func TestWatch(t *testing.T) {
 		}
 
 		require.Contains(t, stderr.String(), "parsing app package")
+	})
+
+	t.Run("toxiproxy refuses to start", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			hosts, wantErr string // hosts is the watch.toxiproxy section
+		}{
+			"proxy on the port of the dev server": {
+				hosts:   "    host: localhost:7399\n",
+				wantErr: "watch.toxiproxy.host localhost:7399 uses the port of --host",
+			},
+			"settings on the port of the dev server": {
+				hosts:   "    host: localhost:0\n    ui-host: localhost:7399\n",
+				wantErr: "watch.toxiproxy.ui-host localhost:7399 uses the port of --host",
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				dir := setupProject(t, "valid.go")
+				writeFileAt(t, filepath.Join(dir, "datapages.yaml"),
+					"cmd: cmd/server\nwatch:\n  toxiproxy:\n"+tc.hosts)
+
+				var stderr bytes.Buffer
+				code := cmd.Run(
+					context.Background(),
+					[]string{"datapages", "watch", "--host", "localhost:7399"},
+					nil, io.Discard, &stderr,
+					"0.0.0", "xxxxxxx", "2026-2-23",
+				)
+				require.Equal(t, 1, code)
+				require.Contains(t, stderr.String(), tc.wantErr)
+			})
+		}
+	})
+
+	t.Run("toxiproxy by default", func(t *testing.T) {
+		setupProject(t, "invalid.go")
+		port := freePort(t)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stderr := new(lockedBuffer)
+		done := make(chan int, 1)
+		go func() {
+			done <- cmd.Run(ctx, []string{
+				"datapages", "watch", "--host", fmt.Sprintf("localhost:%d", port),
+			}, nil, io.Discard, stderr, "0.0.0", "xxxxxxx", "2026-2-23")
+		}()
+
+		want := regexp.MustCompile(
+			`toxiproxy: http://localhost:\d+ \(settings: http://localhost:\d+/\)`)
+		deadline := time.After(30 * time.Second)
+		for !want.MatchString(stderr.String()) {
+			select {
+			case code := <-done:
+				t.Fatalf("watch exited with code %d; stderr: %s", code, stderr)
+			case <-deadline:
+				t.Fatalf("stderr lacks %s: %s", want, stderr)
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("watch did not stop after cancel")
+		}
 	})
 
 	t.Run("writes default config", func(t *testing.T) {
@@ -1469,7 +1621,10 @@ func TestInit(t *testing.T) {
 				return dir
 			},
 			projectDir: "myproject",
-			args:       []string{"datapages", "init", "--name", "myproject"},
+			args: []string{
+				"datapages", "init",
+				"--name", "myproject",
+			},
 			// The module path, then the defaults, no run.
 			stdin:    "mymod\n\n\n\n\nn\n",
 			wantCode: 0,
@@ -1770,8 +1925,8 @@ func requireFileContains(t *testing.T, path string, want ...string) {
 }
 
 // TestInitInInitializedProject tests that init in a project that is already
-// set up succeeds, writes the agent instructions it was asked for, keeps what
-// it replaces and leaves an AGENTS.md of the project alone.
+// set up succeeds, writes the agent instructions it was asked for,
+// keeps what it replaces and leaves an AGENTS.md of the project alone.
 func TestInitInInitializedProject(t *testing.T) {
 	t.Setenv("GOFLAGS", "-e")
 	repoRoot := repoRootDir(t)

@@ -70,10 +70,9 @@ func Test() error {
 // the test suite runs. The second is how much of the code the generator writes
 // the acceptance cases run.
 //
-// The second number is collected inside the case modules under
-// internal/acceptance, where the generated packages live. The profile of the
-// cases also covers the datapages packages generated code imports, which the
-// second number leaves out.
+// The second number is collected inside the case modules under internal/acceptance,
+// where the generated packages live. The profile of the cases also covers
+// the datapages packages generated code imports, which the second number leaves out.
 func Coverage() error {
 	dir, err := os.MkdirTemp("", "datapages-coverage")
 	if err != nil {
@@ -232,6 +231,7 @@ func CheckGen() error {
 		{"mage genAISkills", GenAISkills},
 		{"mage genDocs", GenDocs},
 		{"mage genOfflineWorker", GenOfflineWorker},
+		{"mage genMorpheus", GenMorpheus},
 	}
 
 	// A file 1 generator changed stays changed for the rest of the run.
@@ -393,7 +393,7 @@ func GoFixExamples() error {
 }
 
 // Gen runs all code generation
-// (templ, datapages, AI skills, docs, offline worker).
+// (templ, datapages, AI skills, docs, offline worker, Morpheus bundle).
 func Gen() error {
 	if err := GenTempl(); err != nil {
 		return err
@@ -407,14 +407,18 @@ func Gen() error {
 	if err := GenDocs(); err != nil {
 		return err
 	}
-	return GenOfflineWorker()
+	if err := GenOfflineWorker(); err != nil {
+		return err
+	}
+	return GenMorpheus()
 }
 
 // GenDatapages builds the datapages CLI from source and runs "datapages gen"
-// on each example and each acceptance case.
+// on each example and each acceptance case. internal/tools/genapp generates
+// the Toxiproxy settings page, because "datapages gen" refuses this module.
 //
-// The generated code of both is committed. TestExamplesAreUpToDate and
-// TestAcceptance regenerate and compare,
+// The generated code is committed. TestExamplesAreUpToDate,
+// TestToxicUIIsUpToDate and TestAcceptance regenerate and compare,
 // and tell whoever reads the failure to run this target.
 func GenDatapages() error {
 	tmp, err := os.MkdirTemp("", "datapages-gen-*")
@@ -435,7 +439,8 @@ func GenDatapages() error {
 			return err
 		}
 	}
-	return nil
+	fmt.Println("==> genapp", toxicUIDir)
+	return run("go", "run", "./internal/tools/genapp", toxicUIDir)
 }
 
 // buildCLI builds cmd/datapages from source into bin.
@@ -451,8 +456,8 @@ func buildCLI(bin string) error {
 // acceptanceRoot holds the acceptance cases, 1 module each.
 const acceptanceRoot = "internal/acceptance"
 
-// GenAISkills runs "datapages init" in every example module, which writes
-// AGENTS.md and the task skills AI coding agents read.
+// GenAISkills runs "datapages init" in every example module,
+// which writes AGENTS.md and the task skills AI coding agents read.
 //
 // The run is expected to change nothing: the examples are initialized already,
 // so init writes the instructions and reports each project as initialized.
@@ -476,9 +481,14 @@ func GenAISkills() error {
 	})
 }
 
-// GenTempl generates templ templates for examples and parser testdata.
+// GenTempl generates templ templates for examples, parser testdata and
+// the Toxiproxy settings page of the CLI.
 func GenTempl() error {
 	if err := CheckWatch(); err != nil {
+		return err
+	}
+	fmt.Println("==> templ generate in", toxicUIDir)
+	if err := goRun(toolTempl, "generate", "-path", "./"+toxicUIDir); err != nil {
 		return err
 	}
 	for _, root := range submoduleRoots {
@@ -508,7 +518,9 @@ func GenDocs() error {
 	if err := goRun(toolTempl, "generate", "-path", "./internal/docs-src"); err != nil {
 		return err
 	}
-	if err := run("go", "run", "./internal/tools/render-pages", "-version", version); err != nil {
+	if err := run(
+		"go", "run", "./internal/tools/render-pages", "-version", version,
+	); err != nil {
 		return err
 	}
 	fmt.Println("==> minify internal/docs-src/style.css -> docs/style.css")
@@ -524,6 +536,49 @@ func GenOfflineWorker() error {
 	const src, dst = "modules/offline/sw.js", "modules/offline/sw.min.js"
 	fmt.Println("==> minify", src, "->", dst)
 	return goRun(toolMinify, "-o", dst, src)
+}
+
+// toxicUIDir is the app package of the Toxiproxy settings page.
+const toxicUIDir = "internal/cmd/toxic/ui"
+
+// morpheusComponents lists the Morpheus components the settings page renders.
+// The bundler adds their dependencies.
+var morpheusComponents = []string{
+	"badge",
+	"button",
+	"buttongroup",
+	"card",
+	"clipcopy",
+	"combobox",
+	"dialog",
+	"icon",
+	"input-group",
+	"layout",
+	"popover",
+	"resizable",
+	"select",
+	"sidebar",
+	"slider",
+	"switch",
+	"textinput",
+	"toaster",
+	"toggle-group",
+}
+
+// GenMorpheus builds the Morpheus bundle the Toxiproxy settings page embeds,
+// at the version go.mod requires, which matches the templ wrappers it renders.
+//
+// Running the bundler by version keeps its esbuild dependency out of go.mod.
+func GenMorpheus() error {
+	version, err := output("go", "list", "-m", "-f", "{{.Version}}",
+		"github.com/romshark/morpheus")
+	if err != nil {
+		return fmt.Errorf("reading the Morpheus version of go.mod: %w", err)
+	}
+	dst := toxicUIDir + "/static/morpheus"
+	fmt.Println("==> morpheus bundle ->", dst)
+	return goRun("github.com/romshark/morpheus@"+strings.TrimSpace(version),
+		"bundle", "-components", strings.Join(morpheusComponents, ","), "-o", dst)
 }
 
 // All runs test, vulncheck, fmt, mod-tidy, gen-templ, and gen-docs.

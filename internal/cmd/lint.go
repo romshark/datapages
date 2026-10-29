@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/romshark/datapages/internal/cmd/config"
+	"github.com/romshark/datapages/internal/cmd/toxic"
 	"github.com/romshark/datapages/internal/serverscan"
 	"github.com/romshark/datapages/internal/subject"
 )
@@ -20,7 +22,10 @@ func newLintCmd(stderr io.Writer, version string) *cobra.Command {
 without generating code. Useful for CI checks and editor integration.
 
 The app package is read from the type arguments of the datapages.NewServer
-call, defaulting to ./app when the module holds none.`,
+call, defaulting to ./app when the module holds none.
+
+Unless watch.toxiproxy.disabled is set in datapages.yaml, lint also reports
+an endpoint override in watch.toxiproxy that names no route of any app.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			moduleDir, err := findModuleDir()
 			if err != nil {
@@ -38,20 +43,41 @@ call, defaulting to ./app when the module holds none.`,
 			if err := checkGoModVersion(moduleDir, version); err != nil {
 				return err
 			}
+			conf, _, err := config.Load(moduleDir)
+			if err != nil {
+				return err
+			}
+			// Watch mode runs the proxy without the section too.
+			tp := &config.WatchToxiproxy{}
+			if conf.Watch != nil && conf.Watch.Toxiproxy != nil {
+				tp = conf.Watch.Toxiproxy
+			}
+			if tp.Disabled {
+				tp = nil
+			}
 
 			// Every app is linted, even when an earlier one failed:
 			// 1 report per run beats 1 run per app.
 			var errs []error
 			var events []subject.AppEvent
+			var endpoints []toxic.Endpoint
+			allParsed := true
 			for _, a := range scan.Apps {
 				if err := serverscan.CheckAppDir(moduleDir, a); err != nil {
 					errs = append(errs, err)
+					allParsed = false
 					continue
 				}
 				m, err := parseApp(filepath.Join(moduleDir, a.Dir), stderr)
 				events = append(events, appEvents(a.Dir, m)...)
+				if tp != nil {
+					// An override may name a route of any app, because watch
+					// mode runs 1 of them.
+					endpoints = append(endpoints, toxic.Endpoints(m)...)
+				}
 				if err != nil {
 					errs = append(errs, err)
+					allParsed = false
 					continue
 				}
 				if err := serverscan.CheckSessionData(
@@ -62,6 +88,14 @@ call, defaulting to ./app when the module holds none.`,
 			}
 			if err := subject.CheckAcrossApps(events); err != nil {
 				errs = append(errs, err)
+			}
+			// The partial model of an app with errors lacks routes,
+			// which would make overrides of them read as unknown.
+			if tp != nil && allParsed {
+				err := checkEndpointKeys(tp, endpoints)
+				if err != nil {
+					errs = append(errs, err)
+				}
 			}
 			return errors.Join(errs...)
 		},

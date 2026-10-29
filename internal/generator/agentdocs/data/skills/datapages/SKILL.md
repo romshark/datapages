@@ -47,6 +47,10 @@ The restriction also applies to commands that invoke `templ generate`, including
 
 To restore rendering, save a `.templ` file or restart the watcher.
 
+### Test on a slow or failing network
+
+`datapages watch` also serves the app through Toxiproxy, with latency, bandwidth limits, timeouts, resets and HTTP errors per endpoint, and a settings page for them. Both listen on ports the OS picks unless `watch.toxiproxy.host` and `watch.toxiproxy.ui-host` set them, and watch mode prints their addresses. `watch.toxiproxy` in `datapages.yaml` configures it. `datapages lint` reports an endpoint key of a preset in `watch.toxiproxy.presets` that is not the `net/http.ServeMux` pattern of a route, as in `GET /post/{slug}/{$}`.
+
 ## Rules
 
 - Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.

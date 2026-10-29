@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/internal/cmd/config"
+	"github.com/romshark/datapages/internal/generator/skeleton"
 	"github.com/romshark/datapages/internal/serverscan"
 )
 
@@ -364,7 +367,7 @@ func TestCheckCmdPackage(t *testing.T) {
 
 // TestUpgradeGoMod tests raising the datapages requirement in a user's go.mod to
 // the version of the CLI doing the generating. A generator and a runtime that
-// disagree produce code that does not compile.
+// disagree produce code that doesn't compile.
 func TestUpgradeGoMod(t *testing.T) {
 	const goModTemplate = `module example.com/myapp
 
@@ -556,17 +559,15 @@ func TestWatchInclude(t *testing.T) {
 	}{
 		"no call": {
 			apps: []serverscan.App{app("app")},
-			want: []string{"app/**/*.go", "datapages.yaml", "datapages.yml"},
+			want: []string{"app/**/*.go"},
 		},
 		"call in a command": {
 			apps: []serverscan.App{app("app", cmdDir)},
-			want: []string{
-				"app/**/*.go", "cmd/server/*.go", "datapages.yaml", "datapages.yml",
-			},
+			want: []string{"app/**/*.go", "cmd/server/*.go"},
 		},
 		"call in the module root": {
 			apps: []serverscan.App{app("app", ".")},
-			want: []string{"app/**/*.go", "*.go", "datapages.yaml", "datapages.yml"},
+			want: []string{"app/**/*.go", "*.go"},
 		},
 		"2 apps built in 1 command": {
 			apps: []serverscan.App{
@@ -575,7 +576,6 @@ func TestWatchInclude(t *testing.T) {
 			},
 			want: []string{
 				"app/admin/**/*.go", "cmd/server/*.go", "app/frontend/**/*.go",
-				"datapages.yaml", "datapages.yml",
 			},
 		},
 	} {
@@ -667,6 +667,210 @@ func TestWatchLockHeld(t *testing.T) {
 	require.NoError(t, os.Remove(path))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "other.txt"), nil, 0o666))
 	require.False(t, watchLockHeld(), "file that is no lock")
+}
+
+// TestAppExclude tests that appExclude adds the configuration file names
+// without modifying the list of the user.
+func TestAppExclude(t *testing.T) {
+	user := []string{".git/**"}
+	require.Equal(t, []string{".git/**", "datapages.yml", "datapages.yaml"},
+		appExclude(user))
+	require.Equal(t, []string{".git/**"}, user)
+}
+
+// TestAppName tests the name the settings page shows for an app, with and
+// without a major version in the module path and with 2 apps in 1 module.
+func TestAppName(t *testing.T) {
+	for _, tc := range []struct {
+		module, dir string
+		apps        int
+		want        string
+	}{
+		{
+			module: "github.com/romshark/datapages/example/todolist", dir: "app", apps: 1,
+			want: "todolist",
+		},
+		{module: "example.com/shop/v2", dir: "app", apps: 1, want: "shop"},
+		{module: "shop", dir: "web", apps: 1, want: "shop"},
+		{
+			module: "github.com/romshark/datapages/example/counter", dir: "app/simple",
+			apps: 2, want: "counter/app/simple",
+		},
+	} {
+		got := appName(tc.module, serverscan.App{Dir: tc.dir}, tc.apps)
+		require.Equal(t, tc.want, got, tc.module)
+	}
+}
+
+// TestStartToxiproxy tests when watch mode starts the Toxiproxy front and its
+// settings page. Without an address in watch.toxiproxy they listen on the host
+// of the dev server and a port the OS picks. Without the section, a problem
+// turns them off with a warning. With it, a problem fails the start.
+// It parses the todolist example.
+func TestStartToxiproxy(t *testing.T) {
+	moduleDir, err := filepath.Abs(filepath.Join("..", "..", "example", "todolist"))
+	require.NoError(t, err)
+	app := serverscan.App{Dir: "app", GenDir: filepath.Join("app", "datapagesgen")}
+	appHost := &url.URL{Scheme: "http", Host: "localhost:8080"}
+
+	// In the strings, %[1]d is the free port of the dev server and %[2]d and
+	// %[3]d the 2 free ports after it. In wantLine, %[4]d and %[5]d are the
+	// ports the front and the settings page listen on.
+	for name, tc := range map[string]struct {
+		tp       *config.WatchToxiproxy
+		host     string
+		busy     int // offset of a taken port from the dev server port, 0 for none
+		wantErr  string
+		wantOff  string // the warning that turns the front off
+		wantLine string
+	}{
+		"default": {
+			host: "localhost:%[1]d",
+			wantLine: "toxiproxy: http://localhost:%[4]d " +
+				"(settings: http://localhost:%[5]d/)\n",
+		},
+		"default with a random dev server port": {host: "localhost:0"},
+		// 192.0.2.0/24 is reserved for documentation by RFC 5737.
+		"default on an address of no interface": {
+			host:    "192.0.2.1:%[1]d",
+			wantOff: "warning: toxiproxy is off: listening on watch.toxiproxy.host",
+		},
+		"configured with a random port": {
+			tp:   &config.WatchToxiproxy{Host: "127.0.0.1:0"},
+			host: "localhost:%[1]d",
+			wantLine: "toxiproxy: http://127.0.0.1:%[4]d " +
+				"(settings: http://127.0.0.1:%[5]d/)\n",
+		},
+		"configured on a busy port": {
+			tp:   &config.WatchToxiproxy{Host: "localhost:%[2]d"},
+			host: "localhost:%[1]d", busy: 1,
+			wantErr: "listening on watch.toxiproxy.host",
+		},
+		"configured with a random dev server port": {
+			tp:      &config.WatchToxiproxy{},
+			host:    "localhost:0",
+			wantOff: "warning: toxiproxy is off: it needs the port of --host localhost:0",
+		},
+		"configured settings on the port of the dev server": {
+			tp:   &config.WatchToxiproxy{UIHost: "localhost:%[1]d"},
+			host: "localhost:%[1]d",
+			wantErr: "watch.toxiproxy.ui-host localhost:%[1]d " +
+				"uses the port of --host",
+		},
+		"configured hosts": {
+			tp: &config.WatchToxiproxy{
+				Host: "127.0.0.1:%[3]d", UIHost: "127.0.0.1:%[2]d",
+			},
+			host: "localhost:%[1]d",
+			wantLine: "toxiproxy: http://127.0.0.1:%[3]d " +
+				"(settings: http://127.0.0.1:%[2]d/)\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			port := freePorts(t, 3)
+			ports := func(s string) string {
+				if !strings.Contains(s, "%") {
+					return s
+				}
+				return fmt.Sprintf(s, port, port+1, port+2)
+			}
+			if tc.busy > 0 {
+				ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+tc.busy))
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = ln.Close() })
+			}
+			tp := tc.tp
+			if tp != nil {
+				c := *tp
+				c.Host, c.UIHost = ports(c.Host), ports(c.UIHost)
+				tp = &c
+			}
+
+			var stderr strings.Builder
+			tox, err := startToxiproxy(moduleDir, app, "app", "", tp, ports(tc.host),
+				appHost, nil, slog.New(slog.DiscardHandler), &stderr)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, ports(tc.wantErr))
+				require.Nil(t, tox)
+				return
+			}
+			require.NoError(t, err)
+			if tc.wantLine == "" {
+				require.Nil(t, tox)
+				if tc.wantOff == "" {
+					require.Empty(t, stderr.String())
+				} else {
+					require.Contains(t, stderr.String(), tc.wantOff)
+				}
+				return
+			}
+			require.Equal(t, fmt.Sprintf(tc.wantLine, port, port+1, port+2,
+				tox.frontLn.Addr().(*net.TCPAddr).Port,
+				tox.uiLn.Addr().(*net.TCPAddr).Port,
+			), stderr.String())
+
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- tox.serve(ctx) }()
+			resp, err := http.Get("http://" + tox.uiLn.Addr().String() + "/")
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, resp.Body.Close())
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Contains(t, string(body), "<title>app - Toxiproxy</title>")
+			cancel()
+			require.NoError(t, <-done)
+		})
+	}
+}
+
+// freePorts returns the first of n consecutive free ports of the loopback interface.
+func freePorts(t *testing.T, n int) int {
+	t.Helper()
+	for range 20 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		port := ln.Addr().(*net.TCPAddr).Port
+		_ = ln.Close()
+		free := true
+		for i := 1; i < n && free; i++ {
+			next, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+i))
+			if err != nil {
+				free = false
+				continue
+			}
+			_ = next.Close()
+		}
+		if free {
+			return port
+		}
+	}
+	t.Fatalf("no %d consecutive free ports", n)
+	return 0
+}
+
+// TestWriteDefaultConfig tests that the datapages.yaml init writes loads for
+// every Web Components setup, with the presets of the Toxiproxy front.
+func TestWriteDefaultConfig(t *testing.T) {
+	for _, wc := range skeleton.WebComponentsChoices {
+		t.Run(string(wc), func(t *testing.T) {
+			dir := t.TempDir()
+			wrote, err := writeDefaultConfigIfMissing(dir, io.Discard, wc)
+			require.NoError(t, err)
+			require.True(t, wrote)
+
+			c, found, err := config.Load(dir)
+			require.NoError(t, err)
+			require.True(t, found)
+			tp := c.Watch.Toxiproxy
+			require.NotNil(t, tp)
+			require.Empty(t, tp.Host, "the port follows --host")
+			require.Len(t, tp.Presets, 3)
+			require.Equal(t,
+				wc == skeleton.WebComponentsTypeScript, len(c.Watch.CustomWatchers) == 1)
+		})
+	}
 }
 
 // TestHasVisibleEntries tests which directories init suggests creating
