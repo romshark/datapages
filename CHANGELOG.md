@@ -89,7 +89,7 @@ Run `datapages gen` to apply these.
 - Let the offline worker reuse a cached same-origin asset without a request until its `max-age` passes. It asked the server on every use, also for `immutable` assets.
 - Send `Cache-Control: public, max-age=0` with static assets when `datapages.WithAssetsCache` is absent or disabled. A browser could reuse a `datapages.WithAssetsFS` file after a deploy without asking, because the file had a modification time and no `Cache-Control`. A CDN now revalidates such assets too, unless `WithAssetsCache` sets a `MaxAge`.
 - Send an `ETag` with static assets when `datapages.WithAssetsCache` is absent or disabled. Browsers downloaded embedded assets in full on every page load. Set `AssetsCacheConfig.DisableETag` for `datapages.WithAssetsFS` files that change.
-- Keep the app running in `datapages watch` when `datapages.yaml` changes, as on a save of the Toxiproxy settings page. A change reran `datapages gen` and restarted the app, which lost its in-memory state, although only watch reads the file, and only when it starts. A custom watcher of `watch.custom-watchers` still sees the change.
+- Keep the app running in `datapages watch` when `datapages.yaml` changes, as on a save of the Toxiproxy settings page. A change reran `datapages gen` and restarted the app, which lost its in-memory state, although the app does not read the file and watch reads it only when it starts. A custom watcher of `watch.custom-watchers` still sees the change.
 
 #### `datapages init`
 

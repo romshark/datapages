@@ -583,7 +583,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PageIndex{
 		App: s.app,

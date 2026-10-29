@@ -517,7 +517,7 @@ func (s pageCloseStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PageCloseState{
 		App: s.app,
@@ -659,7 +659,7 @@ func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PageFailOpen{
 		App: s.app,
@@ -755,7 +755,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -972,7 +972,7 @@ func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
 	// A shared cache would expose this bearer id to another visitor.
-	w.Header().Set("Cache-Control", "no-store")
+	httpserve.SetNoStore(w.Header())
 
 	p := dpapp.PagePanicOnClose{
 		App: s.app,

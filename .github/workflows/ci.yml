@@ -68,6 +68,8 @@ jobs:
           - path: "."
             name: "acceptance"
             packages: "./internal/acceptance"
+          - path: "internal/tools/render-pages"
+            name: "render-pages"
           - path: "example/counter"
             name: "counter"
           - path: "example/classifieds"

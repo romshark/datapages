@@ -1,13 +1,25 @@
 name: Deploy GitHub Pages
 
+# The site serves the pages of the latest release under docs/<tag>/ and those
+# of the main branch under docs/main/. Each renders with the render-pages of its
+# own commit. Every release that has internal/tools/render-pages must therefore
+# keep taking the flags below and writing its pages to docs/docs/<tag>/ of its
+# checkout. Until the first such release, the site serves main alone. The run
+# for main writes the landing page, docs/index.html and llms.txt, which lead to
+# the release.
 on:
   push:
     branches:
       - main
     paths:
       - "docs/**"
+      - "guide/**"
       - "internal/tools/render-pages/**"
-      - "internal/docs-src/**"
+      - "CHANGELOG.md"
+      - "FAQ.md"
+      - "SPECIFICATION.md"
+  # The release workflow calls this after it publishes a release.
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -15,19 +27,20 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
+      # main, also when a release calls this from its tag.
       - uses: actions/checkout@v7
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Install Go 1.27.3
@@ -35,22 +48,39 @@ jobs:
         with:
           go-version: "1.27.3"
           check-latest: true
+          cache-dependency-path: internal/tools/render-pages/go.sum
 
-      - name: Resolve docs version
-        id: version
+      # The newest tag that is not a pre-release, if it has render-pages.
+      - name: Find the release
+        id: release
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME}"
-          else
-            VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-            if [[ -z "${VERSION}" ]]; then
-              VERSION="latest"
+          release=""
+          for tag in $(git tag --list 'v*' --sort=-v:refname); do
+            if [[ "${tag}" == *-* ]]; then
+              continue
             fi
-          fi
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+            if git cat-file -e "${tag}:internal/tools/render-pages/go.mod" 2>/dev/null; then
+              release="${tag}"
+            fi
+            break
+          done
+          echo "tag=${release}" >> "${GITHUB_OUTPUT}"
 
-      - name: Render docs/index.html from templ
-        run: go run ./internal/tools/render-pages -version "${{ steps.version.outputs.version }}"
+      - name: Render main
+        working-directory: internal/tools/render-pages
+        env:
+          RELEASE: ${{ steps.release.outputs.tag }}
+        run: go run . -version main -release "${RELEASE}"
+
+      - name: Render the release
+        if: steps.release.outputs.tag != ''
+        env:
+          RELEASE: ${{ steps.release.outputs.tag }}
+        run: |
+          git worktree add "${RUNNER_TEMP}/release" "${RELEASE}"
+          (cd "${RUNNER_TEMP}/release/internal/tools/render-pages" &&
+            go run . -version "${RELEASE}")
+          cp -R "${RUNNER_TEMP}/release/docs/docs/${RELEASE}" "docs/docs/${RELEASE}"
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

@@ -25,7 +25,7 @@ Parameters are identified by type; names and order are unrestricted.
 
 A panic in `GET`, an action, a request-scoped `StreamConfig`, or `StreamOpen` follows the path of an error the handler returns. So does a panic while the server reads the session, path, query or signals of the handler, as in `UnmarshalText`, `UnmarshalJSON` or a `sessions.Manager`. A panic in `OnXXX` reaches `RecoverError` too, unlike an error it returns. When `RecoverError` handles a panic, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
+A panic during page writing is logged. The response retains its status and truncated body. `RecoverError` is not called after the response body starts. A panicking stream is closed. Panics in `StreamClose` are recovered and logged.
 
 Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. It starts when the context passed to `ListenAndServe` is canceled. Applications must cancel that context on SIGTERM and SIGINT. The `cmd/server/main.go` that `datapages init` writes calls `signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)`. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
@@ -339,7 +339,7 @@ func (PageIndex) StreamOpen(r *http.Request, state datapages.State[StateIndex]) 
 - State used by a stream embed binds every page that embeds it.
 - Global `*App` actions may take `datapages.State[T]`. The caller must be bound to a page using the same `T`; otherwise the action receives `409 Conflict` with `Datapages-Retry: reconnect`. A global action callable from every page must be stateless.
 - `GET` cannot take state.
-- A page using state gets an SSE stream even without stream hooks or `OnXXX`. Connect allocates the state slot; disconnect releases it.
+- A page using state gets an SSE stream even without stream hooks or `OnXXX`.
 
 **Parameter: `stateID string`.** A stateful handler may take `stateID string` alongside `datapages.State[T]` to dispatch events targeted at the tab via `datapages.SubjectStateID`.
 
@@ -368,7 +368,7 @@ By default, hiding a tab closes its stream and releases its state. Visibility re
 
 The server accepts any well-formed ID, including one issued elsewhere. The stream creates state on the server it reaches.
 
-A process restart drops all instances. Reconnect creates zeroed state under the same ID. An action arriving before reconnect receives `409` and reloads once.
+A process restart drops all instances. An action arriving before reconnect receives `409` and reloads once.
 
 `MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most 1 instance per open stream. 0 selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
 
@@ -467,8 +467,6 @@ query datapages.Query[struct {
 }]
 ```
 
-Here, `s` and `selecteditem` are synchronized.
-
 The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`. The URL fragment remains.
 
 Reflected integer, float, and bool fields seed JavaScript numbers or booleans unless they implement `encoding.TextMarshaler`. Text marshalers and string fields seed strings.
@@ -552,7 +550,14 @@ return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 
 By default, an SSE response uses the first coding explicitly accepted by the request in the order zstd, brotli, gzip. A wildcard selects gzip only. If no configured coding is accepted, the response is uncompressed. The default zstd and brotli windows are 1 MiB.
 
-`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `datapages.WithNoSSECompression` disables SSE compression. `datapages.SSECompressionBalanced` returns the defaults, `datapages.SSECompressionLowMemory` 256 KiB windows for many streams with small fragments, `datapages.SSECompressionLowBandwidth` brotli first for slow or metered clients, and `datapages.SSECompressionLargeFragments` 4 MiB windows for fragments above about 1 MB. A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams, and an action's `StreamConfigXXX` for that action's response. SSE responses include `Vary: Accept-Encoding` unless compression is disabled. A stream whose response carries `Cache-Control: no-transform` before it opens, such as from a middleware, is uncompressed and keeps the directive. The coding depends only on the request's `Accept-Encoding`, not on the client address.
+`datapages.WithSSECompression` sets the permitted codings, preference order, levels and windows. `datapages.WithNoSSECompression` disables compression. These presets return common configurations:
+
+- `datapages.SSECompressionBalanced` returns the defaults.
+- `datapages.SSECompressionLowMemory` uses 256 KiB windows for many streams with small fragments.
+- `datapages.SSECompressionLowBandwidth` prefers brotli for slow or metered clients.
+- `datapages.SSECompressionLargeFragments` uses 4 MiB windows for fragments above about 1 MB.
+
+A page's [`StreamConfig`](#streamconfig) overrides the server configuration for that page's streams. An action's `StreamConfigXXX` overrides it for that action. SSE responses include `Vary: Accept-Encoding` unless compression is disabled. A stream with `Cache-Control: no-transform` before it opens is uncompressed and keeps the directive. The coding depends only on `Accept-Encoding`, not on the client address.
 
 See [datapages.go](datapages.go) for method definitions.
 
@@ -634,7 +639,7 @@ func (p PageItem) GET(
 }
 ```
 
-An action handler can `Set` URLs other than the one being requested. `Version()` reports only the version of the current request URL. A `Set` for another URL is unconditional. Its version is reported when that URL is later requested.
+An action handler can `Set` URLs other than the one being requested. `Version()` reports only the version of the current request URL. A `Set` for another URL is unconditional.
 
 ```go
 // POSTPrecache is /precache
@@ -705,10 +710,7 @@ Subject, payload, and subject fields are read from the declaring package.
 
 Applications using the same event type share its subject. Separate event types with the same subject are rejected.
 
-Restrictions:
-
-- The type must be reachable through application-package imports.
-- An application cannot use 2 event types with the same name, regardless of declaring package.
+An application cannot use 2 event types with the same name, regardless of declaring package.
 
 A type alias such as `type EventX = other.EventX` refers to the original event's subject, payload, and declaring package. It may occur anywhere along the import path.
 
@@ -770,14 +772,14 @@ type EventRoomUpdate struct {
 **Restrictions:**
 
 - A user-addressed subject field must not have a `signal:"..."` tag.
-- An event must not have more than 1 `datapages.SubjectUser` field. To address several users, dispatch once per user.
+- An event must not have more than 1 `datapages.SubjectUser` field.
 - No 2 subject fields may share the same `signal:"..."` tag value.
 - `signal` tag values must be period-separated signal names. Each step follows the `Signals` `json` tag rule.
 - A page must not subscribe by a signal and by a signal under it, such as `chat` and `chat.room`.
 - 2 event types cannot claim the same subject anywhere in a module. `datapages gen` and `datapages lint` report conflicts across applications. To share a subject, use 1 event declaration; see [Events declared outside the application package](#events-declared-outside-the-application-package).
 - An event with subject fields reserves every subject below its base. `"notify"` with 1 subject field conflicts with `"notify.user"`.
 
-Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected. So is a field whose type holds a subject-field type in a slice, array, map, pointer or channel, such as `[]datapages.SubjectUser`. To address several values, dispatch once per value.
+Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected. So is a field whose type holds a subject-field type in a slice, array, map, pointer or channel, such as `[]datapages.SubjectUser`.
 
 Each dispatcher publishes 1 event type. A handler may declare 1 dispatcher per event type, but cannot declare 2 for the same type. Events publish in dispatch order. Failure does not undo earlier publishes or prevent later ones.
 
@@ -852,11 +854,15 @@ type memBody struct{ *bytes.Reader }
 func (memBody) Close() error { return nil }
 ```
 
-[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. An `ETag` with a character outside `etagc` of that section produces 500. A handler with a session parameter sends [`Vary: Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary). Serve a file that is the same for every visitor from a handler without a session parameter. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options). Serve a visitor-uploaded file with `Disposition.Download`. To serve it inline, restrict `Type` to an allowlist and set `Content-Security-Policy: sandbox` in `Header`.
+[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. A character outside `etagc` of that section makes the `ETag` invalid and produces 500.
+
+A handler with a session parameter sends [`Vary: Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary). Serve a file that is the same for every visitor from a handler without a session parameter. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options).
+
+Serve a visitor-uploaded file with `Disposition.Download`. To serve it inline, restrict `Type` to an allowlist and set `Content-Security-Policy: sandbox` in `Header`.
 
 [Response compression](#response-compression) leaves a `datapages.File` unchanged, whatever its `Type`. A `Content-Encoding` set in `Header` goes out with the body as it is. `ServeContent` then serves ranges of the encoded bytes and omits `Content-Length` from a full response.
 
-An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with [`Sec-Fetch-Dest: document`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest), status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. A panic in `Body` takes the same path. Once the status went out, it's logged with its stack and the response ends early, also for a request with several ranges. A panic before the status gets an error response without the headers of the file.
+An error produces its status code and the standard status text; see [Return Value `error`](#return-value-error-or-err-error). For a request with [`Sec-Fetch-Dest: document`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest), status 404 or 500 renders `PageError404` or `PageError500` instead. `RecoverError` is not called. A panic in `Body` takes the same path. After the server writes the status, it logs the panic with its stack and ends the response early, also for a request with several ranges. A panic before the status gets an error response without the file headers.
 
 See [datapages.go](datapages.go) for field definitions.
 
@@ -1206,6 +1212,12 @@ Serving a navigation works as follows:
 - Offline and the URL is cached: the worker returns the stored offline body.
 - Offline and the URL is not cached: the worker returns `PageOffline`. The worker caches this page during installation. Its route comes from the generated `WithOffline` option. Datapages uses a minimal default when the application does not define `PageOffline` or installation could not cache it.
 
-The worker caches same-origin requests on first load except Datastar actions, page hydration and event streams, which always use the network. The response decides 3 exceptions. A response marked `Cache-Control: no-store` is never stored. Installation stores the files in `Config.Assets` whatever their headers, and a revalidation answered with `no-store` removes such a copy. A stored response marked `no-cache`, as a [`datapages.File`](#return-value-datapagesfile) with the zero `Cache` is, is fetched from the network first and answers only while offline. A 401, 403, 404 or 410 from the network removes the stored copy. For cross-origin requests, it caches only destinations enabled by the application. The defaults are stylesheets, scripts, fonts and images. `Config.ExcludePaths` excludes same-origin path prefixes. Files listed in `Config.Assets` are cached during worker installation. Any other asset must load once while online before it is available offline.
+The worker caches same-origin requests on first load. Datastar actions, page hydration and event streams always use the network. Response headers change caching as follows:
+
+- `Cache-Control: no-store` prevents storage, except that installation stores files in `Config.Assets` regardless of their headers. A later revalidation with `no-store` removes the stored copy.
+- `Cache-Control: no-cache` makes the worker try the network first and use the stored copy only while offline. A [`datapages.File`](#return-value-datapagesfile) with a zero `Cache` has this behavior.
+- A 401, 403, 404 or 410 response removes the stored copy.
+
+For cross-origin requests, the worker caches only destinations enabled by the application. The defaults are stylesheets, scripts, fonts and images. `Config.ExcludePaths` excludes same-origin path prefixes. Files in `Config.Assets` are cached during worker installation. Any other asset must load once while online before it is available offline.
 
 For a cached same-origin asset, the worker returns the cached response. When the response has no `max-age`, or its age counted from its `Date` and `Age` headers reaches its `max-age`, the worker then updates it from the network, and a later request receives the update. The worker never updates a cached cross-origin asset. A changed one needs a new URL or a new `offline.Config.WorkerVersion`.
