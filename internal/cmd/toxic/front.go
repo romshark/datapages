@@ -255,7 +255,7 @@ func hostPort(u *url.URL) string {
 func (f *Front) rewrite(r *httputil.ProxyRequest) {
 	r.SetURL(f.conf.Upstream)
 	r.Out.Host = r.In.Host
-	removeCookie(r.Out.Header, profileCookie)
+	removeCookie(r.Out.Header, ProfileCookie)
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -333,7 +333,7 @@ func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id, set := profile(r)
 		if set {
 			http.SetCookie(w, &http.Cookie{
-				Name: profileCookie, Value: id, Path: "/",
+				Name: ProfileCookie, Value: id, Path: "/",
 				HttpOnly: true, SameSite: http.SameSiteLaxMode,
 				Secure: f.conf.TLSCert != "",
 			})

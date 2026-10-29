@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// profileCookie identifies a browser profile. Its tabs share client bandwidth
+// ProfileCookie identifies a browser profile. Its tabs share client bandwidth
 // and per-client data-cap usage because requests do not identify their tab.
-const profileCookie = "datapages_toxiproxy"
+const ProfileCookie = "datapages_toxiproxy"
 
 // profile returns the profile ID in the cookie of r, or a new ID and set true.
 func profile(r *http.Request) (id string, set bool) {
-	if c, err := r.Cookie(profileCookie); err == nil && c.Value != "" {
+	if c, err := r.Cookie(ProfileCookie); err == nil && c.Value != "" {
 		return c.Value, false
 	}
 	return rand.Text(), true

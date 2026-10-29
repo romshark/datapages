@@ -83,6 +83,51 @@ pre {
   padding: 1rem;
 }
 
+/* Covers the page while its stream reconnects. It stays above the sidebar
+   overlay of a narrow window and below popovers and toasts. */
+.tp-lost {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--neo-popover-z-index) - 1);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in oklab, var(--page-bg) 85%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.tp-lost[hidden] {
+  display: none;
+}
+
+.tp-lost:focus {
+  outline: none;
+}
+
+.tp-lost-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 24rem;
+  padding: 1.5rem;
+  border: 1px solid var(--tp-divider);
+  border-radius: 0.75rem;
+  background: var(--page-bg);
+  text-align: center;
+  --neo-icon-size: 2rem;
+}
+
+.tp-lost-box h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.tp-lost-box p {
+  margin: 0;
+  color: var(--muted);
+}
+
 .tp-header {
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--tp-divider);

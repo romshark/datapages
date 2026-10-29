@@ -110,7 +110,7 @@ func TestRemoveCookie(t *testing.T) {
 			if tc.in != nil {
 				h["Cookie"] = tc.in
 			}
-			removeCookie(h, profileCookie)
+			removeCookie(h, ProfileCookie)
 			require.Equal(t, tc.want, h["Cookie"])
 		})
 	}
@@ -153,12 +153,12 @@ func TestFrontProfileCookie(t *testing.T) {
 	require.NoError(t, err)
 	cookies := resp.Cookies()
 	require.Len(t, cookies, 1)
-	require.Equal(t, profileCookie, cookies[0].Name)
+	require.Equal(t, ProfileCookie, cookies[0].Name)
 	require.NotEmpty(t, cookies[0].Value)
 	require.True(t, cookies[0].HttpOnly)
 
 	resp, _, err = fetch(http.MethodGet, base+"/",
-		"a=1; "+profileCookie+"="+cookies[0].Value, nil)
+		"a=1; "+ProfileCookie+"="+cookies[0].Value, nil)
 	require.NoError(t, err)
 	require.Empty(t, resp.Cookies(), "the profile exists")
 	require.Equal(t, "a=1", resp.Header.Get("X-Cookie"))
@@ -178,7 +178,7 @@ func TestFrontBandwidthShared(t *testing.T) {
 		var wg sync.WaitGroup
 		for _, p := range []string{p1, p2} {
 			wg.Go(func() {
-				_, body, err := fetch(http.MethodGet, base+"/", profileCookie+"="+p, nil)
+				_, body, err := fetch(http.MethodGet, base+"/", ProfileCookie+"="+p, nil)
 				assert.NoError(t, err)
 				assert.Len(t, body, bodySize)
 			})
@@ -246,7 +246,7 @@ func TestFrontBandwidthPerRequest(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 2 {
 		wg.Go(func() {
-			_, body, err := fetch(http.MethodGet, base+"/", profileCookie+"=a", nil)
+			_, body, err := fetch(http.MethodGet, base+"/", ProfileCookie+"=a", nil)
 			assert.NoError(t, err)
 			assert.Len(t, body, bodySize)
 		})
@@ -296,7 +296,7 @@ func fetchBoth(t *testing.T, target, p1, p2 string) time.Duration {
 	var wg sync.WaitGroup
 	for _, p := range []string{p1, p2} {
 		wg.Go(func() {
-			_, body, err := fetch(http.MethodGet, target, profileCookie+"="+p, nil)
+			_, body, err := fetch(http.MethodGet, target, ProfileCookie+"="+p, nil)
 			assert.NoError(t, err)
 			assert.Len(t, body, bodySize)
 		})
@@ -309,7 +309,7 @@ func fetchBoth(t *testing.T, target, p1, p2 string) time.Duration {
 func timedFetch(t *testing.T, target, profile string) time.Duration {
 	t.Helper()
 	start := time.Now()
-	_, body, err := fetch(http.MethodGet, target, profileCookie+"="+profile, nil)
+	_, body, err := fetch(http.MethodGet, target, ProfileCookie+"="+profile, nil)
 	require.NoError(t, err)
 	require.Len(t, body, bodySize)
 	return time.Since(start)

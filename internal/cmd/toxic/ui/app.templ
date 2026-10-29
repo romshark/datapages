@@ -16,6 +16,7 @@ import (
 // Datapages writes the Datastar script before it.
 templ head(info toxic.Info) {
 	@themeScript()
+	@lostScript()
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
 	<title>{ info.AppName } - Toxiproxy</title>
 	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
@@ -55,6 +56,47 @@ templ themeScript() {
 	</script>
 }
 
+// lostScript shows #tp-lost and makes the regions inert while the stream of
+// the page reconnects, as when datapages watch stops. Datastar reports each
+// reconnect of the stream as a retrying fetch of the template Datapages opens
+// the stream from, the last child of the body. Datastar reports no successful
+// reconnect, and data-indicator stays on while the stream retries. The render
+// of the reconnected stream morphs the regions back, which hides #tp-lost.
+templ lostScript() {
+	<script>
+		document.addEventListener("datastar-fetch", (e) => {
+			const el = e.detail.el
+			if (e.detail.type !== "retrying" || el.tagName !== "TEMPLATE" || el.parentElement !== document.body) return
+			for (const id of ["tp-top", "tp-sidebar", "tp-main"]) {
+				document.getElementById(id)?.setAttribute("inert", "")
+			}
+			const lost = document.getElementById("tp-lost")
+			lost.hidden = false
+			lost.focus()
+		})
+	</script>
+}
+
+// lost covers the page while its stream reconnects. See [lostScript].
+templ lost() {
+	<div
+		id="tp-lost"
+		class="tp-lost"
+		role="alertdialog"
+		aria-modal="true"
+		aria-labelledby="tp-lost-title"
+		aria-describedby="tp-lost-text"
+		tabindex="-1"
+		hidden
+	>
+		<div class="tp-lost-box">
+			@neo.Icon("wifi-off")
+			<h2 id="tp-lost-title">Connection lost</h2>
+			<p id="tp-lost-text">Reconnecting to datapages watch. The page resumes once watch runs again.</p>
+		</div>
+	</div>
+}
+
 // app declares the signals shared by its controls. mode, value and unit edit a
 // toxic. preset selects a preset. name and from define a new preset.
 templ app(d pageData) {
@@ -81,15 +123,18 @@ templ app(d pageData) {
 			@editor(d)
 		}
 		@neo.ToasterAttrs(neo.ToasterOpts{}, templ.Attributes{"id": "tp-toaster"})
+		@lost()
 	</div>
 }
 
 // regions are the elements a render morphs by ID. It excludes the resizable
 // sidebar wrapper and toaster to preserve the backdrop, width and toasts.
+// Morphing #tp-lost hides it once a reconnected stream renders.
 templ regions(d pageData) {
 	@top(d)
 	@nav(d)
 	@editor(d)
+	@lost()
 }
 
 // top is the header.
@@ -1098,6 +1143,10 @@ templ perInfo(t toxic.Type) {
 				<li><strong>Request</strong>: each request gets the full rate.</li>
 			}
 		</ul>
+		<p>
+			The proxy tells browsers apart by the cookie
+			<code>{ toxic.ProfileCookie }</code>.
+		</p>
 	}
 }
 
