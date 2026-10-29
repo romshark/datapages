@@ -69,7 +69,7 @@ Run `datapages gen` to apply these.
 
 #### Runtime and modules
 
-- Require `github.com/romshark/morpheus` v0.3.0, which the settings page of `datapages watch` uses. `go get` of this release moves an application on Morpheus v0.1.0 or v0.2.0 to v0.3.0. v0.2.0 replaces `neo.Condition` with `neo.IfPlatform`. v0.3.0 removes `--neo-sidebar-overlay-breakpoint` and fires `neo-toast-close` on every close of a toast, as its [changelog](https://github.com/romshark/morpheus/blob/v0.3.0/CHANGELOG.md) lists. Load the v0.3.0 stylesheets and bundle to match.
+- Require `github.com/romshark/morpheus` v0.3.1, which the settings page of `datapages watch` uses. `go get` of this release moves an application on Morpheus v0.1.0, v0.2.0 or v0.3.0 to v0.3.1. v0.2.0 replaces `neo.Condition` with `neo.IfPlatform`. v0.3.0 removes `--neo-sidebar-overlay-breakpoint` and fires `neo-toast-close` on every close of a toast. v0.3.1 requires templ v0.3.1100, as its [changelog](https://github.com/romshark/morpheus/blob/v0.3.1/CHANGELOG.md) lists. Load the v0.3.1 stylesheets and bundle to match.
 - Require Go 1.27.3 instead of 1.27.1. `go get` raises the `go` line of the application's `go.mod` to 1.27.3. Where `GOTOOLCHAIN=local` is set, install Go 1.27.3 or later first.
 - Require templ v0.3.1100. `*_templ.go` files written by an earlier templ fail to compile. Install templ v0.3.1100 and run `templ generate`.
 - Label requests with the `QUERY` method as `QUERY` in the `method` label of the HTTP metrics. They were counted as `<other>`.
