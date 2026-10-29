@@ -1,6 +1,6 @@
 # datapages.yaml
 
-`datapages.yaml` names the entry point that `datapages gen` writes for a new project. It also configures the `datapages watch` development server. The file has 36 supported keys.
+`datapages.yaml` names the entry point that `datapages gen` writes for a new project. It also configures the `datapages watch` development server and its [Toxiproxy proxy](network.md). The file has the 44 keys of the [Keys](#keys) table, plus the fields of the [toxics](network.md#toxics) in `watch.toxiproxy`.
 
 ## The scaffold file
 
@@ -13,19 +13,53 @@ watch:
     - ".git/**" # git internals
     - ".*"      # hidden files/directories
     - "*~"      # editor backup files
+  # The app through Toxiproxy and its settings page, on the ports the OS
+  # picks, which watch prints. Set host and ui-host for fixed ports.
+  # The presets are the throttling presets of Chrome DevTools.
+  toxiproxy:
+    presets:
+      - name: "Fast 4G"
+        toxics:
+          latency:
+            downstream:
+              latency: 165ms
+              jitter: 0s
+          client-bandwidth:
+            downstream:
+              rate: 1012500
+            upstream:
+              rate: 168750
+      - name: "Slow 4G"
+        toxics:
+          latency:
+            downstream:
+              latency: 563ms
+              jitter: 0s
+          client-bandwidth:
+            downstream:
+              rate: 180000
+            upstream:
+              rate: 84375
+      - name: "3G"
+        toxics:
+          latency:
+            downstream:
+              latency: 2s
+              jitter: 0s
+          client-bandwidth:
+            downstream:
+              rate: 50000
+            upstream:
+              rate: 50000
 ```
 
-[`cmd`](#cmd) names the directory where `datapages gen` writes the entry point while the module has no `datapages.NewServer` call. The [`exclude`](#exclude) patterns keep changes to these files from rebuilding the app. `.*` and `*~` match only names in the module root, because `*` does not match `/`.
+[`cmd`](#cmd) names the directory where `datapages gen` writes the entry point while the module has no `datapages.NewServer` call. The [`exclude`](#exclude) patterns keep changes to these files from rebuilding the app. `.*` and `*~` match only names in the module root, because `*` does not match `/`. [`toxiproxy`](#watchtoxiproxy) holds the 3 presets that the settings page of the proxy lists between its built-in presets. With the section, a proxy that cannot start stops `watch`.
 
-With `--web-components typescript`, `init` adds a watcher that bundles the TypeScript sources, and keeps `web/node_modules/` away from the file watcher:
+With `--web-components typescript`, `init` adds a watcher that bundles the TypeScript sources, and keeps `web/node_modules/` away from the file watcher. It appends these keys to the `watch` section, after `toxiproxy`:
 
 ```yaml title="datapages.yaml"
-cmd: cmd/server
 watch:
-  exclude:
-    - ".git/**" # git internals
-    - ".*"      # hidden files/directories
-    - "*~"      # editor backup files
+  # exclude and toxiproxy as above
   watcher-ignore:
     # The tree is large and would use up watch descriptors.
     - "web/node_modules/**"
@@ -41,9 +75,9 @@ watch:
 ## Location and loading
 
 - The file is in the module root, next to `go.mod`, and is named `datapages.yaml` or `datapages.yml`. Both at once are an error.
-- `datapages gen`, `datapages watch` and `datapages init` read it. `datapages lint` and `datapages version` do not.
+- `datapages gen`, `datapages lint`, `datapages watch` and `datapages init` read it. `lint` uses only the endpoint keys of [`presets`](#presets), and fails on an invalid file like the others. `datapages version` does not read it.
 - Without the file, every key has its default. `watch` and `init` then write the scaffold file, and `gen` does not. A file that `watch` writes applies from its next start.
-- `watch` reads the file once, when it starts. A change to the file makes `watch` run `datapages gen`, which reads `cmd` again. The `watch` settings apply from the next start.
+- `watch` reads the file once, when it starts. A change to the file neither regenerates the code nor restarts the app. The `watch` settings apply from the next start. The Reload button of the [settings page](network.md#change-the-toxics) reads `watch.toxiproxy.presets` again, and its Save button writes them into the file.
 
 The parser accepts a strict subset of YAML:
 
@@ -51,7 +85,7 @@ The parser accepts a strict subset of YAML:
 - A boolean is `true` or `false`. `yes`, `on` and `True` are errors.
 - A duration is a Go duration string, such as `50ms`, `2s` or `1m30s`. A bare number is an error.
 - A list item without a value is an error.
-- `null` is accepted for `watch`, `tls`, `compiler`, the lists and `env`, and is an error for every other key, `log` included. An empty value, as `cmd:` or `debounce:`, gives the default.
+- `null` is accepted for `watch`, `tls`, `compiler`, `toxiproxy`, the lists, the maps `env` and `endpoints`, the toxic types, `downstream`, `upstream` and `toxicity`. It is an error for every other key, `log` and `toxics` included. An empty value, as `cmd:` or `debounce:`, gives the default.
 - An empty file is an error, and so is a file with only comments.
 
 [Validation](#validation) lists the checks that run when `watch` starts.
@@ -96,6 +130,14 @@ The parser accepts a strict subset of YAML:
 | [`watch.custom-watchers[].fail-on-error`](#fail-on-error) | boolean | `false` |
 | [`watch.custom-watchers[].debounce`](#debounce-1) | duration | `50ms` |
 | [`watch.custom-watchers[].requires`](#requires) | `reload`, `restart` or `rebuild` | `""` |
+| [`watch.toxiproxy`](#watchtoxiproxy) | mapping | none, the proxy runs with the defaults of its keys |
+| [`watch.toxiproxy.disabled`](#disabled) | boolean | `false` |
+| [`watch.toxiproxy.host`](#host) | `host:port` | the host of `--host`, a port the OS picks |
+| [`watch.toxiproxy.ui-host`](#ui-host) | `host:port` | the host of `host`, a port the OS picks |
+| [`watch.toxiproxy.presets`](#presets) | list of mappings | none |
+| [`watch.toxiproxy.presets[].name`](#presets) | string | required |
+| [`watch.toxiproxy.presets[].toxics`](#presets) | mapping of [toxics](network.md#toxics) | none |
+| [`watch.toxiproxy.presets[].endpoints`](#presets) | map of route patterns to toxics | none |
 
 ## `cmd`
 
@@ -181,7 +223,7 @@ The time `watch` waits after the last change before rebuilding the app. Each cha
 
 Type list of glob patterns. Default none. The scaffold sets 3.
 
-A changed file whose path matches a pattern does not rebuild the app. Custom watchers that include the file still run. `watch` matches the path relative to [`dir-work`](#dir-work), with `/` as the separator on every system.
+A changed file whose path matches a pattern does not rebuild the app. Custom watchers that include the file still run. `watch` adds `datapages.yaml` and `datapages.yml` to the patterns, which keeps a Save of the [settings page](network.md#change-the-toxics) from restarting the app. `watch` matches the path relative to [`dir-work`](#dir-work), with `/` as the separator on every system.
 
 The patterns use the syntax of [doublestar](https://github.com/bmatcuk/doublestar). `*` matches within 1 path element, `**` matches any number of elements, and `?`, `[...]` and `{a,b}` work as in shell globs:
 
@@ -312,7 +354,7 @@ Each entry runs a command when a file it includes changes, then takes an action,
 | Key | Value of the built-in watcher |
 | --- | ----------------------------- |
 | `name` | `datapages gen` |
-| `include` | `<app>/**/*.go` for every app package, `<dir>/*.go` for every package with a `datapages.NewServer` call, `datapages.yaml`, `datapages.yml` |
+| `include` | `<app>/**/*.go` for every app package, `<dir>/*.go` for every package with a `datapages.NewServer` call |
 | `exclude` | `<app>/datapagesgen/**` for every app package |
 | `cmd` | The running `datapages` binary with the argument `gen` |
 | `fail-on-error` | `true` |
@@ -369,9 +411,55 @@ The action after the command succeeds:
 | `restart` | Stop the app, start the same binary again, then reload the tabs |
 | `rebuild` | Build the app again, with [`lint`](#lint) when it is on, restart it and reload the tabs |
 
+### `watch.toxiproxy`
+
+Type mapping. Default none, which runs the proxy with the defaults of the keys below.
+
+The [Toxiproxy proxy](network.md) in front of the dev server and its settings page. The scaffold sets 3 presets.
+
+With the section, a proxy that cannot start stops `watch` at startup, as on a port in use. Without it, `watch` prints a warning that starts with `warning: toxiproxy is off:` and runs without the proxy.
+
+#### `disabled`
+
+Type boolean. Default `false`.
+
+`true` turns the proxy and the settings page off. `datapages lint` then skips the endpoint keys of `presets`.
+
+#### `host`
+
+Type string, `host:port`. Default the host of `--host` and a port the OS picks.
+
+The address of the proxy, which `watch` prints at startup. The port must differ from those of `--host` and [`app-host`](#app-host). A change applies from the next start.
+
+#### `ui-host`
+
+Type string, `host:port`. Default the host of `host` and a port the OS picks.
+
+The address of the settings page, which `watch` prints with the address of the proxy. The port must differ from those of `host`, `--host` and [`app-host`](#app-host). A change applies from the next start.
+
+#### `presets`
+
+Type list of mappings. Default none.
+
+The named sets of toxics that the settings page applies. The page lists them between its built-in presets No throttling and Unreachable. Its Save button writes this list, and its Reload button reads it again. [Write a preset](network.md#write-a-preset) shows an example.
+
+| Key | Type | Default | Value |
+| --- | ---- | ------- | ----- |
+| `name` | string | required | The name the settings page lists. `No throttling` and `Unreachable` are reserved, and 2 presets cannot share a name |
+| `toxics` | mapping of toxic types | none | The toxics of every endpoint. Each type takes a `downstream` and an `upstream` toxic. [Toxics](network.md#toxics) lists the types and their fields |
+| `endpoints` | map of route patterns to toxics | none | The toxics of 1 endpoint, keyed by the `net/http.ServeMux` pattern that the generated server registers, as `"POST /post/{slug}/like/{$}"`. Each replaces the global toxic of the same type and stream. See [Target 1 endpoint](network.md#target-1-endpoint) |
+
 ## Validation
 
-`gen`, `watch` and `init` check the file when they load it. They reject a YAML syntax error, an unknown key, a value of the wrong type, a `level`, `clear-on` or `requires` value they do not know, and a `cmd` outside the module.
+`gen`, `lint`, `watch` and `init` check the file when they load it. They reject:
+
+- a YAML syntax error, an unknown key or a value of the wrong type
+- a `level`, `clear-on`, `requires` or `per` value they do not know
+- a `cmd` outside the module
+- a preset without a `name`, with the name `No throttling` or `Unreachable`, or with the name of another preset
+- a `host` or `ui-host` that is not `host:port`, and the same value for both
+- an endpoint key that does not start with a method, as `GET /`, or that `net/http.ServeMux` rejects
+- a toxic field outside the range that [Toxics](network.md#toxics) lists, unless the toxic is `disabled`, and a `toxicity` outside 0 to 1
 
 `watch` checks the rest when it starts and stops on the first error:
 
@@ -383,9 +471,11 @@ The action after the command succeeds:
 
 Except for the `app-host` check, these errors start with `initializing watch engine:`. Nothing checks that `dir-work` and the files of `tls` exist before `watch` uses them.
 
+With a `watch.toxiproxy` section, `watch` then stops when the port of `host` or `ui-host` is that of `--host` or `app-host`, or when it cannot listen on `host` or `ui-host`. An endpoint key that names no route of the app package is a warning in `watch` and an error in [`datapages lint`](cli.md#datapages-lint).
+
 ## Complete example
 
-This file sets every key. `proxy-timeout` and `clear-on` have no effect, and `asmflags`, `trimpath` and `msan` keep their defaults:
+This file sets every key. `proxy-timeout` and `clear-on` have no effect, and `asmflags`, `trimpath`, `msan` and `disabled` keep their defaults:
 
 ```yaml title="datapages.yaml"
 cmd: cmd/server
@@ -437,6 +527,22 @@ watch:
       include:
         - ".env"
       requires: restart
+  toxiproxy:
+    disabled: false
+    host: localhost:7332
+    ui-host: localhost:7333
+    presets:
+      - name: Flaky
+        toxics:
+          latency:
+            downstream:
+              latency: 300ms
+              jitter: 100ms
+        endpoints:
+          "POST /upload/{$}":
+            client-bandwidth:
+              upstream:
+                rate: 16000
 ```
 
 The second watcher restarts the app when `.env` changes. The `main.go` of the scaffold reads `.env` when it starts. `**/.*` in `exclude`, like `.*` in the scaffold file, keeps a change of `.env` from rebuilding the app. The watcher still runs, because `exclude` does not apply to custom watchers.
@@ -444,6 +550,7 @@ The second watcher restarts the app when `.env` changes. The `main.go` of the sc
 ## See also
 
 - [`datapages watch`](cli.md#datapages-watch): what the dev server does on startup and on a file change, and its flags.
+- [Slow and failing networks](network.md): the proxy that `watch.toxiproxy` configures, its settings page and the toxics.
 - [App packages](cli.md#app-packages): how the commands find the app packages and the main package to build.
 - [Static assets](assets.md): the static files that dev mode reads from the source tree.
 - [Dev Mode](../SPECIFICATION.md#dev-mode): what `TEMPL_DEV_MODE`, which `watch` sets for the app, changes in the server.

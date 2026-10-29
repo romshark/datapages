@@ -181,7 +181,7 @@ offline.WithServiceWorker("", offline.Config{
 3. Switch the browser offline, for example with the Offline checkbox under Application > Service workers in Chrome DevTools.
 4. Navigate. A URL with a snapshot or a shim shows it, and any other URL shows `PageOffline`.
 
-Stopping the server also makes the worker serve snapshots. The browser then stays online, and neither the `is-offline` class nor the banner appears.
+Stopping the server also makes the worker serve snapshots. The browser then stays online, and neither the `is-offline` class nor the banner appears. The Unreachable preset of the [Toxiproxy proxy](network.md#apply-a-preset) has the same effect without stopping the server. Open the app through the address of the proxy, which is another origin with a worker of its own.
 
 > [!WARNING]
 > The worker stays registered for its origin, which is the scheme, the host and the port, after the server stops. It also answers for the next application served at that origin, such as another project run with `datapages watch`, with the shims and assets it cached.
@@ -202,5 +202,6 @@ Unregistering keeps the caches, which the second statement deletes. The next pag
 - [Service Worker](../SPECIFICATION.md#service-worker): installation, updates, caching rules and the CSP of cached pages.
 - [`example/offline-cache`](../example/offline-cache/): a ticketing app with snapshots, `PageOffline` and sign-out.
 - [Static assets](assets.md): serving the files that offline pages need.
+- [Slow and failing networks](network.md): test the app on a slow network and with the server unreachable.
 - [Sessions and auth](sessions.md) and [Security](security.md): sign-out and what a snapshot must not contain.
 - [`offline.Config`](https://pkg.go.dev/github.com/romshark/datapages/modules/offline#Config): the configuration fields.

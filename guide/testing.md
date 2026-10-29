@@ -381,6 +381,7 @@ Step 2 fails on every error `datapages lint` reports. The tests read streams on 
 
 - [Linting](../SPECIFICATION.md#linting): the checks of `datapages lint`.
 - [CLI](cli.md): the commands and their flags.
+- [Slow and failing networks](network.md): try the app by hand on a slow network, with failing requests and with the server unreachable.
 - [Events](events.md), [Per-tab state](state.md) and [Sessions and auth](sessions.md): the behavior these tests check.
 - [Pages](../SPECIFICATION.md#pages): which requests need `Datastar-Request: true`.
 - [`internal/acceptance/client`](../internal/acceptance/client/client.go): the client of the framework's own HTTP tests, with stream, tab and cookie helpers.

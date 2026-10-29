@@ -32,13 +32,14 @@ datapages init [flags]
 
 Without `-n`, `init` asks for every setting it needs. With `-n` it asks nothing and takes the settings from the flags.
 
-In a project that is set up, `init` rewrites the agent instructions, adds `.env` to `.gitignore` when it is missing there, and prints `Project already initialized.`
+In a project that is set up, `init` rewrites the agent instructions unless you decline them, adds `.env` to `.gitignore` when it is missing there, and prints `Project already initialized.` A project is set up when its Go module has a `datapages.yaml`.
 
 ### Where init creates the project
 
-- Outside a git repository, `init` creates the directory that `--name` names, or that you enter at the prompt, in the current directory and runs `git init` in it. In a Go module that has a `datapages.yaml`, it runs in place without a git repository.
-- Inside a git repository, `init` uses the current directory. When that directory is inside a Go module, `init` uses the module root instead and prints `Using the Go module in <dir>`.
-- Without a `go.mod`, `init` runs `go mod init` with the path that `--module` gives. The prompt suggests a path made from the URL of the `origin` remote, or the directory name.
+- Outside a project that is set up, `init` asks `Create a subdirectory for the project?`. Yes asks for the `Directory name` and creates the directory in the current directory. The prompt suggests Yes outside a Go module in a directory that holds files other than dotfiles, such as a home directory. `--name` creates the directory without the prompts. `-n` without `--name` uses the current directory.
+- A new subdirectory gets a Go module of its own, even inside another module. Without one, `init` uses the root of the Go module that contains the current directory, and prints `Using the Go module in <dir>` when that is not the current directory. Outside a Go module it uses the current directory. In a project that is set up, `init` runs in the module root and asks nothing about the directory.
+- Outside a git repository, `init` asks `Not inside a git repository. Create one?` and runs `git init` in the project directory on Yes. No continues without a repository. `--no-git` answers No and `--no-git=false` answers Yes without the prompt, and `-n` answers Yes. A project that is set up gets no repository and no prompt.
+- Without a `go.mod`, `init` asks for the `Module path` and runs `go mod init`. The prompt suggests a path made from the URL of the `origin` remote, or else the directory name, and an empty answer takes the suggestion. `--module` gives the path without the prompt, and `-n` requires it.
 
 ### Files init writes
 
@@ -69,7 +70,7 @@ On such a run `init` also takes these steps, in order:
 7. Runs `go mod tidy` again and prints `Project initialized successfully.`
 8. Without `-n`, asks `Run the app now?` and runs `make dev` on yes, which starts NATS with Docker Compose and then [`datapages watch`](#datapages-watch).
 
-On every run, unless `--no-ai-skills` is set, `init` rewrites `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and the Datapages skills in `.agents/skills/` and `.claude/skills/`. It keeps a file you edited as `<name>.bak` before it replaces it. It leaves alone an `AGENTS.md` that does not end with the Datapages stamp, and skills with other names. See [AI agents](ai-agents.md).
+On every run, `init` asks `Write AI agent instructions and skills?`. Yes rewrites `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and the Datapages skills in `.agents/skills/` and `.claude/skills/`. `--no-ai-skills` answers No and `--no-ai-skills=false` answers Yes without the prompt, and `-n` answers Yes. `init` keeps a file you edited as `<name>.bak` before it replaces it. It leaves alone an `AGENTS.md` that does not end with the Datapages stamp, and skills with other names. See [AI agents](ai-agents.md).
 
 When `init` writes the app package, `--web-components` or a prompt selects the Web Components setup. Each setup adds an example component to the index page:
 
@@ -98,19 +99,20 @@ When `init` sets up the project, `--generated-code` or the prompt `Commit genera
 
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
-| `-n`, `--non-interactive` | `false` | Ask nothing. Requires `--name` outside a git repository, except in a Go module that has a `datapages.yaml`, and `--module` outside a Go module. Selects `none` for Web Components, `committed` for the generated code and `github-actions` for CI, and skips `Run the app now?` |
-| `--name` | `""` | Directory to create outside a git repository. Ignored inside one and in a Go module that has a `datapages.yaml` |
+| `-n`, `--non-interactive` | `false` | Ask nothing. Uses the current directory unless `--name` is set, creates a git repository unless `--no-git` is set, and requires `--module` outside a Go module. Selects `none` for Web Components, `committed` for the generated code and `github-actions` for CI, writes the agent instructions, and skips `Run the app now?` |
+| `--name` | `""` | Directory to create in the current directory and to set up a new project in, with a Go module of its own. Also applies in a project that is set up |
+| `--no-git` | `false` | Create no git repository. `--no-git=false` creates one without the prompt. Ignored inside a git repository and in a project that is set up |
 | `--module` | `""` | Module path for `go mod init`. Ignored when `go.mod` exists |
 | `--web-components` | `""` | `rocket`, `typescript`, `javascript` or `none`. Used only when `init` writes the app package. Otherwise `init` prints `Ignored --web-components: init writes no app package here.` |
 | `--generated-code` | `""` | `committed` or `hidden`. Used only when `init` sets up the project. Otherwise `init` prints `Ignored --generated-code: the project is already initialized.` |
 | `--ci` | `""` | `github-actions` or `none`. Used only when `init` sets up the project. Otherwise `init` prints `Ignored --ci: the project is already initialized.` |
 | `--prometheus` | `true` | Names `datapages.EnablePrometheus` in the `cmd/server/main.go` that `init` writes, which serves metrics on `HOST_METRICS:PORT_METRICS`, `localhost:9090` by default. `--prometheus=false` names `datapages.DisablePrometheus` |
-| `--no-ai-skills` | `false` | Write no agent instructions and no skills |
+| `--no-ai-skills` | `false` | Write no agent instructions and no skills. `--no-ai-skills=false` writes them without the prompt |
 | `-h`, `--help` | | Print the help |
 
 ### Exit status
 
-0 when `init` set up the project, and when the project was set up before. 1 when a step fails, such as a missing `--name` or `--module` with `-n`, an unknown `--web-components`, `--generated-code` or `--ci` value, or a failed `git`, `go`, `npm` or `node` command. After `Run the app now?`, a failed `make dev` ends `init` with 1 too.
+0 when `init` set up the project, and when the project was set up before. 1 when a step fails, such as a missing `--module` with `-n` outside a Go module, an unknown `--web-components`, `--generated-code` or `--ci` value, or a failed `git`, `go`, `npm` or `node` command. After `Run the app now?`, a failed `make dev` ends `init` with 1 too.
 
 ### Examples
 
@@ -118,6 +120,12 @@ Create a project in the new directory `shop` without prompts:
 
 ```sh
 datapages init -n --name shop --module example.com/shop --web-components none
+```
+
+Set up a project in the current directory without a git repository and without agent instructions:
+
+```sh
+datapages init -n --no-git --no-ai-skills --module example.com/shop
 ```
 
 Update the agent instructions of a project to the installed CLI:
@@ -197,7 +205,13 @@ datapages lint [flags]
 
 `lint` parses and checks every app package of the module with the rules of `datapages gen` and writes nothing. It reports the errors of all app packages in 1 run, and the events of different app packages that claim the same subject. The [specification](../SPECIFICATION.md#linting) lists the rules, the checks of `.templ` files included.
 
-`lint` reads `go.mod`, the Go files of the module and the `.templ` files that the app packages render. It does not read `datapages.yaml`, does not change `go.mod` and does not run `go mod tidy`. It fails when `go.mod` requires a newer Datapages release than the CLI.
+`lint` reads `go.mod`, `datapages.yaml`, the Go files of the module and the `.templ` files that the app packages render. It does not change `go.mod` and does not run `go mod tidy`. It fails when `go.mod` requires a newer Datapages release than the CLI, and when `datapages.yaml` is [invalid](configuration.md#validation).
+
+Unless [`watch.toxiproxy.disabled`](configuration.md#disabled) is set, `lint` also reports each endpoint key of [`watch.toxiproxy.presets`](configuration.md#presets) that names no route of any app package of the module. It skips this check while an app package has errors:
+
+```text
+error: watch.toxiproxy.presets["Edge"].endpoints: no endpoint has the pattern "GET /not-found/"; did you mean "GET /not-found/{$}"?
+```
 
 Each error in an application model is printed as `at <file>:<line>:<column>: <message>`, often followed by a `fix:` line. The file is named without its directory:
 
@@ -248,6 +262,8 @@ datapages watch [flags]
 
 `watch` runs the development server for 1 app package. It regenerates code, rebuilds and restarts the app after file changes, then reloads open browser tabs. Open the `--host` address, which defaults to `http://localhost:7331`. Pages loaded from the app's own address do not reload or show build errors. Ctrl+C stops the process.
 
+`watch` also serves the app through a Toxiproxy proxy, which simulates slow and failing networks, and a settings page for it. It prints both addresses at startup. See [Slow and failing networks](network.md).
+
 `watch` runs [templier](https://github.com/romshark/templier) v0.13.4 as a library and reads its settings from the [`watch` section](configuration.md#watch) of `datapages.yaml`. It needs `templ` on the PATH, and `golangci-lint` when [`lint`](configuration.md#lint) is on.
 
 Start `watch` in the module root. It runs `go build` in the current directory with the path of the main package relative to the module root, as `./cmd/server/`. From a subdirectory that path names no package and the build fails.
@@ -259,10 +275,11 @@ Start `watch` in the module root. It runs `go build` in the current directory wi
 3. Reads `datapages.yaml`. When neither `datapages.yaml` nor `datapages.yml` exists, it writes the [scaffold file](configuration.md#the-scaffold-file), which applies from the next start.
 4. Runs `datapages gen` for every app package. It prints the errors and continues.
 5. Selects the app package with `--app`, and the main package to build. That is the main package with the `datapages.NewServer` call for the app package, or the [`cmd`](configuration.md#cmd) directory when no main package has one.
-6. Starts `templ generate --watch` in the module root and the dev server on `--host`.
-7. Runs the command of each [custom watcher](configuration.md#watchcustom-watchers) once. The first is the built-in watcher that runs `datapages gen`.
-8. Builds the main package with `go build` into a temporary directory and starts it in [`dir-work`](configuration.md#dir-work), with the arguments in [`flags`](configuration.md#flags) and `TEMPL_DEV_MODE=true`, which turns on [dev mode](../SPECIFICATION.md#dev-mode).
-9. Sends `OPTIONS` requests to [`app-host`](configuration.md#app-host) every 100 ms until the app answers, then reloads the open tabs.
+6. Unless [`watch.toxiproxy.disabled`](configuration.md#disabled) is set, starts the [Toxiproxy proxy](network.md) and its settings page, and prints `toxiproxy: <proxy URL> (settings: <settings URL>)`. It warns about endpoint keys of the presets that name no route of the app package.
+7. Starts `templ generate --watch` in the module root and the dev server on `--host`.
+8. Runs the command of each [custom watcher](configuration.md#watchcustom-watchers) once. The first is the built-in watcher that runs `datapages gen`.
+9. Builds the main package with `go build` into a temporary directory and starts it in [`dir-work`](configuration.md#dir-work), with the arguments in [`flags`](configuration.md#flags) and `TEMPL_DEV_MODE=true`, which turns on [dev mode](../SPECIFICATION.md#dev-mode).
+10. Sends `OPTIONS` requests to [`app-host`](configuration.md#app-host) every 100 ms until the app answers, then reloads the open tabs.
 
 The dev server forwards each request to `app-host`. It adds a script to every HTML response, which connects to the dev server over a WebSocket at `/__templier/events` and reloads the tab when told to.
 
@@ -271,13 +288,14 @@ The dev server forwards each request to `app-host`. It adds a script to every HT
 | Changed file | What happens |
 | ------------ | ------------ |
 | A `.templ` file | templ generates its Go code, then tells `watch` to reload the tabs or to rebuild the app |
-| A `.go` file in or below the directory of an app package, outside `datapagesgen/`. A `.go` file in the directory of a package with a `datapages.NewServer` call. `datapages.yaml` and `datapages.yml` | The built-in watcher runs `datapages gen`, then `watch` rebuilds and restarts the app |
+| A `.go` file in or below the directory of an app package, outside `datapagesgen/`. A `.go` file in the directory of a package with a `datapages.NewServer` call | The built-in watcher runs `datapages gen`, then `watch` rebuilds and restarts the app |
 | A file that a custom watcher includes | The command of the watcher runs, then the action of its [`requires`](configuration.md#requires) |
+| `datapages.yaml` and `datapages.yml` | Nothing, unless a custom watcher includes them. The app keeps running and keeps its state in memory |
 | Any other file that [`exclude`](configuration.md#exclude) does not match | `watch` rebuilds and restarts the app |
 
-`watch` builds the new binary while the app runs. Then it stops the app with an interrupt signal, kills it when it has not exited after 5 seconds, and starts the new binary. `watch` reads `datapages.yaml` once. Restart it after changing the `watch` section.
+`watch` builds the new binary while the app runs. Then it stops the app with an interrupt signal, kills it when it has not exited after 5 seconds, and starts the new binary. `watch` reads `datapages.yaml` once. Restart it after changing the `watch` section. Only the presets of `watch.toxiproxy` are read again, by the Reload button of the [settings page](network.md#change-the-toxics).
 
-Besides the files of `datapages gen`, `watch` writes the [watch lock](#watch-lock), the scaffold `datapages.yaml` when the module has none, and the `*_templ.go` files that templ generates. templ writes the text files of its development mode into the system temporary directory, or into `TEMPL_DEV_MODE_ROOT` when it is set. The app binaries go into a `templier-*` directory in the system temporary directory, which `watch` removes when it exits.
+Besides the files of `datapages gen`, `watch` writes the [watch lock](#watch-lock), the scaffold `datapages.yaml` when the module has none, the `watch.toxiproxy` section of `datapages.yaml` on a Save of the settings page, and the `*_templ.go` files that templ generates. templ writes the text files of its development mode into the system temporary directory, or into `TEMPL_DEV_MODE_ROOT` when it is set. The app binaries go into a `templier-*` directory in the system temporary directory, which `watch` removes when it exits.
 
 While a step fails, the dev server answers every request with an error page instead of forwarding it. The page shows the output of the failed step under its name, such as `templ`, `go`, `golangci-lint`, `process` for an app that exited while starting, or the name of a custom watcher with [`fail-on-error`](configuration.md#fail-on-error), `datapages gen` included. The open tabs reload when a step fails and when it succeeds again.
 
@@ -286,12 +304,12 @@ While a step fails, the dev server answers every request with an error page inst
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
 | `--app` | `""` | Directory of the app package to run, relative to the module root, as `app/frontend`. Required when the module has more than 1 app package. The last element alone, as `frontend`, is an error |
-| `--host` | `localhost:7331` | Address the dev server listens on |
+| `--host` | `localhost:7331` | Address the dev server listens on. The Toxiproxy proxy forwards to it, and listens on its host unless `watch.toxiproxy.host` is set. Port 0 turns the proxy off |
 | `-h`, `--help` | | Print the help |
 
 ### Exit status
 
-1 when `watch` cannot start, such as outside a Go module, with an invalid `datapages.yaml`, with more than 1 app package and no `--app`, with an `--app` that names no app package, without `templ` on the PATH, or with a `--host` address in use. A failed `datapages gen` at startup does not end `watch`. After Ctrl+C or SIGTERM, `watch` stops the app, templ and the dev server and exits with 0.
+1 when `watch` cannot start, such as outside a Go module, with an invalid `datapages.yaml`, with more than 1 app package and no `--app`, with an `--app` that names no app package, without `templ` on the PATH, or with a `--host` address in use. 1 also when `datapages.yaml` has a `watch.toxiproxy` section and the proxy cannot start, as on a port in use or on the port of `--host` or `app-host`. Without the section, `watch` warns and runs without the proxy. A failed `datapages gen` at startup does not end `watch`. After Ctrl+C or SIGTERM, `watch` stops the app, templ and the dev server and exits with 0.
 
 ### Examples
 
@@ -466,6 +484,7 @@ The `go` commands that the CLI runs, as `go mod tidy` and `go build`, read the G
 ## See also
 
 - [datapages.yaml](configuration.md): the `cmd` key and every `watch` setting.
+- [Slow and failing networks](network.md): the Toxiproxy proxy of `watch` and its settings page.
 - [Installation](installation.md): install the CLI, templ and the tools a project needs.
 - [Multiple applications](multiple-applications.md): build several app packages in 1 module and select 1 with `--app`.
 - [Upgrading](upgrading.md): move a project and its `go.mod` to a new release.

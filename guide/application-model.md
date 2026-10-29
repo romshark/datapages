@@ -265,7 +265,7 @@ The 2 generators depend on each other. `datapages gen` type-checks the app packa
 
 ### `datapages watch`
 
-`datapages watch` runs the build loop and serves the application through a development proxy on `localhost:7331`. It runs `datapages gen` at startup and after changes to `datapages.yaml` or relevant Go files. It also runs templ in watch mode, rebuilds and restarts the server, and reloads open tabs. Generator errors appear in the terminal and browser. The server uses [dev mode](../SPECIFICATION.md#dev-mode), which reads assets from disk and applies `.templ` text changes without a rebuild.
+`datapages watch` runs the build loop and serves the application through a development proxy on `localhost:7331`. It runs `datapages gen` at startup and after changes to the Go files of the app packages and of the packages that call `datapages.NewServer`. It also runs templ in watch mode, rebuilds and restarts the server, and reloads open tabs. Generator errors appear in the terminal and browser. A second proxy, based on [Toxiproxy](network.md), serves the application on a simulated slow or failing network. The server uses [dev mode](../SPECIFICATION.md#dev-mode), which reads assets from disk and applies `.templ` text changes without a rebuild.
 
 Do not run `templ generate` while `datapages watch` runs. It deletes the temporary files that templ watch mode renders from, and the dev server serves blank pages until the next change to a `.templ` file. See [Troubleshooting](troubleshooting.md#the-dev-server-serves-blank-pages).
 

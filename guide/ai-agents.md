@@ -81,7 +81,7 @@ Kept the previous .claude/skills/datapages/SKILL.md as .claude/skills/datapages/
 Project already initialized.
 ```
 
-Run it in the project, inside its git repository or next to its `go.mod` and `datapages.yaml`. Elsewhere `init -n` fails with `--name is required in non-interactive mode when not inside a git repository`, and with `--name` it creates a new project.
+Run it anywhere in the Go module that has the `datapages.yaml` of the project. Elsewhere `init -n` sets up a new project in the current directory, or fails with `--module is required in non-interactive mode when not inside a Go module`. With `--name` it creates a new project in a new directory. Without `-n`, `init` asks `Write AI agent instructions and skills?` before it writes the files.
 
 `init` writes a file only when its content differs from the CLI's version. Every skill and `AGENTS.md` end with a stamp such as `<!-- written by datapages v0.10.1 sha256:9e363ad63c6a31ab -->`. The stamp records the release and a hash of the preceding content. `init` replaces a file whose content still matches the hash.
 
@@ -99,13 +99,13 @@ Run `datapages init -n` again after you add an app package or Web Components, wh
 
 ## Omit the files
 
-Pass `--no-ai-skills` when you create the project:
+Answer No to `Write AI agent instructions and skills?` when you create the project, or pass `--no-ai-skills`:
 
 ```sh
 datapages init --no-ai-skills
 ```
 
-`init` then writes no agent file. In a project that has them, `--no-ai-skills` leaves them as they are. Delete the files to remove them, and pass `--no-ai-skills` to every later `init` run, which otherwise writes them again. `datapages gen` does not print its notice in a project without a `datapages` skill in either directory.
+`init` then writes no agent file. In a project that has them, No and `--no-ai-skills` leave them as they are. Delete the files to remove them. Every later `init` run asks again, and `init -n` writes them again unless `--no-ai-skills` is set. `datapages gen` does not print its notice in a project without a `datapages` skill in either directory.
 
 ## Keep your own AGENTS.md
 

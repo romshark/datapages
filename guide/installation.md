@@ -52,16 +52,15 @@ datapages init
 
 | Prompt | Asked when | Answer |
 | ------ | ---------- | ------ |
-| `Not inside a git repository. Create one?` | The current directory is not in a git repository | Yes asks for a directory name, creates the directory in the current directory and runs `git init` in it. No ends `init`. |
+| `Create a subdirectory for the project?` | The current directory is not in a Go module with a `datapages.yaml` | Yes asks for a directory name and creates the directory in the current directory. No sets up the project in the current directory, or in the root of the Go module that contains it. |
 | `Directory name` | After Yes | The project directory, such as `myapp` |
-| `No go.mod found. Initialize a Go module?` | The project has no `go.mod` | Yes asks for the module path and runs `go mod init`. No ends `init`. |
-| `Module path` | After Yes | The default comes from the URL of the `origin` remote, or else the directory name |
+| `Not inside a git repository. Create one?` | The project directory is not in a git repository | Yes runs `git init` in the project directory. No continues without a repository. |
+| `Module path` | The project has no `go.mod` | The path for `go mod init`. The suggestion comes from the URL of the `origin` remote, or else the directory name. An empty answer takes it. |
 | `Set up Web Components?` | `init` writes the app package | `Datastar Rocket`, `TypeScript, bundled by esbuild (needs Node.js)`, `JavaScript modules` or `None`, the default. Choose one when the app needs JavaScript that would be impractical in Datastar attributes, such as a map or a rich text editor. |
 | `Commit generated files?` | `init` sets up a new project | `Commit to Git`, the default, is for committing `datapagesgen/` and `*_templ.go`. `Ignore and hide` lists them in `.gitignore` and hides them in VS Code, and `make build` and CI generate them. `datapages gen` then fails on a clone while the app uses the generated `href`, `action` or `assets` package. |
 | `Set up CI?` | `init` sets up a new project | `GitHub Actions`, the default, writes `.github/workflows/ci.yml`. `None` writes no workflow. |
+| `Write AI agent instructions and skills?` | Every run | Yes, the default, writes the instructions and skills for coding agents. See [AI agents](ai-agents.md). |
 | `Run the app now?` | At the end | Yes runs `make dev` in the project |
-
-Inside a git repository, `init` uses the current directory, or the root of the Go module that contains it.
 
 A new project prints:
 
@@ -96,8 +95,9 @@ Between the last 2 lines, `init` runs `templ generate`, `go mod tidy` and `datap
 datapages init -n --name myapp --module example.com/myapp
 ```
 
-`--name` is required outside a git repository, and `--module` without a `go.mod`. With `-n`, `init` sets up no Web Components, selects `Commit to Git` and `GitHub Actions`, and does not start the app. More flags:
+`--name` creates the project in a new directory. Without it, `init -n` uses the current directory. `--module` is required without a `go.mod`. With `-n`, `init` creates a git repository, sets up no Web Components, selects `Commit to Git` and `GitHub Actions`, writes the agent instructions and does not start the app. More flags:
 
+- `--no-git` creates no git repository.
 - `--web-components rocket|typescript|javascript|none` selects the Web Components setup.
 - `--generated-code hidden` lists the generated code in `.gitignore` and hides it in VS Code.
 - `--ci none` writes no CI workflow.
@@ -113,7 +113,7 @@ datapages init -n --name myapp --module example.com/myapp
 | `app/app.go` | The application model: `App` with `Head` and `RecoverError`, `PageIndex`, `PageError404` and `PageError500` |
 | `app/app.templ` | The welcome page |
 | `cmd/server/main.go` | The server: NATS broker and session store, sessions, an access log, Prometheus metrics, TLS from `PATH_TLS_CERT` and `PATH_TLS_KEY`, and graceful shutdown |
-| `datapages.yaml` | Settings of `datapages gen` and `datapages watch`, see [datapages.yaml](configuration.md) |
+| `datapages.yaml` | Settings of `datapages gen` and `datapages watch`, with 3 network presets for its [Toxiproxy proxy](network.md), see [datapages.yaml](configuration.md) |
 | `.env` | `NATS_URL` and a random `SESSION_ENCRYPTION_KEY`, which `cmd/server/main.go` reads. `init` adds `.env` to `.gitignore`. |
 | `compose.yaml` | A NATS server with JetStream on port 4222 |
 | `Makefile` | The targets `dev`, `up`, `down`, `build`, `gen` and `lint`. `make gen` runs `datapages gen` and `templ generate` |
@@ -137,7 +137,9 @@ make dev
 
 `make dev` runs `docker compose up -d`, which starts NATS, and then `datapages watch`. Open <http://localhost:7331>, the address of the dev server.
 
-The dev server forwards each request to the app at `localhost:8080`. When a file changes, it regenerates the code, rebuilds and restarts the app and reloads the open tabs. While a step fails, it answers with a page that shows the error. `datapages watch` prints no URL of its own. The address in the log of the app, `127.0.0.1:8080`, serves the app without the reload script.
+The dev server forwards each request to the app at `localhost:8080`. When a file changes, it regenerates the code, rebuilds and restarts the app and reloads the open tabs. While a step fails, it answers with a page that shows the error. `datapages watch` prints the address of the dev server only at the `verbose` and `debug` [log levels](configuration.md#level). The address in the log of the app, `127.0.0.1:8080`, serves the app without the reload script.
+
+`datapages watch` prints a line such as `toxiproxy: http://localhost:52417 (settings: http://localhost:52419/)`. The first address serves the app through a proxy that simulates slow and failing networks, with the presets of the settings page at the second address. See [Slow and failing networks](network.md).
 
 Stop the dev server with Ctrl+C, and NATS with `make down`.
 

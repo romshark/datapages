@@ -181,6 +181,12 @@ var docPages = []docPage{
 		group: "Guides",
 	},
 	{
+		file:  "guide/network.md",
+		path:  "network",
+		title: "Slow and failing networks",
+		group: "Guides",
+	},
+	{
 		file:  "guide/deployment.md",
 		path:  "deployment",
 		title: "Deployment",

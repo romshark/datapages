@@ -1,6 +1,6 @@
 # Create the project
 
-Run `datapages init` in a directory outside any Git repository:
+Run `datapages init` in a directory outside any Git repository and Go module:
 
 ```sh
 datapages init
@@ -10,11 +10,14 @@ Answer its questions like this:
 
 | Question | Answer |
 | -------- | ------ |
-| Not inside a git repository. Create one? | Yes |
+| Create a subdirectory for the project? | Yes |
 | Directory name | `shoplist` |
-| No go.mod found. Initialize a Go module? | Yes |
+| Not inside a git repository. Create one? | Yes |
 | Module path | `example.com/shoplist` |
 | Set up Web Components? | None |
+| Commit generated files? | Commit to Git |
+| Set up CI? | GitHub Actions |
+| Write AI agent instructions and skills? | Yes |
 | Run the app now? | No |
 
 This command creates the same project without questions:
@@ -32,7 +35,7 @@ make dev
 
 `make dev` starts NATS in Docker with `docker compose up -d`, then runs `datapages watch`. NATS carries the events and stores the sessions of the app. Answering Yes to "Run the app now?" runs `make dev` for you.
 
-Open http://localhost:7331, the address of the dev server. The page shows "Welcome to Datapages". The app itself listens on `localhost:8080`, the default `PORT` of `cmd/server/main.go`, and the dev server forwards each request to it. Only a page loaded through `localhost:7331` reloads after a rebuild and shows build errors. `datapages watch` prints no URL of its own.
+Open http://localhost:7331, the address of the dev server. The page shows "Welcome to Datapages". The app itself listens on `localhost:8080`, the default `PORT` of `cmd/server/main.go`, and the dev server forwards each request to it. Only a page loaded through `localhost:7331` reloads after a rebuild and shows build errors. The line `toxiproxy: http://localhost:...` that `datapages watch` prints is the address of the same app on a simulated slow network, which [Slow and failing networks](../network.md) explains.
 
 You edit 3 files:
 

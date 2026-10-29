@@ -125,6 +125,28 @@ listening on localhost:8080: listen tcp 127.0.0.1:8080: bind: address already in
 
 The `cmd/server/main.go` of the scaffold listens on `HOST` and `PORT`, `localhost:8080` by default, and reads them from the environment or from `.env`. Stop the other process or set another port, as `PORT=8090` in `.env`. Under `datapages watch`, also set [`app-host`](configuration.md#app-host) in `datapages.yaml` to the new address, as `http://localhost:8090`, because the dev server forwards there. Then restart `datapages watch`.
 
+## The Toxiproxy port is in use
+
+`datapages watch` stops with:
+
+```text
+error: listening on watch.toxiproxy.host: listen tcp 127.0.0.1:7332: bind: address already in use; set it to a free port or set watch.toxiproxy.disabled
+```
+
+Another process listens on the address that [`watch.toxiproxy.host`](configuration.md#host) sets, often a `datapages watch` of another project. The same error names `watch.toxiproxy.ui-host` for the settings page. Stop the other process, set a free port, or remove `host` and `ui-host` to let the OS pick the ports. Set [`disabled: true`](configuration.md#disabled) to run without the proxy.
+
+A port of `host` or `ui-host` that equals the port of `--host` or `app-host` stops `watch` before it listens:
+
+```text
+error: watch.toxiproxy.host localhost:7331 uses the port of --host; set it to a free port
+```
+
+Both errors stop `watch` only when `datapages.yaml` has a `watch.toxiproxy` section, as the scaffold has. Without the section, `watch` prints the cause after `warning: toxiproxy is off:` and runs without the proxy. See [Slow and failing networks](network.md#turn-the-proxy-off).
+
+## Requests through the Toxiproxy proxy fail or hang
+
+The [preset](network.md#apply-a-preset) in effect applies toxics that end or delay requests, such as Unreachable, `timeout` or `reset-peer`. Pick No throttling in the settings page, or open the `--host` address of the dev server, which applies no toxics. Every start of `datapages watch` begins with No throttling.
+
 ## Another project on the same address shows wrong pages or styles
 
 After an application with [offline support](offline.md) ran on `http://localhost:7331`, another project served there shows that application's pages, styles or scripts on a normal reload, while a hard reload, Shift+Reload, shows the right page.
@@ -264,4 +286,5 @@ The offline service worker has a separate cache. It keeps a same-origin asset un
 - [Application model](application-model.md): how `datapages gen` reads the app package and reports errors.
 - [CLI](cli.md): the commands, their exit status and the watch lock.
 - [datapages.yaml](configuration.md): the settings of `datapages watch`.
+- [Slow and failing networks](network.md): the Toxiproxy proxy of `datapages watch`.
 - [Deployments](../SPECIFICATION.md#deployments) and [Dev Mode](../SPECIFICATION.md#dev-mode): the exact rules for reloads and dev mode.
