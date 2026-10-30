@@ -409,7 +409,7 @@ func runInit(
 		{".vscode/extensions.json", skeleton.VSCodeExtensions},
 	} {
 		if _, err := writeIfMissing(
-			projectDir, f.rel, []byte(f.content), out,
+			projectDir, f.rel, []byte(f.content), 0o644, out,
 		); err != nil {
 			return err
 		}
@@ -422,13 +422,13 @@ func runInit(
 			return err
 		}
 		if _, err := writeIfMissing(projectDir, ".github/workflows/ci.yml",
-			[]byte(ciWorkflow), out); err != nil {
+			[]byte(ciWorkflow), 0o644, out); err != nil {
 			return err
 		}
 	}
 	if generated == skeleton.GeneratedCodeHidden {
 		if _, err := writeIfMissing(projectDir, ".vscode/settings.json",
-			[]byte(skeleton.VSCodeSettingsHidden), out); err != nil {
+			[]byte(skeleton.VSCodeSettingsHidden), 0o644, out); err != nil {
 			return err
 		}
 	}
@@ -980,7 +980,7 @@ func detectWebComponents(projectDir string) skeleton.WebComponents {
 }
 
 func writeIfMissing(
-	projectDir, rel string, content []byte, w io.Writer,
+	projectDir, rel string, content []byte, perm os.FileMode, w io.Writer,
 ) (bool, error) {
 	path := filepath.Join(projectDir, filepath.FromSlash(rel))
 	if _, err := os.Stat(path); err == nil {
@@ -991,7 +991,7 @@ func writeIfMissing(
 			return false, fmt.Errorf("creating %s: %w", filepath.Dir(rel), err)
 		}
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := os.WriteFile(path, content, perm); err != nil {
 		return false, fmt.Errorf("writing %s: %w", rel, err)
 	}
 	_, _ = fmt.Fprintf(w, "Created %s\n", rel)
@@ -1009,7 +1009,7 @@ func writeAppGoIfMissing(
 		return false, err
 	}
 	wrote, err := writeIfMissing(
-		projectDir, "app/app.go", src, w,
+		projectDir, "app/app.go", src, 0o644, w,
 	)
 	if err != nil || !wrote {
 		return false, err
@@ -1018,7 +1018,9 @@ func writeAppGoIfMissing(
 	if err != nil {
 		return true, err
 	}
-	if _, err := writeIfMissing(projectDir, "app/app.templ", templ, w); err != nil {
+	if _, err := writeIfMissing(
+		projectDir, "app/app.templ", templ, 0o644, w,
+	); err != nil {
 		return true, err
 	}
 	files, err := skeleton.WebComponentFiles(components)
@@ -1026,7 +1028,9 @@ func writeAppGoIfMissing(
 		return true, err
 	}
 	for _, f := range files {
-		if _, err := writeIfMissing(projectDir, f.Path, f.Content, w); err != nil {
+		if _, err := writeIfMissing(
+			projectDir, f.Path, f.Content, 0o644, w,
+		); err != nil {
 			return true, err
 		}
 	}
@@ -1045,7 +1049,8 @@ func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
 	// CSRF tokens from session tokens. No separate secret is needed.
 	content := "NATS_URL=nats://localhost:4222\n" +
 		"SESSION_ENCRYPTION_KEY=" + sessKey + "\n"
-	return writeIfMissing(projectDir, ".env", []byte(content), w)
+	// Other accounts on the machine must not read the session encryption key.
+	return writeIfMissing(projectDir, ".env", []byte(content), 0o600, w)
 }
 
 func randomHex(n int) (string, error) {

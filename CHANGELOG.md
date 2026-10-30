@@ -255,6 +255,10 @@ Run `datapages gen` to apply these.
 - Prevent `natskv.SessionManager.CloseAllUserSessions` from returning nil while sessions of the user stay signed in. When its context ended during the call, as a request context does when the client disconnects, it closed only the sessions read by then. Whoever held a cookie of the others, such as an attacker the user meant to sign out, stayed signed in. A NATS stall of 5s during the call and a closed connection did the same. The end of the context no longer stops the call, and the other 2 return an error. Applications calling `CloseAllUserSessions` are affected in v0.1.0 through v0.10.1. Until the upgrade, pass it `context.WithoutCancel(r.Context())`, which covers the client that disconnects.
 - Stop sending a signed-in user's CSRF token to other origins. A `@post`, `@put`, `@patch` or `@delete` action to another origin sent it the token if its CORS policy allowed the `X-CSRF-Token` header. This affects v0.1.0 through v0.10.1. Until the upgrade, call other origins without a Datastar action.
 
+#### `datapages init`
+
+- Write `.env` with mode 600 instead of 644. Any account on the machine could read its `SESSION_ENCRYPTION_KEY` and, with read access to the `SESSIONS` bucket, build a session cookie for any user. This affects projects created by v0.1.0 through v0.10.1. `init` leaves an existing `.env` alone. Run `chmod 600 .env` there, and replace the key if another account could read it.
+
 ## [0.10.1] - 2026-09-26
 
 ### Added

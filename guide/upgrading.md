@@ -122,6 +122,7 @@ These files belong to the project, and `datapages init` does not rewrite them. C
 - If the app package declares static files, check that `cmd/server/main.go` passes them with `datapages.WithAssets(app.StaticFS, false)`. Otherwise every asset URL answers 404. See [Static assets](assets.md).
 - In `.github/workflows/ci.yml`, move the `Checkout repository` step above `Install Go`, which lets `actions/setup-go` restore its cache.
 - In the `gen` target of `Makefile`, add `go run github.com/a-h/templ/cmd/templ@v0.3.1100 generate` after `datapages gen`. Otherwise `make gen` leaves `*_templ.go` stale after a `.templ` change, and CI fails on the uncommitted diff.
+- Run `chmod 600 .env`, which earlier releases left readable by every account. Replace `SESSION_ENCRYPTION_KEY` if another account could read it.
 - Run `datapages init -n`, as step 5 does. The new instructions tell agents to put JavaScript that Datastar expressions cannot hold, such as a library, in a Web Component.
 
 ## Upgrade to v0.10.1

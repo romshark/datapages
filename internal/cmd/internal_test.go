@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -871,6 +872,22 @@ func TestWriteDefaultConfig(t *testing.T) {
 				wc == skeleton.WebComponentsTypeScript, len(c.Watch.CustomWatchers) == 1)
 		})
 	}
+}
+
+// TestWriteEnvIfMissing tests that init writes .env, which holds the session
+// encryption key, readable by its owner alone.
+func TestWriteEnvIfMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows file modes have no bits for other accounts")
+	}
+	dir := t.TempDir()
+	wrote, err := writeEnvIfMissing(dir, io.Discard)
+	require.NoError(t, err)
+	require.True(t, wrote)
+
+	info, err := os.Stat(filepath.Join(dir, ".env"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
 // TestHasVisibleEntries tests which directories init suggests creating

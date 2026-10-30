@@ -181,7 +181,7 @@ The offline service worker serves a cached page without a policy header, and the
 The scaffold reads `SESSION_ENCRYPTION_KEY`, 16 bytes in hex, and passes it to `natskv`. `natskv` encrypts each session cookie with it using AES-128-GCM. The cookie holds the key of the session record in the `SESSIONS` bucket in encrypted form, which hides the user ID that the key contains. Anyone with the encryption key and read access to the bucket can build a working cookie for every session. Neither alone is enough.
 
 - Generate a key with `openssl rand -hex 16`.
-- Keep it out of the repository. `datapages init` writes it to `.env` and lists `.env` in `.gitignore`. In a deployment, pass it to the environment from the platform's secret store.
+- Keep it out of the repository. `datapages init` writes it to `.env`, which only the owner can read, and lists `.env` in `.gitignore`. In a deployment, pass it to the environment from the platform's secret store.
 - Give every process the same key.
 
 To rotate the key, pass the new key as `EncryptionKey` and the old ones as `PreviousEncryptionKeys`:
