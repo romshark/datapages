@@ -119,6 +119,44 @@ function element(html, tag) {
   return html.slice(start, end + tag.length + 3);
 }
 
+// htmlAttrsScript returns a script that applies the attributes of the html
+// element of html, or null when it has none. A shim has none, since
+// PageCacheWriter.SetShim takes only a body, and a patch of the html element
+// would replace the head and the body along with it. The classes are added to
+// those the page has, such as the offline class. Datastar reads data-nonce
+// only when it loads, which leaves it out.
+function htmlAttrsScript(html) {
+  const start = html.indexOf('<html');
+  const end = html.indexOf('>', start);
+  if (start === -1 || end === -1) return null;
+  const tag = html.slice(start, end);
+  // Datapages escapes the quote, so a value cannot hold a name="value" pair.
+  const re = /\s([a-z][a-z0-9_.:-]*)="([^"]*)"/g;
+  const attrs = {};
+  let found = false;
+  for (let m = re.exec(tag); m !== null; m = re.exec(tag)) {
+    if (m[1] === 'data-nonce') continue;
+    attrs[m[1]] = unescapeHTML(m[2]);
+    found = true;
+  }
+  if (!found) return null;
+  // \u003c keeps a value from closing the script element.
+  const json = JSON.stringify(attrs).replace(/</g, '\\u003c');
+  return '<script>(function(){var d=document.documentElement,a=' + json + ';' +
+    'for(var k in a){if(k==="class")' +
+    'd.classList.add.apply(d.classList,a[k].split(/\\s+/).filter(Boolean));' +
+    'else d.setAttribute(k,a[k])}' +
+    'document.currentScript.remove()})()</script>';
+}
+
+// unescapeHTML reverses the escaping Go's html.EscapeString applies
+// to the attribute values Datapages writes.
+function unescapeHTML(s) {
+  return s.replace(/&(#34|#39|lt|gt|amp);/g, function (_, e) {
+    return { '#34': '"', '#39': "'", lt: '<', gt: '>', amp: '&' }[e];
+  });
+}
+
 // SSE repeats the data key for every line of a multi-line value.
 function sseFrame(eventName, kvs) {
   const lines = ['event: ' + eventName];
@@ -288,6 +326,12 @@ self.addEventListener('fetch', function (e) {
         frames += sseFrame('datastar-patch-elements', [
           ['selector', 'body'], ['mode', 'outer'], ['elements', body],
         ]);
+        const attrs = htmlAttrsScript(html);
+        if (attrs) {
+          frames += sseFrame('datastar-patch-elements', [
+            ['selector', 'body'], ['mode', 'append'], ['elements', attrs],
+          ]);
+        }
         return new Response(frames, {
           status: 200,
           headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },

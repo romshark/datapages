@@ -133,7 +133,7 @@ A `GET` can cache its own page when visited. An action can cache other URLs, suc
 
 ## Shims
 
-A shim renders the navigation and layout with placeholders for slow content. The worker returns the cached shim immediately and fetches the live page in parallel. Datapages adds the trigger that replaces the shim's head and body through Datastar. The shim contains no Datastar attributes.
+A shim renders the navigation and layout with placeholders for slow content. The worker returns the cached shim immediately and fetches the live page in parallel. Datapages adds the trigger that replaces the shim's head and body through Datastar and applies the attributes of the live `<html>` element. The shim contains no Datastar attributes.
 
 A shim renders with no session and contains no CSRF script. Do not put actions in the placeholder content.
 
@@ -199,4 +199,4 @@ An action that takes `datapages.PageCacheWriter` answers 406 to a request withou
 
 `newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. Navigation waits up to 500ms for the worker to apply `ClearAll` before loading the destination.
 
-<!-- written by datapages sha256:29d3663c80e98cf1 -->
+<!-- written by datapages sha256:dd8beee46de59f5e -->

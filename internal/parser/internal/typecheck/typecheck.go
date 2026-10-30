@@ -171,6 +171,11 @@ func IsHeadType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "Head")
 }
 
+// IsDocumentAttrsType reports whether expr resolves to datapages.DocumentAttrs.
+func IsDocumentAttrsType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "DocumentAttrs")
+}
+
 // IsCloseSessionType reports whether expr resolves to datapages.CloseSession.
 func IsCloseSessionType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "CloseSession")

@@ -447,6 +447,9 @@ type appUsage struct {
 	// files: whether any handler returns a datapages.File,
 	// which needs httpErrFile and recoverPanicFile.
 	files bool
+	// documentAttrs: whether any handler returns a datapages.DocumentAttrs,
+	// which writeHTML then takes.
+	documentAttrs bool
 }
 
 // computeAppUsage scans the model to determine which optional helpers are needed.
@@ -465,6 +468,9 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		if h.OutputFile != nil {
 			u.files = true
+		}
+		if h.OutputDocumentAttrs != nil {
+			u.documentAttrs = true
 		}
 	}
 	checkAction := func(h *model.Handler) {

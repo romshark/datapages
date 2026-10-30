@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -128,6 +129,114 @@ func TestWriteHTML(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestWriteHTMLDocumentAttrs tests the attributes of the html element:
+// sorted by name, an empty value writes an empty attribute and values are escaped.
+func TestWriteHTMLDocumentAttrs(t *testing.T) {
+	t.Parallel()
+
+	c := builtCore(t)
+	// The html start tag is the 1 part of HTMLHead that varies.
+	rest := strings.TrimPrefix(c.HTMLHead(), "<!DOCTYPE html><html>")
+
+	for name, tc := range map[string]struct {
+		doc     datapages.DocumentAttrs
+		wantTag string
+	}{
+		"nil":   {wantTag: "<html>"},
+		"empty": {doc: datapages.DocumentAttrs{}, wantTag: "<html>"},
+		"sorted": {
+			doc: datapages.DocumentAttrs{
+				"translate": "no", "lang": "ar", "dir": "rtl",
+				"data-theme": "dark", "class": "dark",
+			},
+			wantTag: `<html class="dark" data-theme="dark" dir="rtl" lang="ar" translate="no">`,
+		},
+		"empty value": {
+			doc:     datapages.DocumentAttrs{"itemscope": ""},
+			wantTag: `<html itemscope="">`,
+		},
+		"escaped": {
+			doc:     datapages.DocumentAttrs{"class": `a"><script>x`, "title": `'&`},
+			wantTag: `<html class="a&#34;&gt;&lt;script&gt;x" title="&#39;&amp;">`,
+		},
+		"datastar attribute name": {
+			doc: datapages.DocumentAttrs{
+				"data-class:dark": "$dark", "data-on:keydown__window.debounce_1": "x",
+			},
+			wantTag: `<html data-class:dark="$dark" data-on:keydown__window.debounce_1="x">`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got, err := writeHTML(t, c, httpserve.HTMLDocument{DocumentAttrs: tc.doc})
+			require.NoError(t, err)
+			require.Equal(t, "<!DOCTYPE html>"+tc.wantTag+rest+
+				c.HTMLDatastarScript()+"</head><body></body></html>", got)
+		})
+	}
+}
+
+// TestWriteHTMLDocumentAttrsInvalid tests a name that is invalid or that the CSP
+// nonce writes. Nothing of the document is written, and the response is a 500 instead,
+// whatever status the document was meant to have.
+func TestWriteHTMLDocumentAttrsInvalid(t *testing.T) {
+	t.Parallel()
+
+	c := builtCore(t)
+
+	for name, tc := range map[string]struct {
+		attr    string
+		wantErr error
+	}{
+		"empty":          {"", httpserve.ErrDocumentAttrsInvalidName},
+		"uppercase":      {"data-Theme", httpserve.ErrDocumentAttrsInvalidName},
+		"leading digit":  {"1x", httpserve.ErrDocumentAttrsInvalidName},
+		"leading dash":   {"-x", httpserve.ErrDocumentAttrsInvalidName},
+		"space":          {"a b", httpserve.ErrDocumentAttrsInvalidName},
+		"quote":          {`a"b`, httpserve.ErrDocumentAttrsInvalidName},
+		"closes the tag": {"a><script", httpserve.ErrDocumentAttrsInvalidName},
+		"equals":         {"a=b", httpserve.ErrDocumentAttrsInvalidName},
+		"non-ASCII":      {"dätä", httpserve.ErrDocumentAttrsInvalidName},
+		"data-nonce":     {"data-nonce", httpserve.ErrDocumentAttrsReserved},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			err := c.WriteHTML(w, httptest.NewRequest(http.MethodGet, "/", nil),
+				httpserve.HTMLDocument{
+					Status:        http.StatusNotFound,
+					DocumentAttrs: datapages.DocumentAttrs{"lang": "en", tc.attr: "x"},
+					Body:          renderer{s: "body"},
+				})
+			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr == httpserve.ErrDocumentAttrsInvalidName {
+				require.Contains(t, err.Error(), strconv.Quote(tc.attr))
+			}
+			require.Equal(t, http.StatusInternalServerError, w.Code)
+			require.Equal(t, "Internal Server Error\n", w.Body.String())
+		})
+	}
+}
+
+// TestWriteHTMLDocumentAttrsCSPNonce tests that the nonce follows the attributes
+// of the document on the html element.
+func TestWriteHTMLDocumentAttrsCSPNonce(t *testing.T) {
+	t.Parallel()
+
+	c := mustCore(t, datapages.ServerConfig{
+		DatastarJS: "/ds.js",
+		CSPNonce:   func(*http.Request) string { return "n" },
+	}, "")
+	c.Build()
+
+	got, err := writeHTML(t, c, httpserve.HTMLDocument{
+		DocumentAttrs: datapages.DocumentAttrs{"lang": "en"},
+	})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(got,
+		`<!DOCTYPE html><html lang="en" data-nonce="n"><head>`), got)
 }
 
 // TestWriteHTMLError tests a part that fails to render. Whichever part it is,

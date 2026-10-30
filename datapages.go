@@ -190,6 +190,40 @@ type StreamID uint64
 // generates for every page.
 type Head Component
 
+// DocumentAttrs holds the attributes of the [html element] of a page by name,
+// such as lang, dir, class or data-theme. See [global attributes].
+// A GET or action handler that renders a body may return one alongside it.
+// Pages that share attributes return them from a shared function,
+// which returns a new map on each call, since a page may change it:
+//
+//	func documentAttrs(session Session) datapages.DocumentAttrs {
+//		d := session.Data()
+//		return datapages.DocumentAttrs{"lang": d.Lang, "class": d.Theme}
+//	}
+//
+//	func (p PagePost) GET(r *http.Request, session Session) (
+//		body datapages.Component,
+//		docAttrs datapages.DocumentAttrs,
+//		err error,
+//	) {
+//		docAttrs = documentAttrs(session)
+//		docAttrs["lang"] = post.Lang
+//		return postView(post), docAttrs, nil
+//	}
+//
+// The attributes are written sorted by name. Values are HTML-escaped,
+// and an empty value writes an empty attribute, as for the boolean itemscope.
+// A handler that returns no DocumentAttrs writes <html> without attributes,
+// and so does a page cache entry.
+//
+// A name is a lowercase ASCII letter followed by lowercase ASCII letters,
+// digits, '-', '_', '.' and ':', and not data-nonce, which [WithCSPNonce] writes.
+// A name that breaks either rule fails the response with 500 Internal Server Error.
+//
+// [html element]: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/html
+// [global attributes]: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes
+type DocumentAttrs map[string]string
+
 // CloseSession is returned by handlers to sign the client out.
 // Datapages drops the session and removes the session cookie:
 //
@@ -930,9 +964,10 @@ type PageCacheWriter interface {
 	Set(url string, body Component, version uint64)
 
 	// SetShim caches body for url like [PageCacheWriter.Set], but permits the
-	// worker to serve it while online. The worker then fetches the live page and
-	// replaces the shim's head and body through Datastar. Datapages adds the
-	// fetch trigger. body must not state anything that is only true offline.
+	// worker to serve it while online. The worker then fetches the live page,
+	// replaces the shim's head and body through Datastar and applies the
+	// attributes of its html element. Datapages adds the fetch trigger.
+	// body must not state anything that is only true offline.
 	//
 	// The entry is rendered with no session, so an action on the shim only works
 	// once the live head has arrived and brought the CSRF script with it.

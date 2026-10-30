@@ -1,7 +1,7 @@
 // sw_test.mjs runs the offline worker in a VM against a fake origin and checks
 // how it stores and serves the responses of requests that are not navigations,
-// such as an img element loading a GET action, and the page entries a
-// navigation opens.
+// such as an img element loading a GET action, the page entries a
+// navigation opens, and the patches that hydrate a shim.
 //
 // Usage: node sw_test.mjs path/to/sw.js
 import assert from 'node:assert/strict';
@@ -104,6 +104,17 @@ function worker(config = {}) {
     });
     const res = await responded;
     return { status: res.status, body: await res.text() };
+  };
+  // hydrate sends the request a shim sends for its live document
+  // and returns the event stream the worker answers with.
+  w.hydrate = async (path) => {
+    let responded;
+    listeners.fetch({
+      request: new Request(ORIGIN + path, { headers: { 'X-Datapages-Shim-Hydrate': '1' } }),
+      respondWith(p) { responded = p; },
+      waitUntil() {},
+    });
+    return (await responded).text();
   };
   return w;
 }
@@ -267,4 +278,37 @@ for (const [name, first] of [
   await w.install();
   w.server = offline;
   assert.deepEqual(await w.navigate('/static/manual.pdf'), { status: 200, body: 'pdf' });
+}
+
+// A shim hydrates with the attributes of the live html element, which its
+// cached copy lacks, except data-nonce. The classes are added to those the page
+// has, such as the offline class. A live html element without attributes adds
+// no script.
+{
+  const w = worker();
+  w.server = () => new Response('<!DOCTYPE html><html lang="ar" dir="rtl" ' +
+    'class="dark a&amp;b &lt;/script&gt;" data-class:x="$x" itemscope="" ' +
+    'title="&#34;&#39;" data-nonce="n"><head></head><body>live</body></html>');
+  const frames = await w.hydrate('/tickets/');
+  const m = /data: elements <script>(.*)<\/script>/.exec(frames);
+  assert.ok(m, 'no script applies the html attributes');
+  assert.doesNotMatch(m[1], /<\/script>/, 'a value closes the script element');
+  const classes = new Set(['is-offline']);
+  const set = {};
+  const root = {
+    classList: { add: (...c) => c.forEach((x) => classes.add(x)) },
+    setAttribute: (k, v) => { set[k] = v; },
+  };
+  let removed = false;
+  vm.runInNewContext(m[1], {
+    document: { documentElement: root, currentScript: { remove() { removed = true; } } },
+  });
+  assert.deepEqual(set, {
+    lang: 'ar', dir: 'rtl', 'data-class:x': '$x', itemscope: '', title: `"'`,
+  });
+  assert.deepEqual([...classes], ['is-offline', 'dark', 'a&b', '</script>']);
+  assert.equal(removed, true, 'the script stays in the body');
+
+  w.server = () => new Response('<!DOCTYPE html><html><head></head><body>live</body></html>');
+  assert.doesNotMatch(await w.hydrate('/tickets/'), /<script>/);
 }

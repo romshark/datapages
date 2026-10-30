@@ -43,6 +43,7 @@ If a route comment has a description, separate it from the route with a blank `/
 | ---- | ------ |
 | `datapages.Component` | the body |
 | `datapages.Head` | extra `<head>` content for this page |
+| `datapages.DocumentAttrs` | attributes of the `<html>` element by name |
 | `datapages.Redirect` | `{URL, Status}`, sent instead of the body |
 | `datapages.NewSession[Data]` | opens a session |
 | `datapages.CloseSession` | ends the session |
@@ -117,6 +118,27 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 ```
 
 `session` is optional. It applies to every page, so a per-page `head` return value only adds to it.
+
+## The html element
+
+`<html>` carries only the attributes the handler returns in `datapages.DocumentAttrs`. There is no app-wide default. Return it from every `GET` through a shared function:
+
+```go
+func documentAttrs(session Session) datapages.DocumentAttrs {
+	d := session.Data()
+	return datapages.DocumentAttrs{"lang": d.Lang, "dir": d.Dir, "class": d.Theme}
+}
+
+func (p PagePost) GET(r *http.Request, session Session) (
+	body datapages.Component, docAttrs datapages.DocumentAttrs, err error,
+) {
+	docAttrs = documentAttrs(session)
+	docAttrs["lang"] = "de"
+	return postPage(), docAttrs, nil
+}
+```
+
+`datapages.DocumentAttrs` is a `map[string]string`. The shared function returns a new map on each call, since a page may change it. Attributes are written sorted by name; an empty value writes an empty attribute. A name is lowercase ASCII letters, digits, `-`, `_`, `.` and `:`, starting with a letter, and not `data-nonce`. Another name fails the page with 500. Page cache entries have no attributes; a shim gets the live attributes when it hydrates.
 
 ## Sharing handlers
 

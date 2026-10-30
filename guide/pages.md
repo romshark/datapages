@@ -228,6 +228,7 @@ For `/search/?q=lamp&stock=true`, `GET` writes `data-signals:term="'lamp'"` and 
 | ------------ | ------ |
 | `body datapages.Component` | the content of `<body>`, required |
 | `head datapages.Head` | tags added to `<head>`, see [The document head](#the-document-head) |
+| `docAttrs datapages.DocumentAttrs` | attributes of `<html>`, see [The html element](#the-html-element) |
 | `redirect datapages.Redirect` | a redirect sent instead of the page when `URL` is not empty |
 | `newSession datapages.NewSession[Data]` | signs the visitor in, see [Sessions and auth](sessions.md) |
 | `closeSession datapages.CloseSession` | signs the visitor out when `true` |
@@ -291,6 +292,29 @@ templ productHead(p Product) {
 ```
 
 Put a viewport `<meta>` in `App.Head`, because the server writes none. A browser uses the first `<title>` of a document. When pages have their own titles, put the `<title>` in each page's head and not in `App.Head`. `assets.Path` requires [static assets](assets.md).
+
+## The html element
+
+`<html>` carries the attributes from the `docAttrs` that the handler returns. `datapages.DocumentAttrs` maps attribute names to values, such as `lang`, `dir` or the `data-bs-theme` that Bootstrap reads. Pages that share attributes return them from a shared function, here from the visitor's [session](sessions.md). The function returns a new map on each call, since a page may change it:
+
+```go title="app/app.go"
+func documentAttrs(session Session) datapages.DocumentAttrs {
+	d := session.Data()
+	return datapages.DocumentAttrs{"lang": d.Lang, "dir": d.Dir, "data-bs-theme": d.Theme}
+}
+
+func (p PageProduct) GET(r *http.Request, session Session) (
+	body datapages.Component,
+	docAttrs datapages.DocumentAttrs,
+	err error,
+) {
+	return productPage(), documentAttrs(session), nil
+}
+```
+
+The attributes are written sorted by name, and an empty value writes an empty attribute. A name is lowercase ASCII letters, digits, `-`, `_`, `.` and `:`, starting with a letter. Another name, or `data-nonce`, fails the page with 500. Datastar reads a `data-*` attribute of `<html>` as it does on any element, so `data-class:dark` binds a class to a signal.
+
+A `GET` that returns no `docAttrs` writes `<html>` without attributes, and so does a page that the [offline cache](offline.md) stores. A shim gets the attributes of the live page when it hydrates.
 
 ## Error and offline pages
 

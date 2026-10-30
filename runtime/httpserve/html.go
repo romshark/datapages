@@ -1,10 +1,28 @@
 package httpserve
 
 import (
+	"errors"
+	"fmt"
+	"html"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/romshark/datapages"
+)
+
+var (
+	// ErrDocumentAttrsInvalidName reports a [datapages.DocumentAttrs]
+	// with a name that it does not accept.
+	ErrDocumentAttrsInvalidName = errors.New(
+		"datapages.DocumentAttrs has an invalid attribute name")
+
+	// ErrDocumentAttrsReserved reports a [datapages.DocumentAttrs] that sets
+	// data-nonce, which [datapages.WithCSPNonce] writes.
+	ErrDocumentAttrsReserved = errors.New(
+		"datapages.DocumentAttrs sets the reserved attribute data-nonce")
 )
 
 // CSRFScriptWriter writes the script that adds a CSRF token to state-changing
@@ -35,6 +53,9 @@ type HTMLDocument struct {
 	// It goes before Head, which is the head of the page itself.
 	HeadGeneric, Head datapages.Head
 
+	// DocumentAttrs holds the attributes of the html element.
+	DocumentAttrs datapages.DocumentAttrs
+
 	// WriteHeadPrologue writes into the head between the opening tags and the
 	// Datastar script tag. It is the seam for a script that has to run before
 	// Datastar does, which a deferred module script cannot: the stateful-page
@@ -48,6 +69,9 @@ type HTMLDocument struct {
 }
 
 // WriteHTML writes doc as a complete HTML document.
+// For doc.DocumentAttrs with an invalid or reserved name it writes
+// 500 Internal Server Error instead and returns [ErrDocumentAttrsInvalidName]
+// or [ErrDocumentAttrsReserved].
 //
 // The attribute writers of doc open with their own separating space, which is
 // why the body and the template tag are written without one. 2 attributes
@@ -56,6 +80,12 @@ type HTMLDocument struct {
 func (c *Core) WriteHTML(
 	w http.ResponseWriter, r *http.Request, doc HTMLDocument,
 ) error {
+	attrs, err := htmlAttrs(doc.DocumentAttrs)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError)
+		return err
+	}
 	if doc.SessionToken != "" && w.Header().Get("Cache-Control") == "" {
 		// The CSRF script carries a token derived from the session.
 		// A shared cache would serve it to the next visitor, whose actions
@@ -65,7 +95,7 @@ func (c *Core) WriteHTML(
 	if doc.Status != 0 {
 		w.WriteHeader(doc.Status)
 	}
-	head, datastarScript := c.htmlOpening(r)
+	head, datastarScript := c.htmlOpening(r, attrs)
 	if doc.WriteHeadPrologue == nil {
 		if _, err := io.WriteString(w, head+datastarScript); err != nil {
 			return err
@@ -120,6 +150,53 @@ func (c *Core) WriteHTML(
 			return err
 		}
 	}
-	_, err := io.WriteString(w, "</body></html>")
+	_, err = io.WriteString(w, "</body></html>")
 	return err
+}
+
+// htmlAttrs returns the attributes of the html element sorted by name,
+// each with a leading space.
+func htmlAttrs(d datapages.DocumentAttrs) (string, error) {
+	if len(d) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	for _, name := range slices.Sorted(maps.Keys(d)) {
+		switch {
+		case !validAttrName(name):
+			return "", fmt.Errorf("%w: %q", ErrDocumentAttrsInvalidName, name)
+		case name == "data-nonce":
+			return "", ErrDocumentAttrsReserved
+		}
+		writeAttr(&b, name, d[name])
+	}
+	return b.String(), nil
+}
+
+// validAttrName reports whether name starts with a lowercase ASCII letter
+// followed by lowercase ASCII letters, digits, '-', '_', '.' and ':'.
+// HTML accepts more, but it compares names without case,
+// which makes "Data-X" and "data-x" 1 attribute written 2 times.
+func validAttrName(name string) bool {
+	if name == "" || name[0] < 'a' || name[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(name); i++ {
+		switch c := name[i]; {
+		case 'a' <= c && c <= 'z', '0' <= c && c <= '9',
+			c == '-', c == '_', c == '.', c == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// writeAttr writes the attribute name="value" with a leading space.
+func writeAttr(b *strings.Builder, name, value string) {
+	b.WriteByte(' ')
+	b.WriteString(name)
+	b.WriteString(`="`)
+	b.WriteString(html.EscapeString(value))
+	b.WriteByte('"')
 }
