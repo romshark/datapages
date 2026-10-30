@@ -347,7 +347,12 @@ func (c *pageCacheWriter) payload() (string, error) {
 	if m.GlobalHeadGenerator != nil {
 		w.Raw("c.s.pageCacheHead(c.r), ")
 	}
-	w.Raw(`nil, body, nil, nil,
+	w.Raw("nil, ")
+	if w.usage.documentAttrs {
+		// PageCacheWriter.Set takes a body only.
+		w.Raw("nil, ")
+	}
+	w.Raw(`body, nil, nil,
 		); err != nil {
 			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
 		}
@@ -546,8 +551,11 @@ func (s *Server) writeHTML(
 	} else {
 		w.Raw(`	`)
 	}
-	w.Raw(`head datapages.Head,
-	body datapages.Component,
+	w.Raw("head datapages.Head,\n")
+	if w.usage.documentAttrs {
+		w.Raw("\tdocAttrs datapages.DocumentAttrs,\n")
+	}
+	w.Raw(`	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -562,6 +570,9 @@ func (s *Server) writeHTML(
 	if m.GlobalHeadGenerator != nil {
 		w.Raw(`		HeadGeneric:     headGeneric,
 `)
+	}
+	if w.usage.documentAttrs {
+		w.Raw("\t\tDocumentAttrs: docAttrs,\n")
 	}
 	if w.usage.stateRuntime {
 		// The wrapper writes to the response writer this closure captures,
@@ -2118,6 +2129,7 @@ func (w *Writer) writeMethodCall(
 			w.Raw("nil")
 		}
 		w.Raw(", ")
+		w.writeDocumentAttrsArg(h)
 		w.writePageCacheBodyArg(h)
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
@@ -2386,6 +2398,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	}
 	w.Raw(headArg)
 	w.Raw(", ")
+	w.writeDocumentAttrsArg(h)
 	if h.InputPageCache != nil {
 		w.Raw("pageCache.embedInto(body)")
 	} else {

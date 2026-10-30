@@ -24,6 +24,7 @@ An app upgraded from v0.10.1 does not compile until templ and Datapages regenera
 - Accept static and request-scoped `StreamConfig` methods on pages with SSE streams. The static form returns `datapages.StreamConfig` during `NewServer`. The request-scoped form returns `(datapages.StreamConfig, error)` per stream and may take the session, path and signals. Both override `datapages.WithSSECompression`. Invalid configurations fail `NewServer` or the stream request. A page or `App` configures the SSE response of an action the same way, with a method named `StreamConfig` plus the action's method name, such as `StreamConfigPOSTSave`.
 - Serve files from generated handlers with `datapages.File`. Any action may return one, and a `GETXXX` action also gets a generated `href` builder. A `GETXXX` action skips the cross-origin and CSRF checks and must not change server state. Applications previously needed custom middleware or a separate `net/http` handler and had to maintain its route and URL by hand.
 - Add a [Toxiproxy](https://github.com/Shopify/toxiproxy) proxy in front of the dev server of `datapages watch`. It applies toxics such as latency, client and server bandwidth limits, data caps, connection resets and HTTP errors on every endpoint or on 1 route pattern. Client bandwidth and data caps apply per browser or per request. A settings page applies and edits the presets of `watch.toxiproxy.presets` and saves them into `datapages.yaml`. Both listen on ports the OS picks unless `watch.toxiproxy.host` and `watch.toxiproxy.ui-host` set them. `datapages lint` reports an override of a route no app has. `watch.toxiproxy.disabled: true` turns the proxy off.
+- Accept a `datapages.DocumentAttrs` return value that sets the attributes of `<html>`, as in `docAttrs datapages.DocumentAttrs`. It maps attribute names to values, as in `datapages.DocumentAttrs{"lang": "en", "data-theme": "dark"}`. A page's `GET` and an action that returns a body may return one. An invalid name or `data-nonce` fails the page with 500. Return the same attributes from every page through a shared function. An action that returns them without a body fails with `action returning datapages.DocumentAttrs must return body datapages.Component`.
 
 #### Generated code
 
@@ -35,6 +36,7 @@ Run `datapages gen` to apply these.
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of 1 release. A `Content-Security-Policy` must allow the inline build script.
 - Add `datapagestest`, an HTTP test client for Datapages apps. It models cookie-sharing visitors and stateful tabs, sends Datastar actions with CSRF tokens, matches or rules out SSE events and parses redirects. Requests and waits have configurable timeouts; in-memory connections support `testing/synctest`.
+- Apply the attributes of the live `<html>` element when a shim written with `PageCacheWriter.SetShim` hydrates. The classes are added to those the page has.
 
 #### `datapages init`
 

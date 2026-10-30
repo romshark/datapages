@@ -43,6 +43,7 @@ If a route comment has a description, separate it from the route with a blank `/
 | ---- | ------ |
 | `datapages.Component` | the body |
 | `datapages.Head` | extra `<head>` content for this page |
+| `datapages.DocumentAttrs` | attributes of the `<html>` element by name |
 | `datapages.Redirect` | `{URL, Status}`, sent instead of the body |
 | `datapages.NewSession[Data]` | opens a session |
 | `datapages.CloseSession` | ends the session |
@@ -118,6 +119,48 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 
 `session` is optional. It applies to every page, so a per-page `head` return value only adds to it.
 
+## The html element
+
+`<html>` gets only the attributes returned by its `GET` handler. They are a `datapages.DocumentAttrs`, which is a `map[string]string`. There are no app-wide defaults.
+
+If every request uses the same attributes, create 1 map and return it from each handler. Datapages only reads the map:
+
+```go
+var documentAttrs = datapages.DocumentAttrs{"lang": "en", "dir": "ltr"}
+
+func (PageIndex) GET(r *http.Request) (
+	body datapages.Component, docAttrs datapages.DocumentAttrs, err error,
+) {
+	return indexPage(), documentAttrs, nil
+}
+```
+
+If the attributes have a few fixed combinations, such as 1 per theme, create those maps once and select the right one in the handler:
+
+```go
+var themeAttrs = map[string]datapages.DocumentAttrs{
+	"light": {"lang": "en", "class": "light"},
+	"dark":  {"lang": "en", "class": "dark"},
+}
+
+func (PageIndex) GET(r *http.Request, session Session) (
+	body datapages.Component, docAttrs datapages.DocumentAttrs, err error,
+) {
+	return indexPage(), themeAttrs[session.Data().Theme], nil
+}
+```
+
+Do not modify a shared map. Handlers run concurrently, so a write causes a data race. Clone the map first:
+
+```go
+	docAttrs = maps.Clone(themeAttrs[session.Data().Theme])
+	docAttrs["lang"] = post.Lang
+```
+
+Create a map per request only when its values depend on the request, such as the visitor's language.
+
+Datapages sorts attributes by name and writes empty values as empty attributes. A name must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, `-`, `_`, `.` or `:`. `data-nonce` is reserved. An invalid name fails the page with 500. Page cache entries do not store attributes. A shim gets the current attributes when it hydrates.
+
 ## Sharing handlers
 
 To share a stream hook or event handler, define it on a stream embed, a type without the `Page` prefix, and embed that type in each page. A stream embed is not a page and has no route. It needs the same `App *App` field. Its handlers run for each page that embeds it.
@@ -140,4 +183,4 @@ type PageChat struct {
 
 A method declared on a page replaces the embedded method only for that page. The replacement can call `p.Base.OnMessageSent(event, sse)` to wrap the embedded method.
 
-<!-- written by datapages sha256:62eed89f072f139f -->
+<!-- written by datapages sha256:ce1395517b08483b -->

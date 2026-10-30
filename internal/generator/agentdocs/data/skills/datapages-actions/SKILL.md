@@ -48,7 +48,7 @@ The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` a
 
 ## Return values
 
-A non-GET action may return only `error`. Other supported return types are `datapages.Component`, `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]`, `datapages.CloseSession` and `datapages.File`. Return values may appear in any order.
+A non-GET action may return only `error`. Other supported return types are `datapages.Component`, `datapages.Head`, `datapages.DocumentAttrs`, `datapages.Redirect`, `datapages.NewSession[Data]`, `datapages.CloseSession` and `datapages.File`. Return values may appear in any order. `datapages.Head` and `datapages.DocumentAttrs` require `datapages.Component`. Datastar morphs a returned body into the open document, including the attributes of `<html>`, so return the same `datapages.DocumentAttrs` as the page's `GET`.
 
 ```go
 ) (redirect datapages.Redirect, err error) {
