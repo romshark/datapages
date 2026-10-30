@@ -1365,6 +1365,48 @@ func TestParse_ErrActionHeadWithoutBody(t *testing.T) {
 	)
 }
 
+// TestParse_DocumentAttrs tests the document attributes GET handlers and actions return.
+// A returned document is matched by type wherever it is in the results.
+func TestParse_DocumentAttrs(t *testing.T) {
+	app, err := parse(t, "document")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+
+	requireDoc := func(h *model.Handler, name string) {
+		t.Helper()
+		require.NotNil(h.OutputDocumentAttrs)
+		require.Equal(model.OutputKindDocumentAttrs, h.OutputDocumentAttrs.Kind)
+		require.Equal(name, h.OutputDocumentAttrs.Name)
+	}
+
+	require.Nil(app.PageIndex.GET.OutputDocumentAttrs)
+	require.Len(app.PageIndex.Actions, 1)
+	requireDoc(app.PageIndex.Actions[0], "docAttrs")
+	require.Len(app.Actions, 1)
+	requireDoc(app.Actions[0], "docAttrs")
+	requireDoc(app.PageError404.GET.Handler, "docAttrs")
+
+	var article *model.Page
+	for _, p := range app.Pages {
+		if p.TypeName == "PageArticle" {
+			article = p
+		}
+	}
+	require.NotNil(article)
+	requireDoc(article.GET.Handler, "d")
+}
+
+// TestParse_ErrActionDocumentAttrsWithoutBody tests an action returning document attributes
+// and no body, and an action returning them 2 times.
+func TestParse_ErrActionDocumentAttrsWithoutBody(t *testing.T) {
+	_, err := parse(t, "err_action_document_no_body")
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureActionDocumentAttrsWithoutBody,
+		parser.ErrSignatureDuplicateOutput,
+	)
+}
+
 // TestParse_ErrEventSubjectDerivedType tests an event field typed as a type
 // declared from datapages.Subject or datapages.SubjectUser, which go/types
 // renders as a plain string and which would therefore drop the segment from
@@ -2812,6 +2854,10 @@ func TestParse_ErrorPositions(t *testing.T) {
 		},
 		"err_head_unsupported": {
 			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},
+		},
+		"err_action_document_no_body": {
+			{parser.ErrSignatureActionDocumentAttrsWithoutBody, "app.go", 22, 18},
+			{parser.ErrSignatureDuplicateOutput, "app.go", 32, 2},
 		},
 		"err_recover_error_no_params": {
 			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},

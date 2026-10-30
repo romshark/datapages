@@ -172,6 +172,7 @@ type Handler struct {
 
 	OutputBody           *TemplComponent // datapages.Component body (actions only)
 	OutputHead           *TemplComponent // datapages.Component head (actions only)
+	OutputDocumentAttrs  *Output         // datapages.DocumentAttrs
 	OutputFile           *Output         // datapages.File (actions only)
 	OutputRedirect       *Output
 	OutputNewSession     *Output
@@ -235,6 +236,7 @@ const (
 const (
 	OutputKindBody           = "body"
 	OutputKindHead           = "head"
+	OutputKindDocumentAttrs  = "docAttrs"
 	OutputKindRedirect       = "redirect"
 	OutputKindNewSession     = "newSession"
 	OutputKindCloseSession   = "closeSession"

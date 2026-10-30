@@ -97,15 +97,6 @@ const buildScript = `(() => {
 // requests with a different ID.
 func (c *Core) BuildID() string { return c.buildID }
 
-// buildHead returns the build meta element followed by the build script
-// opened with scriptOpen. It returns nothing for a server without a build ID.
-func (c *Core) buildHead(scriptOpen string) string {
-	if c.buildID == "" {
-		return ""
-	}
-	return c.htmlBuildMeta + scriptOpen + buildScript + "</script>"
-}
-
 // rejectStaleBuild wraps next. It answers a Datastar request from another build
 // with 205 Reset Content and [datapages.HeaderBuild]. The build script then reloads
 // the page. next doesn't run because its IDs, routes, or signals may differ.
