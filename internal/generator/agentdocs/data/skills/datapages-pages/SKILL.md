@@ -121,24 +121,45 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 
 ## The html element
 
-`<html>` carries only the attributes the handler returns in `datapages.DocumentAttrs`. There is no app-wide default. Return it from every `GET` through a shared function:
+`<html>` gets only the attributes returned by its `GET` handler. They are a `datapages.DocumentAttrs`, which is a `map[string]string`. There are no app-wide defaults.
+
+If every request uses the same attributes, create 1 map and return it from each handler. Datapages only reads the map:
 
 ```go
-func documentAttrs(session Session) datapages.DocumentAttrs {
-	d := session.Data()
-	return datapages.DocumentAttrs{"lang": d.Lang, "dir": d.Dir, "class": d.Theme}
-}
+var documentAttrs = datapages.DocumentAttrs{"lang": "en", "dir": "ltr"}
 
-func (p PagePost) GET(r *http.Request, session Session) (
+func (PageIndex) GET(r *http.Request) (
 	body datapages.Component, docAttrs datapages.DocumentAttrs, err error,
 ) {
-	docAttrs = documentAttrs(session)
-	docAttrs["lang"] = "de"
-	return postPage(), docAttrs, nil
+	return indexPage(), documentAttrs, nil
 }
 ```
 
-`datapages.DocumentAttrs` is a `map[string]string`. The shared function returns a new map on each call, since a page may change it. Attributes are written sorted by name; an empty value writes an empty attribute. A name is lowercase ASCII letters, digits, `-`, `_`, `.` and `:`, starting with a letter, and not `data-nonce`. Another name fails the page with 500. Page cache entries have no attributes; a shim gets the live attributes when it hydrates.
+If the attributes have a few fixed combinations, such as 1 per theme, create those maps once and select the right one in the handler:
+
+```go
+var themeAttrs = map[string]datapages.DocumentAttrs{
+	"light": {"lang": "en", "class": "light"},
+	"dark":  {"lang": "en", "class": "dark"},
+}
+
+func (PageIndex) GET(r *http.Request, session Session) (
+	body datapages.Component, docAttrs datapages.DocumentAttrs, err error,
+) {
+	return indexPage(), themeAttrs[session.Data().Theme], nil
+}
+```
+
+Do not modify a shared map. Handlers run concurrently, so a write causes a data race. Clone the map first:
+
+```go
+	docAttrs = maps.Clone(themeAttrs[session.Data().Theme])
+	docAttrs["lang"] = post.Lang
+```
+
+Create a map per request only when its values depend on the request, such as the visitor's language.
+
+Datapages sorts attributes by name and writes empty values as empty attributes. A name must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, `-`, `_`, `.` or `:`. `data-nonce` is reserved. An invalid name fails the page with 500. Page cache entries do not store attributes. A shim gets the current attributes when it hydrates.
 
 ## Sharing handlers
 
