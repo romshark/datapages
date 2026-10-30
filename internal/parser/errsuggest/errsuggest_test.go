@@ -61,6 +61,12 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `body datapages.Component` to return values, or drop the head",
 		},
 
+		"ErrSignatureActionDocumentAttrsWithoutBody": {
+			err: parser.ErrSignatureActionDocumentAttrsWithoutBody,
+			want: "fix: Add `body datapages.Component` to return values, " +
+				"or drop the document attributes",
+		},
+
 		"ErrBodyWithSSE": {
 			err:  parser.ErrBodyWithSSE,
 			want: "fix: Send the body with sse.PatchElement and drop the body return value",

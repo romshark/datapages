@@ -3716,6 +3716,13 @@ func parseHandler(
 				seenHead = true
 				out.Kind = model.OutputKindHead
 
+			case typecheck.IsDocumentAttrsType(r.Type, info):
+				if h.OutputDocumentAttrs != nil {
+					return h, nil, dup()
+				}
+				out.Kind = model.OutputKindDocumentAttrs
+				h.OutputDocumentAttrs = out
+
 			case typecheck.IsComponent(t.Resolved):
 				if seenBody {
 					return h, nil, dup()
@@ -3775,6 +3782,10 @@ func parseHandler(
 		if h.OutputHead != nil && h.OutputBody == nil {
 			return h, outputs, fmt.Errorf("%w in %s.%s",
 				ErrSignatureActionHeadWithoutBody, recv, fd.Name.Name)
+		}
+		if h.OutputDocumentAttrs != nil && h.OutputBody == nil {
+			return h, outputs, fmt.Errorf("%w in %s.%s",
+				ErrSignatureActionDocumentAttrsWithoutBody, recv, fd.Name.Name)
 		}
 		// The stream has sent its headers by the time the handler returns.
 		// A document written after them lands in the event stream as text.

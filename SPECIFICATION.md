@@ -97,6 +97,7 @@ func (PageIndex) GET(
 ) (
 	body datapages.Component,
 	head datapages.Head, // Optional
+	docAttrs datapages.DocumentAttrs, // Optional
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
 	closeSession datapages.CloseSession, // Optional
@@ -168,6 +169,7 @@ func (PageIndex) POSTActionName(
 ) (
 	body datapages.Component, // Optional
 	head datapages.Head, // Optional, requires body
+	docAttrs datapages.DocumentAttrs, // Optional, requires body
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
 	closeSession datapages.CloseSession, // Optional
@@ -587,8 +589,9 @@ type PageCacheWriter interface {
 	Set(url string, body Component, version uint64)
 
 	// SetShim caches body for url like [Set], but permits the worker to serve it
-	// while online. The worker then fetches the live page and replaces the shim's
-	// head and body through Datastar. Datapages adds the fetch trigger.
+	// while online. The worker then fetches the live page, replaces the shim's
+	// head and body through Datastar and applies the attributes of its html
+	// element. Datapages adds the fetch trigger.
 	// body must not state anything that is only true offline.
 	SetShim(url string, body Component, version uint64)
 
@@ -805,6 +808,20 @@ The [Templ](https://templ.guide/) component for page contents.
 The [Templ](https://templ.guide/) component for the page's `<head>`. `datapages.Head` is a distinct name for `datapages.Component`. Return values are identified by type; names are unrestricted.
 
 An action returning `head` must also return `body`.
+
+#### Return Value: `docAttrs datapages.DocumentAttrs`
+
+```go
+docAttrs datapages.DocumentAttrs
+```
+
+`datapages.DocumentAttrs` is a `map[string]string` of the attributes of the `<html>` element by name. Each entry writes 1 attribute, sorted by name. An entry with an empty value writes an empty attribute. Values are HTML-escaped. With [`WithCSPNonce`](#content-security-policy), `data-nonce` follows them.
+
+A name must match `[a-z][a-z0-9_.:-]*` and must not be `data-nonce`. A name that breaks either rule fails the response with 500 Internal Server Error and a plain-text body, and the server logs the error. `PageError500` is not rendered.
+
+The handler's `docAttrs` is the only source of these attributes. A document whose handler returns no `docAttrs` and a page-cache entry are written with `<html>` without them.
+
+An action returning `docAttrs` must also return `body`.
 
 #### Return Value: `redirect datapages.Redirect`
 
@@ -1207,7 +1224,7 @@ A page whose handler takes `pageCache` sets `Vary: X-Datapages-Offline-Version`.
 
 Serving a navigation works as follows:
 
-- The URL holds a `SetShim` entry: the worker returns it immediately and fetches the live page in parallel. The Datapages trigger requests the URL with `X-Datapages-Shim-Hydrate`. The worker answers with `<head>` and `<body>` Datastar patches from the live response. The head arrives first. If worker termination removes the prefetched response, the worker fetches the page again. A failed offline fetch leaves the shim visible. The shim must not make an offline-only claim.
+- The URL holds a `SetShim` entry: the worker returns it immediately and fetches the live page in parallel. The Datapages trigger requests the URL with `X-Datapages-Shim-Hydrate`. The worker answers with `<head>` and `<body>` Datastar patches from the live response. The head arrives first. When the `<html>` element of the live response has attributes other than `data-nonce`, a third patch appends a script to the body. The script sets them on the `<html>` element of the open document, except `class`, whose classes it adds to those the element has. If worker termination removes the prefetched response, the worker fetches the page again. A failed offline fetch leaves the shim visible. The shim must not make an offline-only claim.
 - Online, no `SetShim` entry: the worker passes the request to the network and returns the live response. A `Set` entry is never served while online.
 - Offline and the URL is cached: the worker returns the stored offline body.
 - Offline and the URL is not cached: the worker returns `PageOffline`. The worker caches this page during installation. Its route comes from the generated `WithOffline` option. Datapages uses a minimal default when the application does not define `PageOffline` or installation could not cache it.

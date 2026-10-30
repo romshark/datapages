@@ -71,6 +71,8 @@ func outputVar(out *model.Output) string {
 		return "body"
 	case model.OutputKindHead:
 		return "head"
+	case model.OutputKindDocumentAttrs:
+		return "docAttrs"
 	case model.OutputKindRedirect:
 		return "redirect"
 	case model.OutputKindNewSession:
@@ -107,6 +109,9 @@ func handlerGETOutputVars(
 	}
 	if get.OutputHead != nil {
 		outs = append(outs, outputVar(get.OutputHead.Output))
+	}
+	if h.OutputDocumentAttrs != nil {
+		outs = append(outs, outputVar(h.OutputDocumentAttrs))
 	}
 	if h.OutputRedirect != nil {
 		outs = append(outs, outputVar(h.OutputRedirect))
@@ -508,6 +513,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	}
 	w.Raw(headArg)
 	w.Raw(", ")
+	w.writeDocumentAttrsArg(h)
 	w.Raw(bodyName)
 	if hasBodyAttrs {
 		w.Raw(", bodyAttrs, ")
@@ -666,6 +672,21 @@ func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 	}
 	w.writeHeadArgs(gh, sessArg)
 	w.Raw(")\n")
+}
+
+// writeDocumentAttrsArg writes the document argument of a writeHTML call, which
+// [Writer.writeAppWriteHTML] declares only when a handler returns a document.
+// Other handlers pass nil.
+func (w *Writer) writeDocumentAttrsArg(h *model.Handler) {
+	if !w.usage.documentAttrs {
+		return
+	}
+	if h.OutputDocumentAttrs != nil {
+		w.Raw(outputVar(h.OutputDocumentAttrs))
+	} else {
+		w.Raw("nil")
+	}
+	w.Raw(", ")
 }
 
 // writeHeadArgs writes the arguments of an App.Head call in the order Head
@@ -1981,6 +2002,7 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw("nil")
 		}
 		w.Raw(", ")
+		w.writeDocumentAttrsArg(h)
 		w.writePageCacheBodyArg(h)
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")

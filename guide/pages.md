@@ -228,6 +228,7 @@ For `/search/?q=lamp&stock=true`, `GET` writes `data-signals:term="'lamp'"` and 
 | ------------ | ------ |
 | `body datapages.Component` | the content of `<body>`, required |
 | `head datapages.Head` | tags added to `<head>`, see [The document head](#the-document-head) |
+| `docAttrs datapages.DocumentAttrs` | attributes of `<html>`, see [The html element](#the-html-element) |
 | `redirect datapages.Redirect` | a redirect sent instead of the page when `URL` is not empty |
 | `newSession datapages.NewSession[Data]` | signs the visitor in, see [Sessions and auth](sessions.md) |
 | `closeSession datapages.CloseSession` | signs the visitor out when `true` |
@@ -291,6 +292,42 @@ templ productHead(p Product) {
 ```
 
 Put a viewport `<meta>` in `App.Head`, because the server writes none. A browser uses the first `<title>` of a document. When pages have their own titles, put the `<title>` in each page's head and not in `App.Head`. `assets.Path` requires [static assets](assets.md).
+
+## The html element
+
+`<html>` carries the attributes from the `docAttrs` that the handler returns. `datapages.DocumentAttrs` maps attribute names to values, such as `lang`, `dir` or the `data-bs-theme` that Bootstrap reads. There is no app-wide default. Every `GET` returns its own.
+
+Datapages only reads the map, which lets a map built once serve every request. Here the attributes take 1 combination per theme. Each is built once, and the handler picks 1 by the visitor's [session](sessions.md):
+
+```go title="app/app.go"
+var themeAttrs = map[string]datapages.DocumentAttrs{
+	"light": {"lang": "en", "data-bs-theme": "light"},
+	"dark":  {"lang": "en", "data-bs-theme": "dark"},
+}
+
+func (p PageProduct) GET(r *http.Request, session Session) (
+	body datapages.Component,
+	docAttrs datapages.DocumentAttrs,
+	err error,
+) {
+	return productPage(), themeAttrs[session.Data().Theme], nil
+}
+```
+
+A theme missing from `themeAttrs` gives a nil map, which writes `<html>` without attributes.
+
+Handlers run concurrently, and a write to a shared map is a data race. A page that changes a value clones the map first:
+
+```go
+	docAttrs = maps.Clone(themeAttrs[session.Data().Theme])
+	docAttrs["lang"] = product.Lang
+```
+
+Build a new map on each request only when a value comes from the request, such as a language the visitor picked.
+
+The attributes are written sorted by name, and an empty value writes an empty attribute. A name is lowercase ASCII letters, digits, `-`, `_`, `.` and `:`, starting with a letter. Another name, or `data-nonce`, fails the page with 500. Datastar reads a `data-*` attribute of `<html>` as it does on any element, so `data-class:dark` binds a class to a signal.
+
+A `GET` that returns no `docAttrs` writes `<html>` without attributes, and so does a page that the [offline cache](offline.md) stores. A shim gets the attributes of the live page when it hydrates.
 
 ## Error and offline pages
 

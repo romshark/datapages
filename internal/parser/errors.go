@@ -48,6 +48,9 @@ var (
 	ErrSignatureActionHeadWithoutBody = errors.New(
 		"action returning a head must return body datapages.Component",
 	)
+	ErrSignatureActionDocumentAttrsWithoutBody = errors.New(
+		"action returning datapages.DocumentAttrs must return body datapages.Component",
+	)
 	ErrSignatureDuplicateOutput = errors.New(
 		"duplicate return value",
 	)

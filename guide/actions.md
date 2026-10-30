@@ -183,13 +183,14 @@ An action may return `error` and the values below. Of these, only `redirect` com
 | `redirect datapages.Redirect` | navigates to `URL` |
 | `body datapages.Component` | answers with a complete HTML document |
 | `head datapages.Head` | adds tags to the head of that document, requires `body` |
+| `docAttrs datapages.DocumentAttrs` | sets the attributes of `<html>` in that document, requires `body` |
 | `newSession datapages.NewSession[Data]` | signs the visitor in |
 | `closeSession datapages.CloseSession` | signs the visitor out when `true` |
 | `datapages.File` | answers with a file, allowed next to `error` only |
 
 `POSTSignOut` above closes the session and redirects to the index page. A Datastar request cannot follow an HTTP redirect. The server answers it with status 200 and a `text/javascript` body, `window.location = "/";`, which Datastar runs. A plain form submission gets an HTTP redirect with `Redirect.Status`, 302 by default. See [Sessions and auth](sessions.md) for `newSession` and `closeSession`.
 
-An action that returns `body` answers with a full document, as a page does. Datastar morphs it into the open document, and a browser shows it after a plain form submission.
+An action that returns `body` answers with a full document, as a page does. Datastar morphs it into the open document, and a browser shows it after a plain form submission. The morph also replaces the attributes of `<html>`. Return the same `docAttrs` as the page's `GET`, or the action removes them.
 
 ### Serve a file
 
