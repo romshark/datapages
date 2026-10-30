@@ -89,7 +89,6 @@ type Core struct {
 	datastarJSSrc       string
 	htmlPrefix          string
 	htmlHead            string
-	htmlHeadRest        string // htmlHead after the html start tag.
 	htmlDatastar        string
 	datastarJSSrcEsc    string
 	cspNonce            func(*http.Request) string
@@ -263,10 +262,10 @@ func (c *Core) Build() {
 		c.htmlBuildMeta = `<meta name="` + buildMetaName + `" content="` +
 			html.EscapeString(c.buildID) + `"/>`
 	}
-	c.htmlHeadRest = htmlHeadStart + c.buildHead("<script>")
-	c.htmlHead = htmlDoctype + "<html>" + c.htmlHeadRest
-	c.htmlDatastar = "\n\t\t" + `<script type="module" src="` +
-		c.datastarJSSrcEsc + `"></script>`
+	// appendHTMLHead fails only on attributes, and there are none.
+	head, _ := c.appendHTMLHead(nil, "", nil)
+	c.htmlHead = string(head)
+	c.htmlDatastar = string(c.appendDatastarScript(nil, ""))
 	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
 	if c.httpServer.ErrorLog == nil {
@@ -427,9 +426,8 @@ func (c *Core) AfterShutdown(f func()) (stop func() bool) {
 	return context.AfterFunc(c.shutdown, f)
 }
 
-// htmlDoctype and htmlHeadStart keep the prologue in pieces so
-// [Core.htmlOpening] can add attributes and a nonce to the html element
-// without duplicating the markup.
+// htmlDoctype and htmlHeadStart are the parts of the prefix
+// [Core.appendHTMLHead] writes around the attributes of the html element.
 const (
 	htmlDoctype   = "<!DOCTYPE html>"
 	htmlHeadStart = `<head><meta charset="UTF-8"/>`
@@ -453,24 +451,6 @@ func (c *Core) ScriptTagOpen(r *http.Request) string {
 		return "<script>"
 	}
 	return `<script nonce="` + nonce + `">`
-}
-
-// htmlOpening returns the document prefix through the build and Datastar scripts.
-// attrs are the attributes of the html element, each with a leading space.
-// It adds r's CSP nonce when configured.
-// Datastar reads the nonce from the html element and compiles its expressions with it.
-func (c *Core) htmlOpening(r *http.Request, attrs string) (head, datastarScript string) {
-	nonce := c.CSPNonce(r)
-	if nonce == "" {
-		if attrs == "" {
-			return c.htmlHead, c.htmlDatastar
-		}
-		return htmlDoctype + "<html" + attrs + ">" + c.htmlHeadRest, c.htmlDatastar
-	}
-	return htmlDoctype + `<html` + attrs + ` data-nonce="` + nonce + `">` + htmlHeadStart +
-			c.buildHead(`<script nonce="`+nonce+`">`),
-		"\n\t\t" + `<script type="module" nonce="` + nonce + `" src="` +
-			c.datastarJSSrcEsc + `"></script>`
 }
 
 // HTMLPrefix is the head of a page up to the Datastar script tag.

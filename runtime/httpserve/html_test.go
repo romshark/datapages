@@ -3,6 +3,7 @@ package httpserve_test
 import (
 	"context"
 	"errors"
+	"html"
 	"io"
 	"math"
 	"net/http"
@@ -218,6 +219,63 @@ func TestWriteHTMLDocumentAttrsInvalid(t *testing.T) {
 			require.Equal(t, "Internal Server Error\n", w.Body.String())
 		})
 	}
+}
+
+// TestWriteHTMLAllocs tests that a warm WriteHTML allocates nothing for its frame,
+// with and without document attributes, a CSP nonce and a prologue.
+func TestWriteHTMLAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector makes sync.Pool drop values")
+	}
+	attrs := datapages.DocumentAttrs{"lang": "en", "class": `a"<b`, "data-theme": "dark"}
+	prologue := func(io.Writer) error { return nil }
+	for name, tc := range map[string]struct {
+		nonce bool
+		doc   httpserve.HTMLDocument
+	}{
+		"plain":       {},
+		"prologue":    {doc: httpserve.HTMLDocument{WriteHeadPrologue: prologue}},
+		"attrs":       {doc: httpserve.HTMLDocument{DocumentAttrs: attrs}},
+		"nonce":       {nonce: true},
+		"attrs nonce": {nonce: true, doc: httpserve.HTMLDocument{DocumentAttrs: attrs}},
+		"attrs prologue": {doc: httpserve.HTMLDocument{
+			DocumentAttrs: attrs, WriteHeadPrologue: prologue,
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := datapages.ServerConfig{DatastarJS: "/ds.js", BuildID: "1"}
+			if tc.nonce {
+				cfg.CSPNonce = func(*http.Request) string { return "n0nce" }
+			}
+			c := mustCore(t, cfg, "")
+			c.Build()
+			w := discardRW{h: http.Header{}}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			allocs := testing.AllocsPerRun(100, func() {
+				_ = c.WriteHTML(w, r, tc.doc)
+			})
+			require.Zero(t, allocs)
+		})
+	}
+}
+
+// FuzzWriteHTMLDocumentAttrsEscaping tests that an attribute value is escaped
+// as [html.EscapeString] escapes it.
+func FuzzWriteHTMLDocumentAttrsEscaping(f *testing.F) {
+	for _, s := range []string{"", "plain", `a"><script>x`, "&amp;", "'\"<>&", "ä\x00\xff"} {
+		f.Add(s)
+	}
+	c, err := httpserve.NewCore(datapages.ServerConfig{DatastarJS: "/ds.js"}, "")
+	require.NoError(f, err)
+	c.Build()
+	f.Fuzz(func(t *testing.T, v string) {
+		w := httptest.NewRecorder()
+		err := c.WriteHTML(w, httptest.NewRequest(http.MethodGet, "/", nil),
+			httpserve.HTMLDocument{DocumentAttrs: datapages.DocumentAttrs{"title": v}})
+		require.NoError(t, err)
+		want := `<!DOCTYPE html><html title="` + html.EscapeString(v) + `"><head>`
+		require.True(t, strings.HasPrefix(w.Body.String(), want), w.Body.String())
+	})
 }
 
 // TestWriteHTMLDocumentAttrsCSPNonce tests that the nonce follows the attributes
@@ -508,6 +566,45 @@ func TestWriteHTMLCSPNonce(t *testing.T) {
 			}
 			require.Equal(t, tc.wantTag,
 				c.ScriptTagOpen(httptest.NewRequest(http.MethodGet, "/", nil)))
+		})
+	}
+}
+
+// BenchmarkWriteHTML measures the document frame around a small body:
+// the prebuilt prefix, document attributes and a CSP nonce.
+func BenchmarkWriteHTML(b *testing.B) {
+	attrs := datapages.DocumentAttrs{
+		"lang": "en", "dir": "ltr", "class": "dark", "data-theme": "dark", "translate": "no",
+	}
+	for name, tc := range map[string]struct {
+		nonce func(*http.Request) string
+		doc   httpserve.HTMLDocument
+	}{
+		"plain": {},
+		"attrs": {doc: httpserve.HTMLDocument{DocumentAttrs: attrs}},
+		"nonce": {nonce: func(*http.Request) string { return "r4nd0m" }},
+		"attrs nonce": {
+			nonce: func(*http.Request) string { return "r4nd0m" },
+			doc:   httpserve.HTMLDocument{DocumentAttrs: attrs},
+		},
+		"attrs prologue": {doc: httpserve.HTMLDocument{
+			DocumentAttrs:     attrs,
+			WriteHeadPrologue: func(io.Writer) error { return nil },
+		}},
+	} {
+		b.Run(name, func(b *testing.B) {
+			c, err := httpserve.NewCore(datapages.ServerConfig{
+				DatastarJS: "/ds.js", BuildID: "1", CSPNonce: tc.nonce,
+			}, "")
+			require.NoError(b, err)
+			c.Build()
+			w := discardRW{h: http.Header{}}
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			tc.doc.Body = renderer{s: "<p>b</p>"}
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = c.WriteHTML(w, r, tc.doc)
+			}
 		})
 	}
 }
