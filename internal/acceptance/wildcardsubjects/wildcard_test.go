@@ -43,7 +43,7 @@ func TestWildcardSubjectDelivery(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		tab := serve(t, broker).Visitor(t).Load(t, "/")
-		st := tab.Connect(t)
+		st := tab.Connect(t, nil)
 
 		resp := postNote(t, tab, "anything", "delivered")
 		require.Equal(t, http.StatusOK, resp.Status, "POST /note/")
@@ -58,7 +58,7 @@ func TestSecondValueReachesTheSameStream(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		tab := serve(t, broker).Visitor(t).Load(t, "/")
-		st := tab.Connect(t)
+		st := tab.Connect(t, nil)
 
 		for _, topic := range []string{"one", "two"} {
 			resp := postNote(t, tab, topic, "from-"+topic)
@@ -88,7 +88,7 @@ func TestSubjectValueIsEscaped(t *testing.T) {
 		for name, topic := range values {
 			t.Run(name, func(t *testing.T) {
 				tab := serve(t, broker).Visitor(t).Load(t, "/")
-				st := tab.Connect(t)
+				st := tab.Connect(t, nil)
 
 				resp := postNote(t, tab, topic, "kept")
 				require.Equal(t, http.StatusOK, resp.Status,
@@ -106,7 +106,7 @@ func TestSubjectValueMustNotBeEmpty(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		tab := serve(t, broker).Visitor(t).Load(t, "/")
-		st := tab.Connect(t)
+		st := tab.Connect(t, nil)
 
 		resp := postNote(t, tab, "", "lost")
 		require.Equal(t, http.StatusInternalServerError, resp.Status,

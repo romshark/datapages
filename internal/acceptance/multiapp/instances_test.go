@@ -72,9 +72,9 @@ func TestOneInstanceDoesNotReachAnother(t *testing.T) {
 	a, b := all["frontend A"], all["frontend B"]
 
 	tabA := a.Load(t, "/")
-	streamA := tabA.Connect(t)
+	streamA := tabA.Connect(t, nil)
 	tabB := b.Load(t, "/")
-	streamB := tabB.Connect(t)
+	streamB := tabB.Connect(t, nil)
 
 	tabA.Do(t, http.MethodPost, "/notice/", text("first")).
 		RequireStatus(t, http.StatusOK)

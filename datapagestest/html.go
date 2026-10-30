@@ -3,7 +3,6 @@ package datapagestest
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -17,8 +16,8 @@ func parseHTML(markup string) *html.Node {
 }
 
 // ElementByID returns the first element with id under root, including root itself.
-// Use it on the nodes of [Event.Root], such as in a [Func] matcher,
-// and [Tab.Get] with [ID] on a page.
+// Use it on the nodes of [Event.Root], such as in a [Func] matcher. [Response.Get]
+// and [Event.Get] with [ID] fail on a missing or duplicate id.
 func ElementByID(root *html.Node, id string) *html.Node {
 	if hasID(root, id) {
 		return root
@@ -71,51 +70,35 @@ func Attr(n *html.Node, key string) (string, bool) {
 // Expressions requiring a browser fail the test.
 func (r *Response) Signals(t testing.TB) map[string]any {
 	t.Helper()
-	m, err := decodeSignals(r.Document())
-	if err != nil {
-		t.Fatalf("%s: %v", r.desc, err)
-	}
-	return m
-}
-
-// decodeSignals decodes the data-signals attributes under root in document order.
-func decodeSignals(root *html.Node) (map[string]any, error) {
 	out := map[string]any{}
-	for n := range root.Descendants() {
+	for n := range r.Document().Descendants() {
 		if n.Type != html.ElementNode {
 			continue
 		}
 		for _, a := range n.Attr {
-			if err := applySignalAttr(out, a); err != nil {
-				return nil, err
+			key, ok := strings.CutPrefix(a.Key, "data-signals")
+			if !ok || (key != "" && key[0] != ':' && !strings.HasPrefix(key, "__")) {
+				continue
 			}
+			name, mods := splitModifiers(strings.TrimPrefix(key, ":"))
+			ifMissing := mods["ifmissing"] != nil
+			if name == "" {
+				var m map[string]any
+				if err := json.Unmarshal([]byte(a.Val), &m); err != nil {
+					t.Fatalf("%s: %s=%q is not a JSON object: %v",
+						r.desc, a.Key, a.Val, err)
+				}
+				mergeSignals(out, m, ifMissing)
+				continue
+			}
+			v, err := literal(a.Val)
+			if err != nil {
+				t.Fatalf("%s: %s=%q: %v", r.desc, a.Key, a.Val, err)
+			}
+			setSignal(out, convertCase(name, mods["case"]), v, ifMissing)
 		}
 	}
-	return out, nil
-}
-
-// applySignalAttr applies a to out if a is a data-signals attribute.
-func applySignalAttr(out map[string]any, a html.Attribute) error {
-	key, ok := strings.CutPrefix(a.Key, "data-signals")
-	if !ok || (key != "" && key[0] != ':' && !strings.HasPrefix(key, "__")) {
-		return nil
-	}
-	name, mods := splitModifiers(strings.TrimPrefix(key, ":"))
-	ifMissing := mods["ifmissing"] != nil
-	if name == "" {
-		var m map[string]any
-		if err := json.Unmarshal([]byte(a.Val), &m); err != nil {
-			return fmt.Errorf("%s=%q is not a JSON object: %v", a.Key, a.Val, err)
-		}
-		mergeSignals(out, m, ifMissing)
-		return nil
-	}
-	v, err := literal(a.Val)
-	if err != nil {
-		return fmt.Errorf("%s=%q: %v", a.Key, a.Val, err)
-	}
-	setSignal(out, convertCase(name, mods["case"]), v, ifMissing)
-	return nil
+	return out
 }
 
 // PublicSignals filters [Response.Signals] as Datastar does by default. It removes
@@ -125,7 +108,22 @@ func (r *Response) PublicSignals(t testing.TB) map[string]any {
 	return publicSignals(r.Signals(t))
 }
 
-func publicSignals(m map[string]any) map[string]any { return signalFilter{}.apply(m) }
+func publicSignals(m map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		if obj, ok := v.(map[string]any); ok {
+			if obj = publicSignals(obj); len(obj) == 0 {
+				continue
+			}
+			v = obj
+		}
+		out[k] = v
+	}
+	return out
+}
 
 // splitModifiers separates a Datastar attribute name from its modifiers and tags.
 func splitModifiers(key string) (string, map[string][]string) {

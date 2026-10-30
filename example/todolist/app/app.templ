@@ -59,9 +59,10 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				data-indicator:_filtering
 				data-on:change={ action.PageIndex.Filter.POST() }
 			>
-				<option value="all">All</option>
-				<option value="done">Done</option>
-				<option value="pending">Pending</option>
+				// selected shows the value before Datastar binds the signal.
+				<option value="all" selected?={ filter == "all" }>All</option>
+				<option value="done" selected?={ filter == "done" }>Done</option>
+				<option value="pending" selected?={ filter == "pending" }>Pending</option>
 			</select>
 			<select
 				aria-label="Sort by"
@@ -69,9 +70,9 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				data-indicator:_sorting
 				data-on:change={ action.PageIndex.Filter.POST() }
 			>
-				<option value="alpha">Alphabetical</option>
-				<option value="created">Created</option>
-				<option value="due">Due Date</option>
+				<option value="alpha" selected?={ sortMode == "alpha" }>Alphabetical</option>
+				<option value="created" selected?={ sortMode == "created" }>Created</option>
+				<option value="due" selected?={ sortMode == "due" }>Due Date</option>
 			</select>
 			<button class="btn-primary" data-on:click="$showModal=true">
 				+ New Todo
@@ -192,20 +193,20 @@ templ pageItem(todo list.Item) {
 		</a>
 		@itemTitle(todo)
 		<div class="form">
-			<label for="item-title" data-class:saving="$_savingTitle">Title</label>
+			<label for="edit-title" data-class:saving="$_savingTitle">Title</label>
 			<input
-				id="item-title"
+				id="edit-title"
 				type="text"
 				data-bind="title"
 				data-indicator:_saving-title
 				data-on:input__debounce.200ms={ action.PageItem.Edit.PUT(todo.ID) }
 			/>
 			<label
-				for="item-description"
+				for="edit-description"
 				data-class:saving="$_savingDescription"
 			>Description</label>
 			<textarea
-				id="item-description"
+				id="edit-description"
 				data-bind="description"
 				data-indicator:_saving-description
 				data-on:input__debounce.200ms={ action.PageItem.Edit.PUT(todo.ID) }
@@ -221,9 +222,9 @@ templ pageItem(todo list.Item) {
 				</span>
 				Done
 			</label>
-			<label for="item-due" data-class:saving="$_savingDue">Due Date</label>
+			<label for="edit-due" data-class:saving="$_savingDue">Due Date</label>
 			<input
-				id="item-due"
+				id="edit-due"
 				type="datetime-local"
 				data-bind="due"
 				data-indicator:_saving-due

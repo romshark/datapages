@@ -70,8 +70,8 @@ func TestPublicEventReachesEveryStream(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		v := serve(t, broker).Visitor(t)
 
-		a := v.Load(t, "/").Connect(t)
-		b := v.Load(t, "/").Connect(t)
+		a := v.Load(t, "/").Connect(t, nil)
+		b := v.Load(t, "/").Connect(t, nil)
 
 		v.Load(t, "/").Do(t, http.MethodPost, "/tick/", tick(7)).
 			RequireStatus(t, http.StatusOK)
@@ -92,7 +92,7 @@ func TestStreamHooks(t *testing.T) {
 		srv := serve(t, broker)
 		v := srv.Visitor(t)
 
-		s := v.Load(t, "/").Connect(t)
+		s := v.Load(t, "/").Connect(t, nil)
 		id := openedID(t, srv, v)
 
 		s.Close()
@@ -113,7 +113,7 @@ func TestStreamCloseRunsAfterTheEventHandlers(t *testing.T) {
 		v := srv.Visitor(t)
 
 		index := v.Load(t, "/")
-		s := index.Connect(t)
+		s := index.Connect(t, nil)
 		id := openedID(t, srv, v)
 
 		// Hold the first tick in its handler and queue 3 behind it.
@@ -149,7 +149,7 @@ func TestStreamIDReachesEventHandler(t *testing.T) {
 		v := srv.Visitor(t)
 
 		index := v.Load(t, "/")
-		s := index.Connect(t)
+		s := index.Connect(t, nil)
 		id := openedID(t, srv, v)
 
 		index.Do(t, http.MethodPost, "/tick/", tick(3)).RequireStatus(t, http.StatusOK)
@@ -167,7 +167,7 @@ func TestEmbeddedHandler(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		v := serve(t, broker).Visitor(t)
 
-		other := v.Load(t, "/other/").Connect(t)
+		other := v.Load(t, "/other/").Connect(t, nil)
 		v.Load(t, "/").Do(t, http.MethodPost, "/tick/", tick(1)).
 			RequireStatus(t, http.StatusOK)
 
@@ -184,7 +184,7 @@ func Test2Dispatchers(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		index := v.Load(t, "/")
-		s := index.Connect(t)
+		s := index.Connect(t, nil)
 
 		index.Do(t, http.MethodPost, "/both/", tick(3)).RequireStatus(t, http.StatusOK)
 
@@ -274,8 +274,8 @@ func TestStreamCloseDispatches(t *testing.T) {
 	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
 	v := serve(t, broker).Visitor(t)
 
-	watcher := v.Load(t, "/").Connect(t)
-	leaving := v.Load(t, "/").Connect(t)
+	watcher := v.Load(t, "/").Connect(t, nil)
+	leaving := v.Load(t, "/").Connect(t, nil)
 
 	leaving.Close()
 
@@ -289,7 +289,7 @@ func TestEventDecodeIsNotCarriedOver(t *testing.T) {
 	v := serve(t, inmem.New(messaging.DefaultBrokerChanBuffer)).Visitor(t)
 
 	index := v.Load(t, "/")
-	s := index.Connect(t)
+	s := index.Connect(t, nil)
 
 	index.Do(t, http.MethodPost, "/note/", map[string]string{"text": "first"}).
 		RequireStatus(t, http.StatusOK)
@@ -312,7 +312,7 @@ func TestDispatchCtx(t *testing.T) {
 	v := serve(t, broker).Visitor(t)
 
 	index := v.Load(t, "/")
-	s := index.Connect(t)
+	s := index.Connect(t, nil)
 
 	index.Do(t, http.MethodPost, "/tick/", tick(1)).RequireStatus(t, http.StatusOK)
 	s.WaitFor(t, datapagestest.TextContains("out", "tick 1"))
@@ -352,8 +352,8 @@ func TestSubjectScoping(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		redTab := v.Load(t, "/room/")
-		red := connect(t, redTab, room("red"))
-		blue := connect(t, v.Load(t, "/room/"), room("blue"))
+		red := redTab.Connect(t, room("red"))
+		blue := v.Load(t, "/room/").Connect(t, room("blue"))
 
 		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "hello red")).
 			RequireStatus(t, http.StatusOK)
@@ -384,8 +384,8 @@ func TestNestedSignalScoping(t *testing.T) {
 			Text string `json:"text"`
 		}
 		chatA := v.Load(t, "/chat/")
-		threadA := connect(t, chatA, map[string]chat{"chat": {Room: "red", Thread: "a"}})
-		threadB := connect(t, v.Load(t, "/chat/"),
+		threadA := chatA.Connect(t, map[string]chat{"chat": {Room: "red", Thread: "a"}})
+		threadB := v.Load(t, "/chat/").Connect(t,
 			map[string]chat{"chat": {Room: "red", Thread: "b"}})
 
 		chatA.Do(t, http.MethodPost, "/chat/say/",
@@ -412,7 +412,7 @@ func Test1CopyPerStream(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		redTab := v.Load(t, "/room/")
-		red := connect(t, redTab, room("red"))
+		red := redTab.Connect(t, room("red"))
 
 		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "once")).
 			RequireStatus(t, http.StatusOK)
@@ -435,9 +435,9 @@ func TestSubjectFanout(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		redTab := v.Load(t, "/room/")
-		red := connect(t, redTab, room("red"))
-		blue := connect(t, v.Load(t, "/room/"), room("blue"))
-		green := connect(t, v.Load(t, "/room/"), room("green"))
+		red := redTab.Connect(t, room("red"))
+		blue := v.Load(t, "/room/").Connect(t, room("blue"))
+		green := v.Load(t, "/room/").Connect(t, room("green"))
 
 		broadcast := func(text string, rooms ...string) {
 			redTab.Do(t, http.MethodPost, "/room/broadcast/", map[string]any{
@@ -482,7 +482,7 @@ func TestStreamOpenRefuses(t *testing.T) {
 		}
 
 		// The server keeps serving streams that are not refused.
-		s := index.Connect(t)
+		s := index.Connect(t, nil)
 		index.Do(t, http.MethodPost, "/tick/", tick(9)).RequireStatus(t, http.StatusOK)
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 9"))
 	})
@@ -513,7 +513,7 @@ func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 		}
 
 		// The panic did not take the server down.
-		s := index.Connect(t)
+		s := index.Connect(t, nil)
 		index.Do(t, http.MethodPost, "/tick/", tick(7)).RequireStatus(t, http.StatusOK)
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 	})
@@ -552,8 +552,8 @@ func TestSubjectSignalEscaped(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		starTab := v.Load(t, "/room/")
-		star := connect(t, starTab, room("*"))
-		red := connect(t, v.Load(t, "/room/"), room("red"))
+		star := starTab.Connect(t, room("*"))
+		red := v.Load(t, "/room/").Connect(t, room("red"))
 
 		starTab.Do(t, http.MethodPost, "/room/say/", say("red", "hello red")).
 			RequireStatus(t, http.StatusOK)
@@ -878,9 +878,9 @@ func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
 		srv := serve(t, broker)
 		v := srv.Visitor(t)
 
-		panicking := v.Load(t, "/panic-on-close/").Connect(t)
+		panicking := v.Load(t, "/panic-on-close/").Connect(t, nil)
 		index := v.Load(t, "/")
-		survivor := index.Connect(t)
+		survivor := index.Connect(t, nil)
 
 		// Disconnecting is what runs StreamClose. It records before it panics.
 		panicking.Close()
@@ -906,22 +906,11 @@ func TestStreamClosePanicIsReported(t *testing.T) {
 		srv := serve(t, broker)
 		v := srv.Visitor(t)
 
-		s := v.Load(t, "/panic-on-close/").Connect(t)
+		s := v.Load(t, "/panic-on-close/").Connect(t, nil)
 		s.Close()
 
 		srv.WaitFor(t, "StreamClose to run", func() bool {
 			return strings.Contains(logOf(t, v), "streamclose(")
 		})
 	})
-}
-
-// connect sets signals on tab and opens its stream.
-func connect[V any](
-	t *testing.T, tab *datapagestest.Tab, signals map[string]V,
-) *datapagestest.Stream {
-	t.Helper()
-	for k, v := range signals {
-		tab.SetSignal(t, k, v)
-	}
-	return tab.Connect(t)
 }

@@ -300,8 +300,7 @@ func TestConnect(t *testing.T) {
 	})
 	// Accept a doc-comment route without its trailing slash and with a query.
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p?x=1")
-	tab.SetSignal(t, "q", "x")
-	st := tab.Connect(t)
+	st := tab.Connect(t, map[string]string{"q": "x"})
 	require.Equal(t, "/p/_$/", st.Path())
 	ev := st.WaitFor(t, datapagestest.Patched("a"))
 	require.Equal(t, "connected", ev.Get(t, datapagestest.ID("a")).Text())
@@ -321,7 +320,7 @@ func TestConnectRedirects(t *testing.T) {
 	})
 	v := datapagestest.New(t, mux).Visitor(t)
 
-	st := v.Load(t, "/room/").Connect(t)
+	st := v.Load(t, "/room/").Connect(t, nil)
 	st.WaitFor(t, datapagestest.TextContains("a", "anonymous"))
 	require.Equal(t, "/room/_$/anon/", st.Path())
 	st.Close()
@@ -329,7 +328,7 @@ func TestConnectRedirects(t *testing.T) {
 	require.True(t, strings.HasPrefix(msg, "GET /room/_$/ -> /room/_$/anon/: "), msg)
 
 	tab := v.Load(t, "/moved/")
-	msg = failure(t, func(tb testing.TB) { tab.Connect(tb) })
+	msg = failure(t, func(tb testing.TB) { tab.Connect(tb, nil) })
 	require.Contains(t, msg, "302 Found")
 }
 
@@ -338,7 +337,7 @@ func TestConnectRefusesPage(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("GET /p/", page(`<p>page</p>`, ""))
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/")
-	msg := failure(t, func(tb testing.TB) { tab.Connect(tb) })
+	msg := failure(t, func(tb testing.TB) { tab.Connect(tb, nil) })
 	require.Contains(t, msg, `"text/html; charset=utf-8", want 200 text/event-stream`)
 }
 
@@ -350,7 +349,7 @@ func TestWaitForCursor(t *testing.T) {
 		mux.Handle("GET /p/_$/", stream(patch(`<p id="a">1</p>`)+patch(`<p id="b">2</p>`)+
 			patch(`<p id="a">3</p>`), false))
 		srv := datapagestest.New(t, mux, datapagestest.WithTimeout(100*time.Millisecond))
-		st := srv.Visitor(t).Load(t, "/p/").Connect(t)
+		st := srv.Visitor(t).Load(t, "/p/").Connect(t, nil)
 
 		first := st.WaitFor(t, datapagestest.Patched("a"))
 		require.Equal(t, "1", first.Get(t, datapagestest.ID("a")).Text())
@@ -373,7 +372,7 @@ func TestWaitForEndedStream(t *testing.T) {
 	mux.Handle("GET /p/", page(`<p>page</p>`, ""))
 	mux.Handle("GET /p/_$/", stream(patch(`<p id="a">1</p>`), true))
 	srv := datapagestest.New(t, mux, datapagestest.WithTimeout(time.Minute))
-	st := srv.Visitor(t).Load(t, "/p/").Connect(t)
+	st := srv.Visitor(t).Load(t, "/p/").Connect(t, nil)
 
 	start := time.Now()
 	msg := failure(t, func(tb testing.TB) { st.WaitFor(tb, datapagestest.Patched("b")) })
@@ -409,7 +408,7 @@ func TestAbsent(t *testing.T) {
 				mux.Handle("GET /p/_$/", stream(tt.body, false))
 				srv := datapagestest.New(t, mux,
 					datapagestest.WithTimeout(100*time.Millisecond))
-				st := srv.Visitor(t).Load(t, "/p/").Connect(t)
+				st := srv.Visitor(t).Load(t, "/p/").Connect(t, nil)
 				msg := failure(t, func(tb testing.TB) {
 					st.Absent(tb, datapagestest.Patched("secret"),
 						datapagestest.Patched("anchor"))
@@ -434,15 +433,14 @@ func TestWaitMessage(t *testing.T) {
 		srv := datapagestest.New(t, mux, datapagestest.WithTimeout(50*time.Millisecond))
 		tab := srv.Visitor(t).Load(t, "/p/")
 
-		tab.SetSignal(t, "room", "red")
-		st := tab.Connect(t)
+		st := tab.Connect(t, map[string]string{"room": "red"})
 		msg := failure(t, func(tb testing.TB) {
 			st.WaitFor(tb, datapagestest.Patched("c"), "stream %d", 2)
 		})
 		require.True(t, strings.HasPrefix(msg, `stream 2: GET /p/_$/ with signals {"room":"red"}: `+
 			`waited 50ms for an element with id "c"`), msg)
 
-		st = srv.Visitor(t).Load(t, "/p/").Connect(t)
+		st = tab.Connect(t, nil)
 		msg = failure(t, func(tb testing.TB) {
 			st.Absent(tb,
 				datapagestest.Patched("a"),
@@ -464,12 +462,12 @@ func TestWaitEnd(t *testing.T) {
 		srv := datapagestest.New(t, mux, datapagestest.WithTimeout(100*time.Millisecond))
 		v := srv.Visitor(t)
 
-		ends := v.Load(t, "/ends/").Connect(t)
+		ends := v.Load(t, "/ends/").Connect(t, nil)
 		ends.WaitEnd(t)
 		require.True(t, ends.Ended())
 		ends.WaitFor(t, datapagestest.Patched("a"))
 
-		open := v.Load(t, "/open/").Connect(t)
+		open := v.Load(t, "/open/").Connect(t, nil)
 		msg := failure(t, func(tb testing.TB) { open.WaitEnd(tb, "the open stream") })
 		require.True(t, strings.HasPrefix(msg, "the open stream: GET /open/_$/: "+
 			"waited 100ms for the server to end the stream; 1 event arrived:"), msg)
@@ -489,7 +487,7 @@ func TestCloseAfterServerEnd(t *testing.T) {
 	mux.Handle("GET /p/", page(`<p>page</p>`, ""))
 	mux.Handle("GET /p/_$/", stream(patch(`<p id="a">1</p>`), true))
 	srv := datapagestest.New(t, mux)
-	st := srv.Visitor(t).Load(t, "/p/").Connect(t)
+	st := srv.Visitor(t).Load(t, "/p/").Connect(t, nil)
 	srv.WaitFor(t, "the server to end the stream", st.Ended)
 
 	st.Close()
@@ -531,7 +529,7 @@ func TestConnectTimeout(t *testing.T) {
 		srv := datapagestest.New(t, mux, datapagestest.WithTimeout(time.Minute))
 		tab := srv.Visitor(t).Load(t, "/p/")
 
-		msg := failure(t, func(tb testing.TB) { tab.Connect(tb) })
+		msg := failure(t, func(tb testing.TB) { tab.Connect(tb, nil) })
 		require.Equal(t, "GET /p/_$/: no response header within 1m0s", msg)
 	})
 }
@@ -603,7 +601,7 @@ func TestSignalPatch(t *testing.T) {
 		"event: datastar-patch-signals\ndata: signals {\"draft\":null,\"n\":2}\n\n\n",
 		false,
 	))
-	st := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/").Connect(t)
+	st := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/").Connect(t, nil)
 
 	signals := st.WaitFor(t, datapagestest.Signal("draft")).Signals(t)
 	require.JSONEq(t, "null", string(signals["draft"]))
@@ -951,7 +949,7 @@ func TestSynctestBubble(t *testing.T) {
 			<-r.Context().Done()
 		})
 		srv := datapagestest.New(t, mux, datapagestest.WithTimeout(2*time.Hour))
-		st := srv.Visitor(t).Load(t, "/p/").Connect(t)
+		st := srv.Visitor(t).Load(t, "/p/").Connect(t, nil)
 
 		start := time.Now()
 		st.WaitFor(t, datapagestest.TextContains("a", "first"))

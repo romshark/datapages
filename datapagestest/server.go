@@ -182,9 +182,8 @@ func (v *Visitor) Load(t testing.TB, path string) *Tab {
 	}
 	return &Tab{
 		v:        v,
-		resp:     page,
+		page:     page,
 		path:     p,
-		url:      path,
 		instance: page.Instance(),
 		csrf:     csrfToken(page.Body),
 	}
@@ -273,26 +272,19 @@ func (v *Visitor) Client() *http.Client {
 	return &c
 }
 
-// Tab represents one page load. It keeps the page as a browser would, which is
-// the loaded document with the events of its streams and action responses applied,
-// and the page's signals. It also keeps the Datapages instance and the CSRF token.
+// Tab represents one page load. It retains the response,
+// Datapages instance and CSRF token, and can send actions or open a stream.
 // Reload a guest tab after sign-in unless an action response supplies a token.
 type Tab struct {
 	v        *Visitor
-	resp     *Response
+	page     *Response
 	path     string // the page's path with a trailing slash and no query
-	url      string // the loaded path and query, which links resolve against
 	instance string
 	csrf     string
-
-	live     *page // nil until first used
-	streams  []*tabStream
-	err      error    // the first event the tab could not apply
-	warnings []string // the patches Datastar skips
 }
 
-// Page is the response the tab was loaded with. Events do not change it.
-func (tb *Tab) Page() *Response { return tb.resp }
+// Page is the response the tab was loaded with.
+func (tb *Tab) Page() *Response { return tb.page }
 
 // Instance is the Datapages-Instance header of the page load,
 // "" for a page without per-tab state.
@@ -320,29 +312,35 @@ func (tb *Tab) NewRequest(
 	return req
 }
 
-// Do sends a Datastar action with signals instead of the tab's and applies a
-// successful response to the tab. JSON signals go in the datastar query parameter
-// for GET and DELETE, and in the body otherwise. Nil sends "{}"; [json.RawMessage]
-// is unchanged. Use [Tab.Click] to send the action an element calls
-// with the tab's signals.
+// Do sends a Datastar action. JSON signals go in the datastar query parameter for GET
+// and DELETE, and in the body otherwise. Nil sends "{}"; [json.RawMessage] is unchanged.
 func (tb *Tab) Do(t testing.TB, method, path string, signals any) *Response {
 	t.Helper()
-	resp := tb.sendJSON(t, method, path, encodeSignals(t, signals), nil)
-	tb.applyResponse(resp)
-	return resp
+	enc := encodeSignals(t, signals)
+	if queryCarries(method) {
+		req := tb.NewRequest(t, method,
+			withQuery(t, path, url.Values{"datastar": {enc}}), nil)
+		return tb.send(t, req)
+	}
+	req := tb.NewRequest(t, method, path, strings.NewReader(enc))
+	req.Header.Set("Content-Type", "application/json")
+	return tb.send(t, req)
 }
 
-// DoForm sends a form action and applies a successful response to the tab.
-// Fields go in the query for GET and DELETE, and in a URL-encoded body otherwise.
+// DoForm sends a form action. Fields go in the query for GET and DELETE,
+// and in a URL-encoded body otherwise.
 func (tb *Tab) DoForm(t testing.TB, method, path string, form url.Values) *Response {
 	t.Helper()
-	resp := tb.sendForm(t, method, path, form, nil)
-	tb.applyResponse(resp)
-	return resp
+	if queryCarries(method) {
+		return tb.send(t, tb.NewRequest(t, method, withQuery(t, path, form), nil))
+	}
+	req := tb.NewRequest(t, method, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return tb.send(t, req)
 }
 
-// request records any CSRF token returned by the action.
-func (tb *Tab) request(t testing.TB, req *http.Request) *Response {
+// send records any CSRF token returned by the action.
+func (tb *Tab) send(t testing.TB, req *http.Request) *Response {
 	t.Helper()
 	resp := tb.v.Send(t, req)
 	if token := csrfToken(resp.Body); token != "" {
@@ -427,32 +425,25 @@ func (r *Response) Document() *html.Node {
 	return r.doc
 }
 
-// page returns the document with its signals, without the events of a tab.
-func (r *Response) page() *page {
-	if r.pg == nil {
-		// A copy, since rendering changes the document Document returns.
-		r.pg = &page{doc: parseHTML(r.Body)}
-		if r.pg.signals, r.pg.sigErr = decodeSignals(r.pg.doc); r.pg.signals != nil {
-			r.pg.bindDefaults(r.pg.doc)
-		}
-		r.pg.render()
-	}
-	return r.pg
-}
-
-// Get returns the element of the HTML document q selects. It fails unless exactly
-// 1 element matches. Use [Tab.Get] for a page a tab updates.
+// Get returns the element of the HTML document q selects. It fails unless
+// exactly 1 element matches.
 func (r *Response) Get(t testing.TB, q Query) *Element {
 	t.Helper()
 	p := r.page()
-	return getOne(t, p, p.doc, q, r.desc, "")
+	return getOne(t, p, p.doc, q, r.desc)
 }
 
 // All returns the elements of the HTML document q selects, in document order.
-func (r *Response) All(t testing.TB, q Query) []*Element {
-	t.Helper()
+func (r *Response) All(q Query) []*Element {
 	p := r.page()
-	return getAll(t, p, p.doc, q, r.desc)
+	return getAll(p, p.doc, q, r.desc)
+}
+
+func (r *Response) page() *page {
+	if r.pg == nil {
+		r.pg = &page{doc: r.Document()}
+	}
+	return r.pg
 }
 
 // Events parses an SSE response body and requires Content-Type text/event-stream.

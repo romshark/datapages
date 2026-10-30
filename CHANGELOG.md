@@ -35,7 +35,7 @@ Run `datapages gen` to apply these.
 #### Runtime and modules
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of 1 release. A `Content-Security-Policy` must allow the inline build script.
-- Add `datapagestest`, an HTTP test client for Datapages apps. A tab keeps its page as a browser does and applies the patches of its stream and action responses. Tests find elements by ARIA role, label and text, compare the accessibility tree of a region with Go values, and click, fill and select controls, which runs the Datastar handlers of the markup with the page's signals. A tab runs no JavaScript beyond generated actions, signal assignments and simple expressions. It also models cookie-sharing visitors, sends Datastar actions with CSRF tokens, matches or rules out SSE events and parses redirects. Requests and waits have configurable timeouts; in-memory connections support `testing/synctest`.
+- Add `datapagestest`, an HTTP test client for Datapages apps. It models cookie-sharing visitors and stateful tabs, sends Datastar actions with CSRF tokens, matches or rules out SSE events and parses redirects. Tests find the elements of a page or a patch by ARIA role, label and text and compare the accessibility tree of a region with Go values. It keeps no client-side state and runs no JavaScript. Requests and waits have configurable timeouts; in-memory connections support `testing/synctest`.
 - Apply the attributes of the live `<html>` element when a shim written with `PageCacheWriter.SetShim` hydrates. The classes are added to those the page has.
 
 #### `datapages init`
@@ -45,7 +45,7 @@ Run `datapages gen` to apply these.
 - Ask whether to commit the generated code, `datapagesgen/` and `*_templ.go`, interactively or with `--generated-code committed|hidden`; `-n` defaults to committed. Hidden lists it in `.gitignore`, hides it in VS Code with `.vscode/settings.json` and makes `make build` and CI generate it. CI no longer compares it with the commit. A clone of a hidden project builds only after `templ generate` and `datapages gen`, and `datapages gen` fails there while the app uses the `href`, `action` or `assets` packages.
 - Ask whether to write the GitHub Actions workflow `.github/workflows/ci.yml`, interactively or with `--ci github-actions|none`; `-n` defaults to `github-actions`.
 - Ask whether to write the AI agent instructions and skills, interactively or with `--no-ai-skills`; `-n` writes them.
-- Add the `datapages-testing` skill to the agent instructions it writes. It covers testing an app with `datapagestest`: page loads, queries by role and label, clicks and form input, accessibility trees, SSE streams, per-tab state, events, sessions and CSRF, and waiting for a condition instead of a fixed time. Run `datapages init` to add it to an existing project.
+- Add the `datapages-testing` skill to the agent instructions it writes. It covers testing an app with `datapagestest`: page loads, queries by role and label, accessibility trees, actions, SSE streams, per-tab state, events, sessions and CSRF, and waiting for a condition instead of a fixed time. Run `datapages init` to add it to an existing project.
 
 ### Changed
 

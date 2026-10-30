@@ -17,13 +17,12 @@ import (
 	"time"
 )
 
-// Connect opens the tab's SSE stream with the tab's signals, leaving out local
-// signals as Datastar does. Set others first with [Tab.SetSignal]. The tab applies
-// the stream's events to its page. Connect follows an anonymous-stream redirect,
+// Connect opens the tab's SSE stream with signals. Pass [Response.PublicSignals] to
+// send the page defaults; nil sends "{}". Connect follows an anonymous-stream redirect,
 // times out while waiting for response headers and closes the stream during cleanup.
-func (tb *Tab) Connect(t testing.TB) *Stream {
+func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
 	t.Helper()
-	enc := tb.requestSignals(t, signalFilter{})
+	enc := encodeSignals(t, signals)
 	desc := "GET " + tb.path + "_$/"
 	target := tb.v.srv.srv.URL + tb.path + "_$/?datastar=" + url.QueryEscape(enc)
 	timeout := tb.v.srv.conf.timeout
@@ -74,7 +73,6 @@ func (tb *Tab) Connect(t testing.TB) *Stream {
 	}
 	go s.read(resp.Body)
 	t.Cleanup(s.Close)
-	tb.streams = append(tb.streams, &tabStream{s: s})
 	return s
 }
 

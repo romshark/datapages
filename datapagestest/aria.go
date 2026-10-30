@@ -8,30 +8,15 @@ import (
 	"golang.org/x/net/html"
 )
 
-type visibility int
-
-const (
-	shown visibility = iota
-	hidden
-	unknown // a data-show expression needs a browser
-)
-
-// visibility reports whether n and its ancestors up to the page root are shown.
-// A hidden ancestor outweighs an unknown one. When unknown, it also returns the
-// data-show expression.
-func (p *page) visibility(n *html.Node) (visibility, string) {
-	v, expr := shown, ""
+// hidden reports whether n or one of its ancestors up to the page root hides
+// itself in the HTML.
+func (p *page) hidden(n *html.Node) bool {
 	for a := n; a != nil && a != p.doc && a.Type == html.ElementNode; a = a.Parent {
-		switch av, ae := p.ownVisibility(a); av {
-		case hidden:
-			return hidden, ""
-		case unknown:
-			if v == shown {
-				v, expr = unknown, ae
-			}
+		if hidesItself(a) {
+			return true
 		}
 	}
-	return v, expr
+	return false
 }
 
 // displayNone matches the inline styles that hide an element.
@@ -39,67 +24,28 @@ var displayNone = regexp.MustCompile(
 	`(?i)(^|;)\s*(display\s*:\s*none|visibility\s*:\s*hidden)\b`,
 )
 
-// ownVisibility reports whether n hides itself, ignoring its ancestors.
-// data-show decides over an inline style, since Datastar sets display from it.
-func (p *page) ownVisibility(n *html.Node) (visibility, string) {
+// hidesItself reports whether the HTML of n hides it: its tag, the hidden
+// attribute, aria-hidden or an inline style. Datastar attributes such as
+// data-show change visibility in the browser and are ignored.
+func hidesItself(n *html.Node) bool {
 	switch n.Data {
 	case "script", "style", "template", "head", "noscript", "title", "meta", "link":
-		return hidden, ""
+		return true
 	case "input":
-		if inputType(n) == "hidden" {
-			return hidden, ""
-		}
+		return inputType(n) == "hidden"
 	case "dialog":
 		if _, open := Attr(n, "open"); !open {
-			return hidden, ""
+			return true
 		}
 	}
 	if _, ok := Attr(n, "hidden"); ok {
-		return hidden, ""
+		return true
 	}
 	if v, _ := Attr(n, "aria-hidden"); v == "true" {
-		return hidden, ""
+		return true
 	}
-	if expr, ok := Attr(n, "data-show"); ok {
-		on, known := p.eval(expr)
-		switch {
-		case !known:
-			return unknown, expr
-		case !on:
-			return hidden, ""
-		}
-		return shown, ""
-	}
-	if style, _ := Attr(n, "style"); displayNone.MatchString(style) {
-		return hidden, ""
-	}
-	return shown, ""
-}
-
-// eval evaluates a data-show expression with [page.evalExpr].
-func (p *page) eval(expr string) (value, known bool) {
-	v, err := p.evalExpr(expr)
-	if err != nil {
-		return false, false
-	}
-	return truthy(v), true
-}
-
-var signalPath = regexp.MustCompile(`^[\w]+(\.[\w]+)*$`)
-
-// truthy converts v as JavaScript converts a value to a boolean.
-func truthy(v any) bool {
-	switch v := v.(type) {
-	case nil:
-		return false
-	case bool:
-		return v
-	case float64:
-		return v != 0
-	case string:
-		return v != ""
-	}
-	return true
+	style, _ := Attr(n, "style")
+	return displayNone.MatchString(style)
 }
 
 // inputType returns the type of an input element, text when it is missing or unknown.
@@ -404,7 +350,7 @@ func (p *page) contentText(n, skip *html.Node) string {
 			if c == skip {
 				continue
 			}
-			if v, _ := p.ownVisibility(c); v == hidden {
+			if hidesItself(c) {
 				continue
 			}
 			block := isBlock(c)
@@ -416,9 +362,9 @@ func (p *page) contentText(n, skip *html.Node) string {
 			} else {
 				switch p.role(c) {
 				case "textbox", "searchbox", "slider", "spinbutton":
-					b.WriteString(p.value(c))
+					b.WriteString(value(c))
 				case "combobox":
-					if opt := p.selectedOption(c); opt != nil {
+					if opt := selectedOption(c); opt != nil {
 						b.WriteString(Text(opt))
 					}
 				case "img":
@@ -475,32 +421,9 @@ func (p *page) isControl(n *html.Node) bool {
 	return false
 }
 
-// bindPath returns the signal that n binds with data-bind.
-func bindPath(n *html.Node) (string, bool) {
-	for _, a := range n.Attr {
-		if a.Key == "data-bind" {
-			return strings.TrimSpace(a.Val), true
-		}
-		if rest, ok := strings.CutPrefix(a.Key, "data-bind:"); ok {
-			name, mods := splitModifiers(rest)
-			return convertCase(name, mods["case"]), true
-		}
-	}
-	return "", false
-}
-
-// value returns the value of the control n as the DOM reports it:
-// its bound signal, its value attribute, the text of a textarea
-// or the value of the selected option.
-func (p *page) value(n *html.Node) string {
-	checkable := n.Data == "input" &&
-		(inputType(n) == "checkbox" || inputType(n) == "radio")
-	signalIsValue := !checkable && n.Data != "select" && p.signals != nil
-	if path, ok := bindPath(n); ok && signalIsValue {
-		if v, ok := getSignal(p.signals, path); ok {
-			return signalString(v)
-		}
-	}
+// value returns the value of the control n as the HTML sets it: its value
+// attribute, the text of a textarea or the value of the selected option.
+func value(n *html.Node) string {
 	switch n.Data {
 	case "textarea":
 		var b strings.Builder
@@ -511,7 +434,7 @@ func (p *page) value(n *html.Node) string {
 		}
 		return b.String()
 	case "select":
-		if opt := p.selectedOption(n); opt != nil {
+		if opt := selectedOption(n); opt != nil {
 			return optionValue(opt)
 		}
 		return ""
@@ -519,7 +442,7 @@ func (p *page) value(n *html.Node) string {
 		if v, ok := Attr(n, "value"); ok {
 			return v
 		}
-		if checkable {
+		if t := inputType(n); t == "checkbox" || t == "radio" {
 			return "on"
 		}
 		return ""
@@ -527,37 +450,16 @@ func (p *page) value(n *html.Node) string {
 	return attr(n, "value")
 }
 
-// checked reports whether n is checked by its bound signal,
-// its checked attribute or aria-checked.
-func (p *page) checked(n *html.Node) bool {
-	if n.Data == "input" {
-		t := inputType(n)
-		if t != "checkbox" && t != "radio" {
-			return false
-		}
-		if path, ok := bindPath(n); ok && p.signals != nil {
-			v, _ := getSignal(p.signals, path)
-			switch {
-			case t == "radio":
-				return signalString(v) == p.value(n)
-			case isList(v):
-				for _, e := range v.([]any) {
-					if signalString(e) == p.value(n) {
-						return true
-					}
-				}
-				return false
-			}
-			return truthy(v)
-		}
-		_, ok := Attr(n, "checked")
-		return ok
+// checked reports whether the checkbox or radio n has the checked attribute, or
+// another element aria-checked="true".
+func checked(n *html.Node) bool {
+	if n.Data != "input" {
+		return attr(n, "aria-checked") == "true"
 	}
-	return attr(n, "aria-checked") == "true"
-}
-
-func isList(v any) bool {
-	_, ok := v.([]any)
+	if t := inputType(n); t != "checkbox" && t != "radio" {
+		return false
+	}
+	_, ok := Attr(n, "checked")
 	return ok
 }
 
@@ -579,21 +481,12 @@ func optionValue(opt *html.Node) string {
 	return Text(opt)
 }
 
-// selectedOption returns the option a single-choice select shows:
-// the one its bound signal names, the one marked selected or the first.
-func (p *page) selectedOption(sel *html.Node) *html.Node {
+// selectedOption returns the option a single-choice select shows, which is the
+// first one marked selected or else the first.
+func selectedOption(sel *html.Node) *html.Node {
 	opts := options(sel)
 	if len(opts) == 0 {
 		return nil
-	}
-	if path, ok := bindPath(sel); ok && p.signals != nil {
-		if v, ok := getSignal(p.signals, path); ok {
-			for _, o := range opts {
-				if optionValue(o) == signalString(v) {
-					return o
-				}
-			}
-		}
 	}
 	for _, o := range opts {
 		if _, ok := Attr(o, "selected"); ok {
@@ -604,7 +497,7 @@ func (p *page) selectedOption(sel *html.Node) *html.Node {
 }
 
 // selected reports whether the option or the element with aria-selected is selected.
-func (p *page) selected(n *html.Node) bool {
+func selected(n *html.Node) bool {
 	if n.Data != "option" {
 		return attr(n, "aria-selected") == "true"
 	}
@@ -623,7 +516,7 @@ func (p *page) selected(n *html.Node) bool {
 		_, ok := Attr(n, "selected")
 		return ok
 	}
-	return p.selectedOption(sel) == n
+	return selectedOption(sel) == n
 }
 
 // disabled reports whether n is disabled by its disabled attribute,

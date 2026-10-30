@@ -9,8 +9,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Element is an element of a page at the time a query found it.
-// Query again after the page changes, since a patch can replace the element.
+// Element is an element of a page or of an event.
 type Element struct {
 	n    *html.Node
 	p    *page
@@ -26,63 +25,43 @@ func (e *Element) Text() string { return Text(e.n) }
 // Attr returns the value of the attribute key and whether the element has it.
 func (e *Element) Attr(key string) (string, bool) { return Attr(e.n, key) }
 
-// Value returns the value of the control as the DOM reports it. That is its
-// data-bind signal, else its value attribute, the text of a textarea or the
-// value of the selected option.
-func (e *Element) Value() string { return e.p.value(e.n) }
+// Value returns the value of the control as the HTML sets it: its value
+// attribute, the text of a textarea or the value of the selected option.
+// A value Datastar binds to a signal is in the page's signals instead.
+func (e *Element) Value() string { return value(e.n) }
 
-// Checked reports whether the checkbox or radio is checked by its data-bind
-// signal, else by its checked attribute. For an element with an explicit role
-// it reports aria-checked.
-func (e *Element) Checked() bool { return e.p.checked(e.n) }
+// Checked reports whether the checkbox or radio has the checked attribute.
+// For an element with an explicit role it reports aria-checked.
+func (e *Element) Checked() bool { return checked(e.n) }
 
 // Get returns the element inside e that q selects.
 // It fails unless exactly 1 element matches.
 func (e *Element) Get(t testing.TB, q Query) *Element {
 	t.Helper()
-	return getOne(t, e.p, e.n, q, e.desc, "")
+	return getOne(t, e.p, e.n, q, e.desc)
 }
 
 // All returns the elements inside e that q selects, in document order.
-func (e *Element) All(t testing.TB, q Query) []*Element {
-	t.Helper()
-	return getAll(t, e.p, e.n, q, e.desc)
-}
+func (e *Element) All(q Query) []*Element { return getAll(e.p, e.n, q, e.desc) }
 
 // Tree returns the accessibility tree of the element's contents.
-func (e *Element) Tree(t testing.TB) Tree {
-	t.Helper()
-	tree, err := e.p.tree(e.n, false)
-	if err != nil {
-		t.Fatalf("%s: %v", e.desc, err)
-	}
-	return tree
-}
+func (e *Element) Tree() Tree { return e.p.tree(e.n) }
 
 // RequireTree requires the accessibility tree of the element's contents to be want,
 // and prints the difference and the actual tree otherwise.
 func (e *Element) RequireTree(t testing.TB, want Tree) {
 	t.Helper()
-	got := e.Tree(t)
-	if g, w := got.String(), want.String(); g != w {
+	if g, w := e.Tree().String(), want.String(); g != w {
 		t.Fatalf("%s: the accessibility tree differs:\n%s\nactual tree:\n%s",
 			e.desc, lineDiff(w, g), g)
 	}
 }
 
-func getOne(
-	t testing.TB, p *page, root *html.Node, q Query, desc, warnings string,
-) *Element {
+func getOne(t testing.TB, p *page, root *html.Node, q Query, desc string) *Element {
 	t.Helper()
-	ns, err := p.find(root, q)
-	if err != nil {
-		t.Fatalf("%s: %v", desc, err)
-	}
+	ns := p.find(root, q)
 	if len(ns) != 1 {
-		t.Fatalf(
-			"%s: %s, want 1%s\n%s",
-			desc, matching(len(ns), q), warnings, p.outline(root),
-		)
+		t.Fatalf("%s: %s, want 1\n%s", desc, matching(len(ns), q), p.outline(root))
 	}
 	return &Element{n: ns[0], p: p, desc: desc + ": " + q.String()}
 }
@@ -98,12 +77,8 @@ func matching(n int, q Query) string {
 	return fmt.Sprintf("%d elements match %s", n, q)
 }
 
-func getAll(t testing.TB, p *page, root *html.Node, q Query, desc string) []*Element {
-	t.Helper()
-	ns, err := p.find(root, q)
-	if err != nil {
-		t.Fatalf("%s: %v", desc, err)
-	}
+func getAll(p *page, root *html.Node, q Query, desc string) []*Element {
+	ns := p.find(root, q)
 	out := make([]*Element, len(ns))
 	for i, n := range ns {
 		out[i] = &Element{n: n, p: p, desc: desc + ": " + q.String()}
@@ -111,12 +86,11 @@ func getAll(t testing.TB, p *page, root *html.Node, q Query, desc string) []*Ele
 	return out
 }
 
-// outline renders the accessibility tree under root for a failure message,
-// showing elements whose visibility is unknown.
+// outline renders the accessibility tree under root for a failure message.
 func (p *page) outline(root *html.Node) string {
-	tree, _ := p.tree(root, true)
+	tree := p.tree(root)
 	if len(tree) == 0 {
-		return "the page has no accessible content"
+		return "no accessible content"
 	}
 	return "accessibility tree:\n" + excerpt(tree.String())
 }
@@ -202,25 +176,21 @@ func writeTree(b *strings.Builder, t Tree, depth int) {
 	}
 }
 
-// tree builds the accessibility tree of the contents of root. Without lenient,
-// an element whose visibility is unknown is an error. With lenient, it's a node.
-func (p *page) tree(root *html.Node, lenient bool) (Tree, error) {
-	b := treeBuilder{p: p, lenient: lenient}
-	if err := b.walk(root); err != nil {
-		return nil, err
-	}
+// tree builds the accessibility tree of the contents of root.
+func (p *page) tree(root *html.Node) Tree {
+	b := treeBuilder{p: p}
+	b.walk(root)
 	b.flush()
-	return b.out, nil
+	return b.out
 }
 
 type treeBuilder struct {
-	p       *page
-	lenient bool
-	out     Tree
-	text    strings.Builder // text not yet added as a node
+	p    *page
+	out  Tree
+	text strings.Builder // text not yet added as a node
 }
 
-func (b *treeBuilder) walk(n *html.Node) error {
+func (b *treeBuilder) walk(n *html.Node) {
 	for c := range n.ChildNodes() {
 		switch c.Type {
 		case html.TextNode:
@@ -230,14 +200,8 @@ func (b *treeBuilder) walk(n *html.Node) error {
 		default:
 			continue
 		}
-		switch v, expr := b.p.ownVisibility(c); {
-		case v == hidden:
+		if hidesItself(c) {
 			continue
-		case v == unknown && !b.lenient:
-			return fmt.Errorf(
-				"cannot tell whether %s is shown: data-show=%q needs a browser",
-				describeNode(c), expr,
-			)
 		}
 		block := isBlock(c)
 		if block {
@@ -245,19 +209,14 @@ func (b *treeBuilder) walk(n *html.Node) error {
 		}
 		if role := b.p.role(c); role != "" {
 			b.flush()
-			node, err := b.p.node(c, role, b.lenient)
-			if err != nil {
-				return err
-			}
-			b.out = append(b.out, node)
-		} else if err := b.walk(c); err != nil {
-			return err
+			b.out = append(b.out, b.p.node(c, role))
+		} else {
+			b.walk(c)
 		}
 		if block {
 			b.text.WriteByte(' ')
 		}
 	}
-	return nil
 }
 
 // flush adds the pending text as a node.
@@ -269,7 +228,7 @@ func (b *treeBuilder) flush() {
 }
 
 // node builds the node of n, which has role.
-func (p *page) node(n *html.Node, role string, lenient bool) (Node, error) {
+func (p *page) node(n *html.Node, role string) Node {
 	node := Node{
 		Role:     role,
 		Name:     p.name(n),
@@ -279,9 +238,9 @@ func (p *page) node(n *html.Node, role string, lenient bool) (Node, error) {
 	}
 	switch role {
 	case "checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio":
-		node.Checked = p.checked(n)
+		node.Checked = checked(n)
 	case "option", "tab", "row", "gridcell", "treeitem":
-		node.Selected = p.selected(n)
+		node.Selected = selected(n)
 	case "heading":
 		node.Level = headingLevel(n)
 	case "link":
@@ -289,30 +248,27 @@ func (p *page) node(n *html.Node, role string, lenient bool) (Node, error) {
 	}
 	switch role {
 	case "textbox", "searchbox", "slider", "spinbutton":
-		node.Value = p.value(n)
-		return node, nil
+		node.Value = value(n)
+		return node
 	case "combobox":
 		if n.Data == "select" {
-			if opt := p.selectedOption(n); opt != nil {
+			if opt := selectedOption(n); opt != nil {
 				node.Value = Text(opt)
 			}
-			return node, nil
+			return node
 		}
 	case "img", "separator", "progressbar", "meter":
-		return node, nil
+		return node
 	}
-	kids, err := p.tree(n, lenient)
-	if err != nil {
-		return Node{}, err
-	}
+	kids := p.tree(n)
 	if len(kids) == 1 && kids[0].Role == "text" && len(kids[0].Children) == 0 {
 		if kids[0].Text != node.Name {
 			node.Text = kids[0].Text
 		}
-		return node, nil
+		return node
 	}
 	node.Children = kids
-	return node, nil
+	return node
 }
 
 func headingLevel(n *html.Node) int {

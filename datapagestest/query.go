@@ -8,9 +8,9 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Query selects elements of a page for [Tab.Get], [Element.Get] and the methods
-// that act on an element. [Role], [Label] and [HasText] find what a visitor
-// perceives and skip hidden elements. [ID] and [Tag] find any element.
+// Query selects elements of a page or an event for [Response.Get], [Event.Get]
+// and [Element.Get]. [Role], [Label] and [HasText] find what a visitor perceives
+// and skip hidden elements. [ID], [Tag] and [Where] find any element.
 type Query struct {
 	desc string
 	// visible skips elements hidden from the visitor.
@@ -106,7 +106,7 @@ func Tag(name string) Query {
 }
 
 // Where selects the elements f reports true for, such as those with a class.
-// what names them in failure messages. Like [ID] and [Tag], it finds hidden elements too.
+// what names them in failure messages.
 func Where(what string, f func(*Element) bool) Query {
 	return Query{
 		desc: what,
@@ -145,74 +145,37 @@ func (q Query) HasText(text string) Query {
 	return q
 }
 
-// unknownShown reports an element whose visibility needs a browser.
-type unknownShown struct {
-	q    Query
-	n    *html.Node
-	expr string
-}
-
-func (e *unknownShown) Error() string {
-	return fmt.Sprintf(
-		"cannot tell whether %s %s is shown: data-show=%q needs a browser",
-		e.q, describeNode(e.n), e.expr,
-	)
+// page is the document that queries search, which names and labels refer into.
+type page struct {
+	doc *html.Node
 }
 
 // find returns the elements under root, root excluded, that q selects.
-func (p *page) find(root *html.Node, q Query) ([]*html.Node, error) {
+func (p *page) find(root *html.Node, q Query) []*html.Node {
 	var out []*html.Node
 	for n := range root.Descendants() {
-		ok, err := p.matches(n, q)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
+		if p.matches(n, q) {
 			out = append(out, n)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // matches reports whether q selects n.
-func (p *page) matches(n *html.Node, q Query) (bool, error) {
-	if n.Type != html.ElementNode || !q.match(p, n) {
-		return false, nil
-	}
-	if q.visible {
-		switch v, expr := p.visibility(n); v {
-		case hidden:
-			return false, nil
-		case unknown:
-			return false, &unknownShown{q: q, n: n, expr: expr}
-		}
+func (p *page) matches(n *html.Node, q Query) bool {
+	if n.Type != html.ElementNode || !q.match(p, n) || q.visible && p.hidden(n) {
+		return false
 	}
 	for _, c := range q.in {
 		found := false
 		for a := n.Parent; a != nil && !found; a = a.Parent {
-			ok, err := p.matches(a, c)
-			if err != nil {
-				return false, err
-			}
-			found = ok
+			found = p.matches(a, c)
 		}
 		if !found {
-			return false, nil
+			return false
 		}
 	}
-	return true, nil
-}
-
-// describeNode renders the start tag of n, such as <button class="primary">.
-func describeNode(n *html.Node) string {
-	var b strings.Builder
-	b.WriteByte('<')
-	b.WriteString(n.Data)
-	for _, a := range n.Attr {
-		fmt.Fprintf(&b, " %s=%q", a.Key, a.Val)
-	}
-	b.WriteString(">")
-	return b.String()
+	return true
 }
 
 // collapse joins the whitespace-separated fields of s with single spaces.

@@ -98,7 +98,7 @@ func TestFieldTypePackageInAction(t *testing.T) {
 func TestStreamCarriesTheFieldTypePackage(t *testing.T) {
 	t.Parallel()
 	tab := serve(t).Visitor(t).Load(t, href.PageIndex())
-	st := tab.Connect(t)
+	st := tab.Connect(t, nil)
 
 	resp := tab.Do(t, http.MethodPost, "/tick/", map[string]string{"code": "tocked"})
 	require.Equal(t, http.StatusOK, resp.Status)

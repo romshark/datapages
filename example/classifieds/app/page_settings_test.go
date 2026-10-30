@@ -2,7 +2,9 @@ package app_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +14,6 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen"
-	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/modules/messaging"
@@ -74,20 +75,12 @@ func TestPageSettingsPOSTSave(t *testing.T) {
 			phone := srv.Visitor(t)
 			phone.SetSessionToken(phoneToken)
 			phoneTab := phone.Load(t, href.PageSettings())
-			phoneStream := phoneTab.Connect(t)
+			phoneStream := phoneTab.Connect(t, phoneTab.Page().PublicSignals(t))
 
 			laptop := srv.Visitor(t)
 			laptop.SetSessionToken(laptopToken)
-			settings := laptop.Load(t, href.PageSettings())
-			var resp *datapagestest.Response
-			if tc.username == "alice" {
-				// Save is disabled while the name is unchanged.
-				// A script of the page can still send the request.
-				resp = settings.Call(t, action.PageSettings.Save.POST())
-			} else {
-				settings.Fill(t, datapagestest.Label("Name"), tc.username)
-				resp = settings.Click(t, datapagestest.Role("button", "Save"))
-			}
+			resp := laptop.Load(t, href.PageSettings()).Do(t, http.MethodPost,
+				"/settings/save/", map[string]string{"username": tc.username})
 			// RecoverError answers a failed action with 200 and the events it writes.
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 
@@ -110,9 +103,7 @@ func TestPageSettingsPOSTSave(t *testing.T) {
 
 			if !tc.wantClosed {
 				if tc.wantToast != "" {
-					toast := settings.Get(t, datapagestest.Role("status", "").
-						In(datapagestest.ID("toaster")))
-					require.Contains(t, toast.Text(), tc.wantToast)
+					resp.Event(t, toast(tc.wantToast))
 				} else {
 					require.Empty(t, resp.Body,
 						"the save answered with a redirect or a patch")
@@ -185,3 +176,15 @@ var messagesLink = datapagestest.Func("a patch of the messages link alone",
 		return datapagestest.Patched("messages").Matches(e) &&
 			!datapagestest.Patched("page-settings").Matches(e)
 	})
+
+// toast matches a toast containing text that RecoverError appends to #toaster.
+// A toast has no id.
+func toast(text string) datapagestest.Match {
+	what := fmt.Sprintf("a toast appended to #toaster containing %q", text)
+	return datapagestest.Func(what,
+		func(e datapagestest.Event) bool {
+			return e.Type == datapagestest.PatchElements &&
+				e.Data["selector"] == "#toaster" && e.Data["mode"] == "append" &&
+				strings.Contains(datapagestest.Text(e.Root()), text)
+		})
+}

@@ -602,8 +602,8 @@ func TestPrivateEvent(t *testing.T) {
 		bob := srv.Visitor(t)
 		signIn(t, bob, "bob", "")
 
-		as := alice.Load(t, "/").Connect(t)
-		bs := bob.Load(t, "/").Connect(t)
+		as := alice.Load(t, "/").Connect(t, nil)
+		bs := bob.Load(t, "/").Connect(t, nil)
 
 		login := alice.Load(t, "/login/")
 		login.Do(t, http.MethodPost, "/login/notify/", notify("alice", "for alice")).
@@ -631,9 +631,9 @@ func TestPrivateSignalScopedEvent(t *testing.T) {
 		signIn(t, bob, "bob", "")
 
 		room := alice.Load(t, "/room/")
-		aliceC1 := connect(t, room, map[string]string{"calc_id": "c1"})
-		aliceC2 := connect(t, alice.Load(t, "/room/"), map[string]string{"calc_id": "c2"})
-		bobC1 := connect(t, bob.Load(t, "/room/"), map[string]string{"calc_id": "c1"})
+		aliceC1 := room.Connect(t, map[string]string{"calc_id": "c1"})
+		aliceC2 := alice.Load(t, "/room/").Connect(t, map[string]string{"calc_id": "c2"})
+		bobC1 := bob.Load(t, "/room/").Connect(t, map[string]string{"calc_id": "c1"})
 
 		room.Do(t, http.MethodPost, "/room/update/",
 			roomUpdate("alice", "c1", "for alice on c1")).RequireStatus(t, http.StatusOK)
@@ -676,7 +676,7 @@ func TestStreamEndsAtSessionExpiry(t *testing.T) {
 		require.NoError(t, err)
 		alice.SetSessionToken(token)
 
-		st := alice.Load(t, "/").Connect(t)
+		st := alice.Load(t, "/").Connect(t, nil)
 		alice.Load(t, "/login/").Do(t, http.MethodPost, "/login/notify/",
 			notify("alice", "before expiry")).RequireStatus(t, http.StatusOK)
 		st.WaitFor(t, datapagestest.TextContains("notice", "alice: before expiry"),
@@ -701,7 +701,7 @@ func TestStreamReloadsAtSignOut(t *testing.T) {
 		alice := serve(t, broker).Visitor(t)
 		signIn(t, alice, "alice", "Al")
 		index := alice.Load(t, "/")
-		st := index.Connect(t)
+		st := index.Connect(t, nil)
 
 		index.Do(t, http.MethodPost, "/sign-out/", nil).RequireStatus(t, http.StatusOK)
 
@@ -749,7 +749,7 @@ func TestStreamReloadsAfterMissedSessionEnd(t *testing.T) {
 				// sent to.
 				room := alice.Load(t, "/room/")
 				end()
-				st := connect(t, room, map[string]string{"calc_id": "c1"})
+				st := room.Connect(t, map[string]string{"calc_id": "c1"})
 
 				ev := st.WaitFor(t, datapagestest.Reload(),
 					"the page was not told to reload after its session ended")
@@ -791,8 +791,8 @@ func TestSignInAcceptsAnyUserID(t *testing.T) {
 				bob := srv.Visitor(t)
 				signIn(t, bob, "bob", "")
 
-				s := v.Load(t, "/").Connect(t)
-				bs := bob.Load(t, "/").Connect(t)
+				s := v.Load(t, "/").Connect(t, nil)
+				bs := bob.Load(t, "/").Connect(t, nil)
 
 				// Addressed to bob. A user ID carrying a wildcard would
 				// subscribe to every user, this one to nobody but itself.
@@ -842,7 +842,7 @@ func TestStreamOpensForAnyUserID(t *testing.T) {
 
 				// A session the stream reads as a guest's is redirected to the
 				// anonymous stream.
-				st := v.Load(t, "/").Connect(t)
+				st := v.Load(t, "/").Connect(t, nil)
 				require.Equal(t, "/_$/", st.Path(),
 					"the stream refused user ID %q", userID)
 			})
@@ -863,11 +863,11 @@ func TestAnonymousStream(t *testing.T) {
 		srv := serve(t, broker)
 
 		anon := srv.Visitor(t)
-		anonStream := anon.Load(t, "/").Connect(t)
+		anonStream := anon.Load(t, "/").Connect(t, nil)
 
 		alice := srv.Visitor(t)
 		signIn(t, alice, "alice", "")
-		aliceStream := alice.Load(t, "/").Connect(t)
+		aliceStream := alice.Load(t, "/").Connect(t, nil)
 
 		// The 2 connections are served by 2 different handlers.
 		require.Equal(t, "/_$/anon/", anonStream.Path())
@@ -897,15 +897,4 @@ func TestAnonymousStream(t *testing.T) {
 func logOf(t *testing.T, v *datapagestest.Visitor) string {
 	t.Helper()
 	return echoed(t, v.Get(t, "/log/"))
-}
-
-// connect sets signals on tab and opens its stream.
-func connect[V any](
-	t *testing.T, tab *datapagestest.Tab, signals map[string]V,
-) *datapagestest.Stream {
-	t.Helper()
-	for k, v := range signals {
-		tab.SetSignal(t, k, v)
-	}
-	return tab.Connect(t)
 }

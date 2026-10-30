@@ -94,15 +94,16 @@ func (s *server) open(t *testing.T, doc string) *tab {
 	client, _ := signals["client"].(string)
 	require.NotEmpty(t, client, "the page sets no client signal")
 	require.Contains(t, signals, "rev", "the page sets no rev signal")
-	return &tab{Tab: page, stream: page.Connect(t), doc: doc, client: client}
+	return &tab{Tab: page, stream: page.Connect(t, signals), doc: doc, client: client}
 }
 
 // reconnect opens a new stream of the tab with rev,
 // the revision the editor reports in the rev signal.
 func (tb *tab) reconnect(t *testing.T, rev int) {
 	t.Helper()
-	tb.SetSignal(t, "rev", rev)
-	tb.stream = tb.Connect(t)
+	signals := tb.Page().PublicSignals(t)
+	signals["rev"] = rev
+	tb.stream = tb.Connect(t, signals)
 }
 
 // ops returns the delta of the operations in the JSON array list.

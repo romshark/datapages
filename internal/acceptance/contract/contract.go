@@ -516,7 +516,7 @@ func (c Case) testStream(t *testing.T) {
 			if st != nil {
 				st.Close()
 			}
-			st = v.Load(t, c.index()).Connect(t)
+			st = v.Load(t, c.index()).Connect(t, nil)
 
 			// The connection stays open rather than ending.
 			time.Sleep(time.Hour)
@@ -579,7 +579,7 @@ func (c Case) testShutdownClosesStreams(t *testing.T) {
 	}
 	srv, handle := c.serveHandle(t)
 
-	st := srv.Visitor(t).Load(t, c.index()).Connect(t)
+	st := srv.Visitor(t).Load(t, c.index()).Connect(t, nil)
 
 	ctx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()
@@ -616,7 +616,7 @@ func (c Case) testDispatchReachesTheStream(t *testing.T) {
 		t.Skip("the app has no action that dispatches to a stream")
 	}
 	tab := c.visit(t).Load(t, c.index())
-	st := tab.Connect(t)
+	st := tab.Connect(t, nil)
 
 	method, target := datapagestest.ParseAction(t, c.DispatchAction)
 	resp := tab.Do(t, method, target, signals(c.DispatchBody))
@@ -642,7 +642,7 @@ func (c Case) testStateIsReleased(t *testing.T) {
 	if tab.Instance() == "" {
 		t.Fatal("a stateful page load minted no instance id")
 	}
-	st := tab.Connect(t)
+	st := tab.Connect(t, nil)
 
 	method, target := datapagestest.ParseAction(t, c.StateAction)
 	act := func() *datapagestest.Response {

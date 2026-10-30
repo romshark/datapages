@@ -209,8 +209,8 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	a := datapagestest.New(t,
 		mustNewAdmin(t, &adminapp.App{}, shared)).Visitor(t).Load(t, "/")
 
-	fs := f.Connect(t)
-	as := a.Connect(t)
+	fs := f.Connect(t, nil)
+	as := a.Connect(t, nil)
 
 	// Dispatched by admin, handled by both.
 	a.Do(t, http.MethodPost, "/announce/", text("from admin")).

@@ -64,7 +64,7 @@ func TestTabState(t *testing.T) {
 	require.Equal(t, http.StatusConflict, resp.Status)
 	require.Equal(t, "reconnect", resp.Retry())
 
-	tab.Connect(t)
+	tab.Connect(t, tab.Page().PublicSignals(t))
 	tab.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy milk"}).
 		RequireStatus(t, http.StatusOK)
 	tab.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy bread"}).
@@ -82,7 +82,7 @@ func TestRowPatch(t *testing.T) {
 	t.Parallel()
 	c := newCase(t)
 	tab := c.srv.Visitor(t).Load(t, index(""))
-	st := tab.Connect(t)
+	st := tab.Connect(t, tab.Page().PublicSignals(t))
 
 	tab.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy milk"}).
 		RequireStatus(t, http.StatusOK)
@@ -98,9 +98,9 @@ func TestAbsentOnOtherTab(t *testing.T) {
 	c := newCase(t)
 	v := c.srv.Visitor(t)
 	milk := v.Load(t, index("milk"))
-	milkStream := milk.Connect(t)
+	milkStream := milk.Connect(t, milk.Page().PublicSignals(t))
 	bread := v.Load(t, index("bread"))
-	breadStream := bread.Connect(t)
+	breadStream := bread.Connect(t, bread.Page().PublicSignals(t))
 
 	bread.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy bread"}).
 		RequireStatus(t, http.StatusOK)
@@ -198,12 +198,12 @@ func TestSessions(t *testing.T) {
 	aliceRoom := alice.Load(t, href.PageRoom())
 	require.Equal(t,
 		"alice", aliceRoom.Page().Get(t, datapagestest.ID("said")).Text())
-	aliceStream := connect(t, aliceRoom, map[string]string{"room": "lobby"})
+	aliceStream := aliceRoom.Connect(t, map[string]string{"room": "lobby"})
 
 	bob := c.srv.Visitor(t)
 	signIn(t, bob, "bob")
 	bobRoom := bob.Load(t, href.PageRoom())
-	bobStream := connect(t, bobRoom, map[string]string{"room": "lobby"})
+	bobStream := bobRoom.Connect(t, map[string]string{"room": "lobby"})
 
 	bobRoom.Do(t, http.MethodPost, "/room/notify/",
 		map[string]string{"user": "alice", "text": "psst"}).
@@ -232,7 +232,7 @@ func TestAnonymousStream(t *testing.T) {
 	c := newCase(t)
 	room := c.srv.Visitor(t).Load(t, href.PageRoom())
 	require.Equal(t, "guest", room.Page().Get(t, datapagestest.ID("said")).Text())
-	st := connect(t, room, map[string]string{"room": "lobby.1"})
+	st := room.Connect(t, map[string]string{"room": "lobby.1"})
 
 	datapagestest.Publish(t, c.broker,
 		datapagestest.Subject(datapagesgen.EvPrefixRoomSaid, "lobby.1"),
@@ -270,21 +270,10 @@ func TestSessionExpiryInBubble(t *testing.T) {
 		v.SetSessionToken(token)
 		room := v.Load(t, href.PageRoom())
 		require.Equal(t, "carol", room.Page().Get(t, datapagestest.ID("said")).Text())
-		connect(t, room, map[string]string{"room": "lobby"})
+		room.Connect(t, map[string]string{"room": "lobby"})
 
 		time.Sleep(time.Hour + time.Second)
 		after := v.Load(t, href.PageRoom())
 		require.Equal(t, "guest", after.Page().Get(t, datapagestest.ID("said")).Text())
 	})
-}
-
-// connect sets signals on tab and opens its stream.
-func connect[V any](
-	t *testing.T, tab *datapagestest.Tab, signals map[string]V,
-) *datapagestest.Stream {
-	t.Helper()
-	for k, v := range signals {
-		tab.SetSignal(t, k, v)
-	}
-	return tab.Connect(t)
 }

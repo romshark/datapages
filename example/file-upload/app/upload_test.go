@@ -93,7 +93,7 @@ func (tb *tab) load(t *testing.T) {
 	t.Helper()
 	tb.Tab = tb.visitor.Load(t, href.PageIndex())
 	require.NotEmpty(t, tb.Instance(), "GET / minted no instance id")
-	tb.stream = tb.Connect(t)
+	tb.stream = tb.Connect(t, tb.Page().PublicSignals(t))
 }
 
 // chunk sends 1 chunk the way the uploader does, as a plain fetch.
@@ -251,9 +251,8 @@ func reattachment(id, name string, size int) map[string]any {
 
 // toastTitle returns the text of the title slot of the toast ev appends, "" when
 // there is none. neo-toast shows its named slots only.
-func toastTitle(t *testing.T, ev datapagestest.Event) string {
-	t.Helper()
-	if titles := ev.All(t, element("", "slot", "title")); len(titles) > 0 {
+func toastTitle(ev datapagestest.Event) string {
+	if titles := ev.All(element("", "slot", "title")); len(titles) > 0 {
 		return titles[0].Text()
 	}
 	return ""
@@ -269,7 +268,7 @@ func toast(t *testing.T, resp *datapagestest.Response) string {
 	}
 	for _, ev := range resp.Events(t) {
 		if ev.Data["selector"] == "#toast" {
-			return toastTitle(t, ev)
+			return toastTitle(ev)
 		}
 	}
 	return ""
@@ -318,7 +317,7 @@ func TestReattach(t *testing.T) {
 				"the message did not reach the toaster")
 			require.Equal(t, "append", ev.Data["mode"],
 				"the message replaces the stack instead of joining it")
-			require.Contains(t, toastTitle(t, ev), tc.want,
+			require.Contains(t, toastTitle(ev), tc.want,
 				"the message is in no slot and neo-toast projects none of it")
 		})
 	}
@@ -463,11 +462,11 @@ func TestOrphanedFileOffersTakeOver(t *testing.T) {
 	}
 	require.Contains(t, list.Text(), "Take over",
 		"a file nobody is sending is not offered to be taken over")
-	require.Empty(t, list.All(t, label("Pause")),
+	require.Empty(t, list.All(label("Pause")),
 		"a page load offers to pause a file it is not sending")
-	require.Empty(t, list.All(t, label("Resume")),
+	require.Empty(t, list.All(label("Resume")),
 		"a page load offers to resume a file it cannot send")
-	require.NotEmpty(t, list.All(t, class("status-interrupted")))
+	require.NotEmpty(t, list.All(class("status-interrupted")))
 }
 
 // stage opens the upload dialog on 1 file and returns the dialog it rendered.
@@ -475,9 +474,9 @@ func (tb *tab) stage(
 	t *testing.T, name, contentType string, size int,
 ) *datapagestest.Element {
 	t.Helper()
-	tb.Do(t, http.MethodPost, "/stage/", picked(name, contentType, size)).
-		RequireStatus(t, http.StatusOK)
-	return tb.Get(t, datapagestest.ID("upload-dialog"))
+	resp := tb.Do(t, http.MethodPost, "/stage/", picked(name, contentType, size))
+	return resp.Event(t, datapagestest.Patched("upload-dialog")).
+		Get(t, datapagestest.ID("upload-dialog"))
 }
 
 // TestPickingAnUnfinishedFileAgain tests that a file already half uploaded is
@@ -490,7 +489,7 @@ func TestPickingAnUnfinishedFileAgain(t *testing.T) {
 
 	dialog := tb.stage(t, "notes.txt", "text/plain", len(contents))
 	require.Contains(t, dialog.Text(), "Continue the unfinished upload (50%)")
-	require.NotEmpty(t, dialog.All(t, element("input", "name", "dup-0")))
+	require.NotEmpty(t, dialog.All(element("input", "name", "dup-0")))
 
 	// The dialog defaults to continuing, which is what an unchanged form sends.
 	resp := tb.DoForm(t, http.MethodPost, "/start/",
@@ -590,7 +589,7 @@ func TestPickingACompleteFileAgain(t *testing.T) {
 
 	dialog := tb.stage(t, "notes.txt", "text/plain", len(contents))
 	require.NotContains(t, dialog.Text(), "Continue the unfinished upload")
-	require.Empty(t, dialog.All(t, element("input", "name", "dup-0")))
+	require.Empty(t, dialog.All(element("input", "name", "dup-0")))
 }
 
 // TestContinuingAFileThatWentAway tests that a dialog left open while the
@@ -632,7 +631,7 @@ func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
 			other := tb.openTab(t)
 			require.NotEmpty(t,
 				other.stage(t, "notes.txt", "text/plain", len(contents)).
-					All(t, element("input", "name", "dup-0")),
+					All(element("input", "name", "dup-0")),
 				"the dialog does not offer to continue the upload")
 			resp := other.DoForm(t, http.MethodPost, "/start/",
 				url.Values{"name-0": {fileName}, "dup-0": {"continue"}})
@@ -900,12 +899,12 @@ func TestCompleteFileOffersItsLink(t *testing.T) {
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	require.Empty(t, tb.waitForList(t, halfway).All(t, element("neo-clipcopy")),
+	require.Empty(t, tb.waitForList(t, halfway).All(element("neo-clipcopy")),
 		"an incomplete file offers a link that 404s")
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
 	value, _ := tb.waitForList(t, copyLink).
-		All(t, element("neo-clipcopy"))[0].Attr("value")
+		All(element("neo-clipcopy"))[0].Attr("value")
 	// The absolute URL of the download is where a request for it goes.
 	download := tb.visitor.NewRequest(t, http.MethodGet, href.App.File(id), nil)
 	require.Equal(t, download.URL.String(), value,
@@ -920,7 +919,7 @@ func TestCompleteFileShowsNoStatusIcon(t *testing.T) {
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	require.NotEmpty(t, tb.waitForList(t, halfway).All(t, class("status-uploading")),
+	require.NotEmpty(t, tb.waitForList(t, halfway).All(class("status-uploading")),
 		"a transfer in flight lost its badge")
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
@@ -930,17 +929,18 @@ func TestCompleteFileShowsNoStatusIcon(t *testing.T) {
 		c, _ := e.Attr("class")
 		return strings.HasPrefix(c, "status")
 	})
-	require.Empty(t, list.All(t, badge), "a finished file still carries a badge")
+	require.Empty(t, list.All(badge), "a finished file still carries a badge")
 }
 
-// waitForList waits until the file list holds the 1 element q selects and
-// returns the list. A transfer patches the list many times, each time with the
-// file at a later point of its transfer.
+// waitForList waits for a patch of the file list with an element q selects and
+// returns the list. A transfer patches the list many times, and the earlier
+// patches describe the file at an earlier point of its transfer.
 func (tb *tab) waitForList(t *testing.T, q datapagestest.Query) *datapagestest.Element {
 	t.Helper()
 	list := datapagestest.ID("file-list")
-	tb.WaitFor(t, q.In(list))
-	return tb.Get(t, list)
+	ev := tb.stream.WaitFor(t, datapagestest.Func("a file list with "+q.String(),
+		func(ev datapagestest.Event) bool { return len(ev.All(q.In(list))) > 0 }))
+	return ev.Get(t, list)
 }
 
 // TestRowCarriesAnActionsMenu tests that every row also renders its controls
@@ -951,8 +951,8 @@ func TestRowCarriesAnActionsMenu(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
 	menu := tb.waitForList(t, copyLink).Get(t, class("actions-menu"))
-	require.NotEmpty(t, menu.All(t, element("neo-menu")), "the menu button opens nothing")
-	require.NotEmpty(t, menu.All(t, element("neo-menuitem", "data-neo-dialog-trigger", "")),
+	require.NotEmpty(t, menu.All(element("neo-menu")), "the menu button opens nothing")
+	require.NotEmpty(t, menu.All(element("neo-menuitem", "data-neo-dialog-trigger", "")),
 		"the menu cannot reach the delete confirmation")
 	require.Contains(t, menu.Text(), "Copy link",
 		"the menu is missing the copy entry")
@@ -965,15 +965,13 @@ func TestUploadDialogStartsOnClick(t *testing.T) {
 	tb := newTab(t)
 	dialog := tb.stage(t, "notes.txt", "text/plain", 20)
 
-	// The dialog stays closed in the HTML, since the Web Component around it
-	// opens it, so the test reads the control's action instead of clicking it.
 	start := dialog.Get(t, element("neo-button").HasText("Start upload"))
 	click, _ := start.Attr("data-on:click")
 	require.Equal(t, action.PageIndex.Start.POST(
 		action.WithContentType(action.ContentTypeForm),
 	), click,
 		"the start control carries no action")
-	require.Empty(t, dialog.All(t, element("", "type", "submit")),
+	require.Empty(t, dialog.All(element("", "type", "submit")),
 		"a custom element cannot submit a form")
 }
 
@@ -987,7 +985,7 @@ func TestDownloadIsALink(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
 	list := tb.waitForList(t, copyLink)
 
-	require.NotEmpty(t, list.All(t, element("a", "data-neo-link", "",
+	require.NotEmpty(t, list.All(element("a", "data-neo-link", "",
 		"href", href.App.File(id), "variant", "button-primary")),
 		"the row's download is not a link")
 	buttonWithHref := datapagestest.Where("a neo-button with an href",
@@ -995,9 +993,9 @@ func TestDownloadIsALink(t *testing.T) {
 			_, ok := e.Attr("href")
 			return e.Node().Data == "neo-button" && ok
 		})
-	require.Empty(t, list.All(t, buttonWithHref),
+	require.Empty(t, list.All(buttonWithHref),
 		"an href on a neo-button navigates nowhere")
-	require.NotEmpty(t, list.All(t, element("neo-menuitem", "data-href", href.App.File(id))),
+	require.NotEmpty(t, list.All(element("neo-menuitem", "data-href", href.App.File(id))),
 		"the menu's download row carries no address")
 }
 
@@ -1013,7 +1011,7 @@ func TestProgressCarriesTheBytes(t *testing.T) {
 	list := tb.waitForList(t, halfway)
 	value, _ := list.Get(t, halfway).Attr("value")
 	require.Equal(t, "50", value, "the bar carries no percentage")
-	require.Empty(t, list.All(t, class("progress-text")), "the amount is still a paragraph")
+	require.Empty(t, list.All(class("progress-text")), "the amount is still a paragraph")
 }
 
 // TestBadgeFollowsTheOwner tests that the badge agrees with the control beside it.
@@ -1033,7 +1031,7 @@ func TestBadgeFollowsTheOwner(t *testing.T) {
 	other := tb.openTab(t)
 	tb.stream.Close()
 	orphaned := other.waitForList(t, class("status-interrupted"))
-	require.Empty(t, orphaned.All(t, class("status-paused")),
+	require.Empty(t, orphaned.All(class("status-paused")),
 		"a file nobody holds still badges as paused")
 	require.Contains(t, orphaned.Text(), "No tab is sending this file",
 		"the badge does not say what happened to the file")
@@ -1050,14 +1048,14 @@ func TestDeleteAsksFirst(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 	// The row's dialog comes before the one of the actions menu.
-	dialog := tb.waitForList(t, halfway).All(t, element("neo-dialog"))[0]
+	dialog := tb.waitForList(t, halfway).All(element("neo-dialog"))[0]
 	require.Contains(t, dialog.Text(), "Delete this file?",
 		"the row carries no confirmation")
 	require.Contains(t, dialog.Text(), "holiday photos.txt",
 		"the dialog does not name the file")
-	require.NotEmpty(t, dialog.All(t, element("", "data-neo-dialog-trigger", "")),
+	require.NotEmpty(t, dialog.All(element("", "data-neo-dialog-trigger", "")),
 		"nothing opens the dialog: a Morpheus dialog stays inert without a trigger")
-	require.NotEmpty(t, dialog.All(t, element("", "data-neo-dialog-close", "")),
+	require.NotEmpty(t, dialog.All(element("", "data-neo-dialog-close", "")),
 		"nothing cancels the dialog")
 	require.Len(t, tb.files.List(), 1, "rendering the dialog deleted the file")
 
@@ -1074,7 +1072,7 @@ func TestDeleteDialogNamesTheStoredFile(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 	name := tb.waitForList(t, halfway).
-		All(t, element("strong", "class", "delete-name"))[0]
+		All(element("strong", "class", "delete-name"))[0]
 	require.Equal(t, "renamed.txt", name.Text(),
 		"the dialog names what the browser reported, not what the store holds")
 }

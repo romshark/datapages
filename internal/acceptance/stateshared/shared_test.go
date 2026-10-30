@@ -43,9 +43,9 @@ func TestSharedStateIsPerTab(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	aTab := v.Load(t, "/")
-	a := aTab.Connect(t)
+	a := aTab.Connect(t, nil)
 	bTab := v.Load(t, "/")
-	b := bTab.Connect(t)
+	b := bTab.Connect(t, nil)
 
 	for range 2 {
 		require.Equal(t, http.StatusOK, bump(t, aTab).Status, "bumping the first tab")
@@ -66,9 +66,9 @@ func TestSharedStateIsPerPage(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	indexTab := v.Load(t, "/")
-	index := indexTab.Connect(t)
+	index := indexTab.Connect(t, nil)
 	otherTab := v.Load(t, "/other/")
-	other := otherTab.Connect(t)
+	other := otherTab.Connect(t, nil)
 
 	require.Equal(t, http.StatusOK, bump(t, otherTab).Status, "bumping the other page")
 
@@ -86,7 +86,7 @@ func TestSharedStateIsPerPage(t *testing.T) {
 // an action of the page and an action of the app.
 func TestPageActionAndAppActionShareTheState(t *testing.T) {
 	tab := serve(t).Visitor(t).Load(t, "/")
-	st := tab.Connect(t)
+	st := tab.Connect(t, nil)
 
 	require.Equal(t, http.StatusOK, note(t, tab, "hello").Status, "setting the note")
 	st.WaitFor(t, state("Note:hello"))

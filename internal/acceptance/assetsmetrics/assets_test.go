@@ -474,7 +474,7 @@ func TestBrokerMetrics(t *testing.T) {
 	// A subscriber has to exist: a message with nowhere to go is not published,
 	// and nothing counts it. The stream subscribes before it answers,
 	// which Connect waits for.
-	index.Connect(t)
+	index.Connect(t, nil)
 
 	before := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")
 

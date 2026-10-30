@@ -70,8 +70,8 @@ func TestAnonStreamSubscribesBySignal(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		oneTab := v.Load(t, "/rooms/")
-		one := connect(t, oneTab, room("one"))
-		two := connect(t, v.Load(t, "/rooms/"), room("two"))
+		one := oneTab.Connect(t, room("one"))
+		two := v.Load(t, "/rooms/").Connect(t, room("two"))
 
 		oneTab.Do(t, http.MethodPost, "/rooms/post/", post("one", "hello")).
 			RequireStatus(t, http.StatusOK)
@@ -108,7 +108,7 @@ func TestAnonStreamRedirectKeepsThePathValue(t *testing.T) {
 				// Connect follows the redirect to the anonymous stream and fails unless
 				// it answers 200 with text/event-stream,
 				// which the page's HTML route does not.
-				st := tab.Connect(t)
+				st := tab.Connect(t, nil)
 				require.Equal(t, "/post/"+slug+"/_$/anon/", st.Path(),
 					"the redirect lost the path value")
 
@@ -127,7 +127,7 @@ func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		tab := serve(t, broker).Visitor(t).Load(t, "/rooms/")
-		st := connect(t, tab, room("one"))
+		st := tab.Connect(t, room("one"))
 
 		tab.Do(t, http.MethodPost, "/rooms/notice/",
 			map[string]string{"user": "alice", "text": "for alice"}).
@@ -164,9 +164,9 @@ func TestAnonStreamHoldsPerTabState(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		aTab := v.Load(t, "/tabs/")
-		a := aTab.Connect(t)
+		a := aTab.Connect(t, nil)
 		bTab := v.Load(t, "/tabs/")
-		b := bTab.Connect(t)
+		b := bTab.Connect(t, nil)
 
 		require.NotEqual(t, aTab.Instance(), bTab.Instance(),
 			"2 page loads share 1 instance id")
@@ -303,7 +303,7 @@ func TestPrivateStatefulPageStreamsForGuests(t *testing.T) {
 // showing the old session on the anonymous stream.
 func TestPrivateStatefulPageReloadsAGuestStream(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		st := serve(t, broker).Visitor(t).Load(t, "/notes/").Connect(t)
+		st := serve(t, broker).Visitor(t).Load(t, "/notes/").Connect(t, nil)
 		st.WaitFor(t, datapagestest.Reload(), "the page was not told to reload")
 	})
 }
@@ -318,7 +318,7 @@ func TestAnonStreamRecoversHandlerPanic(t *testing.T) {
 		srv := datapagestest.New(t, mustNewServer(t, a, broker, newSessions()))
 
 		tab := srv.Visitor(t).Load(t, "/panic/")
-		st := tab.Connect(t)
+		st := tab.Connect(t, nil)
 		require.Equal(t, "/panic/_$/anon/", st.Path())
 		tab.Do(t, http.MethodPost, "/panic/fault/", nil).RequireStatus(t, http.StatusOK)
 
@@ -350,8 +350,7 @@ func TestAnonStreamRecoversDecodePanic(t *testing.T) {
 		a := &app.App{}
 		srv := datapagestest.New(t, mustNewServer(t, a, broker, newSessions()))
 
-		st := connect(t,
-			srv.Visitor(t).Load(t, "/decode/"), map[string]string{"v": "xbad"})
+		st := srv.Visitor(t).Load(t, "/decode/").Connect(t, map[string]string{"v": "xbad"})
 		require.Equal(t, "/decode/_$/anon/", st.Path())
 		st.WaitFor(t, datapagestest.TextContains("out",
 			"recovered: panic: the JSON parser panicked"),
@@ -363,15 +362,4 @@ func TestAnonStreamRecoversDecodePanic(t *testing.T) {
 		require.ErrorAs(t, recovered[0], &pe)
 		require.Equal(t, "the JSON parser panicked", pe.Value)
 	})
-}
-
-// connect sets signals on tab and opens its stream.
-func connect[V any](
-	t *testing.T, tab *datapagestest.Tab, signals map[string]V,
-) *datapagestest.Stream {
-	t.Helper()
-	for k, v := range signals {
-		tab.SetSignal(t, k, v)
-	}
-	return tab.Connect(t)
 }

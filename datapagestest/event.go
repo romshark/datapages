@@ -2,7 +2,6 @@ package datapagestest
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -40,30 +39,29 @@ func (e Event) Root() *html.Node {
 }
 
 // page returns the event's elements as a page. It has no signals,
-// so a data-show makes a [Role], [Label] or [HasText] query fail.
+// page returns the event's elements, under the <template> that [Event.Root]
+// parses them in.
 func (e Event) page() *page {
 	root := e.Root()
 	for n := range root.Descendants() {
 		if n.Type == html.ElementNode && n.Data == "template" {
-			root = n
-			break
+			return &page{doc: n}
 		}
 	}
-	return &page{doc: root, sigErr: errors.New("an event has no signals")}
+	return &page{doc: root}
 }
 
 // Get returns the event element q selects. It fails unless exactly 1 element matches.
 func (e Event) Get(t testing.TB, q Query) *Element {
 	t.Helper()
 	p := e.page()
-	return getOne(t, p, p.doc, q, describe(e), "")
+	return getOne(t, p, p.doc, q, describe(e))
 }
 
 // All returns the event elements q selects, in document order.
-func (e Event) All(t testing.TB, q Query) []*Element {
-	t.Helper()
+func (e Event) All(q Query) []*Element {
 	p := e.page()
-	return getAll(t, p, p.doc, q, describe(e))
+	return getAll(p, p.doc, q, describe(e))
 }
 
 // Signals decodes a PatchSignals event. Deleted signals have raw value null;
