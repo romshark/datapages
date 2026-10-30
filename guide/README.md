@@ -1,10 +1,23 @@
 # Introduction
 
-Datapages generates a Go HTTP server from pages, actions and events declared in an application package. [Templ](https://templ.guide) components render HTML. [Datastar](https://data-star.dev) sends browser input to actions and morphs server-rendered patches into the DOM over [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events).
+Datapages is a webdev meta-framework and toolchain for [Go](https://go.dev/), [Templ](https://templ.guide), and [Datastar](https://data-star.dev), designed for building modern web applications and hybrid desktop apps with a thin-client architecture.
 
-The server owns the data, state and application rules. The browser presents the HTML, keeps local interaction state and sends user actions. Generated URL and action helpers make missing routes fail at compile time, and the CLI rejects unsupported handlers and hardcoded application URLs. `datapages watch` regenerates, rebuilds and reloads the application after a change.
+A Datapages application is a Go package that defines its pages, actions, and events using Go types and methods, and renders HTML using Templ components. The `datapages` CLI tool lints the code, enforces rules and generates the HTTP server and all the necessary wiring automatically, allowing developers and AI coding agents to focus on application logic rather than infrastructure and boilerplate. Datapages also includes `datapages watch`, which provides a development environment with hot reload and immediate feedback on code changes.
 
-This [counter example](../example/counter/app/simple/) updates every open tab:
+Datapages follows a **server-centric, thin-client architecture** with a clear separation of responsibilities:
+
+- **The server** owns application logic, data, and state; handles actions, enforces invariants, dispatches events, and renders HTML using Templ components.
+- **The client** uses Datastar as a lightweight presentation and interaction layer to send user input to server-side actions, handle local interactivity and reactivity, provide immediate visual feedback, and [morph](https://data-star.dev/guide/getting_started/#patching-elements) server-rendered HTML into the DOM in real-time using [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events).
+
+This architecture offers several advantages:
+
+- **Less JavaScript:** Dramatically reduces the amount of JavaScript required to build fast, interactive, real-time, and collaborative applications.
+- **Smaller bundles:** Minimizes client-side dependencies and JavaScript bundle sizes, improving loading times and reducing bandwidth consumption.
+- **Better performance and resource efficiency:** Leverages Go's runtime efficiency, particularly for server-side rendering (SSR), for faster SEO, better [TTI](https://developer.mozilla.org/en-US/docs/Glossary/Time_to_interactive), better [FCP](https://developer.mozilla.org/en-US/docs/Glossary/First_contentful_paint) and other use cases. Generally speaking, it's almost always faster to render HTML on the server and displaying it in the browser, than fetching JSON from the server and using JavaScript to interpret this data and manipulate the DOM.
+- **Improved maintainability:** Less boilerplate, less duplicated logic, strong static typing, and built-in linting help keep code simple and catch errors early.
+- **Developer & AI productivity:** Automatically generates HTTP infrastructure and wiring, allowing developers and AI coding agents to focus on business logic.
+
+The counter in [`example/counter/app/simple`](../example/counter/app/simple/) shows each part:
 
 ```go title="app/simple/app.go"
 package simple
