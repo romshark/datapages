@@ -27,7 +27,7 @@ func TestActionHeadIsRendered(t *testing.T) {
 	t.Parallel()
 	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := index.Do(t, http.MethodPost, "/render/", nil)
+	resp := index.Do(t, "@post('/render/')", nil)
 	require.Equal(t, http.StatusOK, resp.Status)
 
 	require.Contains(t, resp.Body, `<meta name="from" content="action">`,
@@ -50,7 +50,7 @@ func TestAppActionHeadIsRendered(t *testing.T) {
 	t.Parallel()
 	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := index.Do(t, http.MethodPost, "/app-render/", nil)
+	resp := index.Do(t, "@post('/app-render/')", nil)
 	require.Equal(t, http.StatusOK, resp.Status)
 
 	require.Contains(t, resp.Body, `<meta name="from" content="app-action">`,

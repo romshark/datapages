@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -69,11 +68,7 @@ func TestQUERYInput(t *testing.T) {
 			calculator := resp.Event(t, datapagestest.Patched("page-calculator")).
 				Get(t, datapagestest.ID("page-calculator"))
 
-			expr, _ := calculator.Attr("data-signals:input")
-			var input string
-			require.NoError(t, json.Unmarshal([]byte(expr), &input),
-				"data-signals:input=%s is not a JSON string", expr)
-			require.Equal(t, tt.input, input, "the input signal")
+			require.Equal(t, tt.input, calculator.Signals(t)["input"], "the input signal")
 			require.Equal(t, tt.display,
 				calculator.Get(t, datapagestest.Role("status", "")).Text(), "the display")
 		})
@@ -124,10 +119,9 @@ func query(
 	t *testing.T, tab *datapagestest.Tab, btn calc.CalcButton, paste bool, s signals,
 ) *datapagestest.Response {
 	t.Helper()
-	method, url := datapagestest.ParseAction(t, action.PageIndex.Input.QUERY(
+	return tab.Do(t, action.PageIndex.Input.QUERY(
 		action.PageIndex.Input.QUERYQuery(int(btn), paste),
-	))
-	return tab.Do(t, method, url, s)
+	), s)
 }
 
 // load loads the calculator in a tab and returns it with the server log.

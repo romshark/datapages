@@ -10,6 +10,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen"
 	"github.com/romshark/datapages/internal/testlog"
@@ -33,7 +34,7 @@ func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 // post sends the action at path from the index page of a new server, without signals.
 func post(t *testing.T, path string) *datapagestest.Response {
 	t.Helper()
-	return serve(t).Visitor(t).Load(t, "/").Do(t, http.MethodPost, path, nil)
+	return serve(t).Visitor(t).Load(t, "/").Do(t, contract.Call(http.MethodPost, path), nil)
 }
 
 // TestGETEmbedsQueuedWrites tests that a page load embeds its queued writes.
@@ -254,7 +255,7 @@ func TestEmbeddedWritesSitInsideTheBody(t *testing.T) {
 			return v.Get(t, "/no-page-claims-this").Body
 		},
 		"app action body": func(t *testing.T, v *datapagestest.Visitor) string {
-			return v.Load(t, "/").Do(t, http.MethodPost, "/app-body/", nil).Body
+			return v.Load(t, "/").Do(t, "@post('/app-body/')", nil).Body
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -300,7 +301,7 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 		"a page that never touches the cache does not vary by its version")
 	require.Contains(t,
 		v.Load(t, "/").
-			Do(t, http.MethodPost, "/stream-write/", nil).Header.Values("Vary"),
+			Do(t, "@post('/stream-write/')", nil).Header.Values("Vary"),
 		"X-Datapages-Offline-Version")
 }
 
@@ -317,7 +318,7 @@ func TestFailingCachedBodyIsLogged(t *testing.T) {
 			var log testlog.Buffer
 			v := serve(t, datapages.WithLogger(log.Logger())).Visitor(t)
 
-			resp := v.Load(t, "/").Do(t, http.MethodPost, path, nil)
+			resp := v.Load(t, "/").Do(t, contract.Call(http.MethodPost, path), nil)
 			require.Equal(t, http.StatusOK, resp.Status)
 			require.NotContains(t, resp.Body, applyType)
 			log.RequireLogged(t, `level=ERROR msg="rendering page cache writes" `+

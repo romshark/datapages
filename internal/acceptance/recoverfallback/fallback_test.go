@@ -27,7 +27,7 @@ func TestRecoverFallbackWritesNothingIntoTheStream(t *testing.T) {
 	t.Parallel()
 	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := index.Do(t, http.MethodPost, "/bad/", nil)
+	resp := index.Do(t, "@post('/bad/')", nil)
 
 	require.NotContains(t, resp.Body, "Bad Request",
 		"the status text was written into the event stream")

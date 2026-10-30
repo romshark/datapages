@@ -54,12 +54,12 @@ func Test4InstancesServeTheirOwnApp(t *testing.T) {
 	for _, name := range []string{"frontend A", "frontend B"} {
 		tab := all[name].Load(t, "/")
 		require.Equal(t, http.StatusOK,
-			tab.Do(t, http.MethodPost, "/notice/", text("hi")).Status, name)
+			tab.Do(t, "@post('/notice/')", text("hi")).Status, name)
 	}
 	for _, name := range []string{"admin A", "admin B"} {
 		tab := all[name].Load(t, "/")
 		require.Equal(t, http.StatusOK,
-			tab.Do(t, http.MethodPost, "/report/", report(1)).Status, name)
+			tab.Do(t, "@post('/report/')", report(1)).Status, name)
 	}
 }
 
@@ -76,21 +76,21 @@ func TestOneInstanceDoesNotReachAnother(t *testing.T) {
 	tabB := b.Load(t, "/")
 	streamB := tabB.Connect(t, nil)
 
-	tabA.Do(t, http.MethodPost, "/notice/", text("first")).
+	tabA.Do(t, "@post('/notice/')", text("first")).
 		RequireStatus(t, http.StatusOK)
 	streamA.WaitFor(t, datapagestest.TextContains("out", "first"),
 		"the instance that dispatched the event did not receive it")
 
 	// The notice B dispatches next is the anchor: had the event of A reached the
 	// other instance, it would have arrived before it.
-	tabB.Do(t, http.MethodPost, "/notice/", text("second")).
+	tabB.Do(t, "@post('/notice/')", text("second")).
 		RequireStatus(t, http.StatusOK)
 	streamB.Absent(t,
 		datapagestest.TextContains("out", "first"),
 		datapagestest.TextContains("out", "second"),
 		"the event reached the other instance of the same app")
 
-	tabA.Do(t, http.MethodPost, "/sign-in/", signIn("alice", "al")).
+	tabA.Do(t, "@post('/sign-in/')", signIn("alice", "al")).
 		RequireStatus(t, http.StatusOK)
 	require.Equal(t, "user=alice nickname=al", echo(t, a.Get(t, "/")))
 	require.Equal(t, "anonymous", echo(t, b.Get(t, "/")),
@@ -108,7 +108,7 @@ func TestBothMeteredInstancesCount(t *testing.T) {
 		tab := all[name].Load(t, "/")
 		before := requestsTotal(t)
 		require.Equal(t, http.StatusOK,
-			tab.Do(t, http.MethodPost, "/report/", report(1)).Status)
+			tab.Do(t, "@post('/report/')", report(1)).Status)
 		require.Greater(t, requestsTotal(t), before,
 			"%s served a request the counter did not see", name)
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/document/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -74,7 +75,7 @@ func TestDocumentAttrs(t *testing.T) {
 			if tc.method == http.MethodGet {
 				resp = v.Get(t, tc.path)
 			} else {
-				resp = v.Load(t, "/").Do(t, tc.method, tc.path, nil)
+				resp = v.Load(t, "/").Do(t, contract.Call(tc.method, tc.path), nil)
 			}
 			require.Equal(t, tc.wantStatus, resp.Status)
 			if tc.wantBody != "" {

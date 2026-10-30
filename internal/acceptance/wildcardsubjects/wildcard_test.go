@@ -28,7 +28,7 @@ func postNote(
 	t *testing.T, tab *datapagestest.Tab, topic, text string,
 ) *datapagestest.Response {
 	t.Helper()
-	return tab.Do(t, http.MethodPost, "/note/",
+	return tab.Do(t, "@post('/note/')",
 		map[string]string{"topic": topic, "text": text})
 }
 

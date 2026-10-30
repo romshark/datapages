@@ -16,6 +16,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -69,7 +70,7 @@ func serve(
 func signIn(t *testing.T, v *datapagestest.Visitor) *datapagestest.Tab {
 	t.Helper()
 	tab := v.Load(t, "/")
-	resp := tab.Do(t, http.MethodPost, "/sign-in/", map[string]string{"user": "alice"})
+	resp := tab.Do(t, "@post('/sign-in/')", map[string]string{"user": "alice"})
 	require.Equal(t, http.StatusOK, resp.Status, "signing in")
 	return tab
 }
@@ -149,7 +150,7 @@ func TestQueryNeedsNoCSRFToken(t *testing.T) {
 		"taking no session":   {path: "/status/"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := tab.Do(t, "QUERY", tc.path, nil)
+			resp := tab.Do(t, contract.Call("QUERY", tc.path), nil)
 			require.Equal(t, http.StatusOK, resp.Status,
 				"QUERY %s:\n%s", tc.path, resp.Body)
 			require.Contains(t, resp.Body, tc.want)

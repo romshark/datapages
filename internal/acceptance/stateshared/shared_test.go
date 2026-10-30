@@ -23,13 +23,13 @@ func serve(t *testing.T) *datapagestest.Server {
 // bump sends the app action that increments the tab's counter.
 func bump(t *testing.T, tab *datapagestest.Tab) *datapagestest.Response {
 	t.Helper()
-	return tab.Do(t, http.MethodPost, "/bump/", nil)
+	return tab.Do(t, "@post('/bump/')", nil)
 }
 
 // note sends the action of PageIndex that sets the tab's note.
 func note(t *testing.T, tab *datapagestest.Tab, text string) *datapagestest.Response {
 	t.Helper()
-	return tab.Do(t, http.MethodPost, "/note/", map[string]string{"note": text})
+	return tab.Do(t, "@post('/note/')", map[string]string{"note": text})
 }
 
 // state matches the patch of a tab's state, such as "{Counter:1 Note:hello}".

@@ -60,7 +60,7 @@ func TestFrontendCarriesSessions(t *testing.T) {
 	tab := v.Load(t, "/")
 	require.Equal(t, "anonymous", echo(t, tab.Page()))
 
-	resp := tab.Do(t, http.MethodPost, "/sign-in/", signIn("alice", "al"))
+	resp := tab.Do(t, "@post('/sign-in/')", signIn("alice", "al"))
 	require.Equal(t, http.StatusOK, resp.Status)
 
 	require.Equal(t, "user=alice nickname=al", echo(t, v.Get(t, "/")))
@@ -93,7 +93,7 @@ func TestAdminCarriesMetrics(t *testing.T) {
 	tab := v.Load(t, "/")
 	require.Equal(t, "admin", echo(t, tab.Page()))
 	require.Equal(t, http.StatusOK,
-		tab.Do(t, http.MethodPost, "/report/", report(1)).Status)
+		tab.Do(t, "@post('/report/')", report(1)).Status)
 
 	total := requestsTotal(t)
 	require.GreaterOrEqual(t, total, float64(2),
@@ -184,14 +184,14 @@ func TestBothServersRunTogether(t *testing.T) {
 	// router answers a URL no page claims with is not fixed,
 	// hence the assertion is only that the request did not reach a handler.
 	require.Equal(t, http.StatusOK,
-		f.Do(t, http.MethodPost, "/notice/", text("hi")).Status)
+		f.Do(t, "@post('/notice/')", text("hi")).Status)
 	require.GreaterOrEqual(t,
-		a.Do(t, http.MethodPost, "/notice/", text("hi")).Status,
+		a.Do(t, "@post('/notice/')", text("hi")).Status,
 		http.StatusBadRequest, "the admin server serves the frontend action")
 	require.Equal(t, http.StatusOK,
-		a.Do(t, http.MethodPost, "/report/", report(1)).Status)
+		a.Do(t, "@post('/report/')", report(1)).Status)
 	require.GreaterOrEqual(t,
-		f.Do(t, http.MethodPost, "/report/", report(1)).Status,
+		f.Do(t, "@post('/report/')", report(1)).Status,
 		http.StatusBadRequest, "the frontend server serves the admin action")
 }
 
@@ -213,7 +213,7 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	as := a.Connect(t, nil)
 
 	// Dispatched by admin, handled by both.
-	a.Do(t, http.MethodPost, "/announce/", text("from admin")).
+	a.Do(t, "@post('/announce/')", text("from admin")).
 		RequireStatus(t, http.StatusOK)
 	as.WaitFor(t, datapagestest.TextContains("announcement", "from admin"),
 		"the dispatching application did not receive its own event")
@@ -221,7 +221,7 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 		"the other application did not receive the shared event")
 
 	// And the other way round.
-	f.Do(t, http.MethodPost, "/announce/", text("from frontend")).
+	f.Do(t, "@post('/announce/')", text("from frontend")).
 		RequireStatus(t, http.StatusOK)
 	fs.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
 		"the dispatching application did not receive its own event")
@@ -231,9 +231,9 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	// An event only 1 application declares stays with it. The announcement
 	// the frontend dispatches next is the anchor: a notice that reached the admin
 	// stream would arrive before it, since the broker delivers in publication order.
-	f.Do(t, http.MethodPost, "/notice/", text("private")).RequireStatus(t, http.StatusOK)
+	f.Do(t, "@post('/notice/')", text("private")).RequireStatus(t, http.StatusOK)
 	fs.WaitFor(t, datapagestest.TextContains("out", "private"))
-	f.Do(t, http.MethodPost, "/announce/", text("after the notice")).
+	f.Do(t, "@post('/announce/')", text("after the notice")).
 		RequireStatus(t, http.StatusOK)
 	private := datapagestest.Func(`an event carrying "private"`,
 		func(ev datapagestest.Event) bool {

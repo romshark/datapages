@@ -82,8 +82,7 @@ func TestFieldTypePackageInAction(t *testing.T) {
 		action.PageItem.Save.POSTQuery(42))
 	require.Equal(t, "@post('/item/seven/save/?count=42')", expr)
 
-	resp := tab.Do(t, http.MethodPost,
-		"/item/seven/save/?count=42", map[string]string{"code": "signalled"})
+	resp := tab.Do(t, "@post('/item/seven/save/?count=42')", map[string]string{"code": "signalled"})
 	require.Equal(t, http.StatusOK, resp.Status)
 	evs := resp.Events(t)
 	require.Len(t, evs, 1)
@@ -100,7 +99,7 @@ func TestStreamCarriesTheFieldTypePackage(t *testing.T) {
 	tab := serve(t).Visitor(t).Load(t, href.PageIndex())
 	st := tab.Connect(t, nil)
 
-	resp := tab.Do(t, http.MethodPost, "/tick/", map[string]string{"code": "tocked"})
+	resp := tab.Do(t, "@post('/tick/')", map[string]string{"code": "tocked"})
 	require.Equal(t, http.StatusOK, resp.Status)
 
 	st.WaitFor(t, datapagestest.TextContains("echo", "ticked code=tocked"))

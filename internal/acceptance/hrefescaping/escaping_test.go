@@ -118,7 +118,7 @@ func TestActionURLEscaping(t *testing.T) {
 	require.True(t, strings.HasSuffix(expr, suffix), expr)
 	url := strings.TrimSuffix(strings.TrimPrefix(expr, prefix), suffix)
 
-	resp := v.Load(t, href.PageItem("a/b")).Do(t, http.MethodPost, url, nil)
+	resp := v.Load(t, href.PageItem("a/b")).Do(t, expr, nil)
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Contains(t, resp.Body, `renamed "a/b" to "c&d=e"`,
 		"the values did not survive the action URL")

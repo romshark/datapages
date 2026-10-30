@@ -17,11 +17,15 @@ import (
 	"time"
 )
 
-// Connect opens the tab's SSE stream with signals. Pass [Response.PublicSignals] to
-// send the page defaults; nil sends "{}". Connect follows an anonymous-stream redirect,
-// times out while waiting for response headers and closes the stream during cleanup.
+// Connect opens the tab's SSE stream with signals. Nil sends the public signals the
+// tab's page loaded with; pass map[string]any{} to send none. Connect
+// follows an anonymous-stream redirect, times out while waiting for response headers
+// and closes the stream during cleanup.
 func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
 	t.Helper()
+	if signals == nil {
+		signals = tb.page.PublicSignals(t)
+	}
 	enc := encodeSignals(t, signals)
 	desc := "GET " + tb.path + "_$/"
 	target := tb.v.srv.srv.URL + tb.path + "_$/?datastar=" + url.QueryEscape(enc)

@@ -73,7 +73,7 @@ func TestPublicEventReachesEveryStream(t *testing.T) {
 		a := v.Load(t, "/").Connect(t, nil)
 		b := v.Load(t, "/").Connect(t, nil)
 
-		v.Load(t, "/").Do(t, http.MethodPost, "/tick/", tick(7)).
+		v.Load(t, "/").Do(t, "@post('/tick/')", tick(7)).
 			RequireStatus(t, http.StatusOK)
 
 		a.WaitFor(t, datapagestest.TextContains("out", "tick 7"),
@@ -118,15 +118,15 @@ func TestStreamCloseRunsAfterTheEventHandlers(t *testing.T) {
 
 		// Hold the first tick in its handler and queue 3 behind it.
 		// Unheld, the stream drains each tick before the next arrives.
-		index.Do(t, http.MethodPost, "/hold/", nil).RequireStatus(t, http.StatusOK)
+		index.Do(t, "@post('/hold/')", nil).RequireStatus(t, http.StatusOK)
 		for n := range 4 {
-			index.Do(t, http.MethodPost, "/tick/", tick(n)).
+			index.Do(t, "@post('/tick/')", tick(n)).
 				RequireStatus(t, http.StatusOK)
 		}
 		time.Sleep(settle)
 		s.Close()
 		time.Sleep(settle)
-		index.Do(t, http.MethodPost, "/release/", nil).RequireStatus(t, http.StatusOK)
+		index.Do(t, "@post('/release/')", nil).RequireStatus(t, http.StatusOK)
 
 		closed := "close(" + id + ")"
 		srv.WaitFor(t, "StreamClose to run", func() bool {
@@ -152,7 +152,7 @@ func TestStreamIDReachesEventHandler(t *testing.T) {
 		s := index.Connect(t, nil)
 		id := openedID(t, srv, v)
 
-		index.Do(t, http.MethodPost, "/tick/", tick(3)).RequireStatus(t, http.StatusOK)
+		index.Do(t, "@post('/tick/')", tick(3)).RequireStatus(t, http.StatusOK)
 		// The handler records before it patches.
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 3"))
 
@@ -168,7 +168,7 @@ func TestEmbeddedHandler(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		other := v.Load(t, "/other/").Connect(t, nil)
-		v.Load(t, "/").Do(t, http.MethodPost, "/tick/", tick(1)).
+		v.Load(t, "/").Do(t, "@post('/tick/')", tick(1)).
 			RequireStatus(t, http.StatusOK)
 
 		other.WaitFor(t, datapagestest.TextContains("shared", "shared 1"))
@@ -186,7 +186,7 @@ func Test2Dispatchers(t *testing.T) {
 		index := v.Load(t, "/")
 		s := index.Connect(t, nil)
 
-		index.Do(t, http.MethodPost, "/both/", tick(3)).RequireStatus(t, http.StatusOK)
+		index.Do(t, "@post('/both/')", tick(3)).RequireStatus(t, http.StatusOK)
 
 		// The handler dispatches the tick first, and the broker delivers in
 		// publication order.
@@ -291,11 +291,11 @@ func TestEventDecodeIsNotCarriedOver(t *testing.T) {
 	index := v.Load(t, "/")
 	s := index.Connect(t, nil)
 
-	index.Do(t, http.MethodPost, "/note/", map[string]string{"text": "first"}).
+	index.Do(t, "@post('/note/')", map[string]string{"text": "first"}).
 		RequireStatus(t, http.StatusOK)
 	s.WaitFor(t, datapagestest.TextContains("note", "note=first"))
 
-	index.Do(t, http.MethodPost, "/note/", map[string]string{"text": ""}).
+	index.Do(t, "@post('/note/')", map[string]string{"text": ""}).
 		RequireStatus(t, http.StatusOK)
 	ev := s.WaitFor(t, datapagestest.Patched("note"))
 	require.Equal(t, "note=", ev.Get(t, datapagestest.ID("note")).Text(),
@@ -314,13 +314,13 @@ func TestDispatchCtx(t *testing.T) {
 	index := v.Load(t, "/")
 	s := index.Connect(t, nil)
 
-	index.Do(t, http.MethodPost, "/tick/", tick(1)).RequireStatus(t, http.StatusOK)
+	index.Do(t, "@post('/tick/')", tick(1)).RequireStatus(t, http.StatusOK)
 	s.WaitFor(t, datapagestest.TextContains("out", "tick 1"))
 
-	resp := index.Do(t, http.MethodPost, "/canceled/", tick(2))
+	resp := index.Do(t, "@post('/canceled/')", tick(2))
 	require.Equal(t, http.StatusInternalServerError, resp.Status,
 		"the canceled context did not reach the broker")
-	index.Do(t, http.MethodPost, "/tick/", tick(3)).RequireStatus(t, http.StatusOK)
+	index.Do(t, "@post('/tick/')", tick(3)).RequireStatus(t, http.StatusOK)
 	s.Absent(t,
 		datapagestest.TextContains("out", "tick 2"),
 		datapagestest.TextContains("out", "tick 3"))
@@ -355,11 +355,11 @@ func TestSubjectScoping(t *testing.T) {
 		red := redTab.Connect(t, room("red"))
 		blue := v.Load(t, "/room/").Connect(t, room("blue"))
 
-		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "hello red")).
+		redTab.Do(t, "@post('/room/say/')", say("red", "hello red")).
 			RequireStatus(t, http.StatusOK)
 		red.WaitFor(t, datapagestest.TextContains("said", "hello red"))
 
-		redTab.Do(t, http.MethodPost, "/room/say/", say("blue", "hello blue")).
+		redTab.Do(t, "@post('/room/say/')", say("blue", "hello blue")).
 			RequireStatus(t, http.StatusOK)
 		blue.Absent(t,
 			datapagestest.TextContains("said", "hello red"),
@@ -388,12 +388,12 @@ func TestNestedSignalScoping(t *testing.T) {
 		threadB := v.Load(t, "/chat/").Connect(t,
 			map[string]chat{"chat": {Room: "red", Thread: "b"}})
 
-		chatA.Do(t, http.MethodPost, "/chat/say/",
+		chatA.Do(t, "@post('/chat/say/')",
 			said{Chat: chat{Room: "red", Thread: "a"}, Text: "hello a"}).
 			RequireStatus(t, http.StatusOK)
 		threadA.WaitFor(t, datapagestest.TextContains("said", "hello a"))
 
-		chatA.Do(t, http.MethodPost, "/chat/say/",
+		chatA.Do(t, "@post('/chat/say/')",
 			said{Chat: chat{Room: "red", Thread: "b"}, Text: "hello b"}).
 			RequireStatus(t, http.StatusOK)
 		threadB.Absent(t,
@@ -414,11 +414,11 @@ func Test1CopyPerStream(t *testing.T) {
 		redTab := v.Load(t, "/room/")
 		red := redTab.Connect(t, room("red"))
 
-		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "once")).
+		redTab.Do(t, "@post('/room/say/')", say("red", "once")).
 			RequireStatus(t, http.StatusOK)
 		red.WaitFor(t, datapagestest.TextContains("said", "once"))
 
-		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "after")).
+		redTab.Do(t, "@post('/room/say/')", say("red", "after")).
 			RequireStatus(t, http.StatusOK)
 		red.Absent(t,
 			datapagestest.TextContains("said", "once"),
@@ -440,7 +440,7 @@ func TestSubjectFanout(t *testing.T) {
 		green := v.Load(t, "/room/").Connect(t, room("green"))
 
 		broadcast := func(text string, rooms ...string) {
-			redTab.Do(t, http.MethodPost, "/room/broadcast/", map[string]any{
+			redTab.Do(t, "@post('/room/broadcast/')", map[string]any{
 				"rooms": rooms, "text": text,
 			}).RequireStatus(t, http.StatusOK)
 		}
@@ -483,7 +483,7 @@ func TestStreamOpenRefuses(t *testing.T) {
 
 		// The server keeps serving streams that are not refused.
 		s := index.Connect(t, nil)
-		index.Do(t, http.MethodPost, "/tick/", tick(9)).RequireStatus(t, http.StatusOK)
+		index.Do(t, "@post('/tick/')", tick(9)).RequireStatus(t, http.StatusOK)
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 9"))
 	})
 }
@@ -514,7 +514,7 @@ func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 
 		// The panic did not take the server down.
 		s := index.Connect(t, nil)
-		index.Do(t, http.MethodPost, "/tick/", tick(7)).RequireStatus(t, http.StatusOK)
+		index.Do(t, "@post('/tick/')", tick(7)).RequireStatus(t, http.StatusOK)
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 	})
 }
@@ -555,13 +555,13 @@ func TestSubjectSignalEscaped(t *testing.T) {
 		star := starTab.Connect(t, room("*"))
 		red := v.Load(t, "/room/").Connect(t, room("red"))
 
-		starTab.Do(t, http.MethodPost, "/room/say/", say("red", "hello red")).
+		starTab.Do(t, "@post('/room/say/')", say("red", "hello red")).
 			RequireStatus(t, http.StatusOK)
 		red.WaitFor(t, datapagestest.TextContains("said", "hello red"))
 
 		// The stream scoped to the wildcard value receives what is published for
 		// that value, and nothing of another room before it.
-		starTab.Do(t, http.MethodPost, "/room/say/", say("*", "hello star")).
+		starTab.Do(t, "@post('/room/say/')", say("*", "hello star")).
 			RequireStatus(t, http.StatusOK)
 		star.Absent(t,
 			datapagestest.TextContains("said", "hello red"),
@@ -893,7 +893,7 @@ func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
 			"the server stopped answering after the panic")
 
 		// The streams the panic did not belong to are still delivered to.
-		index.Do(t, http.MethodPost, "/tick/", tick(7)).RequireStatus(t, http.StatusOK)
+		index.Do(t, "@post('/tick/')", tick(7)).RequireStatus(t, http.StatusOK)
 		survivor.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 	})
 }

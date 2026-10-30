@@ -86,7 +86,7 @@ func TestNonIdentifierQueryTagAction(t *testing.T) {
 	require.Equal(t, "/tags/select/?page-size=7", url)
 
 	tab := v.Load(t, href.PageTags(href.QueryPageTags{}))
-	require.Equal(t, http.StatusOK, tab.Do(t, http.MethodPost, url, nil).Status,
+	require.Equal(t, http.StatusOK, tab.Do(t, expr, nil).Status,
 		"page-size did not reach the handler")
 }
 
@@ -129,10 +129,9 @@ func TestActionLocalNamesAreFreeWithQuery(t *testing.T) {
 		action.PageMix.Store.POSTQuery("yes"))
 	require.Equal(t, "@post('/mix/1/2/three/store/?anyQuery=yes')", expr)
 
-	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
 	tab := v.Load(t, href.PageMix(1, 2, "three", href.QueryPageMix{}))
 	require.Equal(t, http.StatusOK,
-		tab.Do(t, http.MethodPost, url, nil).Status,
+		tab.Do(t, expr, nil).Status,
 		"the values did not survive the action URL")
 }
 
@@ -194,10 +193,9 @@ func TestImportNameIsFreeInAction(t *testing.T) {
 		action.PageImports.Save.POSTQuery("x"))
 	require.Equal(t, "@post('/imports/one/two/3/four/save/?t=x')", expr)
 
-	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
 	tab := v.Load(t, href.PageImports("one", "two", 3, app.Slug("FOUR")))
 	require.Equal(t, http.StatusOK,
-		tab.Do(t, http.MethodPost, url, nil).Status,
+		tab.Do(t, expr, nil).Status,
 		"the values did not survive the action URL")
 }
 
@@ -216,8 +214,7 @@ func TestActionexprNameIsFree(t *testing.T) {
 	expr := action.PageExpr.Run.POST("seven")
 	require.Equal(t, "@post('/expr/seven/run/')", expr)
 
-	url = strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
 	require.Equal(t, http.StatusOK,
-		tab.Do(t, http.MethodPost, url, nil).Status,
+		tab.Do(t, expr, nil).Status,
 		"the value did not survive the action URL")
 }

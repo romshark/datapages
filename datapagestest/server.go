@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/csrfscript"
 )
 
 // DefaultTimeout applies to requests and waits when [WithTimeout] is unset.
@@ -189,16 +190,14 @@ func (v *Visitor) Load(t testing.TB, path string) *Tab {
 	}
 }
 
-// csrfMark begins the token in a server-generated CSRF script.
-const csrfMark = `h.set("X-CSRF-Token",'`
-
-// csrfToken extracts the page's CSRF token. Tokens contain no quote.
+// csrfToken extracts the page's CSRF token from the script that adds it to the
+// page's requests. Tokens contain no quote.
 func csrfToken(page string) string {
-	_, rest, ok := strings.Cut(page, csrfMark)
+	_, rest, ok := strings.Cut(page, csrfscript.Prefix)
 	if !ok {
 		return ""
 	}
-	token, _, ok := strings.Cut(rest, "'")
+	token, _, ok := strings.Cut(rest, csrfscript.Suffix)
 	if !ok {
 		return ""
 	}
@@ -312,30 +311,57 @@ func (tb *Tab) NewRequest(
 	return req
 }
 
-// Do sends a Datastar action. JSON signals go in the datastar query parameter for GET
-// and DELETE, and in the body otherwise. Nil sends "{}"; [json.RawMessage] is unchanged.
-func (tb *Tab) Do(t testing.TB, method, path string, signals any) *Response {
+// Do sends the Datastar action that expr calls, such as an expression of the
+// generated action package or the handler [Element.Action] returns, with the
+// call's method, URL and headers. expr must call exactly 1 action.
+//
+// A call with the form content type sends payload, a [url.Values], as form fields:
+// in the query for GET and DELETE, and in a URL-encoded body otherwise. Any other
+// call sends payload as JSON signals: in the datastar query parameter for GET and
+// DELETE, and in the body otherwise. [json.RawMessage] is sent unchanged.
+//
+// Nil sends the signals the tab's page loaded with that the call's filterSignals
+// option selects, by default the public ones. A form call and a call that sets a
+// payload need one passed: only the browser knows the form's fields and evaluates
+// the payload.
+func (tb *Tab) Do(t testing.TB, expr string, payload any) *Response {
 	t.Helper()
-	enc := encodeSignals(t, signals)
-	if queryCarries(method) {
-		req := tb.NewRequest(t, method,
-			withQuery(t, path, url.Values{"datastar": {enc}}), nil)
-		return tb.send(t, req)
+	c := parseCall(t, expr)
+	form, isForm := payload.(url.Values)
+	var req *http.Request
+	switch {
+	case c.form && payload == nil:
+		t.Fatalf("%q sends the fields of a form, which only the browser knows; "+
+			"pass them as url.Values", expr)
+	case c.form && isForm:
+		if queryCarries(c.method) {
+			req = tb.NewRequest(t, c.method, withQuery(t, c.path, form), nil)
+			break
+		}
+		req = tb.NewRequest(t, c.method, c.path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	case c.form:
+		t.Fatalf("%q sends a form; pass its fields as url.Values, not %T", expr, payload)
+	case isForm:
+		t.Fatalf("%q sends JSON signals, since it sets no form content type", expr)
+	case payload == nil && c.payload:
+		t.Fatalf("%q sets a payload, which only the browser evaluates; pass it", expr)
+	default:
+		if payload == nil {
+			payload = filterSignals(tb.page.Signals(t), "", c.include, c.exclude)
+		}
+		enc := encodeSignals(t, payload)
+		if queryCarries(c.method) {
+			req = tb.NewRequest(t, c.method,
+				withQuery(t, c.path, url.Values{"datastar": {enc}}), nil)
+			break
+		}
+		req = tb.NewRequest(t, c.method, c.path, strings.NewReader(enc))
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req := tb.NewRequest(t, method, path, strings.NewReader(enc))
-	req.Header.Set("Content-Type", "application/json")
-	return tb.send(t, req)
-}
-
-// DoForm sends a form action. Fields go in the query for GET and DELETE,
-// and in a URL-encoded body otherwise.
-func (tb *Tab) DoForm(t testing.TB, method, path string, form url.Values) *Response {
-	t.Helper()
-	if queryCarries(method) {
-		return tb.send(t, tb.NewRequest(t, method, withQuery(t, path, form), nil))
+	for k, v := range c.headers {
+		req.Header.Set(k, v)
 	}
-	req := tb.NewRequest(t, method, path, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return tb.send(t, req)
 }
 
@@ -434,9 +460,10 @@ func (r *Response) Get(t testing.TB, q Query) *Element {
 }
 
 // All returns the elements of the HTML document q selects, in document order.
-func (r *Response) All(q Query) []*Element {
+func (r *Response) All(t testing.TB, q Query) []*Element {
+	t.Helper()
 	p := r.page()
-	return getAll(p, p.doc, q, r.desc)
+	return getAll(t, p, p.doc, q, r.desc)
 }
 
 func (r *Response) page() *page {

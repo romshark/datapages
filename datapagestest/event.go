@@ -59,9 +59,10 @@ func (e Event) Get(t testing.TB, q Query) *Element {
 }
 
 // All returns the event elements q selects, in document order.
-func (e Event) All(q Query) []*Element {
+func (e Event) All(t testing.TB, q Query) []*Element {
+	t.Helper()
 	p := e.page()
-	return getAll(p, p.doc, q, describe(e))
+	return getAll(t, p, p.doc, q, describe(e))
 }
 
 // Signals decodes a PatchSignals event. Deleted signals have raw value null;

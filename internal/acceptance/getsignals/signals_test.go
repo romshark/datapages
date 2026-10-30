@@ -120,7 +120,7 @@ func TestActionClosesTheSession(t *testing.T) {
 	require.Equal(t, "term= page=0 user=alice", echo(t, index.Page()))
 
 	// The page loaded after /enter/ carries the CSRF token of the session it set.
-	require.Equal(t, http.StatusOK, index.Do(t, http.MethodPost, "/leave/", nil).Status)
+	require.Equal(t, http.StatusOK, index.Do(t, "@post('/leave/')", nil).Status)
 
 	require.Equal(t, "term= page=0 user=", echo(t, v.Get(t, "/")),
 		"the session outlived the action that closed it")

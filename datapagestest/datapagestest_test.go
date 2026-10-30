@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"slices"
 	"strings"
@@ -92,6 +93,7 @@ type echoed struct {
 	AcceptEncoding  string
 	FetchDest       string
 	FetchMode       string
+	Test            string // the X-Test header
 }
 
 func echo(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +110,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		AcceptEncoding:  r.Header.Get("Accept-Encoding"),
 		FetchDest:       r.Header.Get("Sec-Fetch-Dest"),
 		FetchMode:       r.Header.Get("Sec-Fetch-Mode"),
+		Test:            r.Header.Get("X-Test"),
 	})
 }
 
@@ -184,7 +187,8 @@ func TestDoPlacesSignals(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := decodeEcho(t, tab.Do(t, tt.method, tt.path, tt.signals))
+			expr := "@" + strings.ToLower(tt.method) + "('" + tt.path + "')"
+			e := decodeEcho(t, tab.Do(t, expr, tt.signals))
 			require.Equal(t, tt.method, e.Method)
 			require.Equal(t, tt.body, e.Body)
 			require.Equal(t, tt.datastar, e.Datastar)
@@ -200,24 +204,66 @@ func TestDoPlacesSignals(t *testing.T) {
 	}
 }
 
-// TestDoFormPlacesFields tests form fields in request bodies and DELETE queries.
-func TestDoFormPlacesFields(t *testing.T) {
+// TestDoForm tests that a call with the form content type sends form fields,
+// in request bodies and DELETE queries, with the headers the call sets; that a
+// nil payload sends the page's signals the call selects; and that the payload
+// must suit the call.
+func TestDoForm(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.Handle("/p/", page(`<p>page</p>`, ""))
+	mux.Handle("/p/", page(`<p data-signals='{"n":1,"m":2,"_l":3}'>page</p>`, ""))
 	mux.HandleFunc("/echo/", echo)
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/")
 
-	e := decodeEcho(t, tab.DoForm(t, http.MethodPost, "/echo/", map[string][]string{
-		"name": {"a b"},
-	}))
+	const post = `@post('/echo/', {contentType: 'form', headers: {'X-Test': 'yes'}})`
+	e := decodeEcho(t, tab.Do(t, post, url.Values{"name": {"a b"}}))
 	require.Equal(t, "name=a+b", e.Body)
 	require.Equal(t, "application/x-www-form-urlencoded", e.ContentType)
+	require.Equal(t, "yes", e.Test)
 
-	e = decodeEcho(t, tab.DoForm(t, http.MethodDelete, "/echo/", map[string][]string{
-		"name": {"a"},
-	}))
+	e = decodeEcho(t, tab.Do(t, `@delete('/echo/', {contentType: 'form'})`,
+		url.Values{"name": {"a"}}))
 	require.Empty(t, e.Body)
 	require.Equal(t, "name=a", e.Query)
+
+	for expr, want := range map[string]string{
+		`@post('/echo/')`: `{"m":2,"n":1}`,
+		`@post('/echo/', {filterSignals: {include: /^m/}})`:                `{"m":2}`,
+		`@post('/echo/', {filterSignals: {include: /.*/, exclude: /^n/}})`: `{"_l":3,"m":2}`,
+	} {
+		require.Equal(t, want, decodeEcho(t, tab.Do(t, expr, nil)).Body, expr)
+	}
+	e = decodeEcho(t, tab.Do(t, `@post('/echo/')`, map[string][]string{"tags": {"a"}}))
+	require.Equal(t, `{"tags":["a"]}`, e.Body, "string lists are signals")
+
+	for name, tc := range map[string]struct {
+		f    func(testing.TB)
+		want string
+	}{
+		"wrong payload": {
+			func(tb testing.TB) { tab.Do(tb, post, map[string]string{"name": "a"}) },
+			"sends a form; pass its fields as url.Values, not map[string]string",
+		},
+		"form without fields": {
+			func(tb testing.TB) { tab.Do(tb, post, nil) },
+			"sends the fields of a form, which only the browser knows; pass them as url.Values",
+		},
+		"form for json": {
+			func(tb testing.TB) { tab.Do(tb, `@post('/echo/')`, url.Values{}) },
+			"sends JSON signals, since it sets no form content type",
+		},
+		"browser payload": {
+			func(tb testing.TB) { tab.Do(tb, `@post('/echo/', {payload: evt.detail})`, nil) },
+			"sets a payload, which only the browser evaluates; pass it",
+		},
+		"2 actions": {
+			func(tb testing.TB) { tab.Do(tb, `@post('/a/'); @post('/b/')`, nil) },
+			"calls 2 generated actions, want 1",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Contains(t, failure(t, tc.f), tc.want)
+		})
+	}
 }
 
 // TestCSRFToken tests page-scoped CSRF tokens.
@@ -235,19 +281,19 @@ func TestCSRFToken(t *testing.T) {
 	v := datapagestest.New(t, mux).Visitor(t)
 	guest := v.Load(t, "/p/")
 
-	require.Empty(t, decodeEcho(t, guest.Do(t, http.MethodPost, "/echo/", nil)).CSRF)
+	require.Empty(t, decodeEcho(t, guest.Do(t, "@post('/echo/')", nil)).CSRF)
 
-	guest.Do(t, http.MethodPost, "/login/", nil).RequireStatus(t, http.StatusOK)
+	guest.Do(t, "@post('/login/')", nil).RequireStatus(t, http.StatusOK)
 	require.NotNil(t, v.Cookie(datapages.DefaultSessionCookieName),
 		"the jar keeps the Secure cookie")
-	require.Empty(t, decodeEcho(t, guest.Do(t, http.MethodPost, "/echo/", nil)).CSRF,
+	require.Empty(t, decodeEcho(t, guest.Do(t, "@post('/echo/')", nil)).CSRF,
 		"the page rendered for the guest carries no token after the sign-in")
 
 	tab := v.Load(t, "/p/")
-	token := decodeEcho(t, tab.Do(t, http.MethodPost, "/echo/", nil)).CSRF
+	token := decodeEcho(t, tab.Do(t, "@post('/echo/')", nil)).CSRF
 	require.True(t, csrf.Tokens{}.ValidateToken("tok-1", token), "token %q", token)
-	require.Empty(t, decodeEcho(t, tab.Do(t, http.MethodGet, "/echo/", nil)).CSRF)
-	require.Empty(t, decodeEcho(t, tab.Do(t, "QUERY", "/echo/", nil)).CSRF)
+	require.Empty(t, decodeEcho(t, tab.Do(t, "@get('/echo/')", nil)).CSRF)
+	require.Empty(t, decodeEcho(t, tab.Do(t, "@query('/echo/')", nil)).CSRF)
 }
 
 // TestCSRFTokenFromResponse tests that a document response updates the tab's token.
@@ -266,9 +312,9 @@ func TestCSRFTokenFromResponse(t *testing.T) {
 		csrfPage(datapages.DefaultSessionCookieName)(w, r)
 	})
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/")
-	tab.Do(t, http.MethodPost, "/sign-in/", nil).RequireStatus(t, http.StatusOK)
+	tab.Do(t, "@post('/sign-in/')", nil).RequireStatus(t, http.StatusOK)
 
-	token := decodeEcho(t, tab.Do(t, http.MethodPost, "/echo/", nil)).CSRF
+	token := decodeEcho(t, tab.Do(t, "@post('/echo/')", nil)).CSRF
 	require.True(t, csrf.Tokens{}.ValidateToken("tok-3", token), "token %q", token)
 }
 
@@ -281,7 +327,7 @@ func TestSetSessionToken(t *testing.T) {
 	v.SetSessionToken("tok-2")
 	require.Equal(t, "tok-2", v.Cookie("sid").Value)
 
-	token := decodeEcho(t, v.Load(t, "/p/").Do(t, http.MethodPost, "/echo/", nil)).CSRF
+	token := decodeEcho(t, v.Load(t, "/p/").Do(t, "@post('/echo/')", nil)).CSRF
 	require.True(t, csrf.Tokens{}.ValidateToken("tok-2", token), "token %q", token)
 }
 
@@ -511,7 +557,7 @@ func TestRequestTimeout(t *testing.T) {
 
 		tab := v.Load(t, "/p/")
 		msg = failure(t, func(tb testing.TB) {
-			tab.Do(tb, http.MethodGet, "/p/_$/", nil)
+			tab.Do(tb, "@get('/p/_$/')", nil)
 		})
 		require.True(t, strings.HasPrefix(msg,
 			"GET /p/_$/?datastar=%7B%7D: no complete response within 1m0s;"), msg)
@@ -557,7 +603,7 @@ func TestMatches(t *testing.T) {
 	mux.Handle("POST /act/", stream(patch(`<p id="a">done</p>`), true))
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/")
 
-	evs := tab.Do(t, http.MethodPost, "/act/", nil).Events(t)
+	evs := tab.Do(t, "@post('/act/')", nil).Events(t)
 	require.True(t, slices.ContainsFunc(evs, datapagestest.TextContains("a", "done").Matches))
 	require.False(t, slices.ContainsFunc(evs, datapagestest.Patched("b").Matches))
 }
@@ -569,7 +615,7 @@ func TestResponseEvent(t *testing.T) {
 	mux.Handle("POST /act/",
 		stream(patch(`<p id="a">1</p>`)+patch(`<p id="a">2</p>`), true))
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/")
-	resp := tab.Do(t, http.MethodPost, "/act/", nil)
+	resp := tab.Do(t, "@post('/act/')", nil)
 
 	ev := resp.Event(t, datapagestest.Patched("a"))
 	require.Equal(t, "1", ev.Get(t, datapagestest.ID("a")).Text())
@@ -640,7 +686,7 @@ func TestScript(t *testing.T) {
 		_ = st.ExecuteScript("setTimeout(() => { location.reload() }, 1000)")
 	})
 	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/p/")
-	evs := tab.Do(t, http.MethodPost, "/act/", nil).Events(t)
+	evs := tab.Do(t, "@post('/act/')", nil).Events(t)
 	require.Len(t, evs, 3)
 
 	_, ok := evs[0].Script()
@@ -752,37 +798,6 @@ func TestResponseCookies(t *testing.T) {
 	require.True(t, cookies[0].HttpOnly)
 	require.Equal(t, http.SameSiteStrictMode, cookies[0].SameSite)
 	require.Equal(t, "v", v.Cookie("c").Value)
-}
-
-// TestParseAction tests generated action expressions and missing actions.
-func TestParseAction(t *testing.T) {
-	tests := map[string]struct {
-		expr, method, path string
-	}{
-		"post":  {`@post('/form/submit/')`, http.MethodPost, "/form/submit/"},
-		"get":   {`@get('/files/1/')`, http.MethodGet, "/files/1/"},
-		"put":   {`@put('/p/')`, http.MethodPut, "/p/"},
-		"patch": {`@patch('/p/')`, http.MethodPatch, "/p/"},
-		"query": {
-			`@query('/input/?btn=18&paste=true')`, "QUERY", "/input/?btn=18&paste=true",
-		},
-		"escaped path": {`@delete('/row/a%27b/')`, http.MethodDelete, "/row/a%27b/"},
-		"options": {
-			`$busy = true; @post('/x/', {headers: {'X-Note': 'it\'s'}}); $busy = false`,
-			http.MethodPost, "/x/",
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			method, path := datapagestest.ParseAction(t, tt.expr)
-			require.Equal(t, tt.method, method)
-			require.Equal(t, tt.path, path)
-		})
-	}
-	msg := failure(t, func(tb testing.TB) {
-		datapagestest.ParseAction(tb, "$count++")
-	})
-	require.Equal(t, `"$count++" calls no action`, msg)
 }
 
 // TestSubject tests dispatcher-compatible subject escaping.

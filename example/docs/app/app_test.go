@@ -20,6 +20,7 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/docs/app"
 	"github.com/romshark/datapages/example/docs/app/datapagesgen"
+	"github.com/romshark/datapages/example/docs/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/docs/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/docs/delta"
 	"github.com/romshark/datapages/example/docs/images"
@@ -114,7 +115,7 @@ func ops(list string) json.RawMessage {
 // submit sends a change the way the editor does.
 func (tb *tab) submit(t *testing.T, seq, rev int, list string) *datapagestest.Response {
 	t.Helper()
-	resp := tb.Do(t, http.MethodPost, "/doc/"+tb.doc+"/submit", map[string]any{
+	resp := tb.Do(t, action.PageDoc.Submit.POST(tb.doc), map[string]any{
 		"client": tb.client, "seq": seq, "rev": rev, "delta": ops(list),
 	})
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
@@ -126,7 +127,7 @@ func (tb *tab) restore(
 	t *testing.T, client string, seq, rev int, sent, buffer, content string,
 ) *datapagestest.Response {
 	t.Helper()
-	resp := tb.Do(t, http.MethodPost, "/doc/"+tb.doc+"/restore", map[string]any{
+	resp := tb.Do(t, action.PageDoc.Restore.POST(tb.doc), map[string]any{
 		"client": client, "seq": seq, "rev": rev,
 		"sent": ops(sent), "buffer": ops(buffer),
 		"title": "Notes", "content": ops(content),
@@ -325,7 +326,7 @@ func TestCursor(t *testing.T) {
 	a.stream.WaitFor(t,
 		receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]},"ack":1}`))
 
-	resp := a.Do(t, http.MethodPost, "/doc/"+doc+"/cursor", map[string]any{
+	resp := a.Do(t, action.PageDoc.Cursor.POST(doc), map[string]any{
 		"client": a.client, "seq": 1, "rev": 1, "index": 2, "length": 3,
 	})
 	require.Equal(t, http.StatusOK, resp.Status)
@@ -340,7 +341,7 @@ func TestRename(t *testing.T) {
 	s := newServer(t)
 	doc := s.create(t)
 	a, b := s.open(t, doc), s.open(t, doc)
-	resp := a.Do(t, http.MethodPost, "/doc/"+doc+"/rename",
+	resp := a.Do(t, action.PageDoc.Rename.POST(doc),
 		map[string]string{"title": " Plans "})
 	require.Equal(t, http.StatusOK, resp.Status)
 	b.stream.WaitFor(t, datapagestest.Func(`the title field with the value "Plans"`,
@@ -361,7 +362,7 @@ func TestDelete(t *testing.T) {
 	s := newServer(t)
 	doc := s.create(t)
 	a := s.open(t, doc)
-	resp := a.Do(t, http.MethodDelete, "/delete/"+doc, nil)
+	resp := a.Do(t, action.PageIndex.Doc.DELETE(doc), nil)
 	require.Equal(t, http.StatusOK, resp.Status)
 	a.stream.WaitFor(t, datapagestest.Func("a redirect to the document list",
 		func(ev datapagestest.Event) bool {
@@ -450,7 +451,7 @@ func TestCreate(t *testing.T) {
 		t.Run(tmpl.ID, func(t *testing.T) {
 			s := newServer(t)
 			index := s.browser.Load(t, href.PageIndex())
-			resp := index.Do(t, http.MethodPost, "/create/"+tmpl.ID, nil)
+			resp := index.Do(t, action.PageIndex.Create.POST(tmpl.ID), nil)
 			require.Equal(t, http.StatusOK, resp.Status)
 			list := s.docs.List()
 			require.Len(t, list, 1)
@@ -468,7 +469,7 @@ func TestCreate(t *testing.T) {
 func TestCreateUnknownTemplate(t *testing.T) {
 	s := newServer(t)
 	index := s.browser.Load(t, href.PageIndex())
-	resp := index.Do(t, http.MethodPost, "/create/missing", nil)
+	resp := index.Do(t, action.PageIndex.Create.POST("missing"), nil)
 	require.Equal(t, http.StatusOK, resp.Status)
 	resp.Event(t, datapagestest.TextContains("error", "Something went wrong"))
 	require.Empty(t, s.docs.List())
@@ -483,7 +484,7 @@ func TestImage(t *testing.T) {
 	s := newServer(t)
 	doc := s.create(t)
 	a := s.open(t, doc)
-	resp := a.Do(t, http.MethodPost, "/doc/"+doc+"/image", map[string]any{
+	resp := a.Do(t, action.PageDoc.Image.POST(doc), map[string]any{
 		"upload": 7, "data": base64.StdEncoding.EncodeToString([]byte(pngData)),
 	})
 	require.Equal(t, http.StatusOK, resp.Status)
@@ -513,7 +514,7 @@ func TestImageRejected(t *testing.T) {
 	s := newServer(t)
 	doc := s.create(t)
 	a := s.open(t, doc)
-	resp := a.Do(t, http.MethodPost, "/doc/"+doc+"/image", map[string]any{
+	resp := a.Do(t, action.PageDoc.Image.POST(doc), map[string]any{
 		"upload": 3, "data": base64.StdEncoding.EncodeToString([]byte("not an image")),
 	})
 	require.Equal(t, http.StatusOK, resp.Status)

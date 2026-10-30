@@ -11,7 +11,6 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/todolist/app"
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen"
-	"github.com/romshark/datapages/example/todolist/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/todolist/list"
 	"github.com/romshark/datapages/modules/messaging"
@@ -19,7 +18,7 @@ import (
 )
 
 // TestIndexPage tests what an empty list shows on load. The dialog for a new
-// todo is hidden until the visitor opens it.
+// todo shows while the showModal signal is set.
 func TestIndexPage(t *testing.T) {
 	page := newServer(t, new(list.List)).Visitor(t).
 		Get(t, href.PageIndex(href.QueryPageIndex{})).RequireStatus(t, http.StatusOK)
@@ -31,6 +30,17 @@ func TestIndexPage(t *testing.T) {
 		{Role: "combobox", Name: "Sort by", Value: "Created"},
 		{Role: "button", Name: "+ New Todo"},
 		{Role: "paragraph", Text: "No todos found."},
+		{Role: "dialog", Name: "New Todo", ShownIf: "$showModal", Children: datapagestest.Tree{
+			{Role: "heading", Name: "New Todo", Level: 2},
+			{Role: "text", Text: "Title"},
+			{Role: "textbox", Name: "Title"},
+			{Role: "text", Text: "Description"},
+			{Role: "textbox", Name: "Description"},
+			{Role: "text", Text: "Due Date"},
+			{Role: "textbox", Name: "Due Date"},
+			{Role: "button", Name: "Cancel"},
+			{Role: "button", Name: "Create"},
+		}},
 	})
 }
 
@@ -43,10 +53,13 @@ func TestCreateTodo(t *testing.T) {
 	bob := srv.Visitor(t).Load(t, href.PageIndex(href.QueryPageIndex{}))
 	streams := []*datapagestest.Stream{alice.Connect(t, nil), bob.Connect(t, nil)}
 
+	// The dialog sends the signals its fields bind.
 	due := time.Date(2026, time.November, 2, 18, 0, 0, 0, time.UTC)
-	method, url := datapagestest.ParseAction(t, action.PageIndex.Create.POST())
-	alice.Do(t, method, url, map[string]string{
-		"newTitle": "Buy milk", "newDue": due.Format("2006-01-02T15:04"),
+	dialog := alice.Page().Get(t, datapagestest.Role("dialog", "New Todo"))
+	create := dialog.Get(t, datapagestest.Role("button", "Create")).Action(t, "click")
+	alice.Do(t, create, map[string]string{
+		dialog.Get(t, datapagestest.Label("Title")).Bind():    "Buy milk",
+		dialog.Get(t, datapagestest.Label("Due Date")).Bind(): due.Format("2006-01-02T15:04"),
 	}).RequireStatus(t, http.StatusOK)
 
 	id := todos.GetItems(list.ViewParameters{})[0].ID
@@ -63,12 +76,14 @@ func TestCreateTodo(t *testing.T) {
 
 	item := srv.Visitor(t).Get(t, href.PageItem(id)).RequireStatus(t, http.StatusOK)
 	require.Equal(t, "Buy milk", item.Get(t, datapagestest.Role("heading", "")).Text())
-	// The fields show the signals the page declares.
-	item.Get(t, datapagestest.Label("Title"))
+	// The fields show the signals they bind.
 	signals := item.Signals(t)
-	require.Equal(t, "Buy milk", signals["title"])
-	require.Equal(t, due.Format("2006-01-02T15:04"), signals["due"])
-	require.Equal(t, false, signals["done"])
+	field := func(label string) any {
+		return signals[item.Get(t, datapagestest.Label(label)).Bind()]
+	}
+	require.Equal(t, "Buy milk", field("Title"))
+	require.Equal(t, due.Format("2006-01-02T15:04"), field("Due Date"))
+	require.Equal(t, false, field("Done"))
 }
 
 // TestFilterDone tests that a toggle reaches every open tab and that the Done
@@ -84,14 +99,15 @@ func TestFilterDone(t *testing.T) {
 	tab.Connect(t, nil)
 	otherStream := other.Connect(t, nil)
 
-	method, url := datapagestest.ParseAction(t, action.App.Toggle.PUT(walk))
-	tab.Do(t, method, url, nil).RequireStatus(t, http.StatusOK)
+	toggle := tab.Page().Get(t, datapagestest.Role("checkbox", "Walk the dog")).
+		Action(t, "click")
+	tab.Do(t, toggle, nil).RequireStatus(t, http.StatusOK)
 	ev := otherStream.WaitFor(t, datapagestest.Patched("todo-list"))
 	require.True(t, ev.Get(t, datapagestest.Role("checkbox", "Walk the dog")).Checked())
 	require.False(t, ev.Get(t, datapagestest.Role("checkbox", "Buy milk")).Checked())
 
-	method, url = datapagestest.ParseAction(t, action.PageIndex.Filter.POST())
-	resp := tab.Do(t, method, url, map[string]string{"filter": "done"}).
+	filter := tab.Page().Get(t, datapagestest.Label("Show")).Action(t, "change")
+	resp := tab.Do(t, filter, map[string]string{"filter": "done"}).
 		RequireStatus(t, http.StatusOK)
 	resp.Event(t, datapagestest.Patched("todo-list")).
 		Get(t, datapagestest.Role("list", "Todos")).

@@ -332,12 +332,12 @@ func TestPOSTFile(t *testing.T) {
 	t.Parallel()
 	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := index.Do(t, http.MethodPost, "/upper/", json.RawMessage("abc"))
+	resp := index.Do(t, "@post('/upper/')", json.RawMessage("abc"))
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "ABC", resp.Body)
 	require.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"))
 
-	resp = index.Do(t, http.MethodPost, "/upper/", json.RawMessage(""))
+	resp = index.Do(t, "@post('/upper/')", json.RawMessage(""))
 	require.Equal(t, http.StatusBadRequest, resp.Status)
 	require.Equal(t, "Bad Request\n", resp.Body)
 	require.NotContains(t, resp.Body, "recovered")

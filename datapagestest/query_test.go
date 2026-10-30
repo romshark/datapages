@@ -82,11 +82,11 @@ func TestQueries(t *testing.T) {
 		})
 	}
 	require.Equal(t, "Queries", page.Get(t, datapagestest.Tag("title")).Text())
-	require.Len(t, page.All(datapagestest.Role("listitem", "")), 2)
-	require.Len(t, page.All(datapagestest.Role("button", "Delete")), 2)
-	require.Empty(t, page.All(datapagestest.HasText("Secret")))
-	require.Empty(t, page.All(datapagestest.Role("button", "Ghost")))
-	require.Empty(t, page.All(datapagestest.Label("Find...")),
+	require.Len(t, page.All(t, datapagestest.Role("listitem", "")), 2)
+	require.Len(t, page.All(t, datapagestest.Role("button", "Delete")), 2)
+	require.Empty(t, page.All(t, datapagestest.HasText("Secret")))
+	require.Empty(t, page.All(t, datapagestest.Role("button", "Ghost")))
+	require.Empty(t, page.All(t, datapagestest.Label("Find...")),
 		"a placeholder is no label")
 }
 
@@ -125,8 +125,9 @@ func TestQueryFailures(t *testing.T) {
 	}
 }
 
-// TestHidden tests that a visitor query skips what the HTML hides, and that
-// data-show, which Datastar evaluates in the browser, decides nothing.
+// TestHidden tests that a visitor query skips what the HTML hides, and that an
+// element with data-show counts as shown whatever its inline style, since the
+// browser decides.
 func TestHidden(t *testing.T) {
 	page := load(t, `
 		<div hidden><button>Attribute</button></div>
@@ -138,12 +139,100 @@ func TestHidden(t *testing.T) {
 		<template><button>Template</button></template>
 	`)
 	for text, shown := range map[string]bool{
-		"Attribute": false, "Styled": false, "Until shown": false, "Server shown": true,
+		"Attribute": false, "Styled": false, "Until shown": true, "Server shown": true,
 		"Closed": false, "Open": true, "Template": false,
 	} {
-		require.Equal(t, shown, len(page.All(datapagestest.HasText(text))) == 1, text)
+		require.Equal(t, shown, len(page.All(t, datapagestest.HasText(text))) == 1, text)
 	}
-	require.Len(t, page.All(datapagestest.Tag("button")), 6)
+	require.Len(t, page.All(t, datapagestest.Tag("button")), 6)
+}
+
+// TestConditional tests elements that data-show shows in the browser: trees
+// state the condition, and a name or text that depends on it fails unless every
+// combination of shown and hidden agrees.
+func TestConditional(t *testing.T) {
+	page := load(t, `<main id="m">
+		<button>Pay<span data-show="$_busy"> now</span></button>
+		<button><span data-show="!$b">Buy</span><span data-show="$b">Processing...</span></button>
+		<button>Go<span data-show="$x"></span></button>
+		<div id="more"><div style="display: none" data-show="$open">
+			<p>Details</p>
+			<button data-show="$ready">Ok</button>
+		</div></div>
+		<div id="note"><span data-show="!$open">Closed</span></div>
+		<input aria-label="Title" data-bind:new-title>
+	</main>`)
+
+	msg := failure(t, func(tb testing.TB) { page.Get(tb, datapagestest.ID("m")).Tree(tb) })
+	require.Contains(t, msg, `the name of <button>: <span data-show="$_busy"> shows `+
+		`only if data-show="$_busy", which the browser evaluates`)
+	for name, tc := range map[string]struct {
+		q    datapagestest.Query
+		want string
+	}{
+		"partly":       {datapagestest.Role("button", "Pay"), `"$_busy"`},
+		"text":         {datapagestest.HasText("Pay now"), `"$_busy"`},
+		"either shown": {datapagestest.Role("button", "Buy"), `"!$b", "$b"`},
+		"other shown":  {datapagestest.Role("button", "Processing..."), `"!$b", "$b"`},
+	} {
+		msg := failure(t, func(tb testing.TB) { page.All(tb, tc.q) })
+		require.Contains(t, msg, tc.q.String()+": <button> depends on data-show "+
+			tc.want+", which the browser evaluates", name)
+	}
+	require.Empty(t, page.All(t, datapagestest.Role("button", "Save")))
+	require.Len(t, page.All(t, datapagestest.Role("button", "Go")), 1,
+		"every combination names it Go")
+
+	ok := page.Get(t, datapagestest.Role("button", "Ok"))
+	require.Equal(t, "$open && $ready", ok.ShownIf())
+	require.Empty(t, page.Get(t, datapagestest.ID("more")).ShownIf())
+	require.Equal(t, "newTitle", page.Get(t, datapagestest.Label("Title")).Bind())
+	page.Get(t, datapagestest.ID("more")).RequireTree(t, datapagestest.Tree{
+		{Role: "paragraph", Text: "Details", ShownIf: "$open"},
+		{Role: "button", Name: "Ok", ShownIf: "$open && $ready"},
+	})
+	page.Get(t, datapagestest.ID("note")).RequireTree(t, datapagestest.Tree{
+		{Role: "text", Text: "Closed", ShownIf: "!$open"},
+	})
+}
+
+// TestAction tests reading the generated action a control calls and sending it.
+func TestAction(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.Handle("GET /{$}", page(`
+		<button data-on:click__prevent="$_busy = true; @post('/echo/?x=1')">Save</button>
+		<button data-on:click="$_open = true">Open</button>
+		<button data-on:click="@post('/a/')" data-on:click__once="@post('/b/')">Both</button>
+	`, ""))
+	mux.HandleFunc("/echo/", echo)
+	tab := datapagestest.New(t, mux).Visitor(t).Load(t, "/")
+
+	save := tab.Page().Get(t, datapagestest.Role("button", "Save"))
+	e := decodeEcho(t, tab.Do(t, save.Action(t, "click"), map[string]int{"n": 1}))
+	require.Equal(t, http.MethodPost, e.Method)
+	require.Equal(t, "x=1", e.Query)
+	require.Equal(t, `{"n":1}`, e.Body)
+
+	for name, want := range map[string]string{
+		"Open": "calls 0 generated actions", "Both": "calls 2 generated actions",
+	} {
+		el := tab.Page().Get(t, datapagestest.Role("button", name))
+		msg := failure(t, func(tb testing.TB) { el.Action(tb, "click") })
+		require.Contains(t, msg, `role button "`+name+`": data-on:click `+want+`, want 1`)
+	}
+	msg := failure(t, func(tb testing.TB) { tab.Do(tb, "$count++", nil) })
+	require.Equal(t, `"$count++" calls 0 generated actions, want 1`, msg)
+}
+
+// TestElementSignals tests decoding the signals inside an element of a patch.
+func TestElementSignals(t *testing.T) {
+	ev := datapagestest.Event{
+		Type: datapagestest.PatchElements,
+		Data: map[string]string{"elements": `<div id="calc" data-signals:input="'7'">` +
+			`<p data-signals='{"fresh":true}'></p></div><div data-signals:other="1"></div>`},
+	}
+	require.Equal(t, map[string]any{"input": "7", "fresh": true},
+		ev.Get(t, datapagestest.ID("calc")).Signals(t))
 }
 
 // TestValueAndChecked tests the values and states the HTML sets on controls.
@@ -206,7 +295,7 @@ func TestRequireTree(t *testing.T) {
 	}
 	main := page.Get(t, datapagestest.ID("m"))
 	main.RequireTree(t, want)
-	require.Equal(t, want, main.Tree())
+	require.Equal(t, want, main.Tree(t))
 
 	want[2].Text = "Total: 2"
 	msg := failure(t, func(tb testing.TB) { main.RequireTree(tb, want) })
@@ -227,7 +316,7 @@ func TestEventGet(t *testing.T) {
 	ev.Get(t, datapagestest.ID("r")).RequireTree(t, datapagestest.Tree{
 		{Role: "cell", Name: "cell"},
 	})
-	require.Len(t, ev.All(datapagestest.Tag("td")), 1)
+	require.Len(t, ev.All(t, datapagestest.Tag("td")), 1)
 	msg := failure(t, func(tb testing.TB) { ev.Get(tb, datapagestest.ID("x")) })
 	require.Contains(t, msg, `datastar-patch-elements elements="<tr id=\"r\"><td>cell</td></tr>": `+
 		`no element matches id "x", want 1`)

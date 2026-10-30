@@ -315,7 +315,7 @@ func TestDevModeServesFromDisk(t *testing.T) {
 func TestHalfWrittenBodyGetsNoErrorStatus(t *testing.T) {
 	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := index.Do(t, http.MethodPost, "/half-written/", nil)
+	resp := index.Do(t, "@post('/half-written/')", nil)
 	require.Contains(t, resp.Body, `<pre id="echo">half</pre>`)
 	require.NotContains(t, resp.Body, http.StatusText(http.StatusInternalServerError),
 		"the error status was appended to what the client already received")
@@ -327,7 +327,7 @@ func TestHalfWrittenBodyGetsNoErrorStatus(t *testing.T) {
 func TestMetrics(t *testing.T) {
 	t.Parallel()
 	index := serve(t).Visitor(t).Load(t, "/")
-	index.Do(t, http.MethodPost, "/fail/", nil)
+	index.Do(t, "@post('/fail/')", nil)
 
 	families, err := registry.Gather()
 	require.NoError(t, err, "gathering metrics")
@@ -478,7 +478,7 @@ func TestBrokerMetrics(t *testing.T) {
 
 	before := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")
 
-	resp := index.Do(t, http.MethodPost, "/announce/", map[string]string{"text": "hi"})
+	resp := index.Do(t, "@post('/announce/')", map[string]string{"text": "hi"})
 	require.Equal(t, http.StatusOK, resp.Status, "POST /announce/")
 
 	after := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")

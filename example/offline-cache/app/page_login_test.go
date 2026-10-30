@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 )
@@ -31,7 +32,7 @@ func TestSignInRedirect(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			login := srv.Visitor(t).Load(t, href.PageLogin(href.QueryPageLogin{}))
-			resp := login.Do(t, http.MethodPost, "/login/submit/", map[string]string{
+			resp := login.Do(t, action.PageLogin.Submit.POST(), map[string]string{
 				"emailorusername": "visitor",
 				"password":        password,
 				"next":            tc.next,

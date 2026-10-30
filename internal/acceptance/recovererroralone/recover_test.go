@@ -26,7 +26,7 @@ func TestRecoverErrorIsCalled(t *testing.T) {
 	t.Parallel()
 	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := index.Do(t, http.MethodPost, "/fail/", nil)
+	resp := index.Do(t, "@post('/fail/')", nil)
 
 	require.Contains(t, resp.Body, `<div id="toast">something went wrong</div>`,
 		"RecoverError did not answer the failed request")

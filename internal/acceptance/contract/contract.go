@@ -24,6 +24,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -421,7 +422,7 @@ func unroutedBody(
 	if method == http.MethodGet {
 		resp = v.Get(t, nowhere)
 	} else {
-		resp = tab.Do(t, method, nowhere, nil)
+		resp = tab.Do(t, Call(method, nowhere), nil)
 	}
 	if resp.Status != http.StatusNotFound {
 		// An app whose 404 page is served with 200 has no distinguishable body here.
@@ -443,11 +444,11 @@ func (c Case) testGeneratedActionsAreRouted(t *testing.T) {
 	unrouted := map[string]string{}
 	for _, expr := range c.Actions {
 		t.Run(expr, func(t *testing.T) {
-			method, target := datapagestest.ParseAction(t, expr)
+			method, target := route(t, expr)
 			if _, ok := unrouted[method]; !ok {
 				unrouted[method] = unroutedBody(t, v, tab, method)
 			}
-			resp := tab.Do(t, method, target, nil)
+			resp := tab.Do(t, expr, nil)
 			if resp.Status == http.StatusNotFound && resp.Body == unrouted[method] {
 				t.Errorf("action builds %s %s, which the router does not serve",
 					method, target)
@@ -472,8 +473,8 @@ func (c Case) testMalformedSignals(t *testing.T) {
 
 	for _, expr := range c.SignalActions {
 		t.Run(expr, func(t *testing.T) {
-			method, target := datapagestest.ParseAction(t, expr)
-			resp := tab.Do(t, method, target, json.RawMessage(`{"broken": `))
+			method, target := route(t, expr)
+			resp := tab.Do(t, expr, json.RawMessage(`{"broken": `))
 			if resp.Status < 400 {
 				t.Errorf("%s %s: status = %d on a body that is not signals",
 					method, target, resp.Status)
@@ -618,8 +619,8 @@ func (c Case) testDispatchReachesTheStream(t *testing.T) {
 	tab := c.visit(t).Load(t, c.index())
 	st := tab.Connect(t, nil)
 
-	method, target := datapagestest.ParseAction(t, c.DispatchAction)
-	resp := tab.Do(t, method, target, signals(c.DispatchBody))
+	method, target := route(t, c.DispatchAction)
+	resp := tab.Do(t, c.DispatchAction, signals(c.DispatchBody))
 	if resp.Status != http.StatusOK {
 		t.Fatalf("%s %s: status = %d", method, target, resp.Status)
 	}
@@ -644,9 +645,9 @@ func (c Case) testStateIsReleased(t *testing.T) {
 	}
 	st := tab.Connect(t, nil)
 
-	method, target := datapagestest.ParseAction(t, c.StateAction)
+	method, target := route(t, c.StateAction)
 	act := func() *datapagestest.Response {
-		return tab.Do(t, method, target, signals(c.StateActionBody))
+		return tab.Do(t, c.StateAction, signals(c.StateActionBody))
 	}
 	if resp := act(); resp.Status != http.StatusOK {
 		t.Fatalf("%s %s: status = %d while the stream is open",
@@ -851,7 +852,7 @@ func (c Case) testBuildCheck(t *testing.T) {
 		routes = append(routes, [2]string{http.MethodGet, c.StreamPath})
 	}
 	for _, expr := range c.Actions {
-		method, target := datapagestest.ParseAction(t, expr)
+		method, target := route(t, expr)
 		routes = append(routes, [2]string{method, target})
 	}
 	for _, route := range routes {
@@ -987,3 +988,27 @@ func (b *buffer) Reset() {
 	defer b.mu.Unlock()
 	b.buf.Reset()
 }
+
+// Call returns the expression a page writes for an action of method at path,
+// which [datapagestest.Tab.Do] sends. Use it for a request no generated action
+// writes, such as one to a missing route. path must hold no quote.
+func Call(method, path string) string {
+	return "@" + strings.ToLower(method) + "('" + path + "')"
+}
+
+// actionCall matches a generated action call and the JavaScript string of its
+// URL, whose escapes carry a quote of a route.
+var actionCall = regexp.MustCompile(`@(get|post|put|patch|delete|query)\('((?:[^'\\]|\\.)*)'`)
+
+// route returns the method and URL of the action expr calls.
+func route(t *testing.T, expr string) (method, target string) {
+	t.Helper()
+	m := actionCall.FindStringSubmatch(expr)
+	if m == nil {
+		t.Fatalf("%q calls no action", expr)
+	}
+	return strings.ToUpper(m[1]), jsEscapes.Replace(m[2])
+}
+
+// jsEscapes decodes the escapes the action package writes into a JavaScript string.
+var jsEscapes = strings.NewReplacer(`\\`, `\`, `\'`, `'`, `\n`, "\n", `\r`, "\r")

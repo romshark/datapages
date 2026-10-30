@@ -16,6 +16,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/statefulpages/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -41,7 +42,7 @@ func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 // update sends the action that writes a tab's state.
 func update(t *testing.T, tab *datapagestest.Tab, filter string) *datapagestest.Response {
 	t.Helper()
-	return tab.Do(t, http.MethodPost, pathAction, map[string]string{"filter": filter})
+	return tab.Do(t, contract.Call(http.MethodPost, pathAction), map[string]string{"filter": filter})
 }
 
 // status matches the patch of a tab's state, such as "deliveries:1 filter:a".
@@ -120,7 +121,7 @@ func TestStreamCloseReadsTheFinalState(t *testing.T) {
 
 	tab := srv.Visitor(t).Load(t, pathCloseState)
 	st := tab.Connect(t, nil)
-	resp := tab.Do(t, http.MethodPost, pathCloseStateMark,
+	resp := tab.Do(t, contract.Call(http.MethodPost, pathCloseStateMark),
 		map[string]string{"filter": "written"})
 	require.Equal(t, http.StatusOK, resp.Status,
 		"writing the state the close hook has to find")
@@ -514,7 +515,7 @@ func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
 
 	tab := v.Load(t, "/")
 	tab.Connect(t, nil)
-	resp := tab.Do(t, http.MethodPost, pathAction, map[string]bool{"panic": true})
+	resp := tab.Do(t, contract.Call(http.MethodPost, pathAction), map[string]bool{"panic": true})
 	require.Equal(t, http.StatusOK, resp.Status, "dispatching the event that panics")
 
 	// A handler that kept its mutex locked keeps the capacity slot it holds.

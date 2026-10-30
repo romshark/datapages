@@ -63,7 +63,7 @@ func TestEveryConstructorServesTheSameApp(t *testing.T) {
 
 			st := tab.Connect(t, nil)
 
-			resp := tab.Do(t, http.MethodPost, "/tick/", map[string]int{"n": 7})
+			resp := tab.Do(t, "@post('/tick/')", map[string]int{"n": 7})
 			require.Equal(t, http.StatusOK, resp.Status)
 			st.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 		})
@@ -81,7 +81,7 @@ func TestActionsAre1SetOfRoutes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			v := datapagestest.New(t, newServer(t)).Visitor(t)
 			tab := v.Load(t, href.PageIndex())
-			resp := tab.Do(t, http.MethodPost, "/tick/", map[string]int{"n": 1})
+			resp := tab.Do(t, "@post('/tick/')", map[string]int{"n": 1})
 			require.Equal(t, http.StatusOK, resp.Status)
 		})
 	}

@@ -133,7 +133,7 @@ func TestRouteQuoteActionURL(t *testing.T) {
 			require.Equal(t, ")", rest,
 				"the action URL ends before its string does: %s", tt.expr)
 
-			resp := v.Load(t, tt.page).Do(t, http.MethodPost, url, nil)
+			resp := v.Load(t, tt.page).Do(t, tt.expr, nil)
 			require.Equal(t, http.StatusOK, resp.Status, "POST %s", url)
 			require.Contains(t, resp.Body, tt.echo, "POST %s", url)
 		})

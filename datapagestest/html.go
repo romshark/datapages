@@ -3,6 +3,8 @@ package datapagestest
 import (
 	"encoding/json"
 	"errors"
+	"iter"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -70,8 +72,15 @@ func Attr(n *html.Node, key string) (string, bool) {
 // Expressions requiring a browser fail the test.
 func (r *Response) Signals(t testing.TB) map[string]any {
 	t.Helper()
+	return decodeSignals(t, r.desc, r.Document().Descendants())
+}
+
+// decodeSignals decodes the data-signals attributes of nodes, in their order.
+// desc names their source in failure messages.
+func decodeSignals(t testing.TB, desc string, nodes iter.Seq[*html.Node]) map[string]any {
+	t.Helper()
 	out := map[string]any{}
-	for n := range r.Document().Descendants() {
+	for n := range nodes {
 		if n.Type != html.ElementNode {
 			continue
 		}
@@ -86,19 +95,33 @@ func (r *Response) Signals(t testing.TB) map[string]any {
 				var m map[string]any
 				if err := json.Unmarshal([]byte(a.Val), &m); err != nil {
 					t.Fatalf("%s: %s=%q is not a JSON object: %v",
-						r.desc, a.Key, a.Val, err)
+						desc, a.Key, a.Val, err)
 				}
 				mergeSignals(out, m, ifMissing)
 				continue
 			}
 			v, err := literal(a.Val)
 			if err != nil {
-				t.Fatalf("%s: %s=%q: %v", r.desc, a.Key, a.Val, err)
+				t.Fatalf("%s: %s=%q: %v", desc, a.Key, a.Val, err)
 			}
 			setSignal(out, convertCase(name, mods["case"]), v, ifMissing)
 		}
 	}
 	return out
+}
+
+// withDescendants yields n and its descendants.
+func withDescendants(n *html.Node) iter.Seq[*html.Node] {
+	return func(yield func(*html.Node) bool) {
+		if !yield(n) {
+			return
+		}
+		for d := range n.Descendants() {
+			if !yield(d) {
+				return
+			}
+		}
+	}
 }
 
 // PublicSignals filters [Response.Signals] as Datastar does by default. It removes
@@ -108,19 +131,36 @@ func (r *Response) PublicSignals(t testing.TB) map[string]any {
 	return publicSignals(r.Signals(t))
 }
 
-func publicSignals(m map[string]any) map[string]any {
+func publicSignals(m map[string]any) map[string]any { return filterSignals(m, "", nil, nil) }
+
+// defaultExclude leaves out local signals, those with a name on their path that
+// starts with _. Datastar applies it when an action sets no exclude pattern.
+var defaultExclude = regexp.MustCompile(`(^_|\._).*`)
+
+// filterSignals keeps the signals whose dotted paths include matches, or all for
+// nil, and exclude does not, [defaultExclude] for nil, as Datastar's filterSignals
+// option does. It leaves out the objects it empties.
+func filterSignals(
+	m map[string]any, prefix string, include, exclude *regexp.Regexp,
+) map[string]any {
+	if exclude == nil {
+		exclude = defaultExclude
+	}
 	out := map[string]any{}
 	for k, v := range m {
-		if strings.HasPrefix(k, "_") {
+		path := k
+		if prefix != "" {
+			path = prefix + "." + k
+		}
+		if sub, ok := v.(map[string]any); ok {
+			if o := filterSignals(sub, path, include, exclude); len(o) > 0 {
+				out[k] = o
+			}
 			continue
 		}
-		if obj, ok := v.(map[string]any); ok {
-			if obj = publicSignals(obj); len(obj) == 0 {
-				continue
-			}
-			v = obj
+		if (include == nil || include.MatchString(path)) && !exclude.MatchString(path) {
+			out[k] = v
 		}
-		out[k] = v
 	}
 	return out
 }

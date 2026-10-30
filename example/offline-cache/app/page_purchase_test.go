@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 )
@@ -26,7 +27,7 @@ func TestPurchaseSoldOut(t *testing.T) {
 	require.NoError(t, err, "listing shows")
 	require.Len(t, shows, 1)
 	slug := shows[0].Slug
-	confirm := "/shows/" + slug + "/purchase/confirm/"
+	confirm := action.PagePurchase.Confirm.POST(slug)
 	newUser(t, repo, "winner")
 	newUser(t, repo, "loser")
 	srv := newServer(t, repo)
@@ -36,10 +37,10 @@ func TestPurchaseSoldOut(t *testing.T) {
 	winnerTab := winner.Load(t, href.PagePurchase(slug))
 	loserTab := loser.Load(t, href.PagePurchase(slug))
 
-	resp := winnerTab.Do(t, http.MethodPost, confirm, nil)
+	resp := winnerTab.Do(t, confirm, nil)
 	require.Equal(t, http.StatusOK, resp.Status, "winner: %s", resp.Body)
 
-	resp = loserTab.Do(t, http.MethodPost, confirm, nil).RequireStatus(t, http.StatusOK)
+	resp = loserTab.Do(t, confirm, nil).RequireStatus(t, http.StatusOK)
 	resp.Event(t, soldOutToast)
 	require.JSONEq(t, `{"_buying":false}`,
 		resp.Event(t, datapagestest.Signal("_buying")).Data["signals"])

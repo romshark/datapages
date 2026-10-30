@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/internal/csrfscript"
 )
 
 // TestParseEvents tests Datastar framing and standard SSE fields.
@@ -138,11 +140,11 @@ func TestCSRFTokenOfPage(t *testing.T) {
 		want string
 	}{
 		"script": {
-			page: `<script type="module">h.set("X-CSRF-Token",'abc-1')</script>`,
+			page: csrfscript.Open + csrfscript.Prefix + "abc-1" + csrfscript.Suffix,
 			want: "abc-1",
 		},
 		"none":         {page: `<p>guest</p>`},
-		"unterminated": {page: `h.set("X-CSRF-Token",'abc`},
+		"unterminated": {page: csrfscript.Open + csrfscript.Prefix + "abc"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -169,6 +171,66 @@ func TestConvertCase(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			n, mods := splitModifiers(tt.key)
 			require.Equal(t, tt.want, convertCase(n, mods["case"]))
+		})
+	}
+}
+
+// TestParseCall tests the method, URL and options read from generated action
+// expressions, including a URL whose JavaScript string escapes a quote of the route.
+func TestParseCall(t *testing.T) {
+	// parsed is a call with its filter patterns as text, which require.Equal compares.
+	type parsed struct {
+		method, path     string
+		form, payload    bool
+		headers          map[string]string
+		include, exclude string
+	}
+	tests := map[string]struct {
+		expr string
+		want parsed
+	}{
+		"post":  {`@post('/form/submit/')`, parsed{method: "POST", path: "/form/submit/"}},
+		"get":   {`@get('/files/1/')`, parsed{method: "GET", path: "/files/1/"}},
+		"patch": {`@patch('/p/')`, parsed{method: "PATCH", path: "/p/"}},
+		"query": {
+			`@query('/input/?btn=18&paste=true')`,
+			parsed{method: "QUERY", path: "/input/?btn=18&paste=true"},
+		},
+		"percent-escaped": {`@delete('/row/a%27b/')`, parsed{method: "DELETE", path: "/row/a%27b/"}},
+		"quote escape":    {`@post('/it\'s/\\x/')`, parsed{method: "POST", path: `/it's/\x/`}},
+		"form": {
+			`@post('/start/', {contentType: 'form'})`,
+			parsed{method: "POST", path: "/start/", form: true},
+		},
+		"json": {`@post('/x/', {contentType: 'json'})`, parsed{method: "POST", path: "/x/"}},
+		"payload": {
+			`@post('/x/', {payload: evt.detail})`,
+			parsed{method: "POST", path: "/x/", payload: true},
+		},
+		"headers, filter, before and after": {
+			`$busy = true; @post('/x/', {filterSignals: {include: /^a}'/, exclude: /b/i}, ` +
+				`headers: {'X-Note': 'it\'s }', 'X-Id': '7'}}); $busy = false`,
+			parsed{
+				method: "POST", path: "/x/",
+				headers: map[string]string{"X-Note": "it's }", "X-Id": "7"},
+				include: "^a}'", exclude: "(?i)b",
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := parseCall(t, tt.expr)
+			got := parsed{
+				method: c.method, path: c.path, form: c.form, payload: c.payload,
+				headers: c.headers,
+			}
+			if c.include != nil {
+				got.include = c.include.String()
+			}
+			if c.exclude != nil {
+				got.exclude = c.exclude.String()
+			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

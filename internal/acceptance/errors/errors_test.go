@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/errors/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -145,7 +146,7 @@ func TestActionErrorStatus(t *testing.T) {
 			// of its own. A tab of the index page sends the same request:
 			// neither page has per-tab state.
 			tab := serve(t).Visitor(t).Load(t, "/")
-			resp := tab.Do(t, http.MethodPost, tt.path, nil)
+			resp := tab.Do(t, contract.Call(http.MethodPost, tt.path), nil)
 			require.Equal(t, tt.want, resp.Status, resp.Body)
 			for _, leaked := range []string{"no such item", "something went wrong"} {
 				require.NotContains(t, resp.Body, leaked,
@@ -184,7 +185,7 @@ func TestOpenStreamGetsNoStatus(t *testing.T) {
 	for name, path := range tests {
 		t.Run(name, func(t *testing.T) {
 			tab := serve(t).Visitor(t).Load(t, "/")
-			resp := tab.Do(t, http.MethodPost, path, nil)
+			resp := tab.Do(t, contract.Call(http.MethodPost, path), nil)
 
 			require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
 			require.Equal(t, "text/event-stream",

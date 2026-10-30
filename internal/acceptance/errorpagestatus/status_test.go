@@ -75,7 +75,7 @@ func TestOpenStreamGetsNoStatus(t *testing.T) {
 	t.Parallel()
 	tab := serve(t).Visitor(t).Load(t, "/")
 
-	resp := tab.Do(t, http.MethodPost, "/stream-fail/", nil)
+	resp := tab.Do(t, "@post('/stream-fail/')", nil)
 
 	require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
 	require.NotContains(t, resp.Body, "Internal Server Error",

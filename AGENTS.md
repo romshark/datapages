@@ -50,6 +50,7 @@ Internal, used by the CLI and build tooling:
 - `internal/contentcoding/` - pooled encoders, `Accept-Encoding` negotiation and the compressible media types, shared by `runtime/sse`, `runtime/httpserve` and `modules/assetcompress`.
 - `internal/testlog/` - collects what code under test logs, 1 line per record without its time, for tests to compare exactly. Examples keep their own loggers because they model application code, which cannot import it.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.
+- `internal/csrfscript/` - the script that adds the CSRF token to a page's requests. Written by `runtime/auth`, read by `datapagestest`.
 - `internal/structtag/` - the `path`, `query`, `json` and `reflectsignal` tags.
 - `internal/subject/` - broker subject rules: the token rule and which subjects an event claims.
 - `internal/serverscan/` - finds the app package and the target package from the `datapages.NewServer` calls. AST only, so it reads a `main.go` naming a package the first run has not written yet.

@@ -1,6 +1,7 @@
 package datapagestest
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,9 +25,9 @@ var displayNone = regexp.MustCompile(
 	`(?i)(^|;)\s*(display\s*:\s*none|visibility\s*:\s*hidden)\b`,
 )
 
-// hidesItself reports whether the HTML of n hides it: its tag, the hidden
-// attribute, aria-hidden or an inline style. Datastar attributes such as
-// data-show change visibility in the browser and are ignored.
+// hidesItself reports whether the HTML of n hides it by its tag, the hidden
+// attribute, aria-hidden or an inline style. The inline style of an element with
+// data-show only covers the time before Datastar runs, so it hides nothing.
 func hidesItself(n *html.Node) bool {
 	switch n.Data {
 	case "script", "style", "template", "head", "noscript", "title", "meta", "link":
@@ -44,8 +45,35 @@ func hidesItself(n *html.Node) bool {
 	if v, _ := Attr(n, "aria-hidden"); v == "true" {
 		return true
 	}
+	if _, ok := Attr(n, "data-show"); ok {
+		return false
+	}
 	style, _ := Attr(n, "style")
 	return displayNone.MatchString(style)
+}
+
+// conditional reports text or a name that depends on whether an element with
+// data-show is shown, which only the browser decides.
+type conditional struct {
+	n    *html.Node
+	expr string
+}
+
+func (e *conditional) Error() string {
+	return fmt.Sprintf("%s shows only if data-show=%q, which the browser evaluates",
+		describeNode(e.n), e.expr)
+}
+
+// describeNode renders the start tag of n, such as <button class="primary">.
+func describeNode(n *html.Node) string {
+	var b strings.Builder
+	b.WriteByte('<')
+	b.WriteString(n.Data)
+	for _, a := range n.Attr {
+		fmt.Fprintf(&b, " %s=%q", a.Key, a.Val)
+	}
+	b.WriteByte('>')
+	return b.String()
 }
 
 // inputType returns the type of an input element, text when it is missing or unknown.
@@ -108,7 +136,7 @@ func (p *page) role(n *html.Node) string {
 			return "contentinfo"
 		}
 	case "form":
-		if p.authorName(n) != "" {
+		if s, _ := p.authorName(n); s != "" {
 			return "form"
 		}
 	case "h1", "h2", "h3", "h4", "h5", "h6":
@@ -165,7 +193,7 @@ func (p *page) role(n *html.Node) string {
 	case "search":
 		return "search"
 	case "section":
-		if p.authorName(n) != "" {
+		if s, _ := p.authorName(n); s != "" {
 			return "region"
 		}
 	case "select":
@@ -217,30 +245,40 @@ var nameFromContent = map[string]bool{
 	"tooltip": true, "treeitem": true,
 }
 
-// name returns the accessible name of n.
-func (p *page) name(n *html.Node) string {
-	if s := p.authorName(n); s != "" {
-		return s
+// label returns the name a <label>, aria-label or aria-labelledby gives n.
+func (p *page) label(n *html.Node) (string, error) {
+	if s, err := p.authorName(n); err != nil || s != "" {
+		return s, err
 	}
-	if s := p.nativeName(n); s != "" {
-		return s
+	return p.labels(n)
+}
+
+// name returns the accessible name of n. It fails when the name depends on an
+// element with data-show.
+func (p *page) name(n *html.Node) (string, error) {
+	if s, err := p.authorName(n); err != nil || s != "" {
+		return s, err
+	}
+	if s, err := p.nativeName(n); err != nil || s != "" {
+		return s, err
 	}
 	if nameFromContent[p.role(n)] {
-		if s := collapse(p.contentText(n, nil)); s != "" {
-			return s
+		s, err := p.contentText(n, nil)
+		if s = collapse(s); err != nil || s != "" {
+			return s, err
 		}
 	}
 	if s := collapse(attr(n, "title")); s != "" {
-		return s
+		return s, nil
 	}
 	if n.Data == "textarea" || n.Data == "input" && takesText(inputType(n)) {
-		return collapse(attr(n, "placeholder"))
+		return collapse(attr(n, "placeholder")), nil
 	}
-	return ""
+	return "", nil
 }
 
 // authorName returns the name aria-labelledby or aria-label give n.
-func (p *page) authorName(n *html.Node) string {
+func (p *page) authorName(n *html.Node) (string, error) {
 	if ids, ok := Attr(n, "aria-labelledby"); ok {
 		var parts []string
 		for _, id := range strings.Fields(ids) {
@@ -252,41 +290,45 @@ func (p *page) authorName(n *html.Node) string {
 				parts = append(parts, s)
 				continue
 			}
-			parts = append(parts, p.contentText(ref, nil))
+			s, err := p.contentText(ref, nil)
+			if err != nil {
+				return "", err
+			}
+			parts = append(parts, s)
 		}
 		if s := collapse(strings.Join(parts, " ")); s != "" {
-			return s
+			return s, nil
 		}
 	}
-	return collapse(attr(n, "aria-label"))
+	return collapse(attr(n, "aria-label")), nil
 }
 
 // nativeName returns the name HTML gives n through its labels or attributes.
-func (p *page) nativeName(n *html.Node) string {
+func (p *page) nativeName(n *html.Node) (string, error) {
 	switch n.Data {
 	case "input":
 		switch t := inputType(n); t {
 		case "button", "reset", "submit":
 			if v, ok := Attr(n, "value"); ok {
-				return collapse(v)
+				return collapse(v), nil
 			}
 			switch t {
 			case "submit":
-				return "Submit"
+				return "Submit", nil
 			case "reset":
-				return "Reset"
+				return "Reset", nil
 			}
-			return ""
+			return "", nil
 		case "image":
 			if s := collapse(attr(n, "alt")); s != "" {
-				return s
+				return s, nil
 			}
 		}
 		return p.labels(n)
 	case "button", "meter", "output", "progress", "select", "textarea":
 		return p.labels(n)
 	case "img", "area":
-		return collapse(attr(n, "alt"))
+		return collapse(attr(n, "alt")), nil
 	case "fieldset":
 		return p.childText(n, "legend")
 	case "table":
@@ -294,48 +336,58 @@ func (p *page) nativeName(n *html.Node) string {
 	case "figure":
 		return p.childText(n, "figcaption")
 	}
-	return ""
+	return "", nil
 }
 
 // childText returns the text of the first child element of n named tag.
-func (p *page) childText(n *html.Node, tag string) string {
+func (p *page) childText(n *html.Node, tag string) (string, error) {
 	for c := range n.ChildNodes() {
 		if c.Type == html.ElementNode && c.Data == tag {
-			return collapse(p.contentText(c, nil))
+			s, err := p.contentText(c, nil)
+			return collapse(s), err
 		}
 	}
-	return ""
+	return "", nil
 }
 
-// labels returns the text of the <label> elements of the control n:
-// those naming its id in for, and the label around it.
-func (p *page) labels(n *html.Node) string {
-	var parts []string
-	var seen *html.Node
+// labels returns the text of the <label> elements of the control n, which are
+// those naming its id in for and the label around it.
+func (p *page) labels(n *html.Node) (string, error) {
+	var labels []*html.Node
 	if id := attr(n, "id"); id != "" {
 		for l := range p.doc.Descendants() {
 			if l.Type == html.ElementNode && l.Data == "label" && attr(l, "for") == id {
-				parts = append(parts, p.contentText(l, n))
-				seen = l
+				labels = append(labels, l)
 			}
 		}
 	}
 	for a := n.Parent; a != nil; a = a.Parent {
 		if a.Type == html.ElementNode && a.Data == "label" {
-			if _, ok := Attr(a, "for"); !ok && a != seen {
-				parts = append(parts, p.contentText(a, n))
+			if _, ok := Attr(a, "for"); !ok {
+				labels = append(labels, a)
 			}
 			break
 		}
 	}
-	return collapse(strings.Join(parts, " "))
+	var parts []string
+	for _, l := range labels {
+		s, err := p.contentText(l, n)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, s)
+	}
+	return collapse(strings.Join(parts, " ")), nil
 }
 
-// contentText returns the text a visitor reads in n, skipping hidden elements and skip.
-// An embedded control contributes its value, and an image its alt.
-// Block elements separate their text from their neighbors'.
-func (p *page) contentText(n, skip *html.Node) string {
+// contentText returns the text a visitor reads in n, skipping hidden elements
+// and skip. An embedded control contributes its value, and an image its alt.
+// Block elements separate their text from their neighbors'. It fails on an
+// element with data-show below n, whose text may or may not show, unless p
+// decides which of them show.
+func (p *page) contentText(n, skip *html.Node) (string, error) {
 	var b strings.Builder
+	var err error
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
 		for c := range n.ChildNodes() {
@@ -347,10 +399,10 @@ func (p *page) contentText(n, skip *html.Node) string {
 			default:
 				continue
 			}
-			if c == skip {
+			if c == skip || hidesItself(c) {
 				continue
 			}
-			if hidesItself(c) {
+			if !p.include(c, &err) {
 				continue
 			}
 			block := isBlock(c)
@@ -379,7 +431,7 @@ func (p *page) contentText(n, skip *html.Node) string {
 		}
 	}
 	walk(n)
-	return b.String()
+	return b.String(), err
 }
 
 // isBlock reports whether n is an element the browser lays out as a block,

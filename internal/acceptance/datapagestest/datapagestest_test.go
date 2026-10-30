@@ -47,7 +47,7 @@ func index(term string) string {
 func signIn(t *testing.T, v *datapagestest.Visitor, user string) {
 	t.Helper()
 	login := v.Load(t, href.PageLogin())
-	resp := login.Do(t, http.MethodPost, "/login/submit/",
+	resp := login.Do(t, "@post('/login/submit/')",
 		map[string]string{"user": user}).RequireStatus(t, http.StatusOK)
 	require.Equal(t, "/room/", resp.Redirect(t))
 }
@@ -60,19 +60,17 @@ func TestTabState(t *testing.T) {
 	tab := c.srv.Visitor(t).Load(t, index(""))
 	require.NotEmpty(t, tab.Instance())
 
-	resp := tab.Do(t, http.MethodPost, "/filter/", map[string]string{"term": ""})
+	resp := tab.Do(t, "@post('/filter/')", map[string]string{"term": ""})
 	require.Equal(t, http.StatusConflict, resp.Status)
 	require.Equal(t, "reconnect", resp.Retry())
 
 	tab.Connect(t, tab.Page().PublicSignals(t))
-	tab.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy milk"}).
+	tab.Do(t, "@post('/add/')", map[string]string{"title": "Buy milk"}).
 		RequireStatus(t, http.StatusOK)
-	tab.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy bread"}).
+	tab.Do(t, "@post('/add/')", map[string]string{"title": "Buy bread"}).
 		RequireStatus(t, http.StatusOK)
-	evs := tab.Do(
-		t, http.MethodPost, "/filter/",
-		map[string]string{"term": "milk"},
-	).RequireStatus(t, http.StatusOK).Events(t)
+	evs := tab.Do(t, "@post('/filter/')", map[string]string{"term": "milk"}).
+		RequireStatus(t, http.StatusOK).Events(t)
 	require.Len(t, evs, 1)
 	require.Equal(t, "Buy milk", evs[0].Get(t, datapagestest.ID("rows")).Text())
 }
@@ -84,7 +82,7 @@ func TestRowPatch(t *testing.T) {
 	tab := c.srv.Visitor(t).Load(t, index(""))
 	st := tab.Connect(t, tab.Page().PublicSignals(t))
 
-	tab.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy milk"}).
+	tab.Do(t, "@post('/add/')", map[string]string{"title": "Buy milk"}).
 		RequireStatus(t, http.StatusOK)
 	ev := st.WaitFor(t, datapagestest.TextContains("row-1", "Buy milk"))
 	require.Equal(t, "#rows", ev.Data["selector"])
@@ -102,9 +100,9 @@ func TestAbsentOnOtherTab(t *testing.T) {
 	bread := v.Load(t, index("bread"))
 	breadStream := bread.Connect(t, bread.Page().PublicSignals(t))
 
-	bread.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy bread"}).
+	bread.Do(t, "@post('/add/')", map[string]string{"title": "Buy bread"}).
 		RequireStatus(t, http.StatusOK)
-	bread.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy milk"}).
+	bread.Do(t, "@post('/add/')", map[string]string{"title": "Buy milk"}).
 		RequireStatus(t, http.StatusOK)
 	breadStream.WaitFor(t, datapagestest.TextContains("row-1", "Buy bread"))
 	milkStream.Absent(t,
@@ -119,7 +117,7 @@ func TestSignalPatch(t *testing.T) {
 	tab := c.srv.Visitor(t).Load(t, index(""))
 	require.Equal(t, "it's", tab.Page().Signals(t)["draft"])
 
-	evs := tab.Do(t, http.MethodPost, "/clear/", nil).
+	evs := tab.Do(t, "@post('/clear/')", nil).
 		RequireStatus(t, http.StatusOK).Events(t)
 	require.Len(t, evs, 1)
 	signals := evs[0].Signals(t)
@@ -142,14 +140,11 @@ func TestDeleteSignals(t *testing.T) {
 	t.Parallel()
 	c := newCase(t)
 	tab := c.srv.Visitor(t).Load(t, index(""))
-	tab.Do(t, http.MethodPost, "/add/", map[string]string{"title": "Buy milk"}).
+	tab.Do(t, "@post('/add/')", map[string]string{"title": "Buy milk"}).
 		RequireStatus(t, http.StatusOK)
 
 	confirm := func(ok bool) int {
-		return tab.Do(
-			t, http.MethodDelete, "/row/1/",
-			map[string]bool{"confirm": ok},
-		).Status
+		return tab.Do(t, "@delete('/row/1/')", map[string]bool{"confirm": ok}).Status
 	}
 	require.Equal(t, http.StatusBadRequest, confirm(false))
 	require.Equal(t, http.StatusOK, confirm(true))
@@ -167,11 +162,11 @@ func TestRedirects(t *testing.T) {
 	require.Equal(t, "/done/", old.Redirect(t))
 
 	tab := v.Load(t, index(""))
-	script := tab.Do(t, http.MethodPost, "/go/", nil).RequireStatus(t, http.StatusOK)
+	script := tab.Do(t, "@post('/go/')", nil).RequireStatus(t, http.StatusOK)
 	require.Contains(t, script.Header.Get("Content-Type"), "text/javascript")
 	require.Equal(t, "/done/", script.Redirect(t))
 
-	event := tab.Do(t, http.MethodPost, "/go-stream/", nil).RequireStatus(t, http.StatusOK)
+	event := tab.Do(t, "@post('/go-stream/')", nil).RequireStatus(t, http.StatusOK)
 	require.Len(t, event.Events(t), 1)
 	require.Equal(t, "/done/", event.Redirect(t))
 }
@@ -182,7 +177,7 @@ func TestFailedStreamAction(t *testing.T) {
 	t.Parallel()
 	c := newCase(t)
 	tab := c.srv.Visitor(t).Load(t, index(""))
-	resp := tab.Do(t, http.MethodPost, "/fail/", nil)
+	resp := tab.Do(t, "@post('/fail/')", nil)
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Empty(t, resp.Events(t))
 }
@@ -205,12 +200,12 @@ func TestSessions(t *testing.T) {
 	bobRoom := bob.Load(t, href.PageRoom())
 	bobStream := bobRoom.Connect(t, map[string]string{"room": "lobby"})
 
-	bobRoom.Do(t, http.MethodPost, "/room/notify/",
+	bobRoom.Do(t, "@post('/room/notify/')",
 		map[string]string{"user": "alice", "text": "psst"}).
 		RequireStatus(t, http.StatusOK)
 	aliceStream.WaitFor(t, datapagestest.TextContains("said", "notice: psst"))
 
-	bobRoom.Do(t, http.MethodPost, "/room/say/",
+	bobRoom.Do(t, "@post('/room/say/')",
 		map[string]string{"room": "lobby", "text": "after"}).
 		RequireStatus(t, http.StatusOK)
 	bobStream.Absent(t,

@@ -35,7 +35,7 @@ Run `datapages gen` to apply these.
 #### Runtime and modules
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of 1 release. A `Content-Security-Policy` must allow the inline build script.
-- Add `datapagestest`, an HTTP test client for Datapages apps. It models cookie-sharing visitors and stateful tabs, sends Datastar actions with CSRF tokens, matches or rules out SSE events and parses redirects. Tests find the elements of a page or a patch by ARIA role, label and text and compare the accessibility tree of a region with Go values. It keeps no client-side state and runs no JavaScript. Requests and waits have configurable timeouts; in-memory connections support `testing/synctest`.
+- Add `datapagestest`, an HTTP test client for Datapages apps. It models cookie-sharing visitors and stateful tabs, sends Datastar actions with CSRF tokens, matches or rules out SSE events and parses redirects. Tests send the actions of the generated `action` package or of a control's `data-on` handler, find the elements of a page or a patch by ARIA role, label and text, and compare the accessibility tree of a region with Go values, which state the `data-show` conditions. It keeps no client-side state and runs no JavaScript. Requests and waits have configurable timeouts; in-memory connections support `testing/synctest`.
 - Apply the attributes of the live `<html>` element when a shim written with `PageCacheWriter.SetShim` hydrates. The classes are added to those the page has.
 
 #### `datapages init`

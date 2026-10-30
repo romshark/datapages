@@ -14,6 +14,7 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/modules/messaging"
@@ -79,8 +80,7 @@ func TestPageSettingsPOSTSave(t *testing.T) {
 
 			laptop := srv.Visitor(t)
 			laptop.SetSessionToken(laptopToken)
-			resp := laptop.Load(t, href.PageSettings()).Do(t, http.MethodPost,
-				"/settings/save/", map[string]string{"username": tc.username})
+			resp := laptop.Load(t, href.PageSettings()).Do(t, action.PageSettings.Save.POST(), map[string]string{"username": tc.username})
 			// RecoverError answers a failed action with 200 and the events it writes.
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 

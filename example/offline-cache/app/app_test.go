@@ -10,6 +10,7 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/offline-cache/app"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 	"github.com/romshark/datapages/modules/messaging"
@@ -49,11 +50,10 @@ func newUser(t *testing.T, repo *domain.Repository, name string) {
 func signIn(t *testing.T, srv *datapagestest.Server, name string) *datapagestest.Visitor {
 	t.Helper()
 	v := srv.Visitor(t)
-	resp := v.Load(t, href.PageLogin(href.QueryPageLogin{})).Do(t, http.MethodPost,
-		"/login/submit/", map[string]string{
-			"emailorusername": name,
-			"password":        password,
-		})
+	resp := v.Load(t, href.PageLogin(href.QueryPageLogin{})).Do(t, action.PageLogin.Submit.POST(), map[string]string{
+		"emailorusername": name,
+		"password":        password,
+	})
 	require.Equal(t, http.StatusOK, resp.Status, "signing in: %s", resp.Body)
 	c := v.Cookie(datapages.DefaultSessionCookieName)
 	require.True(t, c != nil && c.Value != "", "signing in set no session cookie")

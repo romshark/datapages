@@ -18,6 +18,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app"
 	"github.com/romshark/datapages/internal/testlog"
 	"github.com/romshark/datapages/modules/messaging"
@@ -32,7 +33,7 @@ func serve(t *testing.T) *datapagestest.Server {
 
 func post(t *testing.T, srv *datapagestest.Server, path string) *datapagestest.Response {
 	t.Helper()
-	return srv.Visitor(t).Load(t, "/").Do(t, http.MethodPost, path, nil)
+	return srv.Visitor(t).Load(t, "/").Do(t, contract.Call(http.MethodPost, path), nil)
 }
 
 // serveLogged is serve with the server's log written to log.

@@ -17,6 +17,7 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/actions/app"
 	"github.com/romshark/datapages/internal/acceptance/actions/app/datapagesgen/action"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -86,11 +87,9 @@ func TestMethods(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			v := serve(t).Visitor(t)
-			method, url := datapagestest.ParseAction(t, tt.expr)
-			require.Equal(t, tt.method, method, "the method of %s", tt.expr)
-			resp := v.Load(t, "/form/").Do(t, method, url, tt.signals)
+			resp := v.Load(t, "/form/").Do(t, tt.expr, tt.signals)
 			require.Equal(t, http.StatusOK, resp.Status,
-				"%s %s\n%s", tt.method, url, resp.Body)
+				"%s %s\n%s", tt.method, tt.expr, resp.Body)
 			require.Equal(t, tt.want, logOf(t, v))
 		})
 	}
@@ -101,10 +100,9 @@ func TestParameters(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
 
-	_, url := datapagestest.ParseAction(t,
-		action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)))
-	resp := v.Load(t, "/form/").Do(t, http.MethodPost, url, nil)
-	require.Equal(t, http.StatusOK, resp.Status, "POST %s\n%s", url, resp.Body)
+	expr := action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3))
+	resp := v.Load(t, "/form/").Do(t, expr, nil)
+	require.Equal(t, http.StatusOK, resp.Status, "%s\n%s", expr, resp.Body)
 	require.Equal(t, "bump id=7 by=3", logOf(t, v))
 }
 
@@ -114,8 +112,7 @@ func TestSignalsAreRequired(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
 
-	_, url := datapagestest.ParseAction(t, action.PageForm.Submit.POST())
-	resp := v.Load(t, "/form/").Do(t, http.MethodPost, url,
+	resp := v.Load(t, "/form/").Do(t, action.PageForm.Submit.POST(),
 		map[string]string{"age": "not a number"})
 	require.Equal(t, http.StatusBadRequest, resp.Status)
 	require.Empty(t, logOf(t, v), "the handler ran on a body it could not read")
@@ -135,8 +132,7 @@ func TestBodySizeLimit(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			v := serve(t).Visitor(t)
-			_, url := datapagestest.ParseAction(t, expr)
-			resp := v.Load(t, "/form/").Do(t, http.MethodPost, url, signals)
+			resp := v.Load(t, "/form/").Do(t, expr, signals)
 			require.Equal(t, http.StatusBadRequest, resp.Status)
 			require.Empty(t, logOf(t, v), "the handler ran on an oversized body")
 		})
@@ -153,12 +149,12 @@ func TestBodySizeLimitOption(t *testing.T) {
 	pad := func(n int) map[string]any {
 		return map[string]any{"count": 1, "pad": strings.Repeat("a", n)}
 	}
-	_, url := datapagestest.ParseAction(t, action.PageForm.Submit.POST())
+	submit := action.PageForm.Submit.POST()
 
-	resp := form.Do(t, http.MethodPost, url, pad(limit/2))
+	resp := form.Do(t, submit, pad(limit/2))
 	require.Equal(t, http.StatusOK, resp.Status, "a body under the limit")
 
-	resp = form.Do(t, http.MethodPost, url, pad(2*limit))
+	resp = form.Do(t, submit, pad(2*limit))
 	require.Equal(t, http.StatusBadRequest, resp.Status, "a body over the limit")
 }
 
@@ -167,7 +163,7 @@ func TestBodyOutput(t *testing.T) {
 	t.Parallel()
 	form := serve(t).Visitor(t).Load(t, "/form/")
 
-	resp := form.Do(t, http.MethodPost, "/form/render/", nil)
+	resp := form.Do(t, "@post('/form/render/')", nil)
 	require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
 	require.Equal(t, "rendered by an action",
 		resp.Get(t, datapagestest.ID("echo")).Text())
@@ -181,7 +177,7 @@ func TestGlobalHead(t *testing.T) {
 
 	for name, resp := range map[string]*datapagestest.Response{
 		"page load": v.Get(t, "/"),
-		"action":    v.Load(t, "/form/").Do(t, http.MethodPost, "/form/render/", nil),
+		"action":    v.Load(t, "/form/").Do(t, "@post('/form/render/')", nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
@@ -198,7 +194,7 @@ func TestRedirect(t *testing.T) {
 	t.Parallel()
 	t.Run("datastar request navigates by script", func(t *testing.T) {
 		form := serve(t).Visitor(t).Load(t, "/form/")
-		resp := form.Do(t, http.MethodPost, "/form/go/", nil)
+		resp := form.Do(t, "@post('/form/go/')", nil)
 
 		requireContentType(t, resp, "text/javascript")
 		require.Equal(t, `window.location = "/log/";`, resp.Body)
@@ -208,7 +204,7 @@ func TestRedirect(t *testing.T) {
 	// left to redirect with, hence the navigation is an event of the stream.
 	t.Run("stream request navigates through the stream", func(t *testing.T) {
 		form := serve(t).Visitor(t).Load(t, "/form/")
-		resp := form.Do(t, http.MethodPost, "/form/go-stream/", nil)
+		resp := form.Do(t, "@post('/form/go-stream/')", nil)
 
 		requireContentType(t, resp, "text/event-stream")
 		require.Equal(t, "/log/", resp.Redirect(t))
@@ -308,7 +304,7 @@ func TestSSEOutput(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
 
-	resp := v.Load(t, "/form/").Do(t, http.MethodPost, "/form/patch/",
+	resp := v.Load(t, "/form/").Do(t, "@post('/form/patch/')",
 		map[string]int{"count": 41})
 
 	evs := resp.Events(t)
@@ -355,7 +351,7 @@ func TestSSEOutputPatchElementAt(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			form := serve(t).Visitor(t).Load(t, "/form/")
 
-			resp := form.Do(t, http.MethodPost, "/form/patch-at/", tc.signals)
+			resp := form.Do(t, "@post('/form/patch-at/')", tc.signals)
 
 			evs := resp.Events(t)
 			require.Len(t, evs, 1)
@@ -376,7 +372,7 @@ func TestSSEOutputRemoveElement(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
 
-	resp := v.Load(t, "/form/").Do(t, http.MethodPost, "/form/remove/", nil)
+	resp := v.Load(t, "/form/").Do(t, "@post('/form/remove/')", nil)
 
 	require.Contains(t, resp.Body,
 		"event: datastar-patch-elements\ndata: selector #gone\ndata: mode remove\n")
@@ -423,7 +419,7 @@ func TestSSEOutputSignals(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			form := serve(t).Visitor(t).Load(t, "/form/")
 
-			resp := form.Do(t, http.MethodPost, tc.path, nil)
+			resp := form.Do(t, contract.Call(http.MethodPost, tc.path), nil)
 
 			require.Equal(t, tc.wantStatus, resp.Status)
 			for _, want := range tc.want {
@@ -480,7 +476,7 @@ func TestWrongMethod(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
 
-	resp := v.Load(t, "/form/").Do(t, http.MethodPost, "/form/replace/", nil)
+	resp := v.Load(t, "/form/").Do(t, "@post('/form/replace/')", nil)
 	require.Contains(t,
 		[]int{http.StatusMethodNotAllowed, http.StatusNotFound}, resp.Status)
 	require.Empty(t, logOf(t, v),
