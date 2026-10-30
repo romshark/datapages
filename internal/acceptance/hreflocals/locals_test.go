@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/href"
@@ -19,56 +19,62 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
+}
+
+// echoed returns the text of the element a handler writes the values it parsed into.
+func echoed(t *testing.T, resp *datapagestest.Response) string {
+	t.Helper()
+	return resp.Get(t, datapagestest.ID("echo")).Text()
 }
 
 // TestBuilderNameIsFree tests a path variable named after the URL writer's
 // strings.Builder: the URL it builds addresses the route.
 func TestBuilderNameIsFree(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, href.PageItem(true))
+	resp := v.Get(t, href.PageItem(true))
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "b=true", resp.Element(t, "echo"))
+	require.Equal(t, "b=true", echoed(t, resp))
 }
 
 // TestEveryLocalNameIsFree tests the writer's other locals at once:
 // the length, the counter, the flag and a query field's conversion variable.
 func TestEveryLocalNameIsFree(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageMix(1, 2, "three", href.QueryPageMix{AnyQuery: "yes", Page: 4})
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Equal(t, "l=1 n=2 pageStr=three anyQuery=yes page=4",
-		resp.Element(t, "echo"))
+		echoed(t, resp))
 }
 
 // TestNonIdentifierQueryTagHref tests query tags that are no Go identifier:
 // the URL the href package builds carries them and addresses the route.
 func TestNonIdentifierQueryTagHref(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageTags(href.QueryPageTags{PageSize: 25, Term: "go"})
 	require.Equal(t, "/tags/?page-size=25&q.term=go", url)
 
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, url)
-	require.Equal(t, "page-size=25 q.term=go", resp.Element(t, "echo"))
+	require.Equal(t, "page-size=25 q.term=go", echoed(t, resp))
 }
 
 // TestNonIdentifierQueryTagAction tests the same tag in an action expression:
 // the value survives the URL the action package builds.
 func TestNonIdentifierQueryTagAction(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	expr := action.PageTags.Select.POST(action.PageTags.Select.POSTQuery(7))
 
@@ -79,7 +85,8 @@ func TestNonIdentifierQueryTagAction(t *testing.T) {
 	url := strings.TrimSuffix(strings.TrimPrefix(expr, prefix), suffix)
 	require.Equal(t, "/tags/select/?page-size=7", url)
 
-	require.Equal(t, http.StatusOK, c.Action(t, http.MethodPost, url, "").Status,
+	tab := v.Load(t, href.PageTags(href.QueryPageTags{}))
+	require.Equal(t, http.StatusOK, tab.Do(t, expr, nil).Status,
 		"page-size did not reach the handler")
 }
 
@@ -87,26 +94,26 @@ func TestNonIdentifierQueryTagAction(t *testing.T) {
 // adds itself: the query struct of an href, the option variadic of an action helper.
 func TestParameterNamesAreFree(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageParams("a", "b", href.QueryPageParams{Term: "x"})
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 
 	require.Equal(t, http.StatusOK, resp.Status, url)
-	require.Equal(t, "query=a options=b t=x", resp.Element(t, "echo"))
+	require.Equal(t, "query=a options=b t=x", echoed(t, resp))
 }
 
 // TestActionLocalNamesAreFree tests path variables named after
 // every local the action writer declares for itself.
 func TestActionLocalNamesAreFree(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageLocals("1", "2", "3", "4", "5")
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 
 	require.Equal(t, http.StatusOK, resp.Status, url)
-	require.Equal(t, "b=1 l=2 n=3 bl=4 al=5", resp.Element(t, "echo"))
+	require.Equal(t, "b=1 l=2 n=3 bl=4 al=5", echoed(t, resp))
 
 	expr := action.PageLocals.Save.POST("1", "2", "3", "4", "5")
 	require.Equal(t, "@post('/locals/1/2/3/4/5/save/')", expr)
@@ -116,15 +123,15 @@ func TestActionLocalNamesAreFree(t *testing.T) {
 // carries a path and a query, which is the writer that declares the most.
 func TestActionLocalNamesAreFreeWithQuery(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	expr := action.PageMix.Store.POST(1, 2, "three",
 		action.PageMix.Store.POSTQuery("yes"))
 	require.Equal(t, "@post('/mix/1/2/three/store/?anyQuery=yes')", expr)
 
-	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
+	tab := v.Load(t, href.PageMix(1, 2, "three", href.QueryPageMix{}))
 	require.Equal(t, http.StatusOK,
-		c.Action(t, http.MethodPost, url, "").Status,
+		tab.Do(t, expr, nil).Status,
 		"the values did not survive the action URL")
 }
 
@@ -134,30 +141,30 @@ func TestActionLocalNamesAreFreeWithQuery(t *testing.T) {
 // its own wildcard names.
 func TestImportNameIsFree(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageImports("one", "two", 3, app.Slug("FOUR"))
 	require.Equal(t, "/imports/one/two/3/four/", url,
 		"textOf marshals the slug to lower case on its way into the URL")
 
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Equal(t, "url=one strings=two strconv=3 textOf=four",
-		resp.Element(t, "echo"))
+		echoed(t, resp))
 }
 
 // TestBuiltinNameIsFree tests a path variable named after the builtin the URL
 // writer counts with. The parameter is renamed, and len still counts.
 func TestBuiltinNameIsFree(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageLen("eight")
 	require.Equal(t, "/len/eight/", url)
 
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, url)
-	require.Equal(t, "len=eight", resp.Element(t, "echo"))
+	require.Equal(t, "len=eight", echoed(t, resp))
 }
 
 // TestImportNameIsStillEscaped tests that the renamed parameter is the one escaped.
@@ -165,30 +172,30 @@ func TestBuiltinNameIsFree(t *testing.T) {
 // under a parameter named "url" is for.
 func TestImportNameIsStillEscaped(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageImports("a/b", "c?d", 0, app.Slug("e"))
 	require.Equal(t, "/imports/a%2Fb/c%3Fd/0/e/", url)
 
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Equal(t, "url=a/b strings=c?d strconv=0 textOf=e",
-		resp.Element(t, "echo"))
+		echoed(t, resp))
 }
 
 // TestImportNameIsFreeInAction tests the same names in an action, which writes
 // the parameters into an expression and calls actionexpr around them.
 func TestImportNameIsFreeInAction(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	expr := action.PageImports.Save.POST("one", "two", 3, app.Slug("FOUR"),
 		action.PageImports.Save.POSTQuery("x"))
 	require.Equal(t, "@post('/imports/one/two/3/four/save/?t=x')", expr)
 
-	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
+	tab := v.Load(t, href.PageImports("one", "two", 3, app.Slug("FOUR")))
 	require.Equal(t, http.StatusOK,
-		c.Action(t, http.MethodPost, url, "").Status,
+		tab.Do(t, expr, nil).Status,
 		"the values did not survive the action URL")
 }
 
@@ -196,20 +203,18 @@ func TestImportNameIsFreeInAction(t *testing.T) {
 // actionexpr, which the action writers resolve and the href writers do not.
 func TestActionexprNameIsFree(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageExpr("seven")
 	require.Equal(t, "/expr/seven/", url)
 
-	resp := c.Get(t, url)
-	require.Equal(t, http.StatusOK, resp.Status, url)
-	require.Equal(t, "actionexpr=seven", resp.Element(t, "echo"))
+	tab := v.Load(t, url)
+	require.Equal(t, "actionexpr=seven", echoed(t, tab.Page()))
 
 	expr := action.PageExpr.Run.POST("seven")
 	require.Equal(t, "@post('/expr/seven/run/')", expr)
 
-	url = strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
 	require.Equal(t, http.StatusOK,
-		c.Action(t, http.MethodPost, url, "").Status,
+		tab.Do(t, expr, nil).Status,
 		"the value did not survive the action URL")
 }

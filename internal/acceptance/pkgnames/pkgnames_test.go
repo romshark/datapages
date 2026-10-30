@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/pkgnames/app"
 	"github.com/romshark/datapages/internal/acceptance/pkgnames/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/pkgnames/app/datapagesgen/href"
@@ -27,9 +27,9 @@ import (
 	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(
+	return datapagestest.New(t, mustNewServer(
 		t,
 		&app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer),
@@ -44,11 +44,11 @@ func newClient(t *testing.T) *client.Client {
 // the page handler reads a session through it.
 func TestSessionDataPackage(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, href.PageIndex())
+	resp := v.Get(t, href.PageIndex())
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, `index nickname=""`, resp.Element(t, "echo"),
+	require.Equal(t, `index nickname=""`, resp.Get(t, datapagestest.ID("echo")).Text(),
 		"no session cookie leaves the zero value of the data type")
 }
 
@@ -57,7 +57,7 @@ func TestSessionDataPackage(t *testing.T) {
 // generated readers: a conversion, strconv, and UnmarshalText.
 func TestFieldTypePackage(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
 	url := href.PageItem("seven", href.QueryPageItem{
 		Code:  "code",
@@ -66,27 +66,28 @@ func TestFieldTypePackage(t *testing.T) {
 	})
 	require.Equal(t, "/item/seven/?code=code&count=42&slug=slug", url)
 
-	resp := c.Get(t, url)
+	resp := v.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Equal(t, "id=seven code=code count=42 slug=slug",
-		resp.Element(t, "echo"))
+		resp.Get(t, datapagestest.ID("echo")).Text())
 }
 
 // TestFieldTypePackageInAction tests the same types in an action, which reads a path,
 // a query and the signals of the request in 1 handler.
 func TestFieldTypePackageInAction(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	tab := serve(t).Visitor(t).Load(t, href.PageItem("seven", href.QueryPageItem{}))
 
 	expr := action.PageItem.Save.POST("seven",
 		action.PageItem.Save.POSTQuery(42))
 	require.Equal(t, "@post('/item/seven/save/?count=42')", expr)
 
-	resp := c.Action(t, http.MethodPost,
-		"/item/seven/save/?count=42", `{"code":"signalled"}`)
+	resp := tab.Do(t, "@post('/item/seven/save/?count=42')", map[string]string{"code": "signalled"})
 	require.Equal(t, http.StatusOK, resp.Status)
+	evs := resp.Events(t)
+	require.Len(t, evs, 1)
 	require.Equal(t, "saved id=seven count=42 signal=signalled",
-		resp.Element(t, "echo"))
+		evs[0].Get(t, datapagestest.ID("echo")).Text())
 }
 
 // TestStreamCarriesTheFieldTypePackage tests the 2 generated handlers the
@@ -95,15 +96,11 @@ func TestFieldTypePackageInAction(t *testing.T) {
 // which marshals an event whose field is of the aliased field type.
 func TestStreamCarriesTheFieldTypePackage(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	tab := serve(t).Visitor(t).Load(t, href.PageIndex())
+	st := tab.Connect(t, nil)
 
-	s := c.OpenStream(t, "/_$/", nil)
-	defer s.Close()
-
-	resp := c.Action(t, http.MethodPost, "/tick/", `{"code":"tocked"}`)
+	resp := tab.Do(t, "@post('/tick/')", map[string]string{"code": "tocked"})
 	require.Equal(t, http.StatusOK, resp.Status)
 
-	// Saw waits for the line itself.
-	require.True(t, s.Saw(`<pre id="echo">ticked code=tocked</pre>`),
-		"the event did not reach the stream: %v", s.Lines())
+	st.WaitFor(t, datapagestest.TextContains("echo", "ticked code=tocked"))
 }

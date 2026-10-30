@@ -3,13 +3,10 @@
 package acceptance_test
 
 import (
-	"bufio"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path"
 	"strconv"
@@ -23,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/assets"
@@ -37,9 +35,9 @@ import (
 // process and a second registry would come up empty.
 var registry = prometheus.NewRegistry()
 
-func newServer(t *testing.T, opts ...datapages.ServerOption) *httptest.Server {
+func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 	t.Helper()
-	srv := httptest.NewServer(mustNewServer(
+	return datapagestest.New(t, mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
 		append([]datapages.ServerOption{
@@ -51,20 +49,6 @@ func newServer(t *testing.T, opts ...datapages.ServerOption) *httptest.Server {
 			}),
 		}, opts...)...,
 	))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-func get(t *testing.T, srv *httptest.Server, path string) *http.Response {
-	t.Helper()
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+path, nil,
-	)
-	require.NoError(t, err, "building GET %s", path)
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := srv.Client().Do(req)
-	require.NoError(t, err, "GET %s", path)
-	return resp
 }
 
 // TestAssetPath tests the asset URL builders against path.Join,
@@ -87,7 +71,7 @@ func TestAssetPath(t *testing.T) {
 // The 2 must agree on it.
 func TestAssetsAreServed(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
 	tests := map[string]struct {
 		url        string
@@ -115,13 +99,10 @@ func TestAssetsAreServed(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			resp := get(t, srv, tt.url)
-			defer func() { _ = resp.Body.Close() }()
-			b, err := io.ReadAll(resp.Body)
-			require.NoError(t, err, "reading %s", tt.url)
-			require.Equal(t, tt.wantStatus, resp.StatusCode, "GET %s", tt.url)
+			resp := v.Get(t, tt.url)
+			require.Equal(t, tt.wantStatus, resp.Status, "GET %s", tt.url)
 			if tt.wantBody != "" {
-				require.Contains(t, string(b), tt.wantBody, "GET %s", tt.url)
+				require.Contains(t, resp.Body, tt.wantBody, "GET %s", tt.url)
 			}
 			if tt.wantType != "" {
 				require.True(t,
@@ -136,34 +117,25 @@ func TestAssetsAreServed(t *testing.T) {
 // TestPageIsCompressed tests that gzip wraps the complete identity response once.
 func TestPageIsCompressed(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
-	plain := get(t, srv, "/")
-	defer func() { _ = plain.Body.Close() }()
-	want, err := io.ReadAll(plain.Body)
-	require.NoError(t, err, "reading the uncompressed page")
+	plain := v.Get(t, "/")
 	require.Empty(t, plain.Header.Get("Content-Encoding"))
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+"/", nil,
-	)
-	require.NoError(t, err, "building GET /")
+	req := v.NewRequest(t, http.MethodGet, "/", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
-	resp, err := srv.Client().Do(req)
-	require.NoError(t, err, "GET /")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp := v.Send(t, req)
+	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
 	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
-	raw := bufio.NewReader(resp.Body)
+	raw := strings.NewReader(resp.Body)
 	zr, err := gzip.NewReader(raw)
 	require.NoError(t, err, "reading the gzip header")
 	zr.Multistream(false)
 	got, err := io.ReadAll(zr)
 	require.NoError(t, err, "decoding the page")
-	require.Equal(t, string(want), string(got))
-	_, err = raw.ReadByte()
-	require.ErrorIs(t, err, io.EOF, "the page has bytes after its gzip stream")
+	require.Equal(t, plain.Body, string(got))
+	require.Zero(t, raw.Len(), "the page has bytes after its gzip stream")
 }
 
 // countingStore counts the copies put into it.
@@ -178,8 +150,7 @@ func (s *countingStore) Put(key string, r io.Reader) error {
 }
 
 // TestAssetIsCompressed tests that precompressing the embed.FS passed to
-// WithAssets creates the copies the generated server sends from its
-// subdirectory.
+// WithAssets creates the copies the generated server sends from its subdirectory.
 func TestAssetIsCompressed(t *testing.T) {
 	t.Parallel()
 	copies, err := disk.New(t.TempDir(), disk.Config{})
@@ -188,35 +159,25 @@ func TestAssetIsCompressed(t *testing.T) {
 	store := &countingStore{Store: copies}
 	compressor, err := assetcompress.New(assetcompress.Config{Store: store})
 	require.NoError(t, err)
-	srv := newServer(t, datapages.WithAssetsCompression(compressor))
+	v := serve(t, datapages.WithAssetsCompression(compressor)).Visitor(t)
 	require.NoError(t, compressor.Precompress(context.Background(), app.StaticFS))
 	// Brotli and gzip copies of theme.css. The other files are below 256 bytes.
 	require.Equal(t, int64(2), store.puts.Load())
 
 	want, err := app.StaticFS.ReadFile("static/theme.css")
 	require.NoError(t, err, "reading theme.css")
-	plain := get(t, srv, href.Asset("theme.css"))
-	defer func() { _ = plain.Body.Close() }()
-	b, err := io.ReadAll(plain.Body)
-	require.NoError(t, err, "reading the uncompressed asset")
+	plain := v.Get(t, href.Asset("theme.css"))
 	require.Empty(t, plain.Header.Get("Content-Encoding"))
-	require.Equal(t, string(want), string(b))
+	require.Equal(t, string(want), plain.Body)
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+href.Asset("theme.css"), nil,
-	)
-	require.NoError(t, err, "building GET theme.css")
+	req := v.NewRequest(t, http.MethodGet, href.Asset("theme.css"), nil)
 	req.Header.Set("Accept-Encoding", "gzip")
-	resp, err := srv.Client().Do(req)
-	require.NoError(t, err, "GET theme.css")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp := v.Send(t, req)
+	require.Equal(t, http.StatusOK, resp.Status)
 	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
 	require.Contains(t, resp.Header.Values("Vary"), "Accept-Encoding")
-	compressed, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the copy")
-	require.Equal(t, strconv.Itoa(len(compressed)), resp.Header.Get("Content-Length"))
-	zr, err := gzip.NewReader(bytes.NewReader(compressed))
+	require.Equal(t, strconv.Itoa(len(resp.Body)), resp.Header.Get("Content-Length"))
+	zr, err := gzip.NewReader(strings.NewReader(resp.Body))
 	require.NoError(t, err, "reading the gzip header")
 	got, err := io.ReadAll(zr)
 	require.NoError(t, err, "decoding the copy")
@@ -228,7 +189,7 @@ func TestAssetIsCompressed(t *testing.T) {
 // holding no index.html is a 404, whichever way it is spelled.
 func TestAssetsNotBrowsable(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
 	for name, url := range map[string]string{
 		"root with slash":      "/static/",
@@ -237,12 +198,9 @@ func TestAssetsNotBrowsable(t *testing.T) {
 		"subdir without slash": "/static/sub",
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := get(t, srv, url)
-			defer func() { _ = resp.Body.Close() }()
-			b, err := io.ReadAll(resp.Body)
-			require.NoError(t, err, "reading %s", url)
-			require.Equal(t, http.StatusNotFound, resp.StatusCode, "GET %s", url)
-			require.NotContains(t, string(b), "nested.js", "GET %s listed the tree", url)
+			resp := v.Get(t, url)
+			require.Equal(t, http.StatusNotFound, resp.Status, "GET %s", url)
+			require.NotContains(t, resp.Body, "nested.js", "GET %s listed the tree", url)
 		})
 	}
 }
@@ -251,7 +209,7 @@ func TestAssetsNotBrowsable(t *testing.T) {
 // the application gets the listing http.FileServer generates.
 func TestAssetsBrowsable(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(mustNewServer(
+	srv := datapagestest.New(t, mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
 		datapages.WithAssets(app.StaticFS, true),
@@ -261,14 +219,10 @@ func TestAssetsBrowsable(t *testing.T) {
 			Gatherer:   registry,
 		}),
 	))
-	t.Cleanup(srv.Close)
 
-	resp := get(t, srv, "/static/")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the listing")
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Contains(t, string(b), "style.css")
+	resp := srv.Visitor(t).Get(t, "/static/")
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, resp.Body, "style.css")
 }
 
 // TestAssetURLs tests the 2 generated ways to name an asset.
@@ -283,7 +237,7 @@ func TestAssetURLs(t *testing.T) {
 // TestAssetsEscapeTheirDirectory tests a path that climbs out of the embedded directory.
 func TestAssetsEscapeTheirDirectory(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 
 	for name, url := range map[string]string{
 		"dot segments":   "/static/../app.go",
@@ -291,13 +245,15 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 		"absolute climb": "/static//etc/passwd",
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := get(t, srv, url)
-			defer func() { _ = resp.Body.Close() }()
-			b, err := io.ReadAll(resp.Body)
-			require.NoError(t, err, "reading %s", url)
+			resp := v.Get(t, url)
+			// ServeMux redirects a path with a dot segment or an empty segment to
+			// its clean form, which the browser loads next.
+			if resp.Status >= 300 && resp.Status < 400 {
+				resp = v.Get(t, resp.Redirect(t))
+			}
 			require.False(t,
-				resp.StatusCode == http.StatusOK &&
-					strings.Contains(string(b), "package app"),
+				resp.Status == http.StatusOK &&
+					strings.Contains(resp.Body, "package app"),
 				"GET %s served a file outside the assets directory", url)
 		})
 	}
@@ -313,27 +269,14 @@ func TestDatapagesDevModeServesFromDisk(t *testing.T) {
 	t.Setenv(datapages.EnvVarDevMode, "true")
 	require.True(t, datapages.IsDevMode(), "the server does not consider this dev mode")
 
-	srv := httptest.NewServer(mustNewServer(
-		t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithPrometheus(datapages.PrometheusConfig{
-			Host:       "127.0.0.1:0",
-			Registerer: registry,
-			Gatherer:   registry,
-		}),
-	))
-	t.Cleanup(srv.Close)
+	srv := serve(t)
 
 	require.Empty(t, os.Getenv("TEMPL_DEV_MODE"),
 		"NewServer changed TEMPL_DEV_MODE after templ package initialization")
 
-	resp := get(t, srv, href.Asset("style.css"))
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the stylesheet")
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Contains(t, string(b), "rebeccapurple", "the file on disk was not served")
+	resp := srv.Visitor(t).Get(t, href.Asset("style.css"))
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, resp.Body, "rebeccapurple", "the file on disk was not served")
 }
 
 // TestDevModeServesFromDisk tests what WithAssets does in development.
@@ -352,26 +295,11 @@ func TestDevModeServesFromDisk(t *testing.T) {
 	t.Setenv("TEMPL_DEV_MODE", "true")
 	require.True(t, datapages.IsDevMode(), "the server does not consider this dev mode")
 
-	srv := httptest.NewServer(mustNewServer(
-		t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithPrometheus(datapages.PrometheusConfig{
-			Host:       "127.0.0.1:0",
-			Registerer: registry,
-			Gatherer:   registry,
-		}),
-	))
-	t.Cleanup(srv.Close)
-
-	resp := get(t, srv, href.Asset("style.css"))
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the stylesheet")
-	require.Equal(t, http.StatusOK, resp.StatusCode,
+	resp := serve(t).Visitor(t).Get(t, href.Asset("style.css"))
+	require.Equal(t, http.StatusOK, resp.Status,
 		"the dev directory the generator wrote is %q, relative to the module root",
 		assets.DevDir)
-	require.Contains(t, string(b), "rebeccapurple",
+	require.Contains(t, resp.Body, "rebeccapurple",
 		"the file on disk was not served")
 	require.Equal(t, "no-cache", resp.Header.Get("Cache-Control"),
 		"the browser may reuse an asset without asking in dev mode")
@@ -385,22 +313,11 @@ func TestDevModeServesFromDisk(t *testing.T) {
 // prom.Middleware replaces the response writer with its own,
 // which httpserve.ResponseBodyWritten has to see through.
 func TestHalfWrittenBodyGetsNoErrorStatus(t *testing.T) {
-	srv := newServer(t)
+	index := serve(t).Visitor(t).Load(t, "/")
 
-	req, err := http.NewRequestWithContext(context.Background(),
-		http.MethodPost, srv.URL+"/half-written/", nil)
-	require.NoError(t, err, "building POST /half-written/")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := srv.Client().Do(req)
-	require.NoError(t, err, "POST /half-written/")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading /half-written/")
-
-	body := string(b)
-	require.Contains(t, body, `<pre id="echo">half</pre>`)
-	require.NotContains(t, body, http.StatusText(http.StatusInternalServerError),
+	resp := index.Do(t, "@post('/half-written/')", nil)
+	require.Contains(t, resp.Body, `<pre id="echo">half</pre>`)
+	require.NotContains(t, resp.Body, http.StatusText(http.StatusInternalServerError),
 		"the error status was appended to what the client already received")
 }
 
@@ -409,19 +326,8 @@ func TestHalfWrittenBodyGetsNoErrorStatus(t *testing.T) {
 // the same registry a scrape reads.
 func TestMetrics(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
-
-	resp := get(t, srv, "/")
-	_ = resp.Body.Close()
-
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodPost, srv.URL+"/fail/", nil,
-	)
-	require.NoError(t, err, "building request")
-	req.Header.Set("Datastar-Request", "true")
-	failResp, err := srv.Client().Do(req)
-	require.NoError(t, err, "POST /fail/")
-	_ = failResp.Body.Close()
+	index := serve(t).Visitor(t).Load(t, "/")
+	index.Do(t, "@post('/fail/')", nil)
 
 	families, err := registry.Gather()
 	require.NoError(t, err, "gathering metrics")
@@ -449,21 +355,20 @@ func TestMetrics(t *testing.T) {
 func TestMetricsLabelThroughDerivedRequest(t *testing.T) {
 	t.Parallel()
 	type nonceKey struct{}
-	srv := newServer(t, datapages.WithMiddleware(func(next http.Handler) http.Handler {
+	v := serve(t, datapages.WithMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := context.WithValue(r.Context(), nonceKey{}, "nonce")
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	}))
+	})).Visitor(t)
 
 	// PageQuiet's page route, which no other test requests.
-	resp := get(t, srv, "/quiet/")
-	_, err := io.Copy(io.Discard, resp.Body)
-	require.NoError(t, err, "reading /quiet/")
-	_ = resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /quiet/")
+	// The registry still holds the requests of earlier runs of this test under -count.
+	before := histogramCount(t, "GET /quiet/{$}")
+	resp := v.Get(t, "/quiet/")
+	require.Equal(t, http.StatusOK, resp.Status, "GET /quiet/")
 
-	require.Equal(t, uint64(1), histogramCount(t, "GET /quiet/{$}"),
+	require.Equal(t, before+1, histogramCount(t, "GET /quiet/{$}"),
 		"the request was not observed under its route")
 }
 
@@ -472,31 +377,27 @@ func TestMetricsLabelThroughDerivedRequest(t *testing.T) {
 // an hour-long one lands above the histogram's top bucket.
 func TestStreamStaysOutOfRequestLatency(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	srv := serve(t)
+	v := srv.Visitor(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	// PageQuiet's route, which no other test sends anything to:
 	// what the histogram holds for it is this stream and nothing else.
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet, srv.URL+"/quiet/_$/", nil,
-	)
-	require.NoError(t, err, "building stream request")
+	// The page itself is not loaded: TestMetricsLabelThroughDerivedRequest
+	// requires its own load of it to be the only one.
+	req := v.NewRequest(t, http.MethodGet, "/quiet/_$/", nil)
 	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
-	stream, err := srv.Client().Do(req)
+	stream, err := v.Client().Do(req)
 	require.NoError(t, err, "opening stream")
 	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
 
 	_ = stream.Body.Close()
-	cancel()
 
 	// The counter is written when the handler returns,
-	// which the client cannot observe on a stream it cancelled.
-	require.Eventually(t, func() bool {
+	// which the client cannot observe on a stream it closed.
+	srv.WaitFor(t, "the stream to be counted", func() bool {
 		return strings.Contains(family(t, "datapages_http_requests_total"),
 			"GET /quiet/_$/{$}")
-	}, 5*time.Second, 10*time.Millisecond, "the stream was never counted")
+	})
 
 	require.NotContains(t, family(t, "datapages_http_request_duration_seconds"),
 		"GET /quiet/_$/{$}", "the stream was observed as a request latency")
@@ -520,26 +421,16 @@ func family(t *testing.T, name string) string {
 // counted, in-flight while it runs and observed in the latency histogram.
 func TestRefusedStreamStaysARequest(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
+	index := v.Load(t, "/")
 
 	before := histogramCount(t, "GET /_$/{$}")
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+"/_$/?refuse=1", nil,
-	)
-	require.NoError(t, err, "building stream request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := srv.Client().Do(req)
-	require.NoError(t, err, "opening stream")
+	// Send reads to EOF, not just the head: the middleware records after the
+	// handler returns, and the response ends with it.
+	resp := v.Send(t, index.NewRequest(t, http.MethodGet, "/_$/?refuse=1", nil))
 	// The stream commits 200 before StreamOpen can refuse it.
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// To EOF, not just Close: the middleware records after the handler returns,
-	// and the response ends with it.
-	_, err = io.Copy(io.Discard, resp.Body)
-	require.NoError(t, err, "reading the refusal")
-	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.Status)
 
 	require.Greater(t, histogramCount(t, "GET /_$/{$}"), before,
 		"the refused stream was not observed as a request")
@@ -578,33 +469,17 @@ func hasLabel(m *dto.Metric, name, value string) bool {
 // and they only move if the generated dispatch passes them along.
 func TestBrokerMetrics(t *testing.T) {
 	t.Parallel()
-	srv := newServer(t)
+	index := serve(t).Visitor(t).Load(t, "/")
 
 	// A subscriber has to exist: a message with nowhere to go is not published,
-	// and nothing counts it.
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/_$/", nil)
-	require.NoError(t, err, "building stream request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
-	stream, err := srv.Client().Do(req)
-	require.NoError(t, err, "opening stream")
-	t.Cleanup(func() { _ = stream.Body.Close() })
-	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
-	time.Sleep(200 * time.Millisecond)
+	// and nothing counts it. The stream subscribes before it answers,
+	// which Connect waits for.
+	index.Connect(t, nil)
 
 	before := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")
 
-	announce, err := http.NewRequestWithContext(context.Background(),
-		http.MethodPost, srv.URL+"/announce/", strings.NewReader(`{"text":"hi"}`))
-	require.NoError(t, err, "building announce request")
-	announce.Header.Set("Datastar-Request", "true")
-	announce.Header.Set("Content-Type", "application/json")
-	resp, err := srv.Client().Do(announce)
-	require.NoError(t, err, "POST /announce/")
-	_ = resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "POST /announce/")
+	resp := index.Do(t, "@post('/announce/')", map[string]string{"text": "hi"})
+	require.Equal(t, http.StatusOK, resp.Status, "POST /announce/")
 
 	after := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")
 	require.Greater(t, after, before,
@@ -636,7 +511,7 @@ func counterTotal(t *testing.T, name string) float64 {
 // It doesn't call t.Parallel, because the counters are global to the process.
 // The parallel tests of the case start only after it returns.
 func TestErrorCounters(t *testing.T) {
-	srv := newServer(t)
+	v := serve(t).Visitor(t)
 	tests := map[string]struct {
 		method, path string
 		notRecovered float64
@@ -654,17 +529,10 @@ func TestErrorCounters(t *testing.T) {
 			notRecovered := counterTotal(t,
 				"datapages_internal_errors_not_recovered_total")
 
-			req, err := http.NewRequestWithContext(
-				context.Background(), tt.method, srv.URL+tt.path, nil,
-			)
-			require.NoError(t, err, "building %s %s", tt.method, tt.path)
+			req := v.NewRequest(t, tt.method, tt.path, nil)
 			req.Header.Set("Datastar-Request", "true")
-			resp, err := srv.Client().Do(req)
-			require.NoError(t, err, "%s %s", tt.method, tt.path)
-			// The response ends after the handler returns.
-			_, err = io.Copy(io.Discard, resp.Body)
-			require.NoError(t, err, "reading %s", tt.path)
-			_ = resp.Body.Close()
+			// Send reads to EOF, and the response ends after the handler returns.
+			v.Send(t, req)
 
 			require.Zero(t,
 				counterTotal(t,
@@ -733,24 +601,8 @@ func TestAssetsCacheHeaders(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			opts := append([]datapages.ServerOption{
-				datapages.WithAssets(app.StaticFS, false),
-				datapages.WithPrometheus(datapages.PrometheusConfig{
-					Host:       "127.0.0.1:0",
-					Registerer: registry,
-					Gatherer:   registry,
-				}),
-			}, tc.opts...)
-			srv := httptest.NewServer(mustNewServer(
-				t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), opts...,
-			))
-			t.Cleanup(srv.Close)
-
-			resp := get(t, srv, href.Asset("style.css"))
-			defer func() { _ = resp.Body.Close() }()
-			_, err := io.ReadAll(resp.Body)
-			require.NoError(t, err, "reading the stylesheet")
-			require.Equal(t, http.StatusOK, resp.StatusCode)
+			resp := serve(t, tc.opts...).Visitor(t).Get(t, href.Asset("style.css"))
+			require.Equal(t, http.StatusOK, resp.Status)
 			require.Empty(t, resp.Header.Get("Last-Modified"))
 			require.Equal(t, tc.wantCacheControl, resp.Header.Get("Cache-Control"))
 			if !tc.wantETag {
@@ -773,42 +625,20 @@ func TestAssetsCacheRevalidates(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+			v := serve(t, opts...).Visitor(t)
 
-			opts := append([]datapages.ServerOption{
-				datapages.WithAssets(app.StaticFS, false),
-				datapages.WithPrometheus(datapages.PrometheusConfig{
-					Host:       "127.0.0.1:0",
-					Registerer: registry,
-					Gatherer:   registry,
-				}),
-			}, opts...)
-			srv := httptest.NewServer(mustNewServer(
-				t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), opts...,
-			))
-			t.Cleanup(srv.Close)
-
-			first := get(t, srv, href.Asset("style.css"))
-			defer func() { _ = first.Body.Close() }()
-			body, err := io.ReadAll(first.Body)
-			require.NoError(t, err, "reading the stylesheet")
-			require.Equal(t, http.StatusOK, first.StatusCode)
-			require.NotEmpty(t, body)
+			first := v.Get(t, href.Asset("style.css"))
+			require.Equal(t, http.StatusOK, first.Status)
+			require.NotEmpty(t, first.Body)
 			etag := first.Header.Get("ETag")
 			require.NotEmpty(t, etag)
 
-			req, err := http.NewRequestWithContext(
-				context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
-			)
-			require.NoError(t, err)
+			req := v.NewRequest(t, http.MethodGet, href.Asset("style.css"), nil)
 			req.Header.Set("If-None-Match", etag)
-			second, err := srv.Client().Do(req)
-			require.NoError(t, err)
-			defer func() { _ = second.Body.Close() }()
-			body, err = io.ReadAll(second.Body)
-			require.NoError(t, err)
+			second := v.Send(t, req)
 
-			require.Equal(t, http.StatusNotModified, second.StatusCode)
-			require.Empty(t, body)
+			require.Equal(t, http.StatusNotModified, second.Status)
+			require.Empty(t, second.Body)
 			require.Equal(t, etag, second.Header.Get("ETag"))
 		})
 	}

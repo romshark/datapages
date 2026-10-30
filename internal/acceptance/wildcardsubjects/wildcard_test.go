@@ -6,34 +6,49 @@ package acceptance_test
 import (
 	"net/http"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
-	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/wildcardsubjects/app"
 	"github.com/romshark/datapages/modules/messaging"
 )
 
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
+func serve(t *testing.T, broker messaging.Broker) *datapagestest.Server {
+	t.Helper()
+	return datapagestest.New(t, mustNewServer(t, &app.App{}, broker))
+}
+
+// postNote sends the action that dispatches the event with topic as its subject value.
+func postNote(
+	t *testing.T, tab *datapagestest.Tab, topic, text string,
+) *datapagestest.Response {
+	t.Helper()
+	return tab.Do(t, "@post('/note/')",
+		map[string]string{"topic": topic, "text": text})
+}
+
+// noted matches the patch of an event that carried text.
+func noted(text string) datapagestest.Match {
+	return datapagestest.TextContains("noted", text)
+}
+
 // TestWildcardSubjectDelivery tests a page subscribed to every value of a subject:
 // the event reaches it whatever value it was dispatched with.
 func TestWildcardSubjectDelivery(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		tab := serve(t, broker).Visitor(t).Load(t, "/")
+		st := tab.Connect(t, nil)
 
-		s := c.OpenStream(t, "/_$/", nil)
-
-		resp := c.Action(t, http.MethodPost, "/note/",
-			`{"topic":"anything","text":"delivered"}`)
+		resp := postNote(t, tab, "anything", "delivered")
 		require.Equal(t, http.StatusOK, resp.Status, "POST /note/")
 
-		require.True(t, s.Saw(`<div id="noted">delivered</div>`),
-			"the stream subscribed to every value of the subject received nothing")
+		st.WaitFor(t, noted("delivered"))
 	})
 }
 
@@ -42,18 +57,16 @@ func TestWildcardSubjectDelivery(t *testing.T) {
 func TestSecondValueReachesTheSameStream(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
-
-		s := c.OpenStream(t, "/_$/", nil)
+		tab := serve(t, broker).Visitor(t).Load(t, "/")
+		st := tab.Connect(t, nil)
 
 		for _, topic := range []string{"one", "two"} {
-			resp := c.Action(t, http.MethodPost, "/note/",
-				`{"topic":"`+topic+`","text":"from-`+topic+`"}`)
+			resp := postNote(t, tab, topic, "from-"+topic)
 			require.Equal(t, http.StatusOK, resp.Status, "POST /note/ %s", topic)
 		}
 
-		require.True(t, s.Saw(`<div id="noted">from-one</div>`))
-		require.True(t, s.Saw(`<div id="noted">from-two</div>`))
+		st.WaitFor(t, noted("from-one"))
+		st.WaitFor(t, noted("from-two"))
 	})
 }
 
@@ -74,17 +87,14 @@ func TestSubjectValueIsEscaped(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		for name, topic := range values {
 			t.Run(name, func(t *testing.T) {
-				c := client.New(t, mustNewServer(t, &app.App{}, broker))
+				tab := serve(t, broker).Visitor(t).Load(t, "/")
+				st := tab.Connect(t, nil)
 
-				s := c.OpenStream(t, "/_$/", nil)
-
-				resp := c.Action(t, http.MethodPost, "/note/",
-					`{"topic":`+strconv.Quote(topic)+`,"text":"kept"}`)
+				resp := postNote(t, tab, topic, "kept")
 				require.Equal(t, http.StatusOK, resp.Status,
 					"a dispatch with topic %q was refused", topic)
 
-				require.True(t, s.Saw(`<div id="noted">kept</div>`),
-					"the event never reached the stream")
+				st.WaitFor(t, noted("kept"))
 			})
 		}
 	})
@@ -95,16 +105,17 @@ func TestSubjectValueIsEscaped(t *testing.T) {
 func TestSubjectValueMustNotBeEmpty(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+		tab := serve(t, broker).Visitor(t).Load(t, "/")
+		st := tab.Connect(t, nil)
 
-		s := c.OpenStream(t, "/_$/", nil)
-
-		resp := c.Action(t, http.MethodPost, "/note/",
-			`{"topic":"","text":"lost"}`)
+		resp := postNote(t, tab, "", "lost")
 		require.Equal(t, http.StatusInternalServerError, resp.Status,
 			"a dispatch with an empty topic was accepted")
 
-		require.True(t, s.Never(`<div id="noted">lost</div>`),
-			"the event reached a stream")
+		// A dispatch with a topic is the anchor:
+		// the refused event would reach the stream before it.
+		resp = postNote(t, tab, "anchor", "after")
+		require.Equal(t, http.StatusOK, resp.Status, "POST /note/")
+		st.Absent(t, noted("lost"), noted("after"))
 	})
 }

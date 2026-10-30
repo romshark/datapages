@@ -8,15 +8,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/document/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
@@ -68,13 +69,13 @@ func TestDocumentAttrs(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			c := newClient(t)
+			v := serve(t).Visitor(t)
 
-			var resp client.Response
+			var resp *datapagestest.Response
 			if tc.method == http.MethodGet {
-				resp = c.Get(t, tc.path)
+				resp = v.Get(t, tc.path)
 			} else {
-				resp = c.Action(t, tc.method, tc.path, "")
+				resp = v.Load(t, "/").Do(t, contract.Call(tc.method, tc.path), nil)
 			}
 			require.Equal(t, tc.wantStatus, resp.Status)
 			if tc.wantBody != "" {

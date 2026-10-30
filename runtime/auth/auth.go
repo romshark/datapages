@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/csrfscript"
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpread"
@@ -112,31 +113,6 @@ func (m *Manager[Data]) WriteCSRFToken(
 	return m.csrf.Tokens.WriteToken(w, sessionToken)
 }
 
-// csrfScriptPrefix and csrfScriptSuffix wrap the CSRF token in the module script
-// that adds it to every state-changing Datastar fetch to the page's origin.
-// Datastar issues those through globalThis.fetch, which is why
-// overriding it reaches them all.
-const (
-	csrfScriptOpen = "\n\t<script type=\"module\""
-
-	csrfScriptPrefix = `>
-		const o = globalThis.fetch.bind(globalThis)
-		globalThis.fetch=(i,init={}) => {
-			const isReq=i instanceof Request
-			const r=isReq ? i:new Request(i,init)
-			if (r.headers.get("Datastar-Request")!=="true" ||
-				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"||r.method=="QUERY"||
-				new URL(r.url,location.href).origin!==location.origin
-			) return isReq ? o(r,init):o(r)
-			const h=new Headers(r.headers)
-			h.set("X-CSRF-Token",'`
-
-	csrfScriptSuffix = `')
-			return o(new Request(r,{...init,headers:h}))
-		}
-	</script>`
-)
-
 // WriteCSRFScript writes the script that adds the X-CSRF-Token header to every
 // state-changing Datastar fetch of the page to its own origin.
 // It writes nothing if sessionToken is empty or CSRF protection is disabled.
@@ -151,7 +127,7 @@ func (m *Manager[Data]) WriteCSRFScript(
 	if sessionToken == "" || m.csrfDisabled {
 		return nil
 	}
-	if _, err := io.WriteString(w, csrfScriptOpen); err != nil {
+	if _, err := io.WriteString(w, csrfscript.Open); err != nil {
 		return err
 	}
 	if cspNonce != "" {
@@ -159,7 +135,7 @@ func (m *Manager[Data]) WriteCSRFScript(
 			return err
 		}
 	}
-	if _, err := io.WriteString(w, csrfScriptPrefix); err != nil {
+	if _, err := io.WriteString(w, csrfscript.Prefix); err != nil {
 		return err
 	}
 	n, err := m.WriteCSRFToken(w, sessionToken)
@@ -169,7 +145,7 @@ func (m *Manager[Data]) WriteCSRFScript(
 	if n == 0 {
 		m.server.Logger().Warn("wrote empty CSRF token")
 	}
-	_, err = io.WriteString(w, csrfScriptSuffix)
+	_, err = io.WriteString(w, csrfscript.Suffix)
 	return err
 }
 
