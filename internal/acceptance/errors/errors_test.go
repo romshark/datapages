@@ -42,7 +42,7 @@ func TestNotFoundPage(t *testing.T) {
 			v := serve(t).Visitor(t)
 			resp := v.Get(t, path)
 			require.Equal(t, "not found: "+path,
-				datapagestest.Text(resp.ElementByID(t, "echo")))
+				resp.Get(t, datapagestest.ID("echo")).Text())
 		})
 	}
 }
@@ -56,7 +56,7 @@ func TestServerErrorPageRoute(t *testing.T) {
 
 	resp := v.Get(t, "/server-error/")
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "server error", datapagestest.Text(resp.ElementByID(t, "echo")))
+	require.Equal(t, "server error", resp.Get(t, datapagestest.ID("echo")).Text())
 }
 
 // TestFailedPageLoad tests the status and the page a page load gets for the
@@ -84,7 +84,7 @@ func TestFailedPageLoad(t *testing.T) {
 			if tt.page == "" {
 				require.Equal(t, http.StatusText(tt.status)+"\n", resp.Body)
 			} else {
-				require.Equal(t, tt.page, datapagestest.Text(resp.ElementByID(t, "echo")))
+				require.Equal(t, tt.page, resp.Get(t, datapagestest.ID("echo")).Text())
 			}
 			for _, leaked := range []string{
 				"the page could not be built", "no such item", "not the owner",
@@ -142,8 +142,8 @@ func TestActionErrorStatus(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			// PageBoom declares these actions and fails to load, which leaves no tab
-			// of its own. A tab of the index page sends the same request: neither
-			// page has per-tab state.
+			// of its own. A tab of the index page sends the same request:
+			// neither page has per-tab state.
 			tab := serve(t).Visitor(t).Load(t, "/")
 			resp := tab.Do(t, http.MethodPost, tt.path, nil)
 			require.Equal(t, tt.want, resp.Status, resp.Body)

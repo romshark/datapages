@@ -31,7 +31,7 @@ func serve(t *testing.T) *datapagestest.Server {
 // carrying any of these on resp.Body.
 func echoed(t *testing.T, resp *datapagestest.Response) string {
 	t.Helper()
-	return datapagestest.Text(resp.ElementByID(t, "echo"))
+	return resp.Get(t, datapagestest.ID("echo")).Text()
 }
 
 // TestRoundTrip tests the pair the generator writes for every page:

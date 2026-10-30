@@ -59,9 +59,9 @@ func TestEveryConstructorServesTheSameApp(t *testing.T) {
 			v := datapagestest.New(t, newServer(t)).Visitor(t)
 			tab := v.Load(t, href.PageIndex())
 			require.Equal(t, "index",
-				datapagestest.Text(tab.Page().ElementByID(t, "echo")))
+				tab.Page().Get(t, datapagestest.ID("echo")).Text())
 
-			st := tab.Connect(t, nil)
+			st := tab.Connect(t)
 
 			resp := tab.Do(t, http.MethodPost, "/tick/", map[string]int{"n": 7})
 			require.Equal(t, http.StatusOK, resp.Status)

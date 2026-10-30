@@ -30,7 +30,7 @@ func serve(t *testing.T) *datapagestest.Server {
 // echo returns the text of the element into which a page echoes what its handler read.
 func echo(t *testing.T, resp *datapagestest.Response) string {
 	t.Helper()
-	return datapagestest.Text(resp.ElementByID(t, "echo"))
+	return resp.Get(t, datapagestest.ID("echo")).Text()
 }
 
 // signalsQuery is how the Datastar client sends signals on a GET.
@@ -52,8 +52,8 @@ func TestGETReadsSignals(t *testing.T) {
 // TestGETReadsNestedSignals tests a signals struct that nests.
 //
 // A nested struct is a nested signal: the client sends 1 object and the
-// handler reads foo.bar.bazz and foo.fuzz out of it. The page reflects foo.fuzz into
-// a query parameter, which is how a nested signal is referenced by its path.
+// handler reads foo.bar.bazz and foo.fuzz out of it. The page reflects foo.fuzz
+// into a query parameter, which is how a nested signal is referenced by its path.
 func TestGETReadsNestedSignals(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)

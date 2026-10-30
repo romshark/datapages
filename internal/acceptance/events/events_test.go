@@ -46,11 +46,11 @@ func say(room, text string) map[string]string {
 // logOf reads what the application recorded while its handlers ran.
 func logOf(t *testing.T, v *datapagestest.Visitor) string {
 	t.Helper()
-	return datapagestest.Text(v.Get(t, "/log/").ElementByID(t, "echo"))
+	return v.Get(t, "/log/").Get(t, datapagestest.ID("echo")).Text()
 }
 
-// openedID waits for StreamOpen of the one stream the test opened, which runs after
-// the response head, and returns the stream id it recorded.
+// openedID waits for StreamOpen of the one stream the test opened,
+// which runs after the response head, and returns the stream id it recorded.
 func openedID(t *testing.T, srv *datapagestest.Server, v *datapagestest.Visitor) string {
 	t.Helper()
 	var opened string
@@ -70,11 +70,11 @@ func TestPublicEventReachesEveryStream(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		v := serve(t, broker).Visitor(t)
 
-		a := v.Load(t, "/").Connect(t, nil)
-		b := v.Load(t, "/").Connect(t, nil)
+		a := v.Load(t, "/").Connect(t)
+		b := v.Load(t, "/").Connect(t)
 
 		v.Load(t, "/").Do(t, http.MethodPost, "/tick/", tick(7)).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 
 		a.WaitFor(t, datapagestest.TextContains("out", "tick 7"),
 			"the first stream received no patch")
@@ -92,7 +92,7 @@ func TestStreamHooks(t *testing.T) {
 		srv := serve(t, broker)
 		v := srv.Visitor(t)
 
-		s := v.Load(t, "/").Connect(t, nil)
+		s := v.Load(t, "/").Connect(t)
 		id := openedID(t, srv, v)
 
 		s.Close()
@@ -113,19 +113,20 @@ func TestStreamCloseRunsAfterTheEventHandlers(t *testing.T) {
 		v := srv.Visitor(t)
 
 		index := v.Load(t, "/")
-		s := index.Connect(t, nil)
+		s := index.Connect(t)
 		id := openedID(t, srv, v)
 
 		// Hold the first tick in its handler and queue 3 behind it.
 		// Unheld, the stream drains each tick before the next arrives.
-		index.Do(t, http.MethodPost, "/hold/", nil).WantStatus(t, http.StatusOK)
+		index.Do(t, http.MethodPost, "/hold/", nil).RequireStatus(t, http.StatusOK)
 		for n := range 4 {
-			index.Do(t, http.MethodPost, "/tick/", tick(n)).WantStatus(t, http.StatusOK)
+			index.Do(t, http.MethodPost, "/tick/", tick(n)).
+				RequireStatus(t, http.StatusOK)
 		}
 		time.Sleep(settle)
 		s.Close()
 		time.Sleep(settle)
-		index.Do(t, http.MethodPost, "/release/", nil).WantStatus(t, http.StatusOK)
+		index.Do(t, http.MethodPost, "/release/", nil).RequireStatus(t, http.StatusOK)
 
 		closed := "close(" + id + ")"
 		srv.WaitFor(t, "StreamClose to run", func() bool {
@@ -148,10 +149,10 @@ func TestStreamIDReachesEventHandler(t *testing.T) {
 		v := srv.Visitor(t)
 
 		index := v.Load(t, "/")
-		s := index.Connect(t, nil)
+		s := index.Connect(t)
 		id := openedID(t, srv, v)
 
-		index.Do(t, http.MethodPost, "/tick/", tick(3)).WantStatus(t, http.StatusOK)
+		index.Do(t, http.MethodPost, "/tick/", tick(3)).RequireStatus(t, http.StatusOK)
 		// The handler records before it patches.
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 3"))
 
@@ -166,9 +167,9 @@ func TestEmbeddedHandler(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		v := serve(t, broker).Visitor(t)
 
-		other := v.Load(t, "/other/").Connect(t, nil)
+		other := v.Load(t, "/other/").Connect(t)
 		v.Load(t, "/").Do(t, http.MethodPost, "/tick/", tick(1)).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 
 		other.WaitFor(t, datapagestest.TextContains("shared", "shared 1"))
 	})
@@ -183,9 +184,9 @@ func Test2Dispatchers(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		index := v.Load(t, "/")
-		s := index.Connect(t, nil)
+		s := index.Connect(t)
 
-		index.Do(t, http.MethodPost, "/both/", tick(3)).WantStatus(t, http.StatusOK)
+		index.Do(t, http.MethodPost, "/both/", tick(3)).RequireStatus(t, http.StatusOK)
 
 		// The handler dispatches the tick first, and the broker delivers in
 		// publication order.
@@ -273,8 +274,8 @@ func TestStreamCloseDispatches(t *testing.T) {
 	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
 	v := serve(t, broker).Visitor(t)
 
-	watcher := v.Load(t, "/").Connect(t, nil)
-	leaving := v.Load(t, "/").Connect(t, nil)
+	watcher := v.Load(t, "/").Connect(t)
+	leaving := v.Load(t, "/").Connect(t)
 
 	leaving.Close()
 
@@ -288,16 +289,16 @@ func TestEventDecodeIsNotCarriedOver(t *testing.T) {
 	v := serve(t, inmem.New(messaging.DefaultBrokerChanBuffer)).Visitor(t)
 
 	index := v.Load(t, "/")
-	s := index.Connect(t, nil)
+	s := index.Connect(t)
 
 	index.Do(t, http.MethodPost, "/note/", map[string]string{"text": "first"}).
-		WantStatus(t, http.StatusOK)
+		RequireStatus(t, http.StatusOK)
 	s.WaitFor(t, datapagestest.TextContains("note", "note=first"))
 
 	index.Do(t, http.MethodPost, "/note/", map[string]string{"text": ""}).
-		WantStatus(t, http.StatusOK)
-	ev := s.WaitFor(t, datapagestest.Element("note"))
-	require.Equal(t, "note=", datapagestest.Text(ev.ElementByID(t, "note")),
+		RequireStatus(t, http.StatusOK)
+	ev := s.WaitFor(t, datapagestest.Patched("note"))
+	require.Equal(t, "note=", ev.Get(t, datapagestest.ID("note")).Text(),
 		"the empty note kept the text of the one before it")
 }
 
@@ -311,15 +312,15 @@ func TestDispatchCtx(t *testing.T) {
 	v := serve(t, broker).Visitor(t)
 
 	index := v.Load(t, "/")
-	s := index.Connect(t, nil)
+	s := index.Connect(t)
 
-	index.Do(t, http.MethodPost, "/tick/", tick(1)).WantStatus(t, http.StatusOK)
+	index.Do(t, http.MethodPost, "/tick/", tick(1)).RequireStatus(t, http.StatusOK)
 	s.WaitFor(t, datapagestest.TextContains("out", "tick 1"))
 
 	resp := index.Do(t, http.MethodPost, "/canceled/", tick(2))
 	require.Equal(t, http.StatusInternalServerError, resp.Status,
 		"the canceled context did not reach the broker")
-	index.Do(t, http.MethodPost, "/tick/", tick(3)).WantStatus(t, http.StatusOK)
+	index.Do(t, http.MethodPost, "/tick/", tick(3)).RequireStatus(t, http.StatusOK)
 	s.Absent(t,
 		datapagestest.TextContains("out", "tick 2"),
 		datapagestest.TextContains("out", "tick 3"))
@@ -351,15 +352,15 @@ func TestSubjectScoping(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		redTab := v.Load(t, "/room/")
-		red := redTab.Connect(t, room("red"))
-		blue := v.Load(t, "/room/").Connect(t, room("blue"))
+		red := connect(t, redTab, room("red"))
+		blue := connect(t, v.Load(t, "/room/"), room("blue"))
 
 		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "hello red")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		red.WaitFor(t, datapagestest.TextContains("said", "hello red"))
 
 		redTab.Do(t, http.MethodPost, "/room/say/", say("blue", "hello blue")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		blue.Absent(t,
 			datapagestest.TextContains("said", "hello red"),
 			datapagestest.TextContains("said", "hello blue"))
@@ -383,18 +384,18 @@ func TestNestedSignalScoping(t *testing.T) {
 			Text string `json:"text"`
 		}
 		chatA := v.Load(t, "/chat/")
-		threadA := chatA.Connect(t, map[string]chat{"chat": {Room: "red", Thread: "a"}})
-		threadB := v.Load(t, "/chat/").Connect(t,
+		threadA := connect(t, chatA, map[string]chat{"chat": {Room: "red", Thread: "a"}})
+		threadB := connect(t, v.Load(t, "/chat/"),
 			map[string]chat{"chat": {Room: "red", Thread: "b"}})
 
 		chatA.Do(t, http.MethodPost, "/chat/say/",
 			said{Chat: chat{Room: "red", Thread: "a"}, Text: "hello a"}).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		threadA.WaitFor(t, datapagestest.TextContains("said", "hello a"))
 
 		chatA.Do(t, http.MethodPost, "/chat/say/",
 			said{Chat: chat{Room: "red", Thread: "b"}, Text: "hello b"}).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		threadB.Absent(t,
 			datapagestest.TextContains("said", "hello a"),
 			datapagestest.TextContains("said", "hello b"))
@@ -411,14 +412,14 @@ func Test1CopyPerStream(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		redTab := v.Load(t, "/room/")
-		red := redTab.Connect(t, room("red"))
+		red := connect(t, redTab, room("red"))
 
 		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "once")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		red.WaitFor(t, datapagestest.TextContains("said", "once"))
 
 		redTab.Do(t, http.MethodPost, "/room/say/", say("red", "after")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		red.Absent(t,
 			datapagestest.TextContains("said", "once"),
 			datapagestest.TextContains("said", "after"))
@@ -434,14 +435,14 @@ func TestSubjectFanout(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		redTab := v.Load(t, "/room/")
-		red := redTab.Connect(t, room("red"))
-		blue := v.Load(t, "/room/").Connect(t, room("blue"))
-		green := v.Load(t, "/room/").Connect(t, room("green"))
+		red := connect(t, redTab, room("red"))
+		blue := connect(t, v.Load(t, "/room/"), room("blue"))
+		green := connect(t, v.Load(t, "/room/"), room("green"))
 
 		broadcast := func(text string, rooms ...string) {
 			redTab.Do(t, http.MethodPost, "/room/broadcast/", map[string]any{
 				"rooms": rooms, "text": text,
-			}).WantStatus(t, http.StatusOK)
+			}).RequireStatus(t, http.StatusOK)
 		}
 		broadcast("to both", "red", "blue")
 		red.WaitFor(t, datapagestest.TextContains("broadcast", "to both"))
@@ -481,8 +482,8 @@ func TestStreamOpenRefuses(t *testing.T) {
 		}
 
 		// The server keeps serving streams that are not refused.
-		s := index.Connect(t, nil)
-		index.Do(t, http.MethodPost, "/tick/", tick(9)).WantStatus(t, http.StatusOK)
+		s := index.Connect(t)
+		index.Do(t, http.MethodPost, "/tick/", tick(9)).RequireStatus(t, http.StatusOK)
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 9"))
 	})
 }
@@ -490,9 +491,9 @@ func TestStreamOpenRefuses(t *testing.T) {
 // TestStreamOpenPanicRunsNoStreamClose tests a StreamOpen that panics after it
 // registered the stream.
 //
-// A panic in the hook is an error like any other: the stream never opens, so it
-// gets no StreamClose. Whatever the hook registered before the panic is the
-// application's to drop, under a defer of its own.
+// A panic in the hook is an error like any other: the stream never opens,
+// so it gets no StreamClose. Whatever the hook registered before the panic
+// is the application's to drop, under a defer of its own.
 func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
@@ -502,7 +503,8 @@ func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 		// Reading a stream left open fails the test once the deadline passes.
 		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 		defer cancel()
-		v.Send(t, index.NewRequest(t, http.MethodGet, "/_$/?panic=1", nil).WithContext(ctx))
+		v.Send(t, index.NewRequest(t, http.MethodGet, "/_$/?panic=1", nil).
+			WithContext(ctx))
 
 		require.Contains(t, logOf(t, v), "open(",
 			"StreamOpen did not run")
@@ -511,8 +513,8 @@ func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
 		}
 
 		// The panic did not take the server down.
-		s := index.Connect(t, nil)
-		index.Do(t, http.MethodPost, "/tick/", tick(7)).WantStatus(t, http.StatusOK)
+		s := index.Connect(t)
+		index.Do(t, http.MethodPost, "/tick/", tick(7)).RequireStatus(t, http.StatusOK)
 		s.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 	})
 }
@@ -550,17 +552,17 @@ func TestSubjectSignalEscaped(t *testing.T) {
 		v := serve(t, broker).Visitor(t)
 
 		starTab := v.Load(t, "/room/")
-		star := starTab.Connect(t, room("*"))
-		red := v.Load(t, "/room/").Connect(t, room("red"))
+		star := connect(t, starTab, room("*"))
+		red := connect(t, v.Load(t, "/room/"), room("red"))
 
 		starTab.Do(t, http.MethodPost, "/room/say/", say("red", "hello red")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		red.WaitFor(t, datapagestest.TextContains("said", "hello red"))
 
 		// The stream scoped to the wildcard value receives what is published for
 		// that value, and nothing of another room before it.
 		starTab.Do(t, http.MethodPost, "/room/say/", say("*", "hello star")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		star.Absent(t,
 			datapagestest.TextContains("said", "hello red"),
 			datapagestest.TextContains("said", "hello star"))
@@ -586,10 +588,10 @@ func TestEmptySubjectSignalRefused(t *testing.T) {
 // needs its streams created before anything is published to them.
 //
 // A broker that implements messaging.StreamInitializer is given every subject
-// the app can publish, once, at startup. No broker shipped with datapages needs
-// it, the hand-off exists for brokers that must declare a topic or a stream
-// before a publish to it can succeed. Nothing on the datapages side reports a
-// subject that was left out: the publish simply goes nowhere.
+// the app can publish, once, at startup. No broker shipped with datapages needs it,
+// the hand-off exists for brokers that must declare a topic or a stream before
+// a publish to it can succeed. Nothing on the datapages side reports
+// a subject that was left out: the publish simply goes nowhere.
 func TestBrokerStreamInitialization(t *testing.T) {
 	t.Parallel()
 	broker := &initializingBroker{
@@ -810,7 +812,8 @@ func TestStreamConfigPath(t *testing.T) {
 
 // requireStream requires the stream at path to open with coding.
 func requireStream(
-	t *testing.T, srv *datapagestest.Server, path string, header http.Header, coding string,
+	t *testing.T, srv *datapagestest.Server,
+	path string, header http.Header, coding string,
 ) {
 	t.Helper()
 	status, got := streamResponse(t, srv, path, header)
@@ -875,9 +878,9 @@ func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
 		srv := serve(t, broker)
 		v := srv.Visitor(t)
 
-		panicking := v.Load(t, "/panic-on-close/").Connect(t, nil)
+		panicking := v.Load(t, "/panic-on-close/").Connect(t)
 		index := v.Load(t, "/")
-		survivor := index.Connect(t, nil)
+		survivor := index.Connect(t)
 
 		// Disconnecting is what runs StreamClose. It records before it panics.
 		panicking.Close()
@@ -890,7 +893,7 @@ func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
 			"the server stopped answering after the panic")
 
 		// The streams the panic did not belong to are still delivered to.
-		index.Do(t, http.MethodPost, "/tick/", tick(7)).WantStatus(t, http.StatusOK)
+		index.Do(t, http.MethodPost, "/tick/", tick(7)).RequireStatus(t, http.StatusOK)
 		survivor.WaitFor(t, datapagestest.TextContains("out", "tick 7"))
 	})
 }
@@ -903,11 +906,22 @@ func TestStreamClosePanicIsReported(t *testing.T) {
 		srv := serve(t, broker)
 		v := srv.Visitor(t)
 
-		s := v.Load(t, "/panic-on-close/").Connect(t, nil)
+		s := v.Load(t, "/panic-on-close/").Connect(t)
 		s.Close()
 
 		srv.WaitFor(t, "StreamClose to run", func() bool {
 			return strings.Contains(logOf(t, v), "streamclose(")
 		})
 	})
+}
+
+// connect sets signals on tab and opens its stream.
+func connect[V any](
+	t *testing.T, tab *datapagestest.Tab, signals map[string]V,
+) *datapagestest.Stream {
+	t.Helper()
+	for k, v := range signals {
+		tab.SetSignal(t, k, v)
+	}
+	return tab.Connect(t)
 }

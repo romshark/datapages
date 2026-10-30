@@ -72,24 +72,26 @@ func TestOneInstanceDoesNotReachAnother(t *testing.T) {
 	a, b := all["frontend A"], all["frontend B"]
 
 	tabA := a.Load(t, "/")
-	streamA := tabA.Connect(t, nil)
+	streamA := tabA.Connect(t)
 	tabB := b.Load(t, "/")
-	streamB := tabB.Connect(t, nil)
+	streamB := tabB.Connect(t)
 
-	tabA.Do(t, http.MethodPost, "/notice/", text("first")).WantStatus(t, http.StatusOK)
+	tabA.Do(t, http.MethodPost, "/notice/", text("first")).
+		RequireStatus(t, http.StatusOK)
 	streamA.WaitFor(t, datapagestest.TextContains("out", "first"),
 		"the instance that dispatched the event did not receive it")
 
 	// The notice B dispatches next is the anchor: had the event of A reached the
 	// other instance, it would have arrived before it.
-	tabB.Do(t, http.MethodPost, "/notice/", text("second")).WantStatus(t, http.StatusOK)
+	tabB.Do(t, http.MethodPost, "/notice/", text("second")).
+		RequireStatus(t, http.StatusOK)
 	streamB.Absent(t,
 		datapagestest.TextContains("out", "first"),
 		datapagestest.TextContains("out", "second"),
 		"the event reached the other instance of the same app")
 
 	tabA.Do(t, http.MethodPost, "/sign-in/", signIn("alice", "al")).
-		WantStatus(t, http.StatusOK)
+		RequireStatus(t, http.StatusOK)
 	require.Equal(t, "user=alice nickname=al", echo(t, a.Get(t, "/")))
 	require.Equal(t, "anonymous", echo(t, b.Get(t, "/")),
 		"a session issued by one instance showed up in the other")

@@ -87,8 +87,8 @@ func TestFileTrailingSlash(t *testing.T) {
 	require.Equal(t, "content of a.txt", resp.Body)
 }
 
-// TestFileConditional tests the requests net/http.ServeContent answers on its
-// own: HEAD, Range and If-Modified-Since.
+// TestFileConditional tests the requests net/http.ServeContent answers on its own:
+// HEAD, Range and If-Modified-Since.
 func TestFileConditional(t *testing.T) {
 	t.Parallel()
 
@@ -318,7 +318,7 @@ func TestPageGETAction(t *testing.T) {
 
 	page := get(t, v, href.PageDoc("x"))
 	require.Equal(t, http.StatusOK, page.Status)
-	require.Equal(t, "x", datapagestest.Text(page.ElementByID(t, "doc")))
+	require.Equal(t, "x", page.Get(t, datapagestest.ID("doc")).Text())
 
 	file := get(t, v, href.PageDoc.Export("x"))
 	require.Equal(t, http.StatusOK, file.Status)

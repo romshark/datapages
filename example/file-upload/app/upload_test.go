@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/html"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/file-upload/app"
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen"
+	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/file-upload/store"
 	"github.com/romshark/datapages/modules/messaging"
@@ -93,12 +93,12 @@ func (tb *tab) load(t *testing.T) {
 	t.Helper()
 	tb.Tab = tb.visitor.Load(t, href.PageIndex())
 	require.NotEmpty(t, tb.Instance(), "GET / minted no instance id")
-	tb.stream = tb.Connect(t, tb.Page().PublicSignals(t))
+	tb.stream = tb.Connect(t)
 }
 
-// chunk sends 1 chunk the way the uploader does, as a plain fetch. Without the
-// Datastar-Request header a refusal arrives as a status code rather than as a
-// message RecoverError renders.
+// chunk sends 1 chunk the way the uploader does, as a plain fetch.
+// Without the Datastar-Request header a refusal arrives as
+// a status code rather than as a message RecoverError renders.
 func (tb *tab) chunk(t *testing.T, id string, offset int64, data string) int {
 	t.Helper()
 	req := tb.visitor.NewRequest(t, http.MethodPut,
@@ -140,8 +140,8 @@ type job struct {
 	ChunkSize int64  `json:"chunkSize"`
 }
 
-// waitForStart waits for the job that starting one file sends the uploader of the
-// tab. It travels on the tab's stream, not on the response of the start action.
+// waitForStart waits for the job that starting one file sends the uploader of the tab.
+// It travels on the tab's stream, not on the response of the start action.
 func (tb *tab) waitForStart(t *testing.T) job {
 	t.Helper()
 	var jobs []job
@@ -150,8 +150,8 @@ func (tb *tab) waitForStart(t *testing.T) job {
 	return jobs[0]
 }
 
-// resumed returns the job that the response of a resume or a reattachment tells the
-// uploader to go on with.
+// resumed returns the job that the response of
+// a resume or a reattachment tells the uploader to go on with.
 func resumed(t *testing.T, resp *datapagestest.Response) job {
 	t.Helper()
 	var j job
@@ -251,9 +251,10 @@ func reattachment(id, name string, size int) map[string]any {
 
 // toastTitle returns the text of the title slot of the toast ev appends, "" when
 // there is none. neo-toast shows its named slots only.
-func toastTitle(ev datapagestest.Event) string {
-	if n := find(ev.Root(), element("", "slot", "title")); n != nil {
-		return datapagestest.Text(n)
+func toastTitle(t *testing.T, ev datapagestest.Event) string {
+	t.Helper()
+	if titles := ev.All(t, element("", "slot", "title")); len(titles) > 0 {
+		return titles[0].Text()
 	}
 	return ""
 }
@@ -268,7 +269,7 @@ func toast(t *testing.T, resp *datapagestest.Response) string {
 	}
 	for _, ev := range resp.Events(t) {
 		if ev.Data["selector"] == "#toast" {
-			return toastTitle(ev)
+			return toastTitle(t, ev)
 		}
 	}
 	return ""
@@ -317,7 +318,7 @@ func TestReattach(t *testing.T) {
 				"the message did not reach the toaster")
 			require.Equal(t, "append", ev.Data["mode"],
 				"the message replaces the stack instead of joining it")
-			require.Contains(t, toastTitle(ev), tc.want,
+			require.Contains(t, toastTitle(t, ev), tc.want,
 				"the message is in no slot and neo-toast projects none of it")
 		})
 	}
@@ -329,9 +330,9 @@ func TestReattach(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
 }
 
-// TestOwnership tests that only the tab holding the bytes may pause or resume
-// a transfer. Every other tab is told so and is offered the take-over control instead,
-// which asks for the file rather than posting anything.
+// TestOwnership tests that only the tab holding the bytes may pause
+// or resume a transfer. Every other tab is told so and is offered the take-over
+// control instead, which asks for the file rather than posting anything.
 func TestOwnership(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
@@ -442,8 +443,8 @@ func TestStreamCloseGivesUp(t *testing.T) {
 }
 
 // TestOrphanedFileOffersTakeOver tests that a page load offers the take-over
-// control for a file nobody is sending. A server restart leaves exactly that
-// behind: the status is read back from disk and the owner is not.
+// control for a file nobody is sending. A server restart leaves exactly that behind:
+// the status is read back from disk and the owner is not.
 func TestOrphanedFileOffersTakeOver(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
@@ -455,34 +456,28 @@ func TestOrphanedFileOffersTakeOver(t *testing.T) {
 		return err == nil && f.Owner == ""
 	})
 
-	list := tb.visitor.Get(t, href.PageIndex()).ElementByID(t, "file-list")
+	list := tb.visitor.Get(t, href.PageIndex()).Get(t, datapagestest.ID("file-list"))
 	// The buttons of a row show their names in a label span.
-	label := func(text string) func(*html.Node) bool {
-		return func(n *html.Node) bool {
-			return element("span", "class", "label")(n) && datapagestest.Text(n) == text
-		}
+	label := func(text string) datapagestest.Query {
+		return element("span", "class", "label").HasText(text)
 	}
-	require.Contains(t, datapagestest.Text(list), "Take over",
+	require.Contains(t, list.Text(), "Take over",
 		"a file nobody is sending is not offered to be taken over")
-	require.Nil(t, find(list, label("Pause")),
+	require.Empty(t, list.All(t, label("Pause")),
 		"a page load offers to pause a file it is not sending")
-	require.Nil(t, find(list, label("Resume")),
+	require.Empty(t, list.All(t, label("Resume")),
 		"a page load offers to resume a file it cannot send")
-	require.NotNil(t, find(list, class("status-interrupted")))
+	require.NotEmpty(t, list.All(t, class("status-interrupted")))
 }
 
 // stage opens the upload dialog on 1 file and returns the dialog it rendered.
-func (tb *tab) stage(t *testing.T, name, contentType string, size int) *html.Node {
+func (tb *tab) stage(
+	t *testing.T, name, contentType string, size int,
+) *datapagestest.Element {
 	t.Helper()
-	resp := tb.Do(t, http.MethodPost, "/stage/", picked(name, contentType, size))
-	return dialogOf(t, resp)
-}
-
-// dialogOf returns the upload dialog that resp patches into the page.
-func dialogOf(t *testing.T, resp *datapagestest.Response) *html.Node {
-	t.Helper()
-	return resp.Event(t, datapagestest.Element("upload-dialog")).
-		ElementByID(t, "upload-dialog")
+	tb.Do(t, http.MethodPost, "/stage/", picked(name, contentType, size)).
+		RequireStatus(t, http.StatusOK)
+	return tb.Get(t, datapagestest.ID("upload-dialog"))
 }
 
 // TestPickingAnUnfinishedFileAgain tests that a file already half uploaded is
@@ -494,9 +489,8 @@ func TestPickingAnUnfinishedFileAgain(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	dialog := tb.stage(t, "notes.txt", "text/plain", len(contents))
-	require.Contains(t, datapagestest.Text(dialog),
-		"Continue the unfinished upload (50%)")
-	require.NotNil(t, find(dialog, element("input", "name", "dup-0")))
+	require.Contains(t, dialog.Text(), "Continue the unfinished upload (50%)")
+	require.NotEmpty(t, dialog.All(t, element("input", "name", "dup-0")))
 
 	// The dialog defaults to continuing, which is what an unchanged form sends.
 	resp := tb.DoForm(t, http.MethodPost, "/start/",
@@ -515,8 +509,8 @@ func TestPickingAnUnfinishedFileAgain(t *testing.T) {
 	require.Equal(t, store.StatusUploading, f.Status)
 }
 
-// TestPickingAnUnfinishedFileAgainSeparately tests the other choice of that
-// dialog: a second file under the name the visitor gave it.
+// TestPickingAnUnfinishedFileAgainSeparately tests the other choice of that dialog:
+// a second file under the name the visitor gave it.
 func TestPickingAnUnfinishedFileAgainSeparately(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
@@ -565,10 +559,9 @@ func TestContinuingKeepsTheName(t *testing.T) {
 
 	// The dialog offers the name the file carries, not the one the browser reports,
 	// which is what an unchanged confirmation keeps.
-	field := find(tb.stage(t, "notes.txt", "text/plain", len(contents)),
-		element("", "name", "name-0"))
-	require.NotNil(t, field, "the dialog has no name field")
-	value, _ := datapagestest.Attr(field, "value")
+	field := tb.stage(t, "notes.txt", "text/plain", len(contents)).
+		Get(t, element("", "name", "name-0"))
+	value, _ := field.Attr("value")
 	require.Equal(t, "holiday.txt", value)
 
 	resp := tb.DoForm(t, http.MethodPost, "/start/",
@@ -596,8 +589,8 @@ func TestPickingACompleteFileAgain(t *testing.T) {
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
 
 	dialog := tb.stage(t, "notes.txt", "text/plain", len(contents))
-	require.NotContains(t, datapagestest.Text(dialog), "Continue the unfinished upload")
-	require.Nil(t, find(dialog, element("input", "name", "dup-0")))
+	require.NotContains(t, dialog.Text(), "Continue the unfinished upload")
+	require.Empty(t, dialog.All(t, element("input", "name", "dup-0")))
 }
 
 // TestContinuingAFileThatWentAway tests that a dialog left open while the
@@ -637,9 +630,9 @@ func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
 			require.NoError(t, err)
 
 			other := tb.openTab(t)
-			require.NotNil(t,
-				find(other.stage(t, "notes.txt", "text/plain", len(contents)),
-					element("input", "name", "dup-0")),
+			require.NotEmpty(t,
+				other.stage(t, "notes.txt", "text/plain", len(contents)).
+					All(t, element("input", "name", "dup-0")),
 				"the dialog does not offer to continue the upload")
 			resp := other.DoForm(t, http.MethodPost, "/start/",
 				url.Values{"name-0": {fileName}, "dup-0": {"continue"}})
@@ -668,7 +661,8 @@ func TestStartRefusesTheWholeDialog(t *testing.T) {
 	tb := newTab(t)
 	resp := tb.Do(t, http.MethodPost, "/stage/", json.RawMessage(
 		`{"files":[{"name":"a.txt","size":20,"type":"text/plain"},`+
-			`{"name":"b.txt","size":20,"type":"text/plain"}]}`))
+			`{"name":"b.txt","size":20,"type":"text/plain"}]}`,
+	))
 	require.Equal(t, http.StatusOK, resp.Status, "staging")
 
 	resp = tb.DoForm(t, http.MethodPost, "/start/",
@@ -736,7 +730,8 @@ func TestLimits(t *testing.T) {
 		require.JSONEq(t, "32", string(signals["limitUp"]))
 		require.JSONEq(t, "32", string(signals["limitDown"]))
 
-		id := tb.start(t, "big.bin", "big.bin", "application/octet-stream", len(payload)).ID
+		id := tb.start(t,
+			"big.bin", "big.bin", "application/octet-stream", len(payload)).ID
 
 		// 32 KiB at 32 KiB/s is a second of transfer, less the burst the limiter
 		// starts with. Only being faster than the limit would be a failure.
@@ -793,12 +788,13 @@ func TestRateBelowTheMinimumResets(t *testing.T) {
 }
 
 // TestRateArrivesQuoted tests that a rate the browser sends as a string is
-// read as the number it holds. Datastar binds a web component by its value
-// property, which makes the field report "128" where a native input sent 128.
+// read as the number it holds. Datastar binds a web component by its value property,
+// which makes the field report "128" where a native input sent 128.
 func TestRateArrivesQuoted(t *testing.T) {
 	tb := newTab(t)
 	resp := tb.Do(t, http.MethodPost, "/limits/", json.RawMessage(
-		`{"limitUp":"128","unlimitedUp":false,"limitDown":"64","unlimitedDown":false}`))
+		`{"limitUp":"128","unlimitedUp":false,"limitDown":"64","unlimitedDown":false}`,
+	))
 	require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
 	require.JSONEq(t, "128", string(tb.waitForLimits(t)["limitUp"]))
 	require.EqualValues(t, 128, tb.app.Limits().Upload.KiB)
@@ -810,8 +806,8 @@ func TestRateArrivesQuoted(t *testing.T) {
 // back up returns a round rate where adding the step would return 65.
 //
 // The browser evaluates limitStepExpr; [stepped] is its twin in Go, and what
-// this asserts is the rate the server ends up holding. It pins the intended
-// grid, not the JavaScript.
+// this asserts is the rate the server ends up holding. It pins the intended grid,
+// not the JavaScript.
 func TestLimitStepExprSnapsToTheGrid(t *testing.T) {
 	for name, tc := range map[string]struct {
 		from string
@@ -833,8 +829,8 @@ func TestLimitStepExprSnapsToTheGrid(t *testing.T) {
 			}
 			resp := tb.Do(t, http.MethodPost, "/limits/", limits(tc.from))
 			require.Equal(t, http.StatusOK, resp.Status, "seeding the rate")
-			// Each change sends the tab the limits once. Taking the patch of the seed
-			// leaves the next one to the step.
+			// Each change sends the tab the limits once.
+			// Taking the patch of the seed leaves the next one to the step.
 			tb.waitForLimits(t)
 
 			resp = tb.Do(t, http.MethodPost, "/limits/", limits(stepped(tc.from, tc.up)))
@@ -846,8 +842,8 @@ func TestLimitStepExprSnapsToTheGrid(t *testing.T) {
 	}
 }
 
-// stepped mirrors limitStepExpr, the expression the arrow keys evaluate in the
-// browser. The server never runs it, and what keeps the 2 honest is this
+// stepped mirrors limitStepExpr, the expression the arrow keys evaluate in the browser.
+// The server never runs it, and what keeps the 2 honest is this
 // test asserting the rate the server ends up holding.
 func stepped(from string, up bool) string {
 	v, err := strconv.Atoi(from)
@@ -870,7 +866,8 @@ func stepped(from string, up bool) string {
 func TestUnlimitedKeepsTheRate(t *testing.T) {
 	tb := newTab(t)
 	resp := tb.Do(t, http.MethodPost, "/limits/", json.RawMessage(
-		`{"limitUp":256,"unlimitedUp":true,"limitDown":128,"unlimitedDown":false}`))
+		`{"limitUp":256,"unlimitedUp":true,"limitDown":128,"unlimitedDown":false}`,
+	))
 	require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
 
 	signals := tb.waitForLimits(t)
@@ -881,12 +878,19 @@ func TestUnlimitedKeepsTheRate(t *testing.T) {
 	require.True(t, limits.Upload.Unlimited, "the switch did not reach the server")
 	require.Zero(t, limits.Upload.Rate(), "an unlimited direction is still paced")
 	require.EqualValues(t, 256, limits.Upload.KiB, "the rate was forgotten")
-	require.EqualValues(t, 128*1024, limits.Download.Rate(), "the limited direction is not paced")
+	require.EqualValues(t,
+		128*1024,
+		limits.Download.Rate(),
+		"the limited direction is not paced")
 }
 
 // halfway matches the progress bar of a file that holds 10 of its 20 bytes, which
 // the list shows once the first chunk of contents arrived.
 var halfway = element("neo-progress", "label", "10 B of 20 B")
+
+// copyLink selects the button of the copy control in the row of a finished file.
+// The actions menu holds a second copy control, without a button.
+var copyLink = datapagestest.Role("button", "Copy the link to this file")
 
 // TestCompleteFileOffersItsLink tests that a finished file carries a copy
 // control holding the absolute URL of the download, and that a file still
@@ -896,14 +900,12 @@ func TestCompleteFileOffersItsLink(t *testing.T) {
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	require.Nil(t,
-		find(tb.waitForList(t, "half the file", halfway), element("neo-clipcopy")),
+	require.Empty(t, tb.waitForList(t, halfway).All(t, element("neo-clipcopy")),
 		"an incomplete file offers a link that 404s")
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
-	clip := find(tb.waitForList(t, "a copy control", element("neo-clipcopy")),
-		element("neo-clipcopy"))
-	value, _ := datapagestest.Attr(clip, "value")
+	value, _ := tb.waitForList(t, copyLink).
+		All(t, element("neo-clipcopy"))[0].Attr("value")
 	// The absolute URL of the download is where a request for it goes.
 	download := tb.visitor.NewRequest(t, http.MethodGet, href.App.File(id), nil)
 	require.Equal(t, download.URL.String(), value,
@@ -918,38 +920,27 @@ func TestCompleteFileShowsNoStatusIcon(t *testing.T) {
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	require.NotNil(t, find(tb.waitForList(t, "half the file", halfway),
-		class("status-uploading")), "a transfer in flight lost its badge")
+	require.NotEmpty(t, tb.waitForList(t, halfway).All(t, class("status-uploading")),
+		"a transfer in flight lost its badge")
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
-	list := tb.waitForList(t, "a copy control", element("neo-clipcopy"))
+	list := tb.waitForList(t, copyLink)
 	// The badge, its icon and its note each carry a class that starts with status.
-	badge := func(n *html.Node) bool {
-		c, _ := datapagestest.Attr(n, "class")
+	badge := datapagestest.Where("a badge", func(e *datapagestest.Element) bool {
+		c, _ := e.Attr("class")
 		return strings.HasPrefix(c, "status")
-	}
-	require.Nil(t, find(list, badge), "a finished file still carries a badge")
+	})
+	require.Empty(t, list.All(t, badge), "a finished file still carries a badge")
 }
 
-// waitForList waits for a patch of the file list with an element that match
-// reports true for, which what names, and returns the list. A transfer patches
-// the list many times, and the earlier patches describe the file at an earlier
-// point of its transfer.
-func (tb *tab) waitForList(
-	t *testing.T, what string, match func(*html.Node) bool,
-) *html.Node {
+// waitForList waits until the file list holds the 1 element q selects and
+// returns the list. A transfer patches the list many times, each time with the
+// file at a later point of its transfer.
+func (tb *tab) waitForList(t *testing.T, q datapagestest.Query) *datapagestest.Element {
 	t.Helper()
-	return tb.stream.WaitFor(t, fileList(what, match)).ElementByID(t, "file-list")
-}
-
-// fileList matches a patch of the file list with an element that match reports
-// true for, which what names.
-func fileList(what string, match func(*html.Node) bool) datapagestest.Match {
-	return datapagestest.Func("a file list with "+what,
-		func(ev datapagestest.Event) bool {
-			list := datapagestest.ElementByID(ev.Root(), "file-list")
-			return list != nil && find(list, match) != nil
-		})
+	list := datapagestest.ID("file-list")
+	tb.WaitFor(t, q.In(list))
+	return tb.Get(t, list)
 }
 
 // TestRowCarriesAnActionsMenu tests that every row also renders its controls
@@ -959,13 +950,11 @@ func TestRowCarriesAnActionsMenu(t *testing.T) {
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
-	menu := find(tb.waitForList(t, "a copy control", element("neo-clipcopy")),
-		class("actions-menu"))
-	require.NotNil(t, menu, "no menu button in the row")
-	require.NotNil(t, find(menu, element("neo-menu")), "the menu button opens nothing")
-	require.NotNil(t, find(menu, element("neo-menuitem", "data-neo-dialog-trigger", "")),
+	menu := tb.waitForList(t, copyLink).Get(t, class("actions-menu"))
+	require.NotEmpty(t, menu.All(t, element("neo-menu")), "the menu button opens nothing")
+	require.NotEmpty(t, menu.All(t, element("neo-menuitem", "data-neo-dialog-trigger", "")),
 		"the menu cannot reach the delete confirmation")
-	require.Contains(t, datapagestest.Text(menu), "Copy link",
+	require.Contains(t, menu.Text(), "Copy link",
 		"the menu is missing the copy entry")
 }
 
@@ -974,17 +963,17 @@ func TestRowCarriesAnActionsMenu(t *testing.T) {
 // and the dialog would sit there doing nothing when pressed.
 func TestUploadDialogStartsOnClick(t *testing.T) {
 	tb := newTab(t)
-	resp := tb.Do(t, http.MethodPost, "/stage/", picked("notes.txt", "text/plain", 20))
-	require.Equal(t, http.StatusOK, resp.Status, "staging")
-	dialog := dialogOf(t, resp)
+	dialog := tb.stage(t, "notes.txt", "text/plain", 20)
 
-	start := find(dialog, func(n *html.Node) bool {
-		return n.Data == "neo-button" && datapagestest.Text(n) == "Start upload"
-	})
-	require.NotNil(t, start, "no start control in the dialog")
-	click, _ := datapagestest.Attr(start, "data-on:click")
-	require.Contains(t, click, "@post('/start/'", "the start control carries no action")
-	require.Nil(t, find(dialog, element("", "type", "submit")),
+	// The dialog stays closed in the HTML, since the Web Component around it
+	// opens it, so the test reads the control's action instead of clicking it.
+	start := dialog.Get(t, element("neo-button").HasText("Start upload"))
+	click, _ := start.Attr("data-on:click")
+	require.Equal(t, action.PageIndex.Start.POST(
+		action.WithContentType(action.ContentTypeForm),
+	), click,
+		"the start control carries no action")
+	require.Empty(t, dialog.All(t, element("", "type", "submit")),
 		"a custom element cannot submit a form")
 }
 
@@ -996,18 +985,19 @@ func TestDownloadIsALink(t *testing.T) {
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
-	list := tb.waitForList(t, "a copy control", element("neo-clipcopy"))
+	list := tb.waitForList(t, copyLink)
 
-	require.NotNil(t, find(list, element("a", "data-neo-link", "",
+	require.NotEmpty(t, list.All(t, element("a", "data-neo-link", "",
 		"href", href.App.File(id), "variant", "button-primary")),
 		"the row's download is not a link")
-	buttonWithHref := func(n *html.Node) bool {
-		_, ok := datapagestest.Attr(n, "href")
-		return n.Data == "neo-button" && ok
-	}
-	require.Nil(t, find(list, buttonWithHref),
+	buttonWithHref := datapagestest.Where("a neo-button with an href",
+		func(e *datapagestest.Element) bool {
+			_, ok := e.Attr("href")
+			return e.Node().Data == "neo-button" && ok
+		})
+	require.Empty(t, list.All(t, buttonWithHref),
 		"an href on a neo-button navigates nowhere")
-	require.NotNil(t, find(list, element("neo-menuitem", "data-href", href.App.File(id))),
+	require.NotEmpty(t, list.All(t, element("neo-menuitem", "data-href", href.App.File(id))),
 		"the menu's download row carries no address")
 }
 
@@ -1020,56 +1010,54 @@ func TestProgressCarriesTheBytes(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 	// The list the start renders comes first and has a bar too.
-	list := tb.stream.WaitFor(t, fileList("half the file", halfway),
-		"the bar carries no amount").ElementByID(t, "file-list")
-	value, _ := datapagestest.Attr(find(list, halfway), "value")
+	list := tb.waitForList(t, halfway)
+	value, _ := list.Get(t, halfway).Attr("value")
 	require.Equal(t, "50", value, "the bar carries no percentage")
-	require.Nil(t, find(list, class("progress-text")), "the amount is still a paragraph")
+	require.Empty(t, list.All(t, class("progress-text")), "the amount is still a paragraph")
 }
 
-// TestBadgeFollowsTheOwner tests that the badge agrees with the control beside
-// it. A file paused in a tab that has since gone is one nobody can resume, so
-// the row offers to take it over and the badge has to say interrupted rather
-// than paused.
+// TestBadgeFollowsTheOwner tests that the badge agrees with the control beside it.
+// A file paused in a tab that has since gone is one nobody can resume, so the row
+// offers to take it over and the badge has to say interrupted rather than paused.
 func TestBadgeFollowsTheOwner(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	require.Equal(t, http.StatusOK, tb.pause(t, id).Status, "pausing")
-	paused := tb.waitForList(t, "a paused badge", class("status-paused"))
-	require.Contains(t, datapagestest.Text(paused), "You paused this upload",
+	paused := tb.waitForList(t, class("status-paused"))
+	require.Contains(t, paused.Text(), "You paused this upload",
 		"the badge of a held file does not say who paused it")
 
 	// The tab that held the bytes goes away, as a reload does.
 	other := tb.openTab(t)
 	tb.stream.Close()
-	orphaned := other.waitForList(t, "an interrupted badge", class("status-interrupted"))
-	require.Nil(t, find(orphaned, class("status-paused")),
+	orphaned := other.waitForList(t, class("status-interrupted"))
+	require.Empty(t, orphaned.All(t, class("status-paused")),
 		"a file nobody holds still badges as paused")
-	require.Contains(t, datapagestest.Text(orphaned), "No tab is sending this file",
+	require.Contains(t, orphaned.Text(), "No tab is sending this file",
 		"the badge does not say what happened to the file")
-	require.Contains(t, datapagestest.Text(orphaned), "Take over",
+	require.Contains(t, orphaned.Text(), "Take over",
 		"the badge and the control disagree")
 }
 
-// TestDeleteAsksFirst tests that every row carries a confirmation naming its
-// file, that the browser owns opening it, and that the file survives until the
+// TestDeleteAsksFirst tests that every row carries a confirmation naming its file,
+// that the browser owns opening it, and that the file survives until the
 // delete itself is sent.
 func TestDeleteAsksFirst(t *testing.T) {
 	tb := newTab(t)
 	id := tb.start(t, "notes.txt", "holiday photos.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	dialog := find(tb.waitForList(t, "a dialog", element("neo-dialog")),
-		element("neo-dialog"))
-	require.Contains(t, datapagestest.Text(dialog), "Delete this file?",
+	// The row's dialog comes before the one of the actions menu.
+	dialog := tb.waitForList(t, halfway).All(t, element("neo-dialog"))[0]
+	require.Contains(t, dialog.Text(), "Delete this file?",
 		"the row carries no confirmation")
-	require.Contains(t, datapagestest.Text(dialog), "holiday photos.txt",
+	require.Contains(t, dialog.Text(), "holiday photos.txt",
 		"the dialog does not name the file")
-	require.NotNil(t, find(dialog, element("", "data-neo-dialog-trigger", "")),
+	require.NotEmpty(t, dialog.All(t, element("", "data-neo-dialog-trigger", "")),
 		"nothing opens the dialog: a Morpheus dialog stays inert without a trigger")
-	require.NotNil(t, find(dialog, element("", "data-neo-dialog-close", "")),
+	require.NotEmpty(t, dialog.All(t, element("", "data-neo-dialog-close", "")),
 		"nothing cancels the dialog")
 	require.Len(t, tb.files.List(), 1, "rendering the dialog deleted the file")
 
@@ -1085,10 +1073,9 @@ func TestDeleteDialogNamesTheStoredFile(t *testing.T) {
 	id := tb.start(t, "original.txt", "renamed.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	name := find(tb.waitForList(t, "a dialog", element("neo-dialog")),
-		element("strong", "class", "delete-name"))
-	require.NotNil(t, name, "the dialog names no file")
-	require.Equal(t, "renamed.txt", datapagestest.Text(name),
+	name := tb.waitForList(t, halfway).
+		All(t, element("strong", "class", "delete-name"))[0]
+	require.Equal(t, "renamed.txt", name.Text(),
 		"the dialog names what the browser reported, not what the store holds")
 }
 
@@ -1110,7 +1097,8 @@ func TestChunkSizeFollowsTheLimit(t *testing.T) {
 			resp := tb.Do(t, http.MethodPost, "/limits/", json.RawMessage(
 				`{"limitUp":`+strconv.FormatInt(tc.limitKiB, 10)+
 					`,"unlimitedUp":`+strconv.FormatBool(tc.unlimited)+
-					`,"limitDown":1,"unlimitedDown":true}`))
+					`,"limitDown":1,"unlimitedDown":true}`,
+			))
 			require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
 
 			started := tb.start(t, "f.bin", "f.bin", "text/plain", 4096)
@@ -1143,8 +1131,8 @@ func calls(fn string) datapagestest.Match {
 	})
 }
 
-// argOf returns the argument of the call of fn in the script ev appends, and false
-// when ev appends no such script.
+// argOf returns the argument of the call of fn in the script ev appends,
+// and false when ev appends no such script.
 func argOf(ev datapagestest.Event, fn string) (string, bool) {
 	script, ok := ev.Script()
 	if !ok {
@@ -1162,44 +1150,28 @@ func decodeCall(t *testing.T, ev datapagestest.Event, fn string, v any) {
 	t.Helper()
 	arg, ok := argOf(ev, fn)
 	require.True(t, ok, "no call of %s in %q", fn, ev.Data["elements"])
-	require.NoError(t, json.Unmarshal([]byte(arg), v), "decoding the argument of %s", fn)
+	require.NoError(t,
+		json.Unmarshal([]byte(arg), v), "decoding the argument of %s", fn)
 }
 
-// find returns the first element under root, root included, that match reports
-// true for, and nil when there is none. It finds what a patch renders without an
-// id, such as the controls of a row.
-func find(root *html.Node, match func(*html.Node) bool) *html.Node {
-	if root.Type == html.ElementNode && match(root) {
-		return root
+// element selects the elements named tag, of any name for "",
+// that have the attributes attrs lists as key and value pairs.
+func element(tag string, attrs ...string) datapagestest.Query {
+	q := datapagestest.Where("an element",
+		func(*datapagestest.Element) bool { return true })
+	if tag != "" {
+		q = datapagestest.Tag(tag)
 	}
-	for n := range root.Descendants() {
-		if n.Type == html.ElementNode && match(n) {
-			return n
-		}
+	for i := 0; i+1 < len(attrs); i += 2 {
+		q = q.Attr(attrs[i], attrs[i+1])
 	}
-	return nil
+	return q
 }
 
-// element matches an element named tag, of any name for "", that has the attributes
-// attrs lists as key and value pairs.
-func element(tag string, attrs ...string) func(*html.Node) bool {
-	return func(n *html.Node) bool {
-		if tag != "" && n.Data != tag {
-			return false
-		}
-		for i := 0; i+1 < len(attrs); i += 2 {
-			if v, ok := datapagestest.Attr(n, attrs[i]); !ok || v != attrs[i+1] {
-				return false
-			}
-		}
-		return true
-	}
-}
-
-// class matches an element whose class attribute lists name.
-func class(name string) func(*html.Node) bool {
-	return func(n *html.Node) bool {
-		v, _ := datapagestest.Attr(n, "class")
+// class selects the elements whose class attribute lists name.
+func class(name string) datapagestest.Query {
+	return datapagestest.Where("class "+name, func(e *datapagestest.Element) bool {
+		v, _ := e.Attr("class")
 		return slices.Contains(strings.Fields(v), name)
-	}
+	})
 }

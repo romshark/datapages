@@ -37,15 +37,15 @@ func state(text string) datapagestest.Match {
 	return datapagestest.TextContains("state", text)
 }
 
-// TestSharedStateIsPerTab covers 2 tabs of 1 page bound to a shared state
-// type. Sharing the type must not share the value.
+// TestSharedStateIsPerTab covers 2 tabs of 1 page bound to a shared state type.
+// Sharing the type must not share the value.
 func TestSharedStateIsPerTab(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	aTab := v.Load(t, "/")
-	a := aTab.Connect(t, nil)
+	a := aTab.Connect(t)
 	bTab := v.Load(t, "/")
-	b := bTab.Connect(t, nil)
+	b := bTab.Connect(t)
 
 	for range 2 {
 		require.Equal(t, http.StatusOK, bump(t, aTab).Status, "bumping the first tab")
@@ -56,37 +56,37 @@ func TestSharedStateIsPerTab(t *testing.T) {
 	// The second tab's own bump is the anchor. A patch for an event of the first tab
 	// would arrive before it, and a value shared with the first tab would read Counter:3.
 	require.Equal(t, http.StatusOK, bump(t, bTab).Status, "bumping the second tab")
-	b.Absent(t, datapagestest.Element("state"), state("{Counter:1 Note:}"),
+	b.Absent(t, datapagestest.Patched("state"), state("{Counter:1 Note:}"),
 		"the second tab received the first tab's state")
 }
 
-// TestSharedStateIsPerPage covers 2 different pages bound to the same state
-// type. Their tabs are still separate tabs.
+// TestSharedStateIsPerPage covers 2 different pages bound to the same state type.
+// Their tabs are still separate tabs.
 func TestSharedStateIsPerPage(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	indexTab := v.Load(t, "/")
-	index := indexTab.Connect(t, nil)
+	index := indexTab.Connect(t)
 	otherTab := v.Load(t, "/other/")
-	other := otherTab.Connect(t, nil)
+	other := otherTab.Connect(t)
 
 	require.Equal(t, http.StatusOK, bump(t, otherTab).Status, "bumping the other page")
 
 	other.WaitFor(t, state("Counter:1"))
 
 	// The index tab's own note is the anchor. A patch for the event of the other page
-	// would arrive before it, and a value shared with that page's tab would read
-	// Counter:1.
+	// would arrive before it, and a value shared with
+	// that page's tab would read Counter:1.
 	require.Equal(t, http.StatusOK, note(t, indexTab, "anchor").Status,
 		"setting the note")
-	index.Absent(t, datapagestest.Element("state"), state("{Counter:0 Note:anchor}"))
+	index.Absent(t, datapagestest.Patched("state"), state("{Counter:0 Note:anchor}"))
 }
 
-// TestPageActionAndAppActionShareTheState covers the 2 ways into 1 tab's
-// state: an action of the page and an action of the app.
+// TestPageActionAndAppActionShareTheState covers the 2 ways into 1 tab's state:
+// an action of the page and an action of the app.
 func TestPageActionAndAppActionShareTheState(t *testing.T) {
 	tab := serve(t).Visitor(t).Load(t, "/")
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 
 	require.Equal(t, http.StatusOK, note(t, tab, "hello").Status, "setting the note")
 	st.WaitFor(t, state("Note:hello"))
@@ -97,8 +97,8 @@ func TestPageActionAndAppActionShareTheState(t *testing.T) {
 }
 
 // TestAppActionFromAStatelessPage covers a tab of a page that uses no state
-// calling an app action that needs one. There is nothing to act on. The client
-// is told to reconnect instead of being served another tab's value.
+// calling an app action that needs one. There is nothing to act on.
+// The client is told to reconnect instead of being served another tab's value.
 func TestAppActionFromAStatelessPage(t *testing.T) {
 	tab := serve(t).Visitor(t).Load(t, "/plain/")
 

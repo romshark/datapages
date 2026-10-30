@@ -39,7 +39,7 @@ func broker() messaging.Broker {
 // its state into.
 func echo(t *testing.T, page *datapagestest.Response) string {
 	t.Helper()
-	return datapagestest.Text(page.ElementByID(t, "echo"))
+	return page.Get(t, datapagestest.ID("echo")).Text()
 }
 
 func text(s string) map[string]string { return map[string]string{"text": s} }
@@ -209,12 +209,12 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	a := datapagestest.New(t,
 		mustNewAdmin(t, &adminapp.App{}, shared)).Visitor(t).Load(t, "/")
 
-	fs := f.Connect(t, nil)
-	as := a.Connect(t, nil)
+	fs := f.Connect(t)
+	as := a.Connect(t)
 
 	// Dispatched by admin, handled by both.
 	a.Do(t, http.MethodPost, "/announce/", text("from admin")).
-		WantStatus(t, http.StatusOK)
+		RequireStatus(t, http.StatusOK)
 	as.WaitFor(t, datapagestest.TextContains("announcement", "from admin"),
 		"the dispatching application did not receive its own event")
 	fs.WaitFor(t, datapagestest.TextContains("announcement", "from admin"),
@@ -222,7 +222,7 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 
 	// And the other way round.
 	f.Do(t, http.MethodPost, "/announce/", text("from frontend")).
-		WantStatus(t, http.StatusOK)
+		RequireStatus(t, http.StatusOK)
 	fs.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
 		"the dispatching application did not receive its own event")
 	as.WaitFor(t, datapagestest.TextContains("announcement", "from frontend"),
@@ -231,10 +231,10 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	// An event only 1 application declares stays with it. The announcement
 	// the frontend dispatches next is the anchor: a notice that reached the admin
 	// stream would arrive before it, since the broker delivers in publication order.
-	f.Do(t, http.MethodPost, "/notice/", text("private")).WantStatus(t, http.StatusOK)
+	f.Do(t, http.MethodPost, "/notice/", text("private")).RequireStatus(t, http.StatusOK)
 	fs.WaitFor(t, datapagestest.TextContains("out", "private"))
 	f.Do(t, http.MethodPost, "/announce/", text("after the notice")).
-		WantStatus(t, http.StatusOK)
+		RequireStatus(t, http.StatusOK)
 	private := datapagestest.Func(`an event carrying "private"`,
 		func(ev datapagestest.Event) bool {
 			for _, v := range ev.Data {

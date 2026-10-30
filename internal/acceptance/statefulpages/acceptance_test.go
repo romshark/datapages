@@ -55,9 +55,9 @@ func TestPerTabState(t *testing.T) {
 	v := serve(t).Visitor(t)
 
 	aTab := v.Load(t, "/")
-	a := aTab.Connect(t, nil)
+	a := aTab.Connect(t)
 	bTab := v.Load(t, "/")
-	b := bTab.Connect(t, nil)
+	b := bTab.Connect(t)
 
 	require.NotEqual(t, aTab.Instance(), bTab.Instance(),
 		"2 page loads share 1 instance id")
@@ -69,11 +69,11 @@ func TestPerTabState(t *testing.T) {
 	// Each tab's own update is the anchor. A patch for the other tab's event would
 	// render the receiving tab's own state and come before the anchor.
 	require.Equal(t, http.StatusOK, update(t, bTab, "from-b").Status)
-	b.Absent(t, datapagestest.Element("status"), status("deliveries:1 filter:from-b"),
+	b.Absent(t, datapagestest.Patched("status"), status("deliveries:1 filter:from-b"),
 		"the other tab received a patch addressed at the first")
 
 	require.Equal(t, http.StatusOK, update(t, aTab, "again").Status)
-	a.Absent(t, datapagestest.Element("status"), status("filter:again"),
+	a.Absent(t, datapagestest.Patched("status"), status("filter:again"),
 		"one tab sees the state of another")
 }
 
@@ -89,8 +89,8 @@ func TestPerTabState(t *testing.T) {
 func TestSecondStreamUnderTheSameID(t *testing.T) {
 	srv := serve(t)
 	tab := srv.Visitor(t).Load(t, "/")
-	first := tab.Connect(t, nil)
-	second := tab.Connect(t, nil)
+	first := tab.Connect(t)
+	second := tab.Connect(t)
 
 	first.Close()
 
@@ -119,7 +119,7 @@ func TestStreamCloseReadsTheFinalState(t *testing.T) {
 		mustNewServer(t, a, inmem.New(messaging.DefaultBrokerChanBuffer)))
 
 	tab := srv.Visitor(t).Load(t, pathCloseState)
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 	resp := tab.Do(t, http.MethodPost, pathCloseStateMark,
 		map[string]string{"filter": "written"})
 	require.Equal(t, http.StatusOK, resp.Status,
@@ -189,12 +189,12 @@ func TestNoTransformKeepsStatefulPageUncompressed(t *testing.T) {
 // second delivery, and a fresh one answers with the first.
 func TestStateResetsOnReconnect(t *testing.T) {
 	tab := serve(t).Visitor(t).Load(t, "/")
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 	require.Equal(t, http.StatusOK, update(t, tab, "before").Status)
 	st.WaitFor(t, status("deliveries:1 filter:before"))
 
 	st.Close()
-	st = tab.Connect(t, nil)
+	st = tab.Connect(t)
 
 	require.Equal(t, http.StatusOK, update(t, tab, "after").Status)
 	st.WaitFor(t, status("deliveries:1 filter:after"))
@@ -206,7 +206,7 @@ func TestStateResetsOnReconnect(t *testing.T) {
 func TestSlowRequestDoesNotStallTab(t *testing.T) {
 	v := serve(t).Visitor(t)
 	tab := v.Load(t, "/")
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pr.Close() })
@@ -256,7 +256,7 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 func TestSlowFileDoesNotStallTab(t *testing.T) {
 	v := serve(t).Visitor(t)
 	tab := v.Load(t, "/")
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 
 	export, err := v.Client().Do(tab.NewRequest(t, http.MethodPost, pathExport, nil))
 	require.NoError(t, err, "export")
@@ -420,7 +420,7 @@ func TestInstanceIDIsNotSharedBetweenServers(t *testing.T) {
 	b := serve(t).Visitor(t)
 
 	tab := a.Load(t, "/")
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 	require.Equal(t, http.StatusOK, update(t, tab, "on-a").Status,
 		"the action on the server that minted the id")
 
@@ -490,7 +490,7 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 	// still holds state. It is also the only instance this server may hold,
 	// which a failed open that kept its own would have spent.
 	tab := v.Load(t, "/")
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 	require.Equal(t, http.StatusOK, update(t, tab, "after-failure").Status)
 	st.WaitFor(t, status("deliveries:1 filter:after-failure"))
 }
@@ -513,7 +513,7 @@ func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
 	v := srv.Visitor(t)
 
 	tab := v.Load(t, "/")
-	tab.Connect(t, nil)
+	tab.Connect(t)
 	resp := tab.Do(t, http.MethodPost, pathAction, map[string]bool{"panic": true})
 	require.Equal(t, http.StatusOK, resp.Status, "dispatching the event that panics")
 
@@ -536,7 +536,7 @@ func TestPanicInStreamCloseIsContained(t *testing.T) {
 	v := srv.Visitor(t)
 
 	tab := v.Load(t, pathPanicClose)
-	tab.Connect(t, nil).Close()
+	tab.Connect(t).Close()
 
 	require.Equal(t, http.StatusOK, v.Get(t, pathPanicClose).Status,
 		"the server stopped serving after a panicking close hook")

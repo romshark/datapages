@@ -39,7 +39,7 @@ func TestPurchaseSoldOut(t *testing.T) {
 	resp := winnerTab.Do(t, http.MethodPost, confirm, nil)
 	require.Equal(t, http.StatusOK, resp.Status, "winner: %s", resp.Body)
 
-	resp = loserTab.Do(t, http.MethodPost, confirm, nil).WantStatus(t, http.StatusOK)
+	resp = loserTab.Do(t, http.MethodPost, confirm, nil).RequireStatus(t, http.StatusOK)
 	resp.Event(t, soldOutToast)
 	require.JSONEq(t, `{"_buying":false}`,
 		resp.Event(t, datapagestest.Signal("_buying")).Data["signals"])

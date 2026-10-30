@@ -48,7 +48,7 @@ func TestSessionDataPackage(t *testing.T) {
 
 	resp := v.Get(t, href.PageIndex())
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, `index nickname=""`, datapagestest.Text(resp.ElementByID(t, "echo")),
+	require.Equal(t, `index nickname=""`, resp.Get(t, datapagestest.ID("echo")).Text(),
 		"no session cookie leaves the zero value of the data type")
 }
 
@@ -69,7 +69,7 @@ func TestFieldTypePackage(t *testing.T) {
 	resp := v.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Equal(t, "id=seven code=code count=42 slug=slug",
-		datapagestest.Text(resp.ElementByID(t, "echo")))
+		resp.Get(t, datapagestest.ID("echo")).Text())
 }
 
 // TestFieldTypePackageInAction tests the same types in an action, which reads a path,
@@ -88,7 +88,7 @@ func TestFieldTypePackageInAction(t *testing.T) {
 	evs := resp.Events(t)
 	require.Len(t, evs, 1)
 	require.Equal(t, "saved id=seven count=42 signal=signalled",
-		datapagestest.Text(evs[0].ElementByID(t, "echo")))
+		evs[0].Get(t, datapagestest.ID("echo")).Text())
 }
 
 // TestStreamCarriesTheFieldTypePackage tests the 2 generated handlers the
@@ -98,7 +98,7 @@ func TestFieldTypePackageInAction(t *testing.T) {
 func TestStreamCarriesTheFieldTypePackage(t *testing.T) {
 	t.Parallel()
 	tab := serve(t).Visitor(t).Load(t, href.PageIndex())
-	st := tab.Connect(t, nil)
+	st := tab.Connect(t)
 
 	resp := tab.Do(t, http.MethodPost, "/tick/", map[string]string{"code": "tocked"})
 	require.Equal(t, http.StatusOK, resp.Status)

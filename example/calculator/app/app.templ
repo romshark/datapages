@@ -99,7 +99,8 @@ templ pageCalculator(input string, fresh bool) {
 			action.WithBefore("var v=calcPaste(evt);if(v===null)return;$num=v")) }
 	>
 		<h1>Calculator</h1>
-		<div class="display">{ calc.FormatDisplay(input) }</div>
+		// <output> has the role status, whose changes screen readers announce.
+		<output class="display">{ calc.FormatDisplay(input) }</output>
 		<div class="buttons">
 			for _, b := range buttons {
 				<button

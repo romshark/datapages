@@ -94,16 +94,15 @@ func (s *server) open(t *testing.T, doc string) *tab {
 	client, _ := signals["client"].(string)
 	require.NotEmpty(t, client, "the page sets no client signal")
 	require.Contains(t, signals, "rev", "the page sets no rev signal")
-	return &tab{Tab: page, stream: page.Connect(t, signals), doc: doc, client: client}
+	return &tab{Tab: page, stream: page.Connect(t), doc: doc, client: client}
 }
 
-// reconnect opens a new stream of the tab with rev, the revision the editor
-// reports in the rev signal.
+// reconnect opens a new stream of the tab with rev,
+// the revision the editor reports in the rev signal.
 func (tb *tab) reconnect(t *testing.T, rev int) {
 	t.Helper()
-	signals := tb.Page().PublicSignals(t)
-	signals["rev"] = rev
-	tb.stream = tb.Connect(t, signals)
+	tb.SetSignal(t, "rev", rev)
+	tb.stream = tb.Connect(t)
 }
 
 // ops returns the delta of the operations in the JSON array list.
@@ -146,8 +145,8 @@ func editorCall(ev datapagestest.Event, method string) (json.RawMessage, bool) {
 	if !ok {
 		return nil, false
 	}
-	// The app wraps the call in customElements.whenDefined(...).then(...). The
-	// last two parentheses close the call of method and the call of then.
+	// The app wraps the call in customElements.whenDefined(...).then(...).
+	// The last two parentheses close the call of method and the call of then.
 	if arg, ok = strings.CutSuffix(arg, "))"); !ok {
 		return nil, false
 	}
@@ -171,8 +170,8 @@ func callArg(t *testing.T, resp *datapagestest.Response, method string) json.Raw
 	return arg
 }
 
-// update is the argument of receive of the editor. Changes keeps each change in
-// the JSON the server writes.
+// update is the argument of receive of the editor.
+// Changes keeps each change in the JSON the server writes.
 type update struct {
 	Changes []json.RawMessage `json:"changes"`
 	Cursors []cursor          `json:"cursors"`
@@ -185,8 +184,8 @@ type cursor struct {
 	Length int    `json:"length"`
 }
 
-// receivesUpdate matches the call of receive of the editor with an update that ok
-// accepts. what names the update in failure messages.
+// receivesUpdate matches the call of receive of the editor with
+// an update that ok accepts. what names the update in failure messages.
 func receivesUpdate(what string, ok func(update) bool) datapagestest.Match {
 	return datapagestest.Func(what, func(ev datapagestest.Event) bool {
 		arg, found := editorCall(ev, "receive")
@@ -195,8 +194,8 @@ func receivesUpdate(what string, ok func(update) bool) datapagestest.Match {
 	})
 }
 
-// receives matches an update that carries each of changes. A change must equal the
-// JSON the server writes, byte for byte.
+// receives matches an update that carries each of changes.
+// A change must equal the JSON the server writes, byte for byte.
 func receives(changes ...string) datapagestest.Match {
 	return receivesUpdate("an update with "+strings.Join(changes, " and "),
 		func(u update) bool {
@@ -243,16 +242,18 @@ func links(n *html.Node) []string {
 }
 
 // TestEditTogether tests that 2 tabs typing at once receive each change in
-// the order the server applied it, the change of the other transformed, and
-// their own as the acknowledgment.
+// the order the server applied it, the change of the other transformed,
+// and their own as the acknowledgment.
 func TestEditTogether(t *testing.T) {
 	s := newServer(t)
 	doc := s.create(t)
 	a, b := s.open(t, doc), s.open(t, doc)
 
 	a.submit(t, 1, 0, `[{"insert":"Hello"}]`)
-	a.stream.WaitFor(t, receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]},"ack":1}`))
-	b.stream.WaitFor(t, receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]}}`))
+	a.stream.WaitFor(t,
+		receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]},"ack":1}`))
+	b.stream.WaitFor(t,
+		receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]}}`))
 
 	// b typed at the start before "Hello" reached it.
 	b.submit(t, 1, 0, `[{"insert":"World"}]`)
@@ -306,7 +307,7 @@ func TestPresence(t *testing.T) {
 	b.stream.Close()
 	ev := a.stream.WaitFor(t, collaborators(me+" (you)"))
 	initial := me[strings.LastIndexByte(me, ' ')+1:][:1]
-	require.Equal(t, initial, datapagestest.Text(ev.ElementByID(t, "collaborators")))
+	require.Equal(t, initial, ev.Get(t, datapagestest.ID("collaborators")).Text())
 }
 
 // TestCursor tests that a tab sees the cursor of another tab.
@@ -315,11 +316,13 @@ func TestCursor(t *testing.T) {
 	doc := s.create(t)
 	a, b := s.open(t, doc), s.open(t, doc)
 	a.submit(t, 1, 0, `[{"insert":"Hello"}]`)
-	b.stream.WaitFor(t, receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]}}`))
+	b.stream.WaitFor(t,
+		receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]}}`))
 	// The editor reports its cursor at the revision it has, after the
 	// acknowledgment. The server drops the cursor of a tab whose stream has not
 	// joined the document yet.
-	a.stream.WaitFor(t, receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]},"ack":1}`))
+	a.stream.WaitFor(t,
+		receives(`{"rev":1,"delta":{"ops":[{"insert":"Hello"}]},"ack":1}`))
 
 	resp := a.Do(t, http.MethodPost, "/doc/"+doc+"/cursor", map[string]any{
 		"client": a.client, "seq": 1, "rev": 1, "index": 2, "length": 3,
@@ -349,7 +352,7 @@ func TestRename(t *testing.T) {
 			return value == "Plans"
 		}))
 	ev := b.stream.WaitFor(t, datapagestest.TextContains("head-title", "Plans"))
-	require.Equal(t, "Plans - Docs", datapagestest.Text(ev.ElementByID(t, "head-title")))
+	require.Equal(t, "Plans - Docs", ev.Get(t, datapagestest.ID("head-title")).Text())
 }
 
 // TestDelete tests that the tabs of a deleted document leave it.
@@ -433,8 +436,9 @@ func TestRestoreCopy(t *testing.T) {
 	}
 	require.Equal(t, "Notes (offline copy)", copied.Title)
 	require.Equal(t, "Mine\n", s.text(t, copied.ID))
-	toast := resp.Event(t, datapagestest.Element("error")).ElementByID(t, "error")
-	require.Equal(t, []string{href.PageDoc(copied.ID)}, links(toast))
+	toast := resp.Event(t,
+		datapagestest.Patched("error")).Get(t, datapagestest.ID("error"))
+	require.Equal(t, []string{href.PageDoc(copied.ID)}, links(toast.Node()))
 	require.Equal(t, 1001, len(s.text(t, doc))-1)
 }
 

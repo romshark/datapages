@@ -30,7 +30,7 @@ func serve(t *testing.T, opts ...datapages.ServerOption) *datapagestest.Server {
 // logOf reads back what the actions recorded.
 func logOf(t *testing.T, v *datapagestest.Visitor) string {
 	t.Helper()
-	return datapagestest.Text(v.Get(t, "/log/").ElementByID(t, "echo"))
+	return v.Get(t, "/log/").Get(t, datapagestest.ID("echo")).Text()
 }
 
 // TestMethods tests 1 action per HTTP method, page-level and app-level.
@@ -122,7 +122,7 @@ func TestSignalsAreRequired(t *testing.T) {
 }
 
 // TestBodySizeLimit tests the limit on a signals body, on an action that
-// opens an SSE on its own request as well as on one that does not.
+// opens an SSE on its own request as well as on one that doesn't.
 // Both read the signals before anything else, hence the limit costs the SSE nothing.
 func TestBodySizeLimit(t *testing.T) {
 	t.Parallel()
@@ -170,7 +170,7 @@ func TestBodyOutput(t *testing.T) {
 	resp := form.Do(t, http.MethodPost, "/form/render/", nil)
 	require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
 	require.Equal(t, "rendered by an action",
-		datapagestest.Text(resp.ElementByID(t, "echo")))
+		resp.Get(t, datapagestest.ID("echo")).Text())
 }
 
 // TestGlobalHead tests the head the app declares once for everything it renders,
@@ -278,10 +278,10 @@ func TestCrossOriginFormAction(t *testing.T) {
 	}
 }
 
-// TestCrossOriginQuery tests a QUERY action that takes no signals. A request
-// without the Datastar header reaches it, and the origin check refuses one from
-// another site: [http.CrossOriginProtection] exempts only GET, HEAD and OPTIONS.
-// A Go release that also exempts QUERY fails this test.
+// TestCrossOriginQuery tests a QUERY action that takes no signals.
+// A request without the Datastar header reaches it, and the origin check
+// refuses one from another site: [http.CrossOriginProtection] exempts only
+// GET, HEAD and OPTIONS. A Go release that also exempts QUERY fails this test.
 func TestCrossOriginQuery(t *testing.T) {
 	t.Parallel()
 	v := serve(t).Visitor(t)
@@ -314,7 +314,7 @@ func TestSSEOutput(t *testing.T) {
 	evs := resp.Events(t)
 	require.Len(t, evs, 2, "want the element patch, then the signal patch")
 	require.Equal(t, datapagestest.PatchElements, evs[0].Type)
-	require.Equal(t, "count 42", datapagestest.Text(evs[0].ElementByID(t, "out")))
+	require.Equal(t, "count 42", evs[0].Get(t, datapagestest.ID("out")).Text())
 	require.Equal(t, datapagestest.PatchSignals, evs[1].Type)
 	require.JSONEq(t, `{"count":42}`, evs[1].Data["signals"])
 	require.Equal(t, "patch count=41", logOf(t, v))
@@ -360,7 +360,7 @@ func TestSSEOutputPatchElementAt(t *testing.T) {
 			evs := resp.Events(t)
 			require.Len(t, evs, 1)
 			ev := evs[0]
-			require.Equal(t, "patched", datapagestest.Text(ev.ElementByID(t, "out")))
+			require.Equal(t, "patched", ev.Get(t, datapagestest.ID("out")).Text())
 			for field, want := range tc.want {
 				require.Equal(t, want, ev.Data[field], "data field %q", field)
 			}

@@ -28,7 +28,7 @@ func serve(t *testing.T) *datapagestest.Server {
 // echoed returns the text of the element a handler writes the values it parsed into.
 func echoed(t *testing.T, resp *datapagestest.Response) string {
 	t.Helper()
-	return datapagestest.Text(resp.ElementByID(t, "echo"))
+	return resp.Get(t, datapagestest.ID("echo")).Text()
 }
 
 // TestBuilderNameIsFree tests a path variable named after the URL writer's

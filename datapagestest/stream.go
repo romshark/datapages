@@ -17,12 +17,13 @@ import (
 	"time"
 )
 
-// Connect opens the tab's SSE stream with signals. Pass [Response.PublicSignals] to
-// send the page defaults; nil sends "{}". Connect follows an anonymous-stream redirect,
+// Connect opens the tab's SSE stream with the tab's signals, leaving out local
+// signals as Datastar does. Set others first with [Tab.SetSignal]. The tab applies
+// the stream's events to its page. Connect follows an anonymous-stream redirect,
 // times out while waiting for response headers and closes the stream during cleanup.
-func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
+func (tb *Tab) Connect(t testing.TB) *Stream {
 	t.Helper()
-	enc := encodeSignals(t, signals)
+	enc := tb.requestSignals(t, signalFilter{})
 	desc := "GET " + tb.path + "_$/"
 	target := tb.v.srv.srv.URL + tb.path + "_$/?datastar=" + url.QueryEscape(enc)
 	timeout := tb.v.srv.conf.timeout
@@ -73,6 +74,7 @@ func (tb *Tab) Connect(t testing.TB, signals any) *Stream {
 	}
 	go s.read(resp.Body)
 	t.Cleanup(s.Close)
+	tb.streams = append(tb.streams, &tabStream{s: s})
 	return s
 }
 
@@ -157,8 +159,8 @@ func (s *Stream) Ended() bool {
 	return s.ended
 }
 
-// WaitFor returns the first event matching m at or after the cursor, then advances
-// past it. It fails if the stream ends or the wait times out.
+// WaitFor returns the first event matching m at or after the cursor,
+// then advances past it. It fails if the stream ends or the wait times out.
 //
 // Match narrowly: StreamOpen and earlier actions may render the same element.
 //
@@ -226,8 +228,8 @@ func (s *Stream) Absent(t testing.TB, prohibited, anchor Match, msgAndArgs ...an
 }
 
 // WaitEnd waits for the server or connection to end the stream. It fails on timeout
-// or test closure; received events remain readable. msgAndArgs behaves as in
-// [Stream.WaitFor].
+// or test closure; received events remain readable.
+// msgAndArgs behaves as in [Stream.WaitFor].
 func (s *Stream) WaitEnd(t testing.TB, msgAndArgs ...any) {
 	t.Helper()
 	select {

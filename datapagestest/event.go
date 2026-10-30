@@ -2,6 +2,7 @@ package datapagestest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -38,14 +39,31 @@ func (e Event) Root() *html.Node {
 	return parseHTML("<template>" + e.Data["elements"] + "</template>")
 }
 
-// ElementByID returns the event element with id or fails the test.
-func (e Event) ElementByID(t testing.TB, id string) *html.Node {
-	t.Helper()
-	n := ElementByID(e.Root(), id)
-	if n == nil {
-		t.Fatalf("no element with id %q in %s", id, describe(e))
+// page returns the event's elements as a page. It has no signals,
+// so a data-show makes a [Role], [Label] or [HasText] query fail.
+func (e Event) page() *page {
+	root := e.Root()
+	for n := range root.Descendants() {
+		if n.Type == html.ElementNode && n.Data == "template" {
+			root = n
+			break
+		}
 	}
-	return n
+	return &page{doc: root, sigErr: errors.New("an event has no signals")}
+}
+
+// Get returns the event element q selects. It fails unless exactly 1 element matches.
+func (e Event) Get(t testing.TB, q Query) *Element {
+	t.Helper()
+	p := e.page()
+	return getOne(t, p, p.doc, q, describe(e), "")
+}
+
+// All returns the event elements q selects, in document order.
+func (e Event) All(t testing.TB, q Query) []*Element {
+	t.Helper()
+	p := e.page()
+	return getAll(t, p, p.doc, q, describe(e))
 }
 
 // Signals decodes a PatchSignals event. Deleted signals have raw value null;
@@ -184,8 +202,8 @@ func (m Match) Matches(e Event) bool { return m.f(e) }
 // Func matches the events f reports true for. what names them in failure messages.
 func Func(what string, f func(Event) bool) Match { return Match{what: what, f: f} }
 
-// Element matches a PatchElements event whose elements contain the element with id.
-func Element(id string) Match {
+// Patched matches a PatchElements event whose elements contain the element with id.
+func Patched(id string) Match {
 	return Func(fmt.Sprintf("an element with id %q", id), func(e Event) bool {
 		return e.Type == PatchElements && ElementByID(e.Root(), id) != nil
 	})

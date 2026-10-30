@@ -2,9 +2,7 @@ package app_test
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/modules/messaging"
@@ -75,12 +74,20 @@ func TestPageSettingsPOSTSave(t *testing.T) {
 			phone := srv.Visitor(t)
 			phone.SetSessionToken(phoneToken)
 			phoneTab := phone.Load(t, href.PageSettings())
-			phoneStream := phoneTab.Connect(t, phoneTab.Page().PublicSignals(t))
+			phoneStream := phoneTab.Connect(t)
 
 			laptop := srv.Visitor(t)
 			laptop.SetSessionToken(laptopToken)
-			resp := laptop.Load(t, href.PageSettings()).Do(t, http.MethodPost,
-				"/settings/save/", map[string]string{"username": tc.username})
+			settings := laptop.Load(t, href.PageSettings())
+			var resp *datapagestest.Response
+			if tc.username == "alice" {
+				// Save is disabled while the name is unchanged.
+				// A script of the page can still send the request.
+				resp = settings.Call(t, action.PageSettings.Save.POST())
+			} else {
+				settings.Fill(t, datapagestest.Label("Name"), tc.username)
+				resp = settings.Click(t, datapagestest.Role("button", "Save"))
+			}
 			// RecoverError answers a failed action with 200 and the events it writes.
 			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 
@@ -103,7 +110,9 @@ func TestPageSettingsPOSTSave(t *testing.T) {
 
 			if !tc.wantClosed {
 				if tc.wantToast != "" {
-					resp.Event(t, toast(tc.wantToast))
+					toast := settings.Get(t, datapagestest.Role("status", "").
+						In(datapagestest.ID("toaster")))
+					require.Contains(t, toast.Text(), tc.wantToast)
 				} else {
 					require.Empty(t, resp.Body,
 						"the save answered with a redirect or a patch")
@@ -152,9 +161,9 @@ func newServer(
 
 // leaveSession matches what takes a settings page off its closed session: the
 // redirect to the sign-in page that OnSessionClosed sends, or the script that
-// reloads the page, which the server sends when it ends the stream of a closed
-// session. Either can come first: the stream can see the session close before
-// the event arrives, and the event then never reaches the page.
+// reloads the page, which the server sends when it ends the stream of a
+// closed session. Either can come first: the stream can see the session close
+// before the event arrives, and the event then never reaches the page.
 var leaveSession = datapagestest.Func(
 	"the redirect to the sign-in page or the script that reloads the page",
 	func(e datapagestest.Event) bool {
@@ -162,7 +171,8 @@ var leaveSession = datapagestest.Func(
 			return target == href.PageLogin()
 		}
 		return datapagestest.Reload().Matches(e)
-	})
+	},
+)
 
 var anyEvent = datapagestest.Func("an event", func(datapagestest.Event) bool {
 	return true
@@ -172,18 +182,6 @@ var anyEvent = datapagestest.Func("an event", func(datapagestest.Event) bool {
 // A render of the whole page, which OnSessionClosed sends, contains the link too.
 var messagesLink = datapagestest.Func("a patch of the messages link alone",
 	func(e datapagestest.Event) bool {
-		return datapagestest.Element("messages").Matches(e) &&
-			!datapagestest.Element("page-settings").Matches(e)
+		return datapagestest.Patched("messages").Matches(e) &&
+			!datapagestest.Patched("page-settings").Matches(e)
 	})
-
-// toast matches a toast containing text that RecoverError appends to #toaster.
-// A toast has no id.
-func toast(text string) datapagestest.Match {
-	what := fmt.Sprintf("a toast appended to #toaster containing %q", text)
-	return datapagestest.Func(what,
-		func(e datapagestest.Event) bool {
-			return e.Type == datapagestest.PatchElements &&
-				e.Data["selector"] == "#toaster" && e.Data["mode"] == "append" &&
-				strings.Contains(datapagestest.Text(e.Root()), text)
-		})
-}

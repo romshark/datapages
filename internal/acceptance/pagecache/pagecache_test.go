@@ -44,7 +44,7 @@ func TestGETEmbedsQueuedWrites(t *testing.T) {
 
 	resp := v.Get(t, "/")
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "0", datapagestest.Text(resp.ElementByID(t, "held")),
+	require.Equal(t, "0", resp.Get(t, datapagestest.ID("held")).Text(),
 		"no header means nothing is cached")
 	require.Contains(t, resp.Body, applyType,
 		"a GET embeds queued writes in the page")
@@ -75,7 +75,7 @@ func TestGETReadsTheHeldVersion(t *testing.T) {
 	req.Header.Set("X-Datapages-Offline-Version", "9007199254740993")
 	resp := v.Send(t, req)
 
-	require.Equal(t, "9007199254740993", datapagestest.Text(resp.ElementByID(t, "held")),
+	require.Equal(t, "9007199254740993", resp.Get(t, datapagestest.ID("held")).Text(),
 		"the handler reads the version the worker reports")
 	require.NotContains(t, resp.Body, applyType,
 		"the client holds the current copy, so the handler queues nothing")
@@ -132,7 +132,7 @@ func TestUnclaimedURLEmbedsQueuedWrites(t *testing.T) {
 	resp := v.Get(t, "/no-page-claims-this")
 	require.Equal(t, http.StatusNotFound, resp.Status)
 	require.Equal(t, "/no-page-claims-this/",
-		datapagestest.Text(resp.ElementByID(t, "missing")))
+		resp.Get(t, datapagestest.ID("missing")).Text())
 	require.Contains(t, resp.Body, applyType,
 		"the inline 404 render delivers what its handler queued")
 	require.Contains(t, resp.Body, `"clears":["/no-page-claims-this/"]`)
@@ -222,7 +222,7 @@ func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 	resp := post(t, "/app-body/")
 	require.Equal(t, http.StatusOK, resp.Status)
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
-	require.Equal(t, "done", datapagestest.Text(resp.ElementByID(t, "out")))
+	require.Equal(t, "done", resp.Get(t, datapagestest.ID("out")).Text())
 	require.Contains(t, resp.Body, applyType,
 		"an app-level action embeds writes in its document")
 	require.Contains(t, resp.Body, `"version":"12"`)
@@ -276,7 +276,7 @@ func TestShimKeepsItsQuery(t *testing.T) {
 
 	resp := v.Get(t, "/list/?page=2")
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "2", datapagestest.Text(resp.ElementByID(t, "page")))
+	require.Equal(t, "2", resp.Get(t, datapagestest.ID("page")).Text())
 	require.Contains(t, resp.Body, `"url":"/list/?page=2"`)
 	require.Contains(t, resp.Body, `"shim":true`)
 	require.Contains(t, resp.Body,
@@ -299,7 +299,8 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 		v.Get(t, "/offline/").Header.Values("Vary"), "X-Datapages-Offline-Version",
 		"a page that never touches the cache does not vary by its version")
 	require.Contains(t,
-		v.Load(t, "/").Do(t, http.MethodPost, "/stream-write/", nil).Header.Values("Vary"),
+		v.Load(t, "/").
+			Do(t, http.MethodPost, "/stream-write/", nil).Header.Values("Vary"),
 		"X-Datapages-Offline-Version")
 }
 

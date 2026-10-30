@@ -170,7 +170,7 @@ func (v *Visitor) Get(t testing.TB, path string) *Response {
 // Load loads path as a tab and requires status 200.
 func (v *Visitor) Load(t testing.TB, path string) *Tab {
 	t.Helper()
-	page := v.Get(t, path).WantStatus(t, http.StatusOK)
+	page := v.Get(t, path).RequireStatus(t, http.StatusOK)
 	u, err := url.Parse(path)
 	if err != nil {
 		t.Fatalf("parsing %q: %v", path, err)
@@ -182,8 +182,9 @@ func (v *Visitor) Load(t testing.TB, path string) *Tab {
 	}
 	return &Tab{
 		v:        v,
-		page:     page,
+		resp:     page,
 		path:     p,
+		url:      path,
 		instance: page.Instance(),
 		csrf:     csrfToken(page.Body),
 	}
@@ -225,8 +226,8 @@ func (v *Visitor) NewRequest(
 }
 
 // Send sends req with the visitor's cookies, follows no redirects and reads
-// the whole response. It fails on timeout. Use [Tab.Connect] for streams
-// or [Visitor.Client] for partial reads.
+// the whole response. It fails on timeout.
+// Use [Tab.Connect] for streams or [Visitor.Client] for partial reads.
 //
 // A request without Accept-Encoding uses identity. This prevents compression
 // middleware from choosing an encoding the visitor does not decode
@@ -272,27 +273,34 @@ func (v *Visitor) Client() *http.Client {
 	return &c
 }
 
-// Tab represents one page load. It retains the response,
-// Datapages instance and CSRF token, and can send actions or open a stream.
+// Tab represents one page load. It keeps the page as a browser would, which is
+// the loaded document with the events of its streams and action responses applied,
+// and the page's signals. It also keeps the Datapages instance and the CSRF token.
 // Reload a guest tab after sign-in unless an action response supplies a token.
 type Tab struct {
 	v        *Visitor
-	page     *Response
+	resp     *Response
 	path     string // the page's path with a trailing slash and no query
+	url      string // the loaded path and query, which links resolve against
 	instance string
 	csrf     string
+
+	live     *page // nil until first used
+	streams  []*tabStream
+	err      error    // the first event the tab could not apply
+	warnings []string // the patches Datastar skips
 }
 
-// Page is the response the tab was loaded with.
-func (tb *Tab) Page() *Response { return tb.page }
+// Page is the response the tab was loaded with. Events do not change it.
+func (tb *Tab) Page() *Response { return tb.resp }
 
-// Instance is the Datapages-Instance header of the page load, "" for a page without
-// per-tab state.
+// Instance is the Datapages-Instance header of the page load,
+// "" for a page without per-tab state.
 func (tb *Tab) Instance() string { return tb.instance }
 
 // NewRequest builds a Datastar request with the tab's instance and CSRF token.
-// It omits the token for GET, HEAD, OPTIONS and QUERY. Modify the request
-// and send it with [Visitor.Send] to test other headers.
+// It omits the token for GET, HEAD, OPTIONS and QUERY.
+// Modify the request and send it with [Visitor.Send] to test other headers.
 func (tb *Tab) NewRequest(
 	t testing.TB, method, path string, body io.Reader,
 ) *http.Request {
@@ -312,35 +320,29 @@ func (tb *Tab) NewRequest(
 	return req
 }
 
-// Do sends a Datastar action. JSON signals go in the datastar query parameter for GET
-// and DELETE, and in the body otherwise. Nil sends "{}"; [json.RawMessage] is unchanged.
+// Do sends a Datastar action with signals instead of the tab's and applies a
+// successful response to the tab. JSON signals go in the datastar query parameter
+// for GET and DELETE, and in the body otherwise. Nil sends "{}"; [json.RawMessage]
+// is unchanged. Use [Tab.Click] to send the action an element calls
+// with the tab's signals.
 func (tb *Tab) Do(t testing.TB, method, path string, signals any) *Response {
 	t.Helper()
-	enc := encodeSignals(t, signals)
-	if queryCarries(method) {
-		req := tb.NewRequest(t, method,
-			withQuery(t, path, url.Values{"datastar": {enc}}), nil)
-		return tb.send(t, req)
-	}
-	req := tb.NewRequest(t, method, path, strings.NewReader(enc))
-	req.Header.Set("Content-Type", "application/json")
-	return tb.send(t, req)
+	resp := tb.sendJSON(t, method, path, encodeSignals(t, signals), nil)
+	tb.applyResponse(resp)
+	return resp
 }
 
-// DoForm sends a form action. Fields go in the query for GET and DELETE,
-// and in a URL-encoded body otherwise.
+// DoForm sends a form action and applies a successful response to the tab.
+// Fields go in the query for GET and DELETE, and in a URL-encoded body otherwise.
 func (tb *Tab) DoForm(t testing.TB, method, path string, form url.Values) *Response {
 	t.Helper()
-	if queryCarries(method) {
-		return tb.send(t, tb.NewRequest(t, method, withQuery(t, path, form), nil))
-	}
-	req := tb.NewRequest(t, method, path, strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return tb.send(t, req)
+	resp := tb.sendForm(t, method, path, form, nil)
+	tb.applyResponse(resp)
+	return resp
 }
 
-// send records any CSRF token returned by the action.
-func (tb *Tab) send(t testing.TB, req *http.Request) *Response {
+// request records any CSRF token returned by the action.
+func (tb *Tab) request(t testing.TB, req *http.Request) *Response {
 	t.Helper()
 	resp := tb.v.Send(t, req)
 	if token := csrfToken(resp.Body); token != "" {
@@ -392,10 +394,11 @@ type Response struct {
 
 	desc string // the request, such as "POST /add/", for failure messages
 	doc  *html.Node
+	pg   *page
 }
 
-// WantStatus requires status and returns r for chaining.
-func (r *Response) WantStatus(t testing.TB, status int) *Response {
+// RequireStatus requires status and returns r for chaining.
+func (r *Response) RequireStatus(t testing.TB, status int) *Response {
 	t.Helper()
 	if r.Status != status {
 		t.Fatalf("%s: %d, want %d%s:\n%s",
@@ -424,14 +427,32 @@ func (r *Response) Document() *html.Node {
 	return r.doc
 }
 
-// ElementByID returns the body element with id or fails the test.
-func (r *Response) ElementByID(t testing.TB, id string) *html.Node {
-	t.Helper()
-	n := ElementByID(r.Document(), id)
-	if n == nil {
-		t.Fatalf("%s: no element with id %q in:\n%s", r.desc, id, excerpt(r.Body))
+// page returns the document with its signals, without the events of a tab.
+func (r *Response) page() *page {
+	if r.pg == nil {
+		// A copy, since rendering changes the document Document returns.
+		r.pg = &page{doc: parseHTML(r.Body)}
+		if r.pg.signals, r.pg.sigErr = decodeSignals(r.pg.doc); r.pg.signals != nil {
+			r.pg.bindDefaults(r.pg.doc)
+		}
+		r.pg.render()
 	}
-	return n
+	return r.pg
+}
+
+// Get returns the element of the HTML document q selects. It fails unless exactly
+// 1 element matches. Use [Tab.Get] for a page a tab updates.
+func (r *Response) Get(t testing.TB, q Query) *Element {
+	t.Helper()
+	p := r.page()
+	return getOne(t, p, p.doc, q, r.desc, "")
+}
+
+// All returns the elements of the HTML document q selects, in document order.
+func (r *Response) All(t testing.TB, q Query) []*Element {
+	t.Helper()
+	p := r.page()
+	return getAll(t, p, p.doc, q, r.desc)
 }
 
 // Events parses an SSE response body and requires Content-Type text/event-stream.

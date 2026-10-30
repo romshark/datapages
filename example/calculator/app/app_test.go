@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -19,76 +18,96 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-type signals struct {
-	Input string `json:"input"`
-	Fresh bool   `json:"fresh"`
-	Num   string `json:"num"`
-}
-
-// TestQUERYInput tests the state QUERY /input/ patches into the page.
-// The browser sends that state back with the next press. After a state that
-// fails calc.ValidInput, the server refuses every press until a reload.
-func TestQUERYInput(t *testing.T) {
+// TestPress tests what the display shows after a sequence of presses and
+// pastes. The page sends its state with each press.
+func TestPress(t *testing.T) {
 	for name, tt := range map[string]struct {
-		btn     calc.CalcButton
-		paste   bool
-		signals signals
-		input   string // input signal in the patch
-		display string // display text in the patch
+		keys        []string // the labels of the buttons pressed, or "paste:" and a number
+		wantInput   string
+		wantDisplay string
 	}{
 		"division_by_zero": {
-			btn:     calc.CalcButtonEq,
-			signals: signals{Input: "5÷0"},
-			input:   "Error", display: "Error",
+			keys:      []string{"5", "÷", "0", "="},
+			wantInput: "Error", wantDisplay: "Error",
 		},
 		"clear_after_error": {
-			btn:     calc.CalcButtonClear,
-			signals: signals{Input: "Error", Fresh: true},
-			input:   "", display: "0",
+			keys:      []string{"5", "÷", "0", "=", "C"},
+			wantInput: "", wantDisplay: "0",
 		},
 		"digit_after_error": {
-			btn:     calc.CalcButton7,
-			signals: signals{Input: "Error", Fresh: true},
-			input:   "7", display: "7",
+			keys:      []string{"5", "÷", "0", "=", "7"},
+			wantInput: "7", wantDisplay: "7",
 		},
 		"paste_after_error": {
-			paste:   true,
-			signals: signals{Input: "Error", Fresh: true, Num: "42"},
-			input:   "42", display: "42",
+			keys:      []string{"5", "÷", "0", "=", "paste:42"},
+			wantInput: "42", wantDisplay: "42",
 		},
 		"paste_over_limit": {
-			paste:   true,
-			signals: signals{Input: "1", Num: strings.Repeat("9", calc.MaxInputLen)},
-			input:   "1", display: "1",
+			keys:      []string{"1", "paste:" + strings.Repeat("9", calc.MaxInputLen)},
+			wantInput: "1", wantDisplay: "1",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp, logs := query(t, tt.btn, tt.paste, tt.signals)
-			require.Empty(t, logs)
-			input, display := patchedCalculator(t, resp)
-			require.Equal(t, tt.input, input, "the input signal")
-			require.Equal(t, tt.display, display, "the display")
+			tab, logs := load(t)
+			for _, key := range tt.keys {
+				num, paste := strings.CutPrefix(key, "paste:")
+				if !paste {
+					tab.Click(t, datapagestest.Role("button", key))
+					continue
+				}
+				// The paste handler reads the clipboard into num before the request.
+				tab.SetSignal(t, "num", num)
+				tab.Call(t, action.PageIndex.Input.QUERY(
+					action.PageIndex.Input.QUERYQuery(0, true)))
+			}
+			require.Empty(t, logs.String())
+			require.Equal(t, tt.wantInput, tab.Signal(t, "input"))
+			require.Equal(t, tt.wantDisplay,
+				tab.Get(t, datapagestest.Role("status", "")).Text())
 		})
 	}
 }
 
-// TestQUERYInputOverLimit tests that the server refuses an input signal longer
-// than calc.MaxInputLen before evaluating it. calc.Evaluate recurses once per
-// parenthesis, and the default body limit of 1 MiB holds 1 million of them.
-func TestQUERYInputOverLimit(t *testing.T) {
-	resp, logs := query(t, calc.CalcButtonEq, false,
-		signals{Input: strings.Repeat("(", calc.MaxInputLen+1)})
-	require.Empty(t, resp.Body)
-	require.Contains(t, logs, "invalid input signal")
+// TestPage tests what the calculator shows on load.
+func TestPage(t *testing.T) {
+	tab, _ := load(t)
+	want := datapagestest.Tree{
+		{Role: "heading", Name: "Calculator", Level: 1},
+		{Role: "status", Text: "0"},
+	}
+	for _, label := range []string{
+		"C", "⇐", "()", "÷", "7", "8", "9", "×", "4", "5", "6", "−",
+		"1", "2", "3", "+", "0", ".", "=",
+	} {
+		want = append(want, datapagestest.Node{Role: "button", Name: label})
+	}
+	want = append(want,
+		datapagestest.Node{Role: "paragraph", Text: "Expression is evaluated server-side"},
+		datapagestest.Node{Role: "text", Text: "Built with"},
+		datapagestest.Node{
+			Role: "link", Name: "Datapages", URL: "https://github.com/romshark/datapages",
+		},
+	)
+	tab.RequireTree(t, datapagestest.ID("page-calculator"), want)
 }
 
-// query loads the page and sends the request it sends for a press of btn or
-// for a paste. It returns the response and the server log.
-func query(
-	t *testing.T, btn calc.CalcButton, paste bool, s signals,
-) (resp *datapagestest.Response, logs string) {
+// TestInputOverLimit tests that the server refuses an input signal longer
+// than calc.MaxInputLen before evaluating it. calc.Evaluate recurses once per
+// parenthesis, and the default body limit of 1 MiB holds 1 million of them.
+// The handler has answered with an event stream by then, so the refusal is an
+// empty stream.
+func TestInputOverLimit(t *testing.T) {
+	tab, logs := load(t)
+	tab.SetSignal(t, "input", strings.Repeat("(", calc.MaxInputLen+1))
+	resp := tab.Click(t, datapagestest.Role("button", "="))
+	require.Empty(t, resp.Body)
+	require.Contains(t, logs.String(), "invalid input signal")
+}
+
+// load loads the calculator in a tab and returns it with the server log.
+func load(t *testing.T) (*datapagestest.Tab, *bytes.Buffer) {
 	t.Helper()
-	var logBuf bytes.Buffer
+	var logs bytes.Buffer
 	srv, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,
@@ -96,35 +115,7 @@ func query(
 		datapagesgen.Server,
 	](app.NewApp(), inmem.New(0),
 		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithLogger(slog.New(slog.NewTextHandler(&logBuf, nil))))
+		datapages.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 	require.NoError(t, err)
-
-	tab := datapagestest.New(t, srv).Visitor(t).Load(t, href.PageIndex())
-	method, url := datapagestest.ParseAction(t, action.PageIndex.Input.QUERY(
-		action.PageIndex.Input.QUERYQuery(int(btn), paste)))
-	resp = tab.Do(t, method, url, s)
-	return resp, logBuf.String()
-}
-
-// patchedCalculator returns the input signal and the display text of the calculator
-// that resp patches into the page.
-func patchedCalculator(
-	t *testing.T, resp *datapagestest.Response,
-) (input, display string) {
-	t.Helper()
-	calculator := resp.Event(t, datapagestest.Element("page-calculator")).
-		ElementByID(t, "page-calculator")
-
-	expr, _ := datapagestest.Attr(calculator, "data-signals:input")
-	require.NoError(t, json.Unmarshal([]byte(expr), &input),
-		"data-signals:input=%s is not a JSON string", expr)
-
-	// The display has no id.
-	for n := range calculator.Descendants() {
-		if class, _ := datapagestest.Attr(n, "class"); class == "display" {
-			return input, datapagestest.Text(n)
-		}
-	}
-	require.FailNow(t, "the calculator has no element of class display")
-	return "", ""
+	return datapagestest.New(t, srv).Visitor(t).Load(t, href.PageIndex()), &logs
 }

@@ -30,7 +30,7 @@ func TestErrorPageStatus(t *testing.T) {
 
 	// The page is the app's own. The status is therefore about the response,
 	// not about the absence of a page to render.
-	require.Equal(t, "no such page", datapagestest.Text(resp.ElementByID(t, "msg")),
+	require.Equal(t, "no such page", resp.Get(t, datapagestest.ID("msg")).Text(),
 		"the custom 404 page was not rendered")
 	require.Equal(t, http.StatusNotFound, resp.Status)
 }
@@ -43,7 +43,7 @@ func TestErrorPage404ReadsQuery(t *testing.T) {
 	resp := v.Get(t, "/no-such-page/?q=needle")
 
 	require.Equal(t, http.StatusNotFound, resp.Status)
-	require.Equal(t, "needle", datapagestest.Text(resp.ElementByID(t, "term")))
+	require.Equal(t, "needle", resp.Get(t, datapagestest.ID("term")).Text())
 }
 
 // TestErrorPage404Redirects tests a 404 page that returns a redirect instead of a body.

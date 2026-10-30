@@ -115,7 +115,7 @@ func sessionToken(t *testing.T, v *datapagestest.Visitor) string {
 // echoed is the text of the element the app echoes what a handler received into.
 func echoed(t *testing.T, resp *datapagestest.Response) string {
 	t.Helper()
-	return datapagestest.Text(resp.ElementByID(t, "echo"))
+	return resp.Get(t, datapagestest.ID("echo")).Text()
 }
 
 // TestAnonymous tests a visitor with no session.
@@ -531,7 +531,7 @@ func TestInlineSignInCarriesCSRFScript(t *testing.T) {
 
 		// The token the script carries is what a later action sends.
 		login.Do(t, http.MethodPost, "/login/rename/",
-			map[string]string{"nickname": "al"}).WantStatus(t, http.StatusOK)
+			map[string]string{"nickname": "al"}).RequireStatus(t, http.StatusOK)
 	})
 }
 
@@ -602,16 +602,16 @@ func TestPrivateEvent(t *testing.T) {
 		bob := srv.Visitor(t)
 		signIn(t, bob, "bob", "")
 
-		as := alice.Load(t, "/").Connect(t, nil)
-		bs := bob.Load(t, "/").Connect(t, nil)
+		as := alice.Load(t, "/").Connect(t)
+		bs := bob.Load(t, "/").Connect(t)
 
 		login := alice.Load(t, "/login/")
 		login.Do(t, http.MethodPost, "/login/notify/", notify("alice", "for alice")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		as.WaitFor(t, datapagestest.TextContains("notice", "alice: for alice"))
 
 		login.Do(t, http.MethodPost, "/login/notify/", notify("bob", "for bob")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		bs.Absent(t,
 			datapagestest.TextContains("notice", "for alice"),
 			datapagestest.TextContains("notice", "bob: for bob"))
@@ -631,12 +631,12 @@ func TestPrivateSignalScopedEvent(t *testing.T) {
 		signIn(t, bob, "bob", "")
 
 		room := alice.Load(t, "/room/")
-		aliceC1 := room.Connect(t, map[string]string{"calc_id": "c1"})
-		aliceC2 := alice.Load(t, "/room/").Connect(t, map[string]string{"calc_id": "c2"})
-		bobC1 := bob.Load(t, "/room/").Connect(t, map[string]string{"calc_id": "c1"})
+		aliceC1 := connect(t, room, map[string]string{"calc_id": "c1"})
+		aliceC2 := connect(t, alice.Load(t, "/room/"), map[string]string{"calc_id": "c2"})
+		bobC1 := connect(t, bob.Load(t, "/room/"), map[string]string{"calc_id": "c1"})
 
 		room.Do(t, http.MethodPost, "/room/update/",
-			roomUpdate("alice", "c1", "for alice on c1")).WantStatus(t, http.StatusOK)
+			roomUpdate("alice", "c1", "for alice on c1")).RequireStatus(t, http.StatusOK)
 		aliceC1.WaitFor(t, datapagestest.TextContains("update", "alice: for alice on c1"))
 
 		// The anchor of each stream is a later update addressed to its user and its
@@ -644,15 +644,15 @@ func TestPrivateSignalScopedEvent(t *testing.T) {
 		// second copy of that update on alice's stream on c1.
 		forAliceOnC1 := datapagestest.TextContains("update", "for alice on c1")
 		room.Do(t, http.MethodPost, "/room/update/",
-			roomUpdate("bob", "c1", "for bob on c1")).WantStatus(t, http.StatusOK)
+			roomUpdate("bob", "c1", "for bob on c1")).RequireStatus(t, http.StatusOK)
 		bobC1.Absent(t, forAliceOnC1,
 			datapagestest.TextContains("update", "bob: for bob on c1"))
 		room.Do(t, http.MethodPost, "/room/update/",
-			roomUpdate("alice", "c2", "for alice on c2")).WantStatus(t, http.StatusOK)
+			roomUpdate("alice", "c2", "for alice on c2")).RequireStatus(t, http.StatusOK)
 		aliceC2.Absent(t, forAliceOnC1,
 			datapagestest.TextContains("update", "alice: for alice on c2"))
 		room.Do(t, http.MethodPost, "/room/update/",
-			roomUpdate("alice", "c1", "again on c1")).WantStatus(t, http.StatusOK)
+			roomUpdate("alice", "c1", "again on c1")).RequireStatus(t, http.StatusOK)
 		aliceC1.Absent(t, forAliceOnC1,
 			datapagestest.TextContains("update", "alice: again on c1"))
 	})
@@ -676,9 +676,9 @@ func TestStreamEndsAtSessionExpiry(t *testing.T) {
 		require.NoError(t, err)
 		alice.SetSessionToken(token)
 
-		st := alice.Load(t, "/").Connect(t, nil)
+		st := alice.Load(t, "/").Connect(t)
 		alice.Load(t, "/login/").Do(t, http.MethodPost, "/login/notify/",
-			notify("alice", "before expiry")).WantStatus(t, http.StatusOK)
+			notify("alice", "before expiry")).RequireStatus(t, http.StatusOK)
 		st.WaitFor(t, datapagestest.TextContains("notice", "alice: before expiry"),
 			"the stream received nothing before its session expired")
 		require.True(t, time.Now().Before(expiresAt),
@@ -701,9 +701,9 @@ func TestStreamReloadsAtSignOut(t *testing.T) {
 		alice := serve(t, broker).Visitor(t)
 		signIn(t, alice, "alice", "Al")
 		index := alice.Load(t, "/")
-		st := index.Connect(t, nil)
+		st := index.Connect(t)
 
-		index.Do(t, http.MethodPost, "/sign-out/", nil).WantStatus(t, http.StatusOK)
+		index.Do(t, http.MethodPost, "/sign-out/", nil).RequireStatus(t, http.StatusOK)
 
 		st.WaitFor(t, datapagestest.Reload(),
 			"the page was not told to reload after its session closed")
@@ -749,7 +749,7 @@ func TestStreamReloadsAfterMissedSessionEnd(t *testing.T) {
 				// sent to.
 				room := alice.Load(t, "/room/")
 				end()
-				st := room.Connect(t, map[string]string{"calc_id": "c1"})
+				st := connect(t, room, map[string]string{"calc_id": "c1"})
 
 				ev := st.WaitFor(t, datapagestest.Reload(),
 					"the page was not told to reload after its session ended")
@@ -791,20 +791,20 @@ func TestSignInAcceptsAnyUserID(t *testing.T) {
 				bob := srv.Visitor(t)
 				signIn(t, bob, "bob", "")
 
-				s := v.Load(t, "/").Connect(t, nil)
-				bs := bob.Load(t, "/").Connect(t, nil)
+				s := v.Load(t, "/").Connect(t)
+				bs := bob.Load(t, "/").Connect(t)
 
 				// Addressed to bob. A user ID carrying a wildcard would
 				// subscribe to every user, this one to nobody but itself.
 				bob.Load(t, "/login/").Do(t, http.MethodPost, "/login/notify/",
-					notify("bob", "for bob")).WantStatus(t, http.StatusOK)
+					notify("bob", "for bob")).RequireStatus(t, http.StatusOK)
 				bs.WaitFor(t, datapagestest.TextContains("notice", "bob: for bob"))
 
 				// Addressed to the user itself, which is what proves the
 				// publish and the subscription agree on the escaped subject.
 				// A notice to bob that reached this stream would come before it.
 				v.Load(t, "/login/").Do(t, http.MethodPost, "/login/notify/",
-					notify(user, "for me")).WantStatus(t, http.StatusOK)
+					notify(user, "for me")).RequireStatus(t, http.StatusOK)
 				s.Absent(t,
 					datapagestest.TextContains("notice", "for bob"),
 					datapagestest.TextContains("notice", user+": for me"))
@@ -842,7 +842,7 @@ func TestStreamOpensForAnyUserID(t *testing.T) {
 
 				// A session the stream reads as a guest's is redirected to the
 				// anonymous stream.
-				st := v.Load(t, "/").Connect(t, nil)
+				st := v.Load(t, "/").Connect(t)
 				require.Equal(t, "/_$/", st.Path(),
 					"the stream refused user ID %q", userID)
 			})
@@ -863,11 +863,11 @@ func TestAnonymousStream(t *testing.T) {
 		srv := serve(t, broker)
 
 		anon := srv.Visitor(t)
-		anonStream := anon.Load(t, "/").Connect(t, nil)
+		anonStream := anon.Load(t, "/").Connect(t)
 
 		alice := srv.Visitor(t)
 		signIn(t, alice, "alice", "")
-		aliceStream := alice.Load(t, "/").Connect(t, nil)
+		aliceStream := alice.Load(t, "/").Connect(t)
 
 		// The 2 connections are served by 2 different handlers.
 		require.Equal(t, "/_$/anon/", anonStream.Path())
@@ -876,17 +876,17 @@ func TestAnonymousStream(t *testing.T) {
 		// The public event reaches both.
 		login := alice.Load(t, "/login/")
 		login.Do(t, http.MethodPost, "/login/broadcast/",
-			map[string]string{"text": "for everyone"}).WantStatus(t, http.StatusOK)
+			map[string]string{"text": "for everyone"}).RequireStatus(t, http.StatusOK)
 		anonStream.WaitFor(t, datapagestest.TextContains("broadcast", "for everyone"))
 		aliceStream.WaitFor(t, datapagestest.TextContains("broadcast", "for everyone"))
 
 		// The private one reaches only the user it names. A later public event is
 		// what shows it did not reach the anonymous stream.
 		login.Do(t, http.MethodPost, "/login/notify/", notify("alice", "for alice")).
-			WantStatus(t, http.StatusOK)
+			RequireStatus(t, http.StatusOK)
 		aliceStream.WaitFor(t, datapagestest.TextContains("notice", "alice: for alice"))
 		login.Do(t, http.MethodPost, "/login/broadcast/",
-			map[string]string{"text": "after"}).WantStatus(t, http.StatusOK)
+			map[string]string{"text": "after"}).RequireStatus(t, http.StatusOK)
 		anonStream.Absent(t,
 			datapagestest.TextContains("notice", "for alice"),
 			datapagestest.TextContains("broadcast", "after"))
@@ -897,4 +897,15 @@ func TestAnonymousStream(t *testing.T) {
 func logOf(t *testing.T, v *datapagestest.Visitor) string {
 	t.Helper()
 	return echoed(t, v.Get(t, "/log/"))
+}
+
+// connect sets signals on tab and opens its stream.
+func connect[V any](
+	t *testing.T, tab *datapagestest.Tab, signals map[string]V,
+) *datapagestest.Stream {
+	t.Helper()
+	for k, v := range signals {
+		tab.SetSignal(t, k, v)
+	}
+	return tab.Connect(t)
 }

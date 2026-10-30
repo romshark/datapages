@@ -150,8 +150,7 @@ func (s *countingStore) Put(key string, r io.Reader) error {
 }
 
 // TestAssetIsCompressed tests that precompressing the embed.FS passed to
-// WithAssets creates the copies the generated server sends from its
-// subdirectory.
+// WithAssets creates the copies the generated server sends from its subdirectory.
 func TestAssetIsCompressed(t *testing.T) {
 	t.Parallel()
 	copies, err := disk.New(t.TempDir(), disk.Config{})
@@ -363,8 +362,8 @@ func TestMetricsLabelThroughDerivedRequest(t *testing.T) {
 		})
 	})).Visitor(t)
 
-	// PageQuiet's page route, which no other test requests. The registry
-	// still holds the requests of earlier runs of this test under -count.
+	// PageQuiet's page route, which no other test requests.
+	// The registry still holds the requests of earlier runs of this test under -count.
 	before := histogramCount(t, "GET /quiet/{$}")
 	resp := v.Get(t, "/quiet/")
 	require.Equal(t, http.StatusOK, resp.Status, "GET /quiet/")
@@ -473,9 +472,9 @@ func TestBrokerMetrics(t *testing.T) {
 	index := serve(t).Visitor(t).Load(t, "/")
 
 	// A subscriber has to exist: a message with nowhere to go is not published,
-	// and nothing counts it. The stream subscribes before it answers, which
-	// Connect waits for.
-	index.Connect(t, nil)
+	// and nothing counts it. The stream subscribes before it answers,
+	// which Connect waits for.
+	index.Connect(t)
 
 	before := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")
 
