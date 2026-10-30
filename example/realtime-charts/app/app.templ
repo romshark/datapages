@@ -1,0 +1,553 @@
+package app
+
+import (
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/romshark/datapages/example/realtime-charts/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/realtime-charts/app/datapagesgen/assets"
+	"github.com/romshark/datapages/example/realtime-charts/app/datapagesgen/href"
+	"github.com/romshark/datapages/example/realtime-charts/market"
+)
+
+templ head() {
+	<title>Realtime Charts</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<meta name="color-scheme" content="dark light"/>
+	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
+}
+
+// chartsHead loads pinned Lightweight Charts and the <rt-chart> module.
+templ chartsHead() {
+	<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js" integrity="sha384-KkYqTZlM13Zya6fVUF3IGCBOQ1ehFeJVVgxaVvD/0MebineF9EI8Jkd3NnWNChqN" crossorigin="anonymous"></script>
+	<script type="module" src={ assets.Path("rt-chart.js") }></script>
+}
+
+// mapHead loads pinned Apache ECharts and the <market-map> module.
+templ mapHead() {
+	<script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js" integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD" crossorigin="anonymous"></script>
+	<script type="module" src={ assets.Path("market-map.js") }></script>
+}
+
+// portfolioHead loads pinned uPlot and <pf-chart>.
+// The element copies uPlot's stylesheet link into its shadow root.
+templ portfolioHead() {
+	<link
+		id="uplot-css"
+		rel="stylesheet"
+		href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css"
+		integrity="sha384-IfV0B7MIOYuO95kO9G5ySKPz/85zqFNOAs8iy4tkK5zd9izhJAB8b7lHrwYqqmYE"
+		crossorigin="anonymous"
+	/>
+	<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js" integrity="sha384-Gx3t0zdBAuQOuvvmaLZj7HKEiSgWTAs+VdtNY7wt19QDPTDQjFIwAuXDj0zeN00c" crossorigin="anonymous"></script>
+	<script type="module" src={ assets.Path("pf-chart.js") }></script>
+}
+
+// pageView replaces raw query signals with the normalized values the page shows.
+//
+// The live button's label states its current mode and its title states the action,
+// so it's not a toggle button. Pausing copies the displayed second into the URL signal.
+//
+// Hidden labels keep the live button and status widths stable as their text changes.
+//
+// On narrow screens the navigation and sidebar stick as 1 block because the navigation
+// height changes when it wraps.
+templ pageView(
+	v view, q ViewQuery, ranges []time.Duration, selected []string, pushed int64,
+	content templ.Component,
+) {
+	<div
+		id="page"
+		class="page"
+		data-signals:view={ jsString(string(v)) }
+		data-signals:type={ jsString(q.Type) }
+		data-signals:refresh={ jsString(q.Refresh) }
+		data-signals:range={ jsString(q.Range) }
+		data-signals:indexes={ jsString(q.Indexes) }
+		data-signals:paused={ strconv.FormatInt(q.Paused, 10) }
+		data-signals:sync={ strconv.FormatBool(q.Sync) }
+		data-signals:layout={ jsString(q.Layout) }
+		data-signals:_pushed={ strconv.FormatInt(pushed, 10) }
+	>
+		<div class="top">
+			<nav class="navbar">
+				<h1 class="brand">
+					<picture>
+						<source
+							media="(max-width: 740px)"
+							srcset={ assets.Path("logo.svg") }
+							width="21"
+							height="26"
+						/>
+						<img
+							class="logo"
+							src={ assets.Path("logo-full.svg") }
+							width="112"
+							height="26"
+							alt="Datapages"
+						/>
+					</picture>
+					<span class="visually-hidden">Realtime Charts</span>
+				</h1>
+				@tabs(v, q)
+				<div class="controls">
+					<div class="control">
+						<button
+							type="button"
+							class={ "live", templ.KV("paused", q.Paused != 0) }
+							if q.Paused != 0 {
+								title="Resume updates"
+							} else {
+								title="Pause updates"
+							}
+							data-class:paused="$paused !== 0"
+							data-attr:title="$paused ? 'Resume updates' : 'Pause updates'"
+							data-on:click={ action.App.Settings.POST(
+								action.WithBefore("$paused = $paused ? 0 : $_pushed"),
+							) }
+						>
+							<span class="when-live">Live</span>
+							<span class="when-paused">Paused</span>
+						</button>
+						<select
+							data-bind="refresh"
+							disabled?={ q.Paused != 0 }
+							title="Refresh interval"
+							data-attr:disabled="$paused !== 0"
+							data-on:change={ action.App.Settings.POST() }
+						>
+							for _, r := range refreshRates {
+								<option value={ r.String() } selected?={ r.String() == q.Refresh }>
+									{ r.String() }
+								</option>
+							}
+						</select>
+					</div>
+					<span class="updated">
+						<span
+							class="sizer"
+							aria-hidden="true"
+							data-text="'Paused at ' + new Date(2000, 0, 1, 10).toLocaleTimeString()"
+						>
+							Paused at 10:00:00 AM
+						</span>
+						<span
+							class="sizer"
+							aria-hidden="true"
+							data-text="'Paused at ' + new Date(2000, 0, 1, 22).toLocaleTimeString()"
+						>
+							Paused at 10:00:00 PM
+						</span>
+						<span
+							data-text="($paused ? 'Paused at ' : 'Updated ') + new Date($_pushed * 1000).toLocaleTimeString()"
+						></span>
+					</span>
+				</div>
+			</nav>
+			@sidebar(selected)
+		</div>
+		@errorMessage("")
+		<main
+			if q.Layout == string(layoutRows) {
+				class="rows"
+			}
+			data-class:rows="$layout === 'rows'"
+		>
+			@toolbar(v, q, ranges)
+			@content
+		</main>
+		<footer class="footer">
+			<a href="https://github.com/romshark/datapages">Datapages</a> demo.
+			if v == viewPortfolio {
+				Charts by
+				<a href="https://github.com/leeoniya/uPlot">uPlot</a>.
+			} else if v == viewMap {
+				Map by
+				<a href="https://echarts.apache.org/">Apache ECharts</a>.
+			} else {
+				Charts by
+				<a href="https://www.tradingview.com/">TradingView</a>
+				<a href="https://github.com/tradingview/lightweight-charts">Lightweight Charts&trade;</a>.
+			}
+		</footer>
+	</div>
+}
+
+// Chart and range changes redraw through the paused second when paused.
+//
+// Small screens hide button text visually.
+// main owns the rows class so a grid morph doesn't reset the layout.
+//
+// Sync is a toggle button because its name stays fixed.
+templ toolbar(v view, q ViewQuery, ranges []time.Duration) {
+	if v == viewCharts {
+		<div class="toolbar">
+			<div class="control">
+				<select
+					data-bind="type"
+					title="Chart type"
+					data-on:change={ action.App.Settings.POST() }
+				>
+					for _, t := range chartTypes {
+						<option value={ string(t) } selected?={ string(t) == q.Type }>
+							{ title(string(t)) }
+						</option>
+					}
+				</select>
+				<select
+					data-bind="range"
+					title="Time range"
+					data-on:change={ action.App.Settings.POST() }
+				>
+					for _, d := range ranges {
+						<option value={ rangeName(d) } selected?={ rangeName(d) == q.Range }>
+							{ rangeLabel(d) }
+						</option>
+					}
+				</select>
+				<div class="segments" role="group" aria-label="Layout">
+					@layoutButton(layoutRows, iconRows, q)
+					@layoutButton(layoutGrid, iconGrid, q)
+				</div>
+				<button
+					type="button"
+					class="sync"
+					aria-pressed={ strconv.FormatBool(q.Sync) }
+					title="Sync charts"
+					data-attr:aria-pressed="$sync ? 'true' : 'false'"
+					data-on:click={ action.App.Settings.POST(
+						action.WithBefore("$sync = !$sync"),
+					) }
+				>
+					@icon(iconSync)
+					<span>Sync</span>
+				</button>
+			</div>
+		</div>
+	}
+}
+
+templ layoutButton(l layout, svg string, q ViewQuery) {
+	<button
+		type="button"
+		class="segment"
+		aria-pressed={ strconv.FormatBool(string(l) == q.Layout) }
+		data-attr:aria-pressed={ "$layout === " + jsString(string(l)) + " ? 'true' : 'false'" }
+		data-on:click={ action.App.Settings.POST(
+			action.WithBefore("$layout = " + jsString(string(l))),
+		) }
+	>
+		@icon(svg)
+		<span>{ title(string(l)) }</span>
+	</button>
+}
+
+// tabs preserves current settings in every view link.
+templ tabs(active view, q ViewQuery) {
+	<nav
+		id="tabs"
+		class="tabs"
+		aria-label="View"
+		data-init="el.querySelector('[aria-current]')?.scrollIntoView({block: 'nearest', inline: 'nearest'})"
+	>
+		<a
+			href={ href.PageIndex(href.QueryPageIndex(q)) }
+			class="tab"
+			if active == viewCharts {
+				aria-current="page"
+			}
+		>
+			@icon(iconCharts)
+			Charts
+		</a>
+		<a
+			href={ href.PageMap(href.QueryPageMap(q)) }
+			class="tab"
+			if active == viewMap {
+				aria-current="page"
+			}
+		>
+			@icon(iconMap)
+			Map
+		</a>
+		<a
+			href={ href.PagePortfolio(href.QueryPagePortfolio(q)) }
+			class="tab"
+			if active == viewPortfolio {
+				aria-current="page"
+			}
+		>
+			@icon(iconPortfolio)
+			Portfolio
+		</a>
+	</nav>
+}
+
+// icon writes only trusted embedded SVG constants with templ.Raw.
+templ icon(svg string) {
+	@templ.Raw(svg)
+}
+
+templ sidebar(selected []string) {
+	<aside id="sidebar" class="sidebar" aria-label="Indexes">
+		<div class="sidebar-header">
+			<h2>Indexes</h2>
+			<button
+				type="button"
+				class="select"
+				title="Show all indexes"
+				disabled?={ len(selected) == len(market.Indexes) }
+				data-on:click={ action.App.Select.POST("all") }
+			>All</button>
+			<button
+				type="button"
+				class="select"
+				title="Hide all indexes"
+				disabled?={ len(selected) == 0 }
+				data-on:click={ action.App.Select.POST("none") }
+			>None</button>
+		</div>
+		<ul>
+			for _, in := range market.Indexes {
+				<li>
+					<button
+						type="button"
+						class="index"
+						aria-pressed={ strconv.FormatBool(slices.Contains(selected, in.Symbol)) }
+						data-on:click={ action.App.Toggle.POST(in.Symbol) }
+					>
+						<span class="symbol">{ in.Symbol }</span>
+						<span class="name">{ in.Name }</span>
+					</button>
+				</li>
+			}
+		</ul>
+	</aside>
+}
+
+// grid is patched whole. Each bars attribute carries JSON. Chart IDs include type and
+// range so changing either replaces the element and starts a new series.
+//
+// The active-chart button deactivates the chart by receiving focus outside it.
+templ grid(t chartType, cards []card, rng time.Duration, sync bool) {
+	<div id="grid" class="grid">
+		if len(cards) == 0 {
+			@emptyView("Select indexes in the sidebar to show their charts.")
+		}
+		for _, c := range cards {
+			<article id={ "card-" + c.Symbol } class="card">
+				<header class="card-header">
+					<div class="ident">
+						<span class="symbol">{ c.Symbol }</span>
+						<span class="name">{ c.Name }</span>
+						<button type="button" class="deactivate" title="Deactivate the chart">
+							<svg
+								viewBox="0 0 10 10"
+								width="10"
+								height="10"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.6"
+								stroke-linecap="round"
+								aria-hidden="true"
+							>
+								<path d="M2.5 2.5l5 5M7.5 2.5l-5 5"></path>
+							</svg>
+						</button>
+					</div>
+					<div class="quote">
+						<span class="price">{ c.Price }</span>
+						<span class={ "change", templ.KV("up", c.Up), templ.KV("down", !c.Up) }>
+							{ c.Change }
+						</span>
+					</div>
+				</header>
+				<rt-chart
+					id={ "chart-" + c.Symbol + "-" + string(t) + "-" + rangeName(rng) }
+					type={ string(t) }
+					bar={ strconv.FormatInt(int64(barOf(rng)/time.Second), 10) }
+					base={ price(c.Open) }
+					sync?={ sync }
+					bars={ jsonOf(c.Bars) }
+				></rt-chart>
+			</article>
+		}
+	</div>
+}
+
+// marketMapView is patched whole. tiles contains [symbol, price, percent change] rows.
+templ marketMapView(tiles []mapTile, selection string) {
+	<div id="market" class="market">
+		<market-map
+			sectors={ mapSectors }
+			scale={ strconv.Itoa(mapScale) }
+			tiles={ jsonOf(tiles) }
+			selection={ selection }
+		></market-map>
+		<div class="map-legend" aria-hidden="true">
+			<span>{ fmt.Sprintf("-%d%%", mapScale) }</span>
+			<span class="map-scale"></span>
+			<span>{ fmt.Sprintf("+%d%%", mapScale) }</span>
+		</div>
+	</div>
+}
+
+// portfolio is patched whole. Chart IDs include holdings so a changed selection replaces
+// each affected element.
+templ portfolio(holdings []string, shares []share, p portfolioData) {
+	<div id="portfolio" class="portfolio">
+		if len(holdings) == 0 {
+			@emptyView("Select indexes in the sidebar to build the portfolio.")
+		} else {
+			<section class="tiles" aria-label="Summary">
+				<article class="tile">
+					<h2>Value</h2>
+					<p class="tile-value">{ p.Value }</p>
+					<p class="tile-note">
+						<span class={ templ.KV("up", p.Change.Up), templ.KV("down", !p.Change.Up) }>
+							{ p.Change.Text }
+						</span>
+						since open
+					</p>
+					<pf-chart
+						id={ chartID("spark", holdings) }
+						kind="spark"
+						data={ jsonOf(p.Returns) }
+					></pf-chart>
+				</article>
+				@summaryTile("All indexes", p.Market)
+				@summaryTile("Best", p.Best)
+				@summaryTile("Worst", p.Worst)
+			</section>
+			<section class="panels">
+				<article class="panel panel-wide">
+					<h2>Return since open</h2>
+					<pf-chart
+						id={ chartID("returns", holdings) }
+						kind="lines"
+						labels="Portfolio,All indexes"
+						unit="%"
+						data={ jsonOf(p.Returns) }
+					></pf-chart>
+				</article>
+				<article class="panel">
+					<h2>Sectors</h2>
+					@donut(shares)
+				</article>
+				<article class="panel">
+					<h2>Allocation</h2>
+					<pf-chart
+						id={ chartID("allocation", holdings) }
+						kind="stacked"
+						labels={ strings.Join(holdings, ",") }
+						unit="%"
+						data={ jsonOf(p.Allocation) }
+					></pf-chart>
+				</article>
+				<article class="panel">
+					<h2>Profit and loss</h2>
+					<pf-chart
+						id={ chartID("profit", holdings) }
+						kind="bars"
+						unit="$"
+						data={ jsonOf(p.Profit) }
+					></pf-chart>
+				</article>
+				<article class="panel">
+					<h2>Drawdown</h2>
+					<pf-chart
+						id={ chartID("drawdown", holdings) }
+						kind="area"
+						labels="Drawdown"
+						unit="%"
+						data={ jsonOf(p.Drawdown) }
+					></pf-chart>
+				</article>
+				<article class="panel">
+					<h2>Returns per 5-second bar</h2>
+					<pf-chart
+						id={ chartID("distribution", holdings) }
+						kind="histogram"
+						unit="%"
+						data={ jsonOf(p.Distribution) }
+					></pf-chart>
+				</article>
+			</section>
+		}
+	</div>
+}
+
+templ summaryTile(label string, t tile) {
+	<article class="tile">
+		<h2>{ label }</h2>
+		<p class={ "tile-value", templ.KV("up", t.Up), templ.KV("down", !t.Up) }>{ t.Text }</p>
+		<p class="tile-note">{ t.Note }</p>
+	</article>
+}
+
+// donut draws each sector as a dashed segment of 1 circle.
+templ donut(shares []share) {
+	<div class="donut">
+		<svg viewBox="-1 -1 2 2" aria-hidden="true">
+			<g transform="rotate(-90)">
+				for _, s := range shares {
+					<circle
+						class={ "slice", colorClass(s.Color) }
+						r="0.78"
+						pathLength="100"
+						stroke-dasharray={ fmt.Sprintf("%.3f %.3f", s.Dash, 100-s.Dash) }
+						stroke-dashoffset={ fmt.Sprintf("%.3f", -s.Offset) }
+					></circle>
+				}
+			</g>
+		</svg>
+		<ul>
+			for _, s := range shares {
+				<li>
+					<span class={ "swatch", colorClass(s.Color) }></span>
+					{ s.Sector }
+					<span class="share">{ fmt.Sprintf("%.0f%%", s.Percent) }</span>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+templ emptyView(message string) {
+	<div class="empty">
+		<div class="desert" aria-hidden="true">
+			<div class="tumble">
+				<span class="shadow"></span>
+				<svg class="tumbleweed" viewBox="-50 -50 100 100">
+					<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+						<path d={ tumbleweedOuter } stroke-width="2"></path>
+						<path d={ tumbleweedInner } stroke-width="1.4" opacity="0.8"></path>
+						<path d={ tumbleweedTwigs } stroke-width="1.6"></path>
+					</g>
+				</svg>
+			</div>
+		</div>
+		<p>{ message }</p>
+		<button
+			type="button"
+			class="show-all"
+			data-on:click={ action.App.Select.POST("all") }
+		>Show all indexes</button>
+	</div>
+}
+
+templ errorMessage(msg string) {
+	<p id="error" class="error" role="alert">{ msg }</p>
+}
+
+templ pageError(title, detail string) {
+	<main class="error-page">
+		<h1>{ title }</h1>
+		<p>{ detail }</p>
+		<a href={ href.PageIndex(href.QueryPageIndex{}) }>Back to the charts</a>
+	</main>
+}

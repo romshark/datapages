@@ -78,6 +78,8 @@ jobs:
             name: "tailwindcss"
           - path: "example/webcomponents"
             name: "webcomponents"
+          - path: "example/realtime-charts"
+            name: "realtime-charts"
           - path: "example/sqlitesessions"
             name: "sqlitesessions"
           - path: "example/calculator"

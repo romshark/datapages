@@ -35,6 +35,7 @@ Run `datapages gen` to apply these.
 #### Runtime and modules
 
 - Reload open pages when a deployment changes the build. Set `datapages.WithBuildID` when replicas run different binaries of 1 release. A `Content-Security-Policy` must allow the inline build script.
+- Add the `datapagestest` package for testing an app over HTTP the way a browser running Datastar uses it. A visitor keeps its own cookie jar and sends the CSRF token of its session. A tab keeps the `Datapages-Instance` of its page load and sends actions with their signals in the body, or in the query of a DELETE. A stream waits for a matching event and proves an event's absence with a later anchor. `Response.Redirect` reads the target of each redirect form. The server runs on in-memory connections, which lets a test run inside a `testing/synctest` bubble.
 - Apply the attributes of the live `<html>` element when a shim written with `PageCacheWriter.SetShim` hydrates. The classes are added to those the page has.
 
 #### `datapages init`
@@ -44,6 +45,7 @@ Run `datapages gen` to apply these.
 - Ask whether to commit the generated code, `datapagesgen/` and `*_templ.go`, interactively or with `--generated-code committed|hidden`; `-n` defaults to committed. Hidden lists it in `.gitignore`, hides it in VS Code with `.vscode/settings.json` and makes `make build` and CI generate it. CI no longer compares it with the commit. A clone of a hidden project builds only after `templ generate` and `datapages gen`, and `datapages gen` fails there while the app uses the `href`, `action` or `assets` packages.
 - Ask whether to write the GitHub Actions workflow `.github/workflows/ci.yml`, interactively or with `--ci github-actions|none`; `-n` defaults to `github-actions`.
 - Ask whether to write the AI agent instructions and skills, interactively or with `--no-ai-skills`; `-n` writes them.
+- Add the `datapages-testing` skill to the agent instructions it writes. It covers testing an app with `datapagestest`: page loads, actions, SSE streams, per-tab state, events, sessions and CSRF, and waiting for a condition instead of a fixed time. Run `datapages init` to add it to an existing project.
 
 ### Changed
 

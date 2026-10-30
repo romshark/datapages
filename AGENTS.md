@@ -69,6 +69,7 @@ Public, imported by application or generated code:
 
 - root package `datapages` (`datapages.go`) - the handler types (`SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the HTTP error sentinels. `options.go` holds the server options of the root package: `ServerOption` values fill a `ServerConfig` that `httpserve.NewCore` reads. The others are `offline.WithServiceWorker` and the generated `WithOffline`, which passes it the route of `PageOffline`.
 - `cmd/datapages/` - the shipped binary.
+- `datapagestest/` - the client an application's tests use: visitors with a cookie jar and CSRF tokens, page loads, Datastar actions, SSE streams and redirect targets. `internal/acceptance/datapagestest` runs it against a generated server.
 - `modules/` - pluggable modules: assetcompress, csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
   - `httpserve` - the generated server core: listener, routes, middleware, logging, shutdown, redirects, request checks, assets, HTML and SSE responses, response compression.
@@ -95,6 +96,7 @@ Examples, 1 module each:
 - `example/offline-cache/` - service-worker offline support, handler-written cache and a `PageOffline` fallback, on a ticketing app.
 - `example/file-upload/` - chunked, pausable and resumable uploads stored on disk, downloaded through a GET action, both directions paced by a server-side rate limit.
 - `example/docs/` - collaborative rich text editor that survives temporary disconnections using Quill in a Web Component, operational transformation of Quill deltas ported to Go, remote cursors, documents stored as snapshot and change log.
+- `example/realtime-charts/` - charts of a simulated market in six chart types, a market map and a portfolio, one page each: a goroutine outside any handler writes an in-memory time-series database and publishes one subject per index, streams subscribe to them by wildcard, the pages share their stream handlers by embedding, `*App` actions reach their tab through a `SubjectStateID` event and fat morphs carry the data of the charts as JSON attributes to custom elements around 3 chart libraries.
 
 Where code goes:
 
@@ -226,7 +228,8 @@ Do write:
 Form:
 
 - Respect [writing](#writing).
-- Plain sentences, present tense, within the line limit.
+- Plain sentences, present tense.
+- Wrap comment lines at 90 columns, counting a tab as 4 columns. Fill each line: break only before a word that would pass column 90.
 - Go doc comments on exported names start with the name. This is the only place where repeating the name is required.
 - Put the comment above the code, not after it. Comments after the code are for short notes on struct fields, enum values and table-test rows.
 - Reference other code with Go doc links in square brackets: `[Scan]`, `[Parser.Parse]`, `[github.com/romshark/datapages.Subject]`.

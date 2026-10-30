@@ -99,7 +99,7 @@ The generator matches handler parameters and return values by type, not by posit
 
 ## Testing
 
-The generated server implements `http.Handler`. Test it by sending requests with `httptest`. Set `Datastar-Request: true` for a Datastar action. For a stateful tab, copy the `Datapages-Instance` value from the page response to its action and stream requests. Assert the HTTP status and returned HTML or SSE events. A successful `go build ./...` alone does not test request behavior.
+Test the app over HTTP with the `github.com/romshark/datapages/datapagestest` package, which sends the requests a browser running Datastar sends, and assert the status, the HTML and the SSE events. A successful `go build ./...` alone does not test request behavior. Read `datapages-testing` before writing or changing a test.
 
 ## Task skills
 
@@ -114,6 +114,7 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-offline` | offline pages, cached shims, the service worker |
 | `datapages-server` | the server entry point, options, broker, static assets |
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
+| `datapages-testing` | tests of pages, actions, streams, events and sessions |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:312012d133e4c0a2 -->
+<!-- written by datapages sha256:68a70cb45c5c9775 -->
