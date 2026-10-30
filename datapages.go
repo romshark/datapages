@@ -193,12 +193,14 @@ type Head Component
 // DocumentAttrs holds the attributes of the [html element] of a page by name,
 // such as lang, dir, class or data-theme. See [global attributes].
 // A GET or action handler that renders a body may return one alongside it.
-// Pages that share attributes return them from a shared function,
-// which returns a new map on each call, since a page may change it:
 //
-//	func documentAttrs(session Session) datapages.DocumentAttrs {
-//		d := session.Data()
-//		return datapages.DocumentAttrs{"lang": d.Lang, "class": d.Theme}
+// Datapages only reads the map, which lets a map built once serve every request.
+// Attributes that take a few combinations, such as 1 per theme,
+// are built once per combination:
+//
+//	var themeAttrs = map[string]datapages.DocumentAttrs{
+//		"light": {"lang": "en", "class": "light"},
+//		"dark":  {"lang": "en", "class": "dark"},
 //	}
 //
 //	func (p PagePost) GET(r *http.Request, session Session) (
@@ -206,10 +208,14 @@ type Head Component
 //		docAttrs datapages.DocumentAttrs,
 //		err error,
 //	) {
-//		docAttrs = documentAttrs(session)
-//		docAttrs["lang"] = post.Lang
-//		return postView(post), docAttrs, nil
+//		return postView(post), themeAttrs[session.Data().Theme], nil
 //	}
+//
+// Handlers run concurrently, and a write to a shared map is a data race.
+// A handler that changes a value clones the map first:
+//
+//	docAttrs = maps.Clone(themeAttrs[session.Data().Theme])
+//	docAttrs["lang"] = post.Lang
 //
 // The attributes are written sorted by name. Values are HTML-escaped,
 // and an empty value writes an empty attribute, as for the boolean itemscope.
