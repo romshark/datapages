@@ -18,6 +18,7 @@ on:
       - "CHANGELOG.md"
       - "FAQ.md"
       - "SPECIFICATION.md"
+      - ".github/workflows/pages.yml"
   # The release workflow calls this after it publishes a release.
   workflow_call:
   workflow_dispatch:
@@ -28,7 +29,31 @@ permissions:
   id-token: write
 
 jobs:
+  # A release commit reaches main before its tag. Pages identifies a deployment
+  # by its commit and ignores a second deployment of the same commit, which
+  # would keep the pages deployed without the release. The release workflow
+  # deploys the commit once the tag exists.
+  pending-release:
+    runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.pending.outputs.pending }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      # The newest version of CHANGELOG.md has no tag yet.
+      - id: pending
+        run: |
+          version=$(sed -nE 's/^## \[([0-9][^]]*)\].*/\1/p' CHANGELOG.md | head -n 1)
+          if [[ -n "${version}" ]] &&
+            [[ -z "$(git ls-remote --tags origin "refs/tags/v${version}")" ]]; then
+            echo "pending=true" >> "${GITHUB_OUTPUT}"
+          fi
+
   deploy:
+    needs: pending-release
+    if: needs.pending-release.outputs.pending != 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
