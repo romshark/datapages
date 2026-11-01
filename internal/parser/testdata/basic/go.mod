@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/a-h/templ v0.3.1100
-	github.com/romshark/datapages v0.10.1
+	github.com/romshark/datapages v0.11.2
 )
 
 require (

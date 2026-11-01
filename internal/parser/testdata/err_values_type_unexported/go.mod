@@ -2,7 +2,7 @@ module datapagestest/fixture/err_values_type_unexported
 
 go 1.27.3
 
-require github.com/romshark/datapages v0.10.1
+require github.com/romshark/datapages v0.11.2
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

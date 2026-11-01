@@ -10,7 +10,7 @@ require (
 	github.com/andybalholm/brotli v1.2.7
 	github.com/klauspost/compress v1.20.3
 	github.com/nats-io/nats.go v1.55.0
-	github.com/romshark/datapages v0.10.1
+	github.com/romshark/datapages v0.11.2
 	github.com/stretchr/testify v1.12.1
 )
 
