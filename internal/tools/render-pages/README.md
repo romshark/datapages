@@ -53,7 +53,7 @@ The build splits each page into sections at the headings that its contents list 
 
 ## Browser
 
-- `docs.js` runs the navigation overlay, the highlight of the current section, the search, the version menu and the Mermaid diagrams. It loads Mermaid only on pages with a diagram.
+- `docs.js` runs the navigation overlay, the highlight of the current section in the contents column and in the contents bar of narrow screens, the search, the version menu and the Mermaid diagrams. It loads Mermaid only on pages with a diagram.
 - A script in `<head>` applies the stored theme before the first paint.
 - The sidebar, the search dialog, the copy buttons, the theme menu and the version menu are Morpheus components. `mage genDocs` bundles only these with the `morpheus bundle` command, at the version in `go.mod`, which matches its Go components, and copies the caret icon of the version menu. The bundle has no theme: `style.css` sets the theme tokens of Morpheus to the colors of the site. The landing page does not load Morpheus.
 

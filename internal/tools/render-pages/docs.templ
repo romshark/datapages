@@ -64,10 +64,16 @@ templ docsPage(v docView) {
 							@mainNote(v.versions)
 						}
 						// The contents of the page, while the screen is too narrow for
-						// their column.
+						// their column. A bar that sticks below the header and opens
+						// the list over the text. docs.js writes the title of the
+						// current section into .toc-inline-current.
 						if len(v.toc) > 0 {
 							<details class="toc-inline">
-								<summary>On this page</summary>
+								<summary>
+									<span class="toc-inline-title">On this page</span>
+									<span class="toc-inline-current"></span>
+									@iconChevronDown()
+								</summary>
 								@docsContents(v.toc)
 							</details>
 						}

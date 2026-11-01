@@ -212,10 +212,12 @@ a {
       background: var(--bg);
 
       /* With the gap of 1.5rem the search button has no room for its label
-         below a 666px wide viewport, measured in Chrome on macOS. */
+         below a 666px wide viewport, measured in Chrome on macOS.
+         The row height is part of --header-stuck. */
       nav {
         justify-content: flex-end;
         gap: 1rem;
+        min-block-size: 2.25rem;
       }
     }
   }
@@ -567,10 +569,29 @@ a {
    a link in the guide, takes about 2s for the 9000px it can cover. */
 html:has(.docs-page) {
   scroll-behavior: auto;
+  /* The part of the sticky header in view: the 2.25rem row of its navigation
+     with 0.5rem above and below. */
+  --header-stuck: 3.25rem;
+  /* The height of the summary of .toc-inline. */
+  --toc-summary: 2.25rem;
 
-  /* Keeps a heading that a link scrolls to below the sticky header. */
+  /* Keeps a heading that a link scrolls to below the sticky header and the
+     contents bar of .toc-inline with its 0.5rem below. */
   @media (width <= 59.25rem) {
-    scroll-padding-block-start: 3.25rem;
+    scroll-padding-block-start: var(--header-stuck);
+
+    &:has(.toc-inline) {
+      scroll-padding-block-start: calc(
+        var(--header-stuck) + var(--toc-summary) + 0.5rem
+      );
+    }
+  }
+
+  /* The header does not stick and the bar has 0.5rem above too. */
+  @media (59.25rem < width < 75rem) {
+    &:has(.toc-inline) {
+      scroll-padding-block-start: calc(var(--toc-summary) + 1rem);
+    }
   }
 }
 
@@ -720,25 +741,84 @@ html:has(.docs-page) {
   font-weight: 600;
 }
 
+/* The contents of the page while the screen is too narrow for their column.
+   A bar that sticks below the header, or at the top while the header doesn't
+   stick, and opens the list over the text. The bar covers the text that
+   scrolls below it, with 0.5rem above and below its summary.
+   docs.js limits the list to the viewport. */
 .toc-inline {
   display: none;
-  margin-block: 1rem 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  margin-block-start: 0.5rem;
+  padding-block: 0.5rem;
+  background: var(--bg);
   font-size: 0.875rem;
 
   @media (width < 75rem) {
     display: block;
   }
 
+  /* The header ends 0.5rem below its navigation. */
+  @media (width <= 59.25rem) {
+    inset-block-start: var(--header-stuck);
+    margin-block-start: 1rem;
+    padding-block-start: 0;
+  }
+
   summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    block-size: var(--toc-summary);
+    padding-inline: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
     cursor: pointer;
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    svg {
+      flex: none;
+      margin-inline-start: auto;
+      inline-size: 1rem;
+      block-size: 1rem;
+      color: var(--text-muted);
+    }
+  }
+
+  &[open] summary svg {
+    rotate: 180deg;
+  }
+
+  .toc-inline-title {
+    flex: none;
     font-weight: 600;
   }
 
+  .toc-inline-current {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--accent);
+  }
+
   .toc {
-    margin-block: 0.5rem 0.25rem;
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: calc(100% - 0.25rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.15);
   }
 }
 

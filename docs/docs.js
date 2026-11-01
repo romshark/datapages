@@ -5,9 +5,8 @@
 const root = new URL(document.body.dataset.siteRoot || "./", location.href);
 
 // The navigation is a column on a wide screen and an overlay on a narrow one.
-// In the overlay a link closes it after the jump, which in the column it must
-// not do. The data-neo-sidebar-close attribute of Morpheus would close it in
-// both.
+// In the overlay a link closes it after the jump, which in the column it must not do.
+// The data-neo-sidebar-close attribute of Morpheus would close it in both.
 const nav = document.getElementById("docs-nav");
 document.getElementById("docs-nav-toggle")?.addEventListener("click", () => nav.toggle());
 nav?.addEventListener("click", (e) => {
@@ -52,8 +51,8 @@ if (versions) {
 	});
 }
 
-// The link of the note on a page of main. A click that opens a new tab or
-// window follows the link as written.
+// The link of the note on a page of main.
+// A click that opens a new tab or window follows the link as written.
 for (const a of document.querySelectorAll("a[data-fallback]")) {
 	a.addEventListener("click", (e) => {
 		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
@@ -64,37 +63,52 @@ for (const a of document.querySelectorAll("a[data-fallback]")) {
 	});
 }
 
-// The contents column marks the section whose heading was scrolled past last.
-// At the end of the page, it marks the URL's section if in view, else the last
-// section in view.
-const sections = [...document.querySelectorAll(".docs-toc a")]
-	.map((a) => [a, document.getElementById(decodeURIComponent(a.hash.slice(1)))])
+// The contents mark the section whose heading was scrolled past last, in the
+// column and in the bar, which shows its title too. At the end of the page,
+// they mark the URL's section if in view, else the last section in view.
+// Each section has 1 link in each of the 2 lists.
+const tocLinks = [...document.querySelectorAll(".toc a")];
+const sections = [...new Set(tocLinks.map((a) => a.hash))]
+	.map((hash) => [
+		tocLinks.filter((a) => a.hash === hash),
+		document.getElementById(decodeURIComponent(hash.slice(1))),
+	])
 	.filter(([, heading]) => heading);
+const currentTitle = document.querySelector(".toc-inline-current");
 if (sections.length > 0) {
 	let scheduled = false;
 	const mark = () => {
 		scheduled = false;
 		const root = document.documentElement;
+		// The sticky header and the bar cover the scroll padding.
+		const top = parseFloat(getComputedStyle(root).scrollPaddingTop) || 0;
 		const end = scrollY + innerHeight >= root.scrollHeight - 1;
 		const inView = (heading) => heading.getBoundingClientRect().top < innerHeight;
 		let current = null;
-		for (const [a, heading] of sections) {
-			if (end ? !inView(heading) : heading.getBoundingClientRect().top > 96) {
+		for (const section of sections) {
+			const heading = section[1];
+			if (end ? !inView(heading) : heading.getBoundingClientRect().top > top + 96) {
 				break;
 			}
-			current = a;
+			current = section;
 		}
 		if (end) {
-			const target = sections.find(([a, heading]) =>
-				a.hash === location.hash && heading.getBoundingClientRect().top >= 0 && inView(heading));
-			current = target ? target[0] : current;
+			current = sections.find(([links, heading]) =>
+				links[0].hash === location.hash &&
+				heading.getBoundingClientRect().top >= top &&
+				inView(heading)) ?? current;
 		}
-		for (const [a] of sections) {
-			if (a === current) {
-				a.setAttribute("aria-current", "true");
-			} else {
-				a.removeAttribute("aria-current");
+		for (const section of sections) {
+			for (const a of section[0]) {
+				if (section === current) {
+					a.setAttribute("aria-current", "true");
+				} else {
+					a.removeAttribute("aria-current");
+				}
 			}
+		}
+		if (currentTitle) {
+			currentTitle.textContent = current ? current[0][0].textContent : "";
 		}
 	};
 	const schedule = () => {
@@ -109,9 +123,41 @@ if (sections.length > 0) {
 	mark();
 }
 
-// The search lists the sections of search.json that contain every word of the
-// query, ranked by where the words occur: in the heading, in the page title,
-// or in the text.
+// The list of the bar ends 8px above the bottom of the viewport and scrolls
+// when longer. The room changes with the scroll, because at the top of the page
+// the bar sits below the position where it sticks. The bar closes after a jump
+// to a section, on a click outside it and on Escape.
+const bar = document.querySelector(".toc-inline");
+if (bar) {
+	const list = bar.querySelector(".toc");
+	const fit = () => {
+		if (bar.open) {
+			list.style.maxBlockSize = `${innerHeight - list.getBoundingClientRect().top - 8}px`;
+		}
+	};
+	bar.addEventListener("toggle", fit);
+	addEventListener("scroll", fit, { passive: true });
+	addEventListener("resize", fit);
+	list.addEventListener("click", (e) => {
+		if (e.target.closest("a")) {
+			bar.open = false;
+		}
+	});
+	document.addEventListener("click", (e) => {
+		if (bar.open && !bar.contains(e.target)) {
+			bar.open = false;
+		}
+	});
+	bar.addEventListener("keydown", (e) => {
+		if (e.key === "Escape" && bar.open) {
+			bar.open = false;
+			bar.querySelector("summary").focus();
+		}
+	});
+}
+
+// The search lists the sections of search.json that contain every word of the query,
+// ranked by where the words occur: in the heading, in the page title, or in the text.
 const search = document.querySelector("neo-dialog.search");
 if (search) {
 	const trigger = search.querySelector("[data-neo-dialog-trigger]");
@@ -120,8 +166,8 @@ if (search) {
 	const list = search.querySelector(".search-results");
 	const heading = search.querySelector(".search-heading");
 	const status = search.querySelector(".search-status");
-	// The suggested pages, which the template writes into the list. The list
-	// shows them while the field is empty.
+	// The suggested pages, which the template writes into the list.
+	// The list shows them while the field is empty.
 	const suggested = [...list.children];
 	const limit = 20;
 
@@ -348,8 +394,8 @@ if (search) {
 
 // Mermaid diagrams. The renderer writes each mermaid code block as a
 // <pre class="mermaid">, which Mermaid replaces with an SVG in the colors of
-// the current theme, and draws again when the theme changes. A page without a
-// diagram does not load Mermaid.
+// the current theme, and draws again when the theme changes.
+// A page without a diagram does not load Mermaid.
 const diagrams = [...document.querySelectorAll("pre.mermaid")];
 if (diagrams.length > 0) {
 	const sources = diagrams.map((d) => d.textContent);
