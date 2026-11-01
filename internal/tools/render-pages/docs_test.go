@@ -525,6 +525,13 @@ func TestLLMSTxt(t *testing.T) {
 }
 
 // render returns the HTML of c.
+// TestGroupIcons tests that every group of the navigation has an icon.
+func TestGroupIcons(t *testing.T) {
+	for _, p := range docPages {
+		require.Regexp(t, `<(path|circle) `, render(t, groupIcon(p.group)), p.group)
+	}
+}
+
 func render(t *testing.T, c templ.Component) string {
 	t.Helper()
 	var b bytes.Buffer

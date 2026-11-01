@@ -674,9 +674,19 @@ html:has(.docs-page) {
 }
 
 .nav-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-block-end: 0.35rem;
   font-weight: 600;
   color: var(--text);
+
+  svg {
+    flex: none;
+    inline-size: 1rem;
+    block-size: 1rem;
+    color: var(--text-muted);
+  }
 }
 
 /* The column has no maximum width. Beside the navigation and the contents it

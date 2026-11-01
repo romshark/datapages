@@ -292,7 +292,10 @@ templ searchDialog() {
 templ docsNav(groups []navGroup) {
 	for _, g := range groups {
 		<div class="nav-group">
-			<p class="nav-group-title">{ g.Title }</p>
+			<p class="nav-group-title">
+				@groupIcon(g.Title)
+				{ g.Title }
+			</p>
 			<ul>
 				for _, e := range g.Entries {
 					<li>
