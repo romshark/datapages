@@ -941,12 +941,12 @@ neo-dialog.search dialog {
     display: block;
     padding: 0.5rem;
     border-radius: 6px;
-    color: var(--text);
   }
 
   [aria-selected="true"] a {
     background: var(--bg-card);
     box-shadow: inset 0 0 0 1px var(--border);
+    color: var(--text);
   }
 
   mark {
