@@ -65,6 +65,8 @@ for (const a of document.querySelectorAll("a[data-fallback]")) {
 }
 
 // The contents column marks the section whose heading was scrolled past last.
+// At the end of the page, it marks the URL's section if in view, else the last
+// section in view.
 const sections = [...document.querySelectorAll(".docs-toc a")]
 	.map((a) => [a, document.getElementById(decodeURIComponent(a.hash.slice(1)))])
 	.filter(([, heading]) => heading);
@@ -72,12 +74,20 @@ if (sections.length > 0) {
 	let scheduled = false;
 	const mark = () => {
 		scheduled = false;
+		const root = document.documentElement;
+		const end = scrollY + innerHeight >= root.scrollHeight - 1;
+		const inView = (heading) => heading.getBoundingClientRect().top < innerHeight;
 		let current = null;
 		for (const [a, heading] of sections) {
-			if (heading.getBoundingClientRect().top > 96) {
+			if (end ? !inView(heading) : heading.getBoundingClientRect().top > 96) {
 				break;
 			}
 			current = a;
+		}
+		if (end) {
+			const target = sections.find(([a, heading]) =>
+				a.hash === location.hash && heading.getBoundingClientRect().top >= 0 && inView(heading));
+			current = target ? target[0] : current;
 		}
 		for (const [a] of sections) {
 			if (a === current) {
@@ -87,12 +97,15 @@ if (sections.length > 0) {
 			}
 		}
 	};
-	addEventListener("scroll", () => {
+	const schedule = () => {
 		if (!scheduled) {
 			scheduled = true;
 			requestAnimationFrame(mark);
 		}
-	}, { passive: true });
+	};
+	addEventListener("scroll", schedule, { passive: true });
+	// A link to a section in view at the end of the page does not scroll.
+	addEventListener("hashchange", schedule);
 	mark();
 }
 
