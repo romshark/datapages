@@ -196,7 +196,7 @@ func TestDocsPageLinks(t *testing.T) {
 		`<a class="logo" href="../../../" aria-label="Datapages home">`,
 		`<a class="header-link" href="../" aria-current="page">Docs</a>`,
 		`<a class="header-link" href="../examples">Examples</a>`,
-		`<a class="header-link" href="../specification">Specification</a>`,
+		`<a class="header-link" href="../faq">FAQ</a>`,
 		`<a class="icon-link" href="../changelog">`,
 		`<a class="icon-link" href="../llms.txt">`,
 	} {

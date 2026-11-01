@@ -580,7 +580,7 @@ func skipLink() templ.Component {
 // siteHeader is the header of every page. home is the URL of the site root
 // relative to the page, docs the URL of the root of the version that the
 // header links, and section the part of the site that the page belongs to:
-// "docs", "examples", "specification" or "" for none. A page with versions is
+// "docs", "examples", "faq" or "" for none. A page with versions is
 // a documentation page, which has a menu of the versions that the site serves
 // and loads Morpheus for it, the search and the theme menu. The children come first in the navigation, as the Menu button
 // of a documentation page.
@@ -649,7 +649,7 @@ func siteHeader(home, docs, section string, versions []versionLink) templ.Compon
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = headerLink(docs+"specification", "Specification", section == "specification").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = headerLink(docs+"faq", "FAQ", section == "faq").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

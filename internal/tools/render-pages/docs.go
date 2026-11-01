@@ -442,7 +442,7 @@ func (v docView) sourceURL() string { return v.doc.page.sourceURL(v.edition.ref(
 // [siteHeader] takes it.
 func (v docView) section() string {
 	switch v.doc.page.path {
-	case "specification", "examples":
+	case "examples", "faq":
 		return v.doc.page.path
 	}
 	return "docs"
