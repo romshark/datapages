@@ -172,7 +172,7 @@ a {
     }
 
     /* The navigation of a docs page links the docs, the examples and the
-       specification too. */
+       FAQ too. */
     .docs-page & .header-link {
       display: none;
     }
@@ -575,11 +575,17 @@ html:has(.docs-page) {
   inline-size: 100%;
   max-width: var(--max-w);
   margin-inline: auto;
-  padding: 0 1.5rem 4rem;
+  margin-block-end: 4rem;
+  padding-inline: 1.5rem;
+  /* The navigation takes its padding from how far .docs is in view. The space
+     after .docs is a margin, not padding, which keeps the box that the
+     timeline measures equal to the box that the column sticks within. */
+  view-timeline: --docs block;
 
   @media (width <= 900px) {
     gap: 0;
-    padding: 0 1.25rem 3rem;
+    margin-block-end: 3rem;
+    padding-inline: 1.25rem;
   }
 }
 
@@ -598,7 +604,39 @@ html:has(.docs-page) {
     /* Aligns the navigation with the logo above it. */
     > [data-neo-sidebar-content] {
       padding-inline: 0;
+
+      /* At the top of the page the header pushes the end of the column below
+         the viewport, and at the end the footer pushes its start above it.
+         Morpheus sets overscroll-behavior to contain, which keeps a scroll of
+         the navigation from scrolling the page. The padding grows by the part
+         out of view, which keeps every link within reach of the navigation
+         alone. Without scroll-driven animations the scroll passes on to the
+         page instead. */
+      @supports (animation-timeline: view()) {
+        animation: docs-nav-enter linear, docs-nav-leave linear;
+        animation-timeline: --docs;
+        animation-range: entry, exit;
+      }
+      @supports not (animation-timeline: view()) {
+        overscroll-behavior: auto;
+      }
     }
+  }
+}
+
+/* While .docs enters the viewport, the end of the column below the viewport
+   shrinks from 100dvh to 0. */
+@keyframes docs-nav-enter {
+  from {
+    padding-block-end: calc(var(--neo-sidebar-padding) + 100dvh);
+  }
+}
+
+/* While .docs leaves the viewport, the start of the column above the viewport
+   grows from 0 to 100dvh. */
+@keyframes docs-nav-leave {
+  to {
+    padding-block-start: calc(var(--neo-sidebar-padding) + 100dvh);
   }
 }
 
