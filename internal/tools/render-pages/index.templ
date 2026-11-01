@@ -7,7 +7,7 @@ var exampleGoTxt string
 
 // indexPage is the landing page of edition e, which leads to its default version.
 templ indexPage(e edition) {
-	{{ docs := "docs/" + e.defaultVersion() + "/" }}
+	{{ docs := "docs/" + versionDir(e.defaultVersion()) + "/" }}
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -34,7 +34,10 @@ templ indexPage(e edition) {
 					<div class="gopher">
 						@svgGopher()
 					</div>
-					<h1>Write your web frontend <span class="accent">entirely in <i>Go</i></span></h1>
+					<h1>
+						Write your web frontend
+						<span class="accent">entirely in <i>Go</i></span>
+					</h1>
 					<p class="subtitle">
 						Focus on your business logic
 						<br/>
@@ -77,12 +80,15 @@ templ docsIndex(e edition) {
 	<html lang="en">
 		<head>
 			<meta charset="utf-8"/>
-			<meta http-equiv="refresh" content={ "0; url=" + e.defaultVersion() + "/" }/>
+			<meta
+				http-equiv="refresh"
+				content={ "0; url=" + versionDir(e.defaultVersion()) + "/" }
+			/>
 			<title>Datapages documentation</title>
 			<link rel="icon" href="../favicon.svg" type="image/svg+xml"/>
 		</head>
 		<body>
-			<a href={ e.defaultVersion() + "/" }>Datapages documentation</a>
+			<a href={ versionDir(e.defaultVersion()) + "/" }>Datapages documentation</a>
 		</body>
 	</html>
 }

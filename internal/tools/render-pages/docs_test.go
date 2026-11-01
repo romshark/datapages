@@ -451,8 +451,7 @@ func TestCallouts(t *testing.T) {
 	}
 }
 
-// TestHeadingLinks tests that every heading below level 1 ends with a link to
-// itself.
+// TestHeadingLinks tests that every heading below level 1 ends with a link to itself.
 func TestHeadingLinks(t *testing.T) {
 	body := convert(t, "# Title\n\n## The `App` type\n").body
 	require.Contains(t, body, `<h1 id="title">Title</h1>`)
@@ -551,8 +550,8 @@ func TestSkipLink(t *testing.T) {
 	}, nil, mainVersion)
 	require.NoError(t, err)
 	for name, c := range map[string]templ.Component{
-		"landing page": indexPage(edition{version: "v1"}),
-		"docs page":    docsPage(newView(testPages, docs, 1, edition{version: "v1"})),
+		"landing page": indexPage(edition{version: "v1.2.3"}),
+		"docs page":    docsPage(newView(testPages, docs, 1, edition{version: "v1.2.3"})),
 	} {
 		t.Run(name, func(t *testing.T) {
 			html := render(t, c)
@@ -566,9 +565,8 @@ func TestSkipLink(t *testing.T) {
 	}
 }
 
-// TestTemplateIDs tests that templateIDs lists every element ID that the
-// template of a docs page writes, which the code blocks and headings of the
-// page do not take.
+// TestTemplateIDs tests that templateIDs lists every element ID that the template of
+// a docs page writes, which the code blocks and headings of the page do not take.
 func TestTemplateIDs(t *testing.T) {
 	docs, err := convertDocs(testPages, [][]byte{
 		[]byte("# Introduction\n"),
@@ -577,7 +575,7 @@ func TestTemplateIDs(t *testing.T) {
 		nil,
 	}, nil, mainVersion)
 	require.NoError(t, err)
-	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1"})))
+	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1.2.3"})))
 	written := make(map[string]bool)
 	ids := regexp.MustCompile(` id="([^"]+)"`)
 	for _, m := range ids.FindAllStringSubmatch(html, -1) {

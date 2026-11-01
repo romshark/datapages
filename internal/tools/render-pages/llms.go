@@ -57,7 +57,7 @@ func rootLlmsTxt(e edition, description string) []byte {
 	b.WriteString("## Versions\n\n")
 	if e.release != "" {
 		fmt.Fprintf(&b, "- [%s](docs/%s/llms.txt): The latest release\n",
-			e.release, e.release)
+			e.release, versionDir(e.release))
 	}
 	fmt.Fprintf(&b, "- [%s](docs/%s/llms.txt): The main branch, unreleased\n",
 		mainVersion, mainVersion)

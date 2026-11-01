@@ -30,6 +30,7 @@ func TestNewEdition(t *testing.T) {
 		},
 		"no version":             {wantErr: true},
 		"neither main nor a tag": {version: "dev", wantErr: true},
+		"tag without patch":      {version: "v1.0", wantErr: true},
 		"release with -release": {
 			version: "v1.0.0", release: "v1.0.0",
 			wantErr: true,
@@ -61,26 +62,26 @@ func TestVersions(t *testing.T) {
 		want       []versionLink
 	}{
 		"release": {
-			e:    edition{version: "v1"},
+			e:    edition{version: "v1.2.3"},
 			base: "./", path: "events",
 			want: []versionLink{
-				{Version: "v1", Current: true, Href: "../v1/events", Fallback: "../v1/"},
+				{Version: "v1.2.3", Current: true, Href: "../v1.2/events", Fallback: "../v1.2/"},
 				{Version: "main", Href: "../main/events", Fallback: "../main/"},
 			},
 		},
 		"first page of a release": {
-			e:    edition{version: "v1"},
+			e:    edition{version: "v1.2.3"},
 			base: "./", path: "",
 			want: []versionLink{
-				{Version: "v1", Current: true, Href: "../v1/", Fallback: "../v1/"},
+				{Version: "v1.2.3", Current: true, Href: "../v1.2/", Fallback: "../v1.2/"},
 				{Version: "main", Href: "../main/", Fallback: "../main/"},
 			},
 		},
 		"main next to a release": {
-			e:    edition{version: "main", release: "v1"},
+			e:    edition{version: "main", release: "v1.2.3"},
 			base: "./", path: "events",
 			want: []versionLink{
-				{Version: "v1", Href: "../v1/events", Fallback: "../v1/"},
+				{Version: "v1.2.3", Href: "../v1.2/events", Fallback: "../v1.2/"},
 				{
 					Version: "main", Current: true,
 					Href: "../main/events", Fallback: "../main/",
@@ -98,12 +99,12 @@ func TestVersions(t *testing.T) {
 			},
 		},
 		"page in a directory": {
-			e:    edition{version: "v1"},
+			e:    edition{version: "v1.2.3"},
 			base: "../", path: "a/b",
 			want: []versionLink{
 				{
-					Version: "v1", Current: true,
-					Href: "../../v1/a/b", Fallback: "../../v1/",
+					Version: "v1.2.3", Current: true,
+					Href: "../../v1.2/a/b", Fallback: "../../v1.2/",
 				},
 				{Version: "main", Href: "../../main/a/b", Fallback: "../../main/"},
 			},
@@ -133,26 +134,26 @@ func TestEditionPages(t *testing.T) {
 		want, wantNot []string
 	}{
 		"release": {
-			e: edition{version: "v1"},
+			e: edition{version: "v1.2.3"},
 			want: []string{
-				`<neo-select value="v1" size="sm" aria-label="Documentation version"`,
+				`<neo-select value="v1.2.3" size="sm" aria-label="Documentation version"`,
 				`class="version-select"`,
-				`value="v1" data-neo-value="v1" data-fallback="../../v1/"` +
-					` data-href="../../v1/docs/events">v1</neo-option>`,
+				`value="v1.2.3" data-neo-value="v1.2.3" data-fallback="../../v1.2/"` +
+					` data-href="../../v1.2/docs/events">v1.2.3</neo-option>`,
 				`value="main" data-neo-value="main" data-fallback="../../main/"` +
 					` data-href="../../main/docs/events">main</neo-option>`,
 			},
 			wantNot: []string{`class="main-note"`, noindex},
 		},
 		"main next to a release": {
-			e: edition{version: "main", release: "v1"},
+			e: edition{version: "main", release: "v1.2.3"},
 			want: []string{
 				`<neo-select value="main" size="sm"`,
-				`data-href="../../v1/docs/events">v1</neo-option>`,
+				`data-href="../../v1.2/docs/events">v1.2.3</neo-option>`,
 				`<p class="main-note" role="note">` +
 					`This page documents the unreleased main branch. ` +
-					`Read <a href="../../v1/docs/events" data-fallback="../../v1/">` +
-					`the page of v1</a>, the latest release.</p>`,
+					`Read <a href="../../v1.2/docs/events" data-fallback="../../v1.2/">` +
+					`the page of v1.2.3</a>, the latest release.</p>`,
 				noindex,
 			},
 		},
@@ -191,7 +192,7 @@ func TestDocsPageLinks(t *testing.T) {
 		nil,
 	}, nil, mainVersion)
 	require.NoError(t, err)
-	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1"})))
+	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1.2.3"})))
 	for _, want := range []string{
 		`<a class="logo" href="../../../" aria-label="Datapages home">`,
 		`<a class="header-link" href="../" aria-current="page">Docs</a>`,
@@ -213,13 +214,13 @@ func TestLandingPage(t *testing.T) {
 		want, wantNot []string
 	}{
 		"main next to a release": {
-			e: edition{version: "main", release: "v1"},
+			e: edition{version: "main", release: "v1.2.3"},
 			want: []string{
-				"datapages/cmd/datapages@v1</div>",
-				`<a href="docs/v1/installation" class="btn btn-primary">`,
-				`<a href="docs/v1/" class="btn btn-secondary">`,
-				`<a class="header-link" href="docs/v1/">Docs</a>`,
-				`<a class="icon-link" href="docs/v1/changelog">`,
+				"datapages/cmd/datapages@v1.2.3</div>",
+				`<a href="docs/v1.2/installation" class="btn btn-primary">`,
+				`<a href="docs/v1.2/" class="btn btn-secondary">`,
+				`<a class="header-link" href="docs/v1.2/">Docs</a>`,
+				`<a class="icon-link" href="docs/v1.2/changelog">`,
 			},
 			wantNot: []string{"neo-select"},
 		},
@@ -245,8 +246,8 @@ func TestLandingPage(t *testing.T) {
 }
 
 // TestSiteFiles tests that a run writes the files of its version under
-// docs/<version>/ with the assets that the pages load, and that only the run
-// for main writes the files outside of the versions.
+// docs/main/ or docs/<feature version>/ with the assets that the pages load,
+// and that only the run for main writes the files outside of the versions.
 func TestSiteFiles(t *testing.T) {
 	docs, err := readDocs(t.TempDir(), mainVersion, true)
 	require.NoError(t, err)
@@ -254,18 +255,20 @@ func TestSiteFiles(t *testing.T) {
 
 	for name, tt := range map[string]struct {
 		e       edition
+		dir     string
 		outside []string
 	}{
-		"release": {e: edition{version: "v1"}},
+		"release": {e: edition{version: "v1.2.3"}, dir: "docs/v1.2/"},
 		"main next to a release": {
-			e:       edition{version: "main", release: "v1"},
+			e:       edition{version: "main", release: "v1.2.3"},
+			dir:     "docs/main/",
 			outside: []string{"docs/index.html", "index.html", "llms.txt"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			files, err := siteFiles(docs, tt.e, assets)
 			require.NoError(t, err)
-			dir := "docs/" + tt.e.version + "/"
+			dir := tt.dir
 			var outside []string
 			for name := range files {
 				if !strings.HasPrefix(name, dir) {
@@ -288,9 +291,9 @@ func TestSiteFiles(t *testing.T) {
 // TestDocsIndex tests that docs/ of the site opens the first page of the
 // default version.
 func TestDocsIndex(t *testing.T) {
-	html := render(t, docsIndex(edition{version: "main", release: "v1"}))
-	require.Contains(t, html, `<meta http-equiv="refresh" content="0; url=v1/">`)
-	require.Contains(t, html, `<a href="v1/">`)
+	html := render(t, docsIndex(edition{version: "main", release: "v1.2.3"}))
+	require.Contains(t, html, `<meta http-equiv="refresh" content="0; url=v1.2/">`)
+	require.Contains(t, html, `<a href="v1.2/">`)
 	require.Contains(t, html, `<link rel="icon" href="../favicon.svg"`)
 }
 
@@ -300,9 +303,9 @@ func TestRootLlmsTxt(t *testing.T) {
 	require.Equal(t, "# Datapages\n\n> Intro.\n\n"+
 		"Each link leads to the llms.txt of a version of the documentation.\n\n"+
 		"## Versions\n\n"+
-		"- [v1](docs/v1/llms.txt): The latest release\n"+
+		"- [v1.2.3](docs/v1.2/llms.txt): The latest release\n"+
 		"- [main](docs/main/llms.txt): The main branch, unreleased\n",
-		string(rootLlmsTxt(edition{version: "main", release: "v1"}, "Intro.")))
+		string(rootLlmsTxt(edition{version: "main", release: "v1.2.3"}, "Intro.")))
 	require.NotContains(t,
 		string(rootLlmsTxt(edition{version: "main"}, "Intro.")), "latest release")
 }
@@ -310,20 +313,20 @@ func TestRootLlmsTxt(t *testing.T) {
 // TestGitHubLinksFollowTheRef tests that the pages of a release link the files
 // of the repository and their own file at the release tag, not on main.
 func TestGitHubLinksFollowTheRef(t *testing.T) {
-	const tree = "https://github.com/romshark/datapages/blob/v1/"
+	const tree = "https://github.com/romshark/datapages/blob/v1.2.3/"
 	docs, err := convertDocs(testPages, [][]byte{
 		[]byte("# Introduction\n"),
 		[]byte("# Events\n\nSee [the FAQ](../FAQ.md) and [examples](../example/).\n"),
 		[]byte("# Spec\n"),
 		nil,
-	}, nil, "v1")
+	}, nil, "v1.2.3")
 	require.NoError(t, err)
 
 	require.Contains(t, docs[1].body, `<a href="`+tree+`FAQ.md">`)
 	require.Contains(t, docs[1].body,
-		`<a href="https://github.com/romshark/datapages/tree/v1/example/">`)
+		`<a href="https://github.com/romshark/datapages/tree/v1.2.3/example/">`)
 	require.Contains(t, string(docs[1].markdown), "("+tree+"FAQ.md)")
-	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1"})))
+	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1.2.3"})))
 	require.Contains(t, html, `<a class="icon-link" href="`+tree+`guide/events.md">`)
 }
 
@@ -338,7 +341,7 @@ func TestMorpheusAssets(t *testing.T) {
 		nil,
 	}, nil, mainVersion)
 	require.NoError(t, err)
-	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1"})))
+	html := render(t, docsPage(newView(testPages, docs, 1, edition{version: "v1.2.3"})))
 
 	for _, want := range []string{
 		`<link rel="stylesheet" href="../morpheus/morpheus.min.css">`,

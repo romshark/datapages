@@ -14,7 +14,7 @@ The [Pages workflow](../../../.github/workflows/pages.yml) renders and deploys t
 
 ## Versions
 
-The site serves the pages of the latest release under `/docs/<tag>/` and the pages of the main branch under `/docs/main/`. Each version renders with the render-pages of its own commit. Until a release has render-pages, the site serves main alone.
+The site serves the pages of the latest release under `/docs/<feature version>/`, as `/docs/v1.2/` for `v1.2.3`, and the pages of the main branch under `/docs/main/`. A patch release replaces the pages of the release before it at the same URLs. Each version renders with the render-pages of its own commit. Until a release has render-pages, the site serves main alone.
 
 | Flags | Pages |
 | ----- | ----- |
@@ -26,7 +26,7 @@ Links to files of the repository name the tag of a release and `main` for main. 
 
 ## Output
 
-Each version is a directory of `docs/docs/`, named after it, with:
+Each version is a directory of `docs/docs/`, `main/` or that of its feature version, with:
 
 - 1 HTML page and 1 Markdown copy for each page in `docPages` in [docs.go](docs.go)
 - `search.json`, the search index
