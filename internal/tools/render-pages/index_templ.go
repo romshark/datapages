@@ -59,7 +59,7 @@ func indexPage(e edition) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = siteHeader("./", docs, "", nil).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = siteHeader("./", docs, "", nil, nil).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

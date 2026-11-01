@@ -37,22 +37,26 @@ type docPage struct {
 	// tocDepth is the deepest heading level that the contents of the page list.
 	// 0 means 3.
 	tocDepth int
+	// suggested marks a page that the search offers while its field is empty.
+	suggested bool
 }
 
 // docPages are the entries of the navigation in its order,
 // which the previous and next links of the pages follow.
 var docPages = []docPage{
 	{
-		file:  "guide/README.md",
-		path:  "",
-		title: "Introduction",
-		group: "Get started",
+		file:      "guide/README.md",
+		path:      "",
+		title:     "Introduction",
+		group:     "Get started",
+		suggested: true,
 	},
 	{
-		file:  "guide/installation.md",
-		path:  "installation",
-		title: "Installation",
-		group: "Get started",
+		file:      "guide/installation.md",
+		path:      "installation",
+		title:     "Installation",
+		group:     "Get started",
+		suggested: true,
 	},
 	{
 		file:  "guide/upgrading.md",
@@ -61,10 +65,11 @@ var docPages = []docPage{
 		group: "Get started",
 	},
 	{
-		file:  "guide/tutorial/README.md",
-		path:  "tutorial/",
-		title: "Overview",
-		group: "Tutorial",
+		file:      "guide/tutorial/README.md",
+		path:      "tutorial/",
+		title:     "Overview",
+		group:     "Tutorial",
+		suggested: true,
 	},
 	{
 		file:  "guide/tutorial/create-project.md",
@@ -115,10 +120,11 @@ var docPages = []docPage{
 		group: "Tutorial",
 	},
 	{
-		file:  "guide/application-model.md",
-		path:  "application-model",
-		title: "Application model",
-		group: "Concepts",
+		file:      "guide/application-model.md",
+		path:      "application-model",
+		title:     "Application model",
+		group:     "Concepts",
+		suggested: true,
 	},
 	{
 		file:  "guide/request-lifecycle.md",
@@ -260,10 +266,11 @@ var docPages = []docPage{
 		group: "More",
 	},
 	{
-		file:  "FAQ.md",
-		path:  "faq",
-		title: "FAQ",
-		group: "More",
+		file:      "FAQ.md",
+		path:      "faq",
+		title:     "FAQ",
+		group:     "More",
+		suggested: true,
 	},
 }
 
@@ -348,6 +355,27 @@ func contents(d doc) []tocEntry {
 	return toc
 }
 
+// suggestion is a page that the search offers while its field is empty.
+type suggestion struct {
+	Group, Title string
+	Href         string // Relative to the page that shows the search.
+}
+
+// suggestions returns the suggested pages of pages, linked from pages[current].
+func suggestions(pages []docPage, current int) []suggestion {
+	var s []suggestion
+	for _, p := range pages {
+		if p.suggested {
+			s = append(s, suggestion{
+				Group: p.group,
+				Title: p.title,
+				Href:  pages[current].base() + p.path,
+			})
+		}
+	}
+	return s
+}
+
 // navGroup is a group of the navigation.
 type navGroup struct {
 	Title   string
@@ -411,19 +439,21 @@ type docView struct {
 	prev, next navEntry
 	edition    edition
 	versions   []versionLink // The versions that the header offers.
+	suggested  []suggestion
 }
 
 // newView returns the view of docs[i], the doc of pages[i], in edition e.
 func newView(pages []docPage, docs []doc, i int, e edition) docView {
 	prev, next := neighbors(pages, i)
 	return docView{
-		doc:      docs[i],
-		nav:      navigation(pages, i),
-		toc:      contents(docs[i]),
-		prev:     prev,
-		next:     next,
-		edition:  e,
-		versions: e.versions(pages[i].base(), pages[i].path),
+		doc:       docs[i],
+		nav:       navigation(pages, i),
+		toc:       contents(docs[i]),
+		prev:      prev,
+		next:      next,
+		edition:   e,
+		versions:  e.versions(pages[i].base(), pages[i].path),
+		suggested: suggestions(pages, i),
 	}
 }
 

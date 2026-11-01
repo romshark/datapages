@@ -993,6 +993,42 @@ neo-dialog.search dialog {
   }
 }
 
+.search-heading {
+  padding: 0.75rem 1rem 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* A touch screen has no keys to list. */
+.search-keys {
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-block-start: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+
+  span {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  kbd {
+    min-inline-size: 1.25rem;
+    padding: 0 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    text-align: center;
+  }
+
+  @media (pointer: coarse) {
+    display: none;
+  }
+}
+
 .docs-content {
   min-inline-size: 0;
   padding-block: 1rem;

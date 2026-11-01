@@ -118,7 +118,11 @@ if (search) {
 	const dialog = search.querySelector("dialog");
 	const input = search.querySelector(".search-input");
 	const list = search.querySelector(".search-results");
+	const heading = search.querySelector(".search-heading");
 	const status = search.querySelector(".search-status");
+	// The suggested pages, which the template writes into the list. The list
+	// shows them while the field is empty.
+	const suggested = [...list.children];
 	const limit = 20;
 
 	let index = null;
@@ -201,7 +205,6 @@ if (search) {
 		return s;
 	};
 
-	let results = [];
 	let active = -1;
 
 	const select = (i) => {
@@ -220,6 +223,23 @@ if (search) {
 	const go = (a) => {
 		dialog.close();
 		location.href = a.href;
+	};
+
+	// hover selects li, the option at index i, when the pointer moves over it.
+	const hover = (li, i) => {
+		li.addEventListener("mousemove", () => {
+			if (active !== i) {
+				select(i);
+			}
+		});
+	};
+	suggested.forEach(hover);
+
+	const show = (options, label) => {
+		list.replaceChildren(...options);
+		list.setAttribute("aria-label", label);
+		heading.hidden = options !== suggested || suggested.length === 0;
+		input.setAttribute("aria-expanded", String(options.length > 0));
 	};
 
 	const item = (e, i, ws) => {
@@ -243,21 +263,15 @@ if (search) {
 			a.append(text);
 		}
 		li.append(a);
-		li.addEventListener("mousemove", () => {
-			if (active !== i) {
-				select(i);
-			}
-		});
+		hover(li, i);
 		return li;
 	};
 
 	const render = async () => {
 		const ws = words(input.value);
 		if (ws.length === 0) {
-			results = [];
-			list.replaceChildren();
+			show(suggested, "Suggested pages");
 			status.textContent = "";
-			input.setAttribute("aria-expanded", "false");
 			select(-1);
 			return;
 		}
@@ -272,24 +286,24 @@ if (search) {
 		if (words(input.value).join(" ") !== ws.join(" ")) {
 			return;
 		}
-		results = entries
+		const results = entries
 			.map((e) => [score(e, ws), e])
 			.filter(([s]) => s > 0)
 			.sort((a, b) => b[0] - a[0])
 			.slice(0, limit)
-			.map(([, e]) => e);
-		list.replaceChildren(...results.map((e, i) => item(e, i, ws)));
+			.map(([, e], i) => item(e, i, ws));
+		show(results, "Results");
 		status.textContent = results.length === 0 ? "No results." : "";
-		input.setAttribute("aria-expanded", String(results.length > 0));
 		select(results.length > 0 ? 0 : -1);
 	};
 
 	input.addEventListener("input", render);
 	input.addEventListener("keydown", (e) => {
-		if (e.key === "ArrowDown" && results.length > 0) {
+		const n = list.children.length;
+		if (e.key === "ArrowDown" && n > 0) {
 			e.preventDefault();
-			select(Math.min(active + 1, results.length - 1));
-		} else if (e.key === "ArrowUp" && results.length > 0) {
+			select(Math.min(active + 1, n - 1));
+		} else if (e.key === "ArrowUp" && n > 0) {
 			e.preventDefault();
 			select(Math.max(active - 1, 0));
 		} else if (e.key === "Enter" && active >= 0) {

@@ -34,7 +34,7 @@ templ docsPage(v docView) {
 		</head>
 		<body class="docs-page" data-site-root={ v.base() }>
 			@skipLink()
-			@siteHeader(v.home(), v.base(), v.section(), v.versions) {
+			@siteHeader(v.home(), v.base(), v.section(), v.versions, v.suggested) {
 				@neo.ButtonAttrs(neo.ButtonOpts{
 					Variant: neo.Set(neo.ButtonVariantGhost),
 				}, templ.Attributes{
@@ -138,11 +138,14 @@ templ skipLink() {
 // siteHeader is the header of every page. home is the URL of the site root
 // relative to the page, docs the URL of the root of the version that the
 // header links, and section the part of the site that the page belongs to:
-// "docs", "examples", "faq" or "" for none. A page with versions is
+// "docs", "examples", "faq" or "" for none. suggested are the pages that the
+// search offers while its field is empty. A page with versions is
 // a documentation page, which has a menu of the versions that the site serves
 // and loads Morpheus for it, the search and the theme menu. The children come first in the navigation, as the Menu button
 // of a documentation page.
-templ siteHeader(home, docs, section string, versions []versionLink) {
+templ siteHeader(
+	home, docs, section string, versions []versionLink, suggested []suggestion,
+) {
 	<header class="site-header">
 		<div class="brand">
 			<a class="logo" href={ home } aria-label="Datapages home">
@@ -163,7 +166,7 @@ templ siteHeader(home, docs, section string, versions []versionLink) {
 				GitHub
 			</a>
 			if len(versions) > 0 {
-				@searchDialog()
+				@searchDialog(suggested)
 				@themeMenu()
 			}
 			@themeSwitch()
@@ -252,7 +255,8 @@ templ siteFooter(docs string) {
 
 // searchDialog is the search button of the header and the dialog that it
 // opens. docs.js searches search.json and lists the results in the dialog.
-templ searchDialog() {
+// While the field is empty, the dialog lists the suggested pages instead.
+templ searchDialog(suggested []suggestion) {
 	@neo.DialogAttrs(neo.DialogOpts{}, templ.Attributes{"class": "search"}) {
 		<button
 			type="button"
@@ -273,20 +277,35 @@ templ searchDialog() {
 					placeholder="Search the documentation"
 					aria-label="Search the documentation"
 					role="combobox"
-					aria-expanded="false"
+					aria-expanded={ strconv.FormatBool(len(suggested) > 0) }
 					aria-controls="search-results"
 					aria-autocomplete="list"
 					autocomplete="off"
 					spellcheck="false"
 				/>
 			</div>
+			<p class="search-heading" hidden?={ len(suggested) == 0 }>Suggested</p>
 			<ul
 				class="search-results"
 				id="search-results"
 				role="listbox"
-				aria-label="Results"
-			></ul>
+				aria-label="Suggested pages"
+			>
+				for i, s := range suggested {
+					<li id={ "search-suggestion-" + strconv.Itoa(i) } role="option" aria-selected="false">
+						<a href={ s.Href } tabindex="-1">
+							<span class="result-page">{ s.Group }</span>
+							<span class="result-section">{ s.Title }</span>
+						</a>
+					</li>
+				}
+			</ul>
 			<p class="search-status" role="status"></p>
+			<p class="search-keys" aria-hidden="true">
+				<span><kbd>&uarr;</kbd><kbd>&darr;</kbd> select</span>
+				<span><kbd>&crarr;</kbd> open</span>
+				<span><kbd>esc</kbd> close</span>
+			</p>
 		</dialog>
 	}
 }

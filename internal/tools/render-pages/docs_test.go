@@ -525,6 +525,36 @@ func TestLLMSTxt(t *testing.T) {
 }
 
 // render returns the HTML of c.
+// TestSuggestions tests that the search of a page offers the suggested pages,
+// linked relative to the page, and hides its heading without them.
+func TestSuggestions(t *testing.T) {
+	pages := []docPage{
+		{path: "", title: "Introduction", group: "Get started", suggested: true},
+		{path: "guide/events", title: "Events", group: "Guides"},
+		{path: "faq", title: "FAQ", group: "More", suggested: true},
+	}
+	suggested := suggestions(pages, 1)
+	require.Equal(t, []suggestion{
+		{Group: "Get started", Title: "Introduction", Href: "../"},
+		{Group: "More", Title: "FAQ", Href: "../faq"},
+	}, suggested)
+
+	html := render(t, searchDialog(suggested))
+	for _, want := range []string{
+		`aria-expanded="true"`,
+		`<p class="search-heading">Suggested</p>`,
+		`<li id="search-suggestion-1" role="option" aria-selected="false">`,
+		`<a href="../faq" tabindex="-1">`,
+		`<span class="result-section">FAQ</span>`,
+	} {
+		require.Contains(t, html, want)
+	}
+
+	html = render(t, searchDialog(nil))
+	require.Contains(t, html, `aria-expanded="false"`)
+	require.Contains(t, html, `<p class="search-heading" hidden>Suggested</p>`)
+}
+
 // TestGroupIcons tests that every group of the navigation has an icon.
 func TestGroupIcons(t *testing.T) {
 	for _, p := range docPages {
