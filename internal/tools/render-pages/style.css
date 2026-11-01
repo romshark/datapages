@@ -189,6 +189,16 @@ a {
       }
     }
 
+    /* The links take the second row. On the landing page the theme switch
+       ends it, below the badges. A docs page hides the switch at this width. */
+    nav {
+      flex-basis: 100%;
+    }
+
+    .theme-switch {
+      margin-inline-start: auto;
+    }
+
     /* On a docs page the links take the second row after the Menu button.
        The header sticks with the first row above the viewport, which keeps the
        second row in view. */
@@ -204,7 +214,6 @@ a {
       /* With the gap of 1.5rem the search button has no room for its label
          below a 666px wide viewport, measured in Chrome on macOS. */
       nav {
-        flex-basis: 100%;
         justify-content: flex-end;
         gap: 1rem;
       }
