@@ -11,8 +11,13 @@ A case is a module of its own, which keeps it out of `go build ./...` and
 and a case runs by hand:
 
 ```sh
-(cd internal/acceptance/routing && go test -race ./...)
+(cd internal/acceptance/routing && GORACE=atexit_sleep_ms=0 go test -race ./...)
 ```
+
+A binary built with `-race` sleeps 1s before it exits, which lets a goroutine still
+running report a race. `GORACE=atexit_sleep_ms=0` drops the sleep, which halves the
+run of a small case. The cleanup of `datapagestest` waits for the server's
+connections to close, which leaves few goroutines running at exit.
 
 `mage genDatapages` regenerates every case and every example.
 
@@ -49,7 +54,7 @@ The flag `-parallel` bounds how many cases run in parallel. It defaults to `GOMA
   and the `TestContract` of a case therefore does not call `t.Parallel`.
 - No request goes over `http.DefaultTransport`, which `http.DefaultClient`,
   `http.Get` and an `http.Client` without a `Transport` use. Send through
-  `srv.Client()`, `client.Client.HTTP` or a transport the test creates.
+  `datapagestest`, `Visitor.Client` or a transport the test creates.
   `httptest.Server.Close` closes the idle connections of `http.DefaultTransport`,
   and net/http returns a connection to the idle pool before it hands over a
   response without a body. A parallel test closing its server in that window
@@ -76,18 +81,27 @@ generated once and committed; every run compiles it.
 case's 4 type arguments and fails the test on a configuration error, which
 no test can carry on from.
 
-## The client
+## Sending requests
 
-[`client`](client) speaks the protocol for a case: the headers a Datastar
-request carries, and reading an SSE stream in the background.
-A case writes only the requests that are its own.
+A case sends its requests with [`datapagestest`](../../datapagestest), the package
+an application's tests use. A visitor loads pages, sends actions and holds streams
+the way a browser running Datastar does, over in-memory connections. The package
+names no generated code: a case keeps everything the model decides.
 
-It names no generated code. A case keeps everything the model decides.
-[`multiapp/instances_test.go`](multiapp/instances_test.go) uses a page load,
-an action, a stream and a cookie jar.
+A request a browser does not send goes through the visitor's `Client`: a stream
+under a forged instance id, a stream refused at the instance cap, a stream request
+with a header of its own. See [`statefulpages`](statefulpages/acceptance_test.go).
+A test that needs a real socket, such as one of `ListenAndServe`, dials its own.
 
-SSE streams and bodies of at least 256 bytes are compressed by default.
-The client asks for `Accept-Encoding: identity` to read the handler's bytes.
+A test shows that an event did not reach a stream with `Stream.Absent` and an
+anchor: an event published afterwards that the stream does receive. The brokers
+deliver in publication order, which makes the anchor arrive after anything
+published before it. See [`events`](events/events_test.go). A fixed wait passes
+when the event arrives after it, and slows every run by its length.
+
+Event streams and bodies of at least 256 bytes are compressed when the request
+names an encoding. `Visitor.Send` asks for `Accept-Encoding: identity` unless the
+request names one, which makes what a test reads the bytes the handler wrote.
 The in-memory broker matches NATS subjects. `*` covers 1 token, and `>` covers
 the rest. See `wildcardsubjects`.
 

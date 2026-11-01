@@ -9,22 +9,23 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/errors/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// newFailing404Client returns a client of a server whose 404 page fails with ErrNotFound.
-func newFailing404Client(t *testing.T) *client.Client {
+// serveFailing404 serves the app with a 404 page that fails with ErrNotFound.
+func serveFailing404(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{Error404Fails: true},
+	return datapagestest.New(t, mustNewServer(t, &app.App{Error404Fails: true},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
@@ -39,9 +40,10 @@ func TestNotFoundPage(t *testing.T) {
 
 	for name, path := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := newClient(t)
-			resp := c.Get(t, path)
-			require.Equal(t, "not found: "+path, resp.Element(t, "echo"))
+			v := serve(t).Visitor(t)
+			resp := v.Get(t, path)
+			require.Equal(t, "not found: "+path,
+				resp.Get(t, datapagestest.ID("echo")).Text())
 		})
 	}
 }
@@ -51,11 +53,11 @@ func TestNotFoundPage(t *testing.T) {
 // failed page load is answered with.
 func TestServerErrorPageRoute(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/server-error/")
+	resp := v.Get(t, "/server-error/")
 	require.Equal(t, http.StatusOK, resp.Status)
-	require.Equal(t, "server error", resp.Element(t, "echo"))
+	require.Equal(t, "server error", resp.Get(t, datapagestest.ID("echo")).Text())
 }
 
 // TestFailedPageLoad tests the status and the page a page load gets for the
@@ -76,14 +78,14 @@ func TestFailedPageLoad(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := newClient(t)
-			resp := c.Get(t, tt.path)
+			v := serve(t).Visitor(t)
+			resp := v.Get(t, tt.path)
 
 			require.Equal(t, tt.status, resp.Status, resp.Body)
 			if tt.page == "" {
 				require.Equal(t, http.StatusText(tt.status)+"\n", resp.Body)
 			} else {
-				require.Equal(t, tt.page, resp.Element(t, "echo"))
+				require.Equal(t, tt.page, resp.Get(t, datapagestest.ID("echo")).Text())
 			}
 			for _, leaked := range []string{
 				"the page could not be built", "no such item", "not the owner",
@@ -112,8 +114,8 @@ func TestFailingError404PageStillAnswers(t *testing.T) {
 
 	for name, path := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := newFailing404Client(t)
-			resp := c.Get(t, path)
+			v := serveFailing404(t).Visitor(t)
+			resp := v.Get(t, path)
 
 			require.Equal(t, http.StatusNotFound, resp.Status, resp.Body)
 			require.Equal(t, http.StatusText(http.StatusNotFound)+"\n", resp.Body)
@@ -140,8 +142,11 @@ func TestActionErrorStatus(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := newClient(t)
-			resp := c.Action(t, http.MethodPost, tt.path, "")
+			// PageBoom declares these actions and fails to load, which leaves no tab
+			// of its own. A tab of the index page sends the same request:
+			// neither page has per-tab state.
+			tab := serve(t).Visitor(t).Load(t, "/")
+			resp := tab.Do(t, contract.Call(http.MethodPost, tt.path), nil)
 			require.Equal(t, tt.want, resp.Status, resp.Body)
 			for _, leaked := range []string{"no such item", "something went wrong"} {
 				require.NotContains(t, resp.Body, leaked,
@@ -155,9 +160,9 @@ func TestActionErrorStatus(t *testing.T) {
 // A cached 500 outlives the failure that caused it.
 func TestFailedPageLoadIsNotCached(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/boom/")
+	resp := v.Get(t, "/boom/")
 
 	cc := resp.Header.Get("Cache-Control")
 	if strings.Contains(cc, "max-age") {
@@ -179,8 +184,8 @@ func TestOpenStreamGetsNoStatus(t *testing.T) {
 
 	for name, path := range tests {
 		t.Run(name, func(t *testing.T) {
-			c := newClient(t)
-			resp := c.Action(t, http.MethodPost, path, "")
+			tab := serve(t).Visitor(t).Load(t, "/")
+			resp := tab.Do(t, contract.Call(http.MethodPost, path), nil)
 
 			require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
 			require.Equal(t, "text/event-stream",

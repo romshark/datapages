@@ -41,8 +41,9 @@ Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that mat
 | `datapages-offline` | offline pages, cached shims, the service worker |
 | `datapages-server` | server entry points, options, broker, static assets |
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Web Components, Templ pitfalls |
+| `datapages-testing` | tests of pages, actions, streams, events and sessions |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
 Full reference: https://github.com/romshark/datapages/blob/main/SPECIFICATION.md
 
-<!-- written by datapages sha256:b33a6635b8418664 -->
+<!-- written by datapages sha256:cef6d0be1f565621 -->

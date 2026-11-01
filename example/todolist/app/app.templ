@@ -47,28 +47,32 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 		<div class="toolbar">
 			<input
 				type="text"
+				aria-label="Search"
 				placeholder="Search..."
 				data-bind="search"
 				data-indicator:_searching
 				data-on:input__debounce.200ms={ action.PageIndex.Filter.POST() }
 			/>
 			<select
+				aria-label="Show"
 				data-bind="filter"
 				data-indicator:_filtering
 				data-on:change={ action.PageIndex.Filter.POST() }
 			>
-				<option value="all">All</option>
-				<option value="done">Done</option>
-				<option value="pending">Pending</option>
+				// selected shows the value before Datastar binds the signal.
+				<option value="all" selected?={ filter == "all" }>All</option>
+				<option value="done" selected?={ filter == "done" }>Done</option>
+				<option value="pending" selected?={ filter == "pending" }>Pending</option>
 			</select>
 			<select
+				aria-label="Sort by"
 				data-bind="sort"
 				data-indicator:_sorting
 				data-on:change={ action.PageIndex.Filter.POST() }
 			>
-				<option value="alpha">Alphabetical</option>
-				<option value="created">Created</option>
-				<option value="due">Due Date</option>
+				<option value="alpha" selected?={ sortMode == "alpha" }>Alphabetical</option>
+				<option value="created" selected?={ sortMode == "created" }>Created</option>
+				<option value="due" selected?={ sortMode == "due" }>Due Date</option>
 			</select>
 			<button class="btn-primary" data-on:click="$showModal=true">
 				+ New Todo
@@ -76,18 +80,28 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 		</div>
 		@todoList(todos)
 		<div class="modal-overlay" style="display:none" data-show="$showModal">
-			<div class="modal">
-				<h2>New Todo</h2>
-				<label>Title</label>
+			<div
+				class="modal"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="new-todo-heading"
+			>
+				<h2 id="new-todo-heading">New Todo</h2>
+				<label for="new-title">Title</label>
 				<input
+					id="new-title"
 					type="text"
 					data-bind="newTitle"
 					placeholder="What needs to be done?"
 				/>
-				<label>Description</label>
-				<textarea data-bind="newDesc" placeholder="Details..."></textarea>
-				<label>Due Date</label>
-				<input type="datetime-local" data-bind="newDue"/>
+				<label for="new-desc">Description</label>
+				<textarea
+					id="new-desc"
+					data-bind="newDesc"
+					placeholder="Details..."
+				></textarea>
+				<label for="new-due">Due Date</label>
+				<input id="new-due" type="datetime-local" data-bind="newDue"/>
 				<div class="modal-actions">
 					<button
 						data-on:click="
@@ -121,39 +135,47 @@ templ todoList(todos []list.Item) {
 	>
 		if len(todos) == 0 {
 			<p class="empty">No todos found.</p>
-		}
-		for _, t := range todos {
-			<div id={ "todo-" + t.ID } class={ "todo-row", templ.KV("done", t.Done) }>
-				// The checkbox id includes the done state so that the morph
-				// replaces the element instead of patching it in place.
-				// Patching only updates the HTML checked attribute, not the
-				// DOM checked property, leaving the checkbox visually stale.
-				//
-				// Signals are page-global. The todo ID in the signal path gives
-				// each row its own indicator.
-				<span class="check" data-class:loading={ "$_toggling." + t.ID }>
-					<input
-						id={ fmt.Sprintf("check-%s-%t", t.ID, t.Done) }
-						type="checkbox"
-						if t.Done {
-							checked
-						}
-						data-indicator={ "_toggling." + t.ID }
-						data-on:click={ action.App.Toggle.PUT(t.ID) }
-					/>
-				</span>
-				<a href={ href.PageItem(t.ID) } class="todo-content">
-					<span class="todo-title">{ t.Title }</span>
-					if t.Description != "" {
-						<span class="todo-desc">{ t.Description }</span>
-					}
-				</a>
-				if !t.DueAt.IsZero() {
-					<span class="due">Due by { t.DueAt.Format("Jan 2, 15:04") }</span>
-				}
-			</div>
+		} else {
+			<ul class="todo-rows" aria-label="Todos">
+				@todoRows(todos)
+			</ul>
 		}
 	</div>
+}
+
+templ todoRows(todos []list.Item) {
+	for _, t := range todos {
+		<li id={ "todo-" + t.ID } class={ "todo-row", templ.KV("done", t.Done) }>
+			// The checkbox id includes the done state so that the morph
+			// replaces the element instead of patching it in place.
+			// Patching only updates the HTML checked attribute, not the
+			// DOM checked property, leaving the checkbox visually stale.
+			//
+			// Signals are page-global.
+			// The todo ID in the signal path gives each row its own indicator.
+			<span class="check" data-class:loading={ "$_toggling." + t.ID }>
+				<input
+					id={ fmt.Sprintf("check-%s-%t", t.ID, t.Done) }
+					type="checkbox"
+					aria-label={ t.Title }
+					if t.Done {
+						checked
+					}
+					data-indicator={ "_toggling." + t.ID }
+					data-on:click={ action.App.Toggle.PUT(t.ID) }
+				/>
+			</span>
+			<a href={ href.PageItem(t.ID) } class="todo-content">
+				<span class="todo-title">{ t.Title }</span>
+				if t.Description != "" {
+					<span class="todo-desc">{ t.Description }</span>
+				}
+			</a>
+			if !t.DueAt.IsZero() {
+				<span class="due">Due by { t.DueAt.Format("Jan 2, 15:04") }</span>
+			}
+		</li>
+	}
 }
 
 templ pageItem(todo list.Item) {
@@ -171,15 +193,20 @@ templ pageItem(todo list.Item) {
 		</a>
 		@itemTitle(todo)
 		<div class="form">
-			<label data-class:saving="$_savingTitle">Title</label>
+			<label for="edit-title" data-class:saving="$_savingTitle">Title</label>
 			<input
+				id="edit-title"
 				type="text"
 				data-bind="title"
 				data-indicator:_saving-title
 				data-on:input__debounce.200ms={ action.PageItem.Edit.PUT(todo.ID) }
 			/>
-			<label data-class:saving="$_savingDescription">Description</label>
+			<label
+				for="edit-description"
+				data-class:saving="$_savingDescription"
+			>Description</label>
 			<textarea
+				id="edit-description"
 				data-bind="description"
 				data-indicator:_saving-description
 				data-on:input__debounce.200ms={ action.PageItem.Edit.PUT(todo.ID) }
@@ -195,8 +222,9 @@ templ pageItem(todo list.Item) {
 				</span>
 				Done
 			</label>
-			<label data-class:saving="$_savingDue">Due Date</label>
+			<label for="edit-due" data-class:saving="$_savingDue">Due Date</label>
 			<input
+				id="edit-due"
 				type="datetime-local"
 				data-bind="due"
 				data-indicator:_saving-due

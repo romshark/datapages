@@ -49,6 +49,7 @@ var skillNames = []string{
 	"datapages-sessions",
 	"datapages-state",
 	"datapages-templates",
+	"datapages-testing",
 	"datastar",
 }
 
@@ -412,7 +413,8 @@ func TestWriteReplacesV0100Files(t *testing.T) {
 		"testdata", "v0.10.0", "skills", "*", "SKILL.md",
 	))
 	require.NoError(t, err)
-	require.Len(t, skills, len(skillNames))
+	// v0.10.0 wrote every skill but datapages-testing, which came later.
+	require.Len(t, skills, len(skillNames)-1)
 	sessions := filepath.Join(filepath.FromSlash(agentdocs.SkillsDir),
 		"datapages-sessions", "SKILL.md")
 

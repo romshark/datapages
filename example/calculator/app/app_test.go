@@ -2,19 +2,19 @@ package app_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"log/slog"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/calculator/app"
 	"github.com/romshark/datapages/example/calculator/app/calc"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/calculator/app/datapagesgen/href"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
@@ -62,10 +62,15 @@ func TestQUERYInput(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			body, logs := query(t, tt.btn, tt.paste, tt.signals)
-			require.Empty(t, logs)
-			require.Contains(t, body, `data-signals:input="&#34;`+tt.input+`&#34;"`)
-			require.Contains(t, body, `<div class="display">`+tt.display+`</div>`)
+			tab, logs := load(t)
+			resp := query(t, tab, tt.btn, tt.paste, tt.signals)
+			require.Empty(t, logs.String())
+			calculator := resp.Event(t, datapagestest.Patched("page-calculator")).
+				Get(t, datapagestest.ID("page-calculator"))
+
+			require.Equal(t, tt.input, calculator.Signals(t)["input"], "the input signal")
+			require.Equal(t, tt.display,
+				calculator.Get(t, datapagestest.Role("status", "")).Text(), "the display")
 		})
 	}
 }
@@ -74,19 +79,55 @@ func TestQUERYInput(t *testing.T) {
 // than calc.MaxInputLen before evaluating it. calc.Evaluate recurses once per
 // parenthesis, and the default body limit of 1 MiB holds 1 million of them.
 func TestQUERYInputOverLimit(t *testing.T) {
-	body, logs := query(t, calc.CalcButtonEq, false,
+	tab, logs := load(t)
+	resp := query(t, tab, calc.CalcButtonEq, false,
 		signals{Input: strings.Repeat("(", calc.MaxInputLen+1)})
-	require.Empty(t, body)
-	require.Contains(t, logs, "invalid input signal")
+	require.Empty(t, resp.Body)
+	require.Contains(t, logs.String(), "invalid input signal")
 }
 
-// query sends the request the page sends for a press of btn or for a paste
-// and returns the response body and the server log.
+// TestPage tests what the calculator shows on load.
+func TestPage(t *testing.T) {
+	tab, _ := load(t)
+	want := datapagestest.Tree{
+		{Role: "heading", Name: "Calculator", Level: 1},
+		{Role: "status", Text: "0"},
+	}
+	for _, label := range []string{
+		"C", "⇐", "()", "÷", "7", "8", "9", "×", "4", "5", "6", "−",
+		"1", "2", "3", "+", "0", ".", "=",
+	} {
+		want = append(want, datapagestest.Node{Role: "button", Name: label})
+	}
+	want = append(
+		want,
+		datapagestest.Node{
+			Role: "paragraph", Text: "Expression is evaluated server-side",
+		},
+		datapagestest.Node{
+			Role: "text", Text: "Built with",
+		},
+		datapagestest.Node{
+			Role: "link", Name: "Datapages", URL: "https://github.com/romshark/datapages",
+		},
+	)
+	tab.Page().Get(t, datapagestest.ID("page-calculator")).RequireTree(t, want)
+}
+
+// query sends the request the page sends for a press of btn or for a paste.
 func query(
-	t *testing.T, btn calc.CalcButton, paste bool, s signals,
-) (body, logs string) {
+	t *testing.T, tab *datapagestest.Tab, btn calc.CalcButton, paste bool, s signals,
+) *datapagestest.Response {
 	t.Helper()
-	var logBuf bytes.Buffer
+	return tab.Do(t, action.PageIndex.Input.QUERY(
+		action.PageIndex.Input.QUERYQuery(int(btn), paste),
+	), s)
+}
+
+// load loads the calculator in a tab and returns it with the server log.
+func load(t *testing.T) (*datapagestest.Tab, *bytes.Buffer) {
+	t.Helper()
+	var logs bytes.Buffer
 	srv, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,
@@ -94,27 +135,7 @@ func query(
 		datapagesgen.Server,
 	](app.NewApp(), inmem.New(0),
 		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithLogger(slog.New(slog.NewTextHandler(&logBuf, nil))))
+		datapages.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
 	require.NoError(t, err)
-
-	b, err := json.Marshal(s)
-	require.NoError(t, err)
-	url := urlOf(t, action.PageIndex.Input.QUERY(
-		action.PageIndex.Input.QUERYQuery(int(btn), paste)))
-	req := httptest.NewRequest("QUERY", url, bytes.NewReader(b))
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-	return rec.Body.String(), logBuf.String()
-}
-
-// urlOf takes the URL out of a Datastar action expression such as
-// "@query('/input/?btn=18')", the form the template carries.
-func urlOf(t *testing.T, expr string) string {
-	t.Helper()
-	i := strings.Index(expr, "('")
-	j := strings.LastIndex(expr, "')")
-	require.False(t, i < 0 || j < i, "not an action expression: %s", expr)
-	return expr[i+2 : j]
+	return datapagestest.New(t, srv).Visitor(t).Load(t, href.PageIndex()), &logs
 }

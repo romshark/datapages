@@ -1,13 +1,13 @@
 package app_test
 
 import (
-	"encoding/json"
 	"net/http"
-	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 )
 
@@ -31,28 +31,14 @@ func TestSignInRedirect(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			resp, body := visitor{srv: srv}.post(t, "/login/submit/",
-				map[string]string{
-					"emailorusername": "visitor",
-					"password":        password,
-					"next":            tc.next,
-				})
-			require.Equal(t, http.StatusOK, resp.StatusCode, body)
-			require.Equal(t, tc.want, navigationTarget(t, body))
+			login := srv.Visitor(t).Load(t, href.PageLogin(href.QueryPageLogin{}))
+			resp := login.Do(t, action.PageLogin.Submit.POST(), map[string]string{
+				"emailorusername": "visitor",
+				"password":        password,
+				"next":            tc.next,
+			})
+			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+			require.Equal(t, tc.want, resp.Redirect(t))
 		})
 	}
-}
-
-var windowLocation = regexp.MustCompile(`window\.location\s*=\s*("(?:[^"\\]|\\.)*")`)
-
-// navigationTarget returns the URL that the JavaScript of a redirect action
-// assigns to window.location.
-func navigationTarget(t *testing.T, script string) string {
-	t.Helper()
-	m := windowLocation.FindStringSubmatch(script)
-	require.NotNil(t, m, "no navigation in response:\n%s", script)
-	var target string
-	require.NoError(t, json.Unmarshal([]byte(m[1]), &target),
-		"decoding navigation target %s", m[1])
-	return target
 }

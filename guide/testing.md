@@ -384,4 +384,4 @@ Step 2 fails on every error `datapages lint` reports. The tests read streams on 
 - [Slow and failing networks](network.md): try the app by hand on a slow network, with failing requests and with the server unreachable.
 - [Events](events.md), [Per-tab state](state.md) and [Sessions and auth](sessions.md): the behavior these tests check.
 - [Pages](../SPECIFICATION.md#pages): which requests need `Datastar-Request: true`.
-- [`internal/acceptance/client`](../internal/acceptance/client/client.go): the client of the framework's own HTTP tests, with stream, tab and cookie helpers.
+- [`datapagestest`](../datapagestest/): the HTTP test client for Datapages apps, with visitors, tabs, actions, SSE streams and CSRF tokens. [`internal/acceptance/datapagestest`](../internal/acceptance/datapagestest/datapagestest_test.go) runs it against a generated server.
