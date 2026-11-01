@@ -6,8 +6,8 @@
   padding: 0;
 }
 
-/* Every color is a light-dark() pair, which the color scheme picks from. The
-   scheme follows the system unless the theme switch sets data-theme. */
+/* Every color is a light-dark() pair, which the color scheme picks from.
+   The scheme follows the system unless the theme switch sets data-theme. */
 :root {
   color-scheme: light dark;
   --bg: light-dark(#ffffff, #0d1117);
@@ -74,8 +74,8 @@ a {
   }
 }
 
-/* A link with an icon before its text. The icon takes the color and the size
-   of the text. */
+/* A link with an icon before its text.
+   The icon takes the color and the size of the text. */
 .icon-link {
   display: flex;
   flex-direction: row;
@@ -144,8 +144,7 @@ a {
     }
   }
 
-  /* The Menu button of a docs page opens the navigation while it is an
-     overlay. */
+  /* The Menu button of a docs page opens the navigation while it is an overlay. */
   .menu-button {
     margin-inline-end: auto;
 
@@ -171,8 +170,7 @@ a {
       font-size: 0.85rem;
     }
 
-    /* The navigation of a docs page links the docs, the examples and the
-       FAQ too. */
+    /* The navigation of a docs page links the docs, the examples and the FAQ too. */
     .docs-page & .header-link {
       display: none;
     }
@@ -191,8 +189,8 @@ a {
       }
     }
 
-    /* On a docs page the links take the second row after the Menu button. The
-       header sticks with the first row above the viewport, which keeps the
+    /* On a docs page the links take the second row after the Menu button.
+       The header sticks with the first row above the viewport, which keeps the
        second row in view. */
     .docs-page & {
       position: sticky;
@@ -261,8 +259,7 @@ a {
 }
 
 /* The skip link focuses <main> so that the next Tab continues in the content.
-   A focus ring around the whole column would mark nothing the reader can
-   use. */
+   A focus ring around the whole column would mark nothing the reader can use. */
 #main-content:focus {
   outline: none;
 }
@@ -299,8 +296,8 @@ a {
   /* The command is shown on 1 line or not at all: broken across lines it
      is no longer copy-and-paste readable, and wrapping it mid-token widens
      the page. Measured at v0.9.4, the line needs 545px of viewport at
-     0.8rem and 657px at 0.95rem, both including the hero padding. The
-     thresholds keep about 30px spare for a longer version tag. */
+     0.8rem and 657px at 0.95rem, both including the hero padding.
+     The thresholds keep about 30px spare for a longer version tag. */
   .install {
     display: inline-block;
     white-space: nowrap;
@@ -416,8 +413,7 @@ a {
 }
 
 /* The theme switch of a docs page on a narrow screen. Its button shows the icon
-   of the chosen theme. .site-header outranks the display of <neo-button> in
-   Morpheus. */
+   of the chosen theme. .site-header outranks the display of <neo-button> in Morpheus. */
 .site-header .theme-menu {
   svg {
     inline-size: 1rem;
@@ -575,16 +571,12 @@ html:has(.docs-page) {
   inline-size: 100%;
   max-width: var(--max-w);
   margin-inline: auto;
-  margin-block-end: 4rem;
   padding-inline: 1.5rem;
-  /* The navigation takes its padding from how far .docs is in view. The space
-     after .docs is a margin, not padding, which keeps the box that the
-     timeline measures equal to the box that the column sticks within. */
+  /* The navigation takes its padding from how far .docs is in view. */
   view-timeline: --docs block;
 
   @media (width <= 900px) {
     gap: 0;
-    margin-block-end: 3rem;
     padding-inline: 1.25rem;
   }
 }
@@ -606,16 +598,15 @@ html:has(.docs-page) {
       padding-inline: 0;
 
       /* At the top of the page the header pushes the end of the column below
-         the viewport, and at the end the footer pushes its start above it.
-         Morpheus sets overscroll-behavior to contain, which keeps a scroll of
-         the navigation from scrolling the page. The padding grows by the part
-         out of view, which keeps every link within reach of the navigation
-         alone. Without scroll-driven animations the scroll passes on to the
-         page instead. */
+         the viewport. Morpheus sets overscroll-behavior to contain, which
+         keeps a scroll of the navigation from scrolling the page. The padding
+         grows by the part below the viewport, which keeps the last link
+         within reach of the navigation alone. Without scroll-driven
+         animations the scroll passes on to the page instead. */
       @supports (animation-timeline: view()) {
-        animation: docs-nav-enter linear, docs-nav-leave linear;
+        animation: docs-nav-enter linear;
         animation-timeline: --docs;
-        animation-range: entry, exit;
+        animation-range: entry;
       }
       @supports not (animation-timeline: view()) {
         overscroll-behavior: auto;
@@ -629,14 +620,6 @@ html:has(.docs-page) {
 @keyframes docs-nav-enter {
   from {
     padding-block-end: calc(var(--neo-sidebar-padding) + 100dvh);
-  }
-}
-
-/* While .docs leaves the viewport, the start of the column above the viewport
-   grows from 0 to 100dvh. */
-@keyframes docs-nav-leave {
-  to {
-    padding-block-start: calc(var(--neo-sidebar-padding) + 100dvh);
   }
 }
 
@@ -689,12 +672,21 @@ html:has(.docs-page) {
   }
 }
 
-/* The column has no maximum width. Beside the navigation and the contents it
-   is at most 48rem wide, and without them a maximum would leave empty space
-   after it. */
-.docs-main {
+/* The column has no maximum width. Beside the navigation and the contents it is
+   at most 48rem wide, and without them a maximum would leave empty space after it. */
+.docs-column {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-inline-size: 0;
+}
+
+.docs-main {
+  padding-block-end: 4rem;
+
+  @media (width <= 900px) {
+    padding-block-end: 3rem;
+  }
 }
 
 /* The contents of the page. A column on a screen wide enough for 3 columns,
@@ -930,9 +922,8 @@ neo-dialog.search dialog {
   font: inherit;
   font-size: 1rem;
 
-  /* The focus outline of Morpheus for a text input outranks .search-input. It
-     lies 2px outside the input, where the dialog clips all but its lower
-     edge. */
+  /* The focus outline of Morpheus for a text input outranks .search-input.
+     It lies 2px outside the input, where the dialog clips all but its lower edge. */
   &:focus-visible {
     outline: none;
   }
@@ -1008,8 +999,8 @@ neo-dialog.search dialog {
     letter-spacing: -0.02em;
     margin-block-end: 1rem;
 
-    /* Each part of the page, such as the specification, starts with a level
-       1 heading. */
+    /* Each part of the page, such as the specification,
+       starts with a level 1 heading. */
     &:not(:first-child) {
       margin-block-start: 4rem;
       padding-block-start: 2.5rem;
@@ -1324,8 +1315,7 @@ neo-dialog.search dialog {
   color: var(--callout);
 }
 
-/* The link of a heading to itself, which shows while the pointer is over the
-   heading. */
+/* The link of a heading to itself, which shows while the pointer is over the heading. */
 .docs-content .heading-link {
   margin-inline-start: 0.4rem;
   color: var(--text-muted);

@@ -57,42 +57,46 @@ templ docsPage(v docView) {
 						@docsNav(v.nav)
 					</nav>
 				}
-				<main class="docs-main" id="main-content" tabindex="-1">
-					if v.edition.isMain() {
-						@mainNote(v.versions)
-					}
-					// The contents of the page, while the screen is too narrow for
-					// their column.
-					if len(v.toc) > 0 {
-						<details class="toc-inline">
-							<summary>On this page</summary>
-							@docsContents(v.toc)
-						</details>
-					}
-					@pageLinks(&v)
-					<article class="docs-content">
-						@templ.Raw(v.doc.body)
-					</article>
-					<footer class="docs-page-footer">
-						@pageLinks(&v)
-						if v.prev.Href != "" || v.next.Href != "" {
-							<nav class="pager" aria-label="Previous and next page">
-								if v.prev.Href != "" {
-									<a class="pager-prev" href={ v.prev.Href } rel="prev">
-										<span class="pager-label">Previous</span>
-										{ v.prev.Title }
-									</a>
-								}
-								if v.next.Href != "" {
-									<a class="pager-next" href={ v.next.Href } rel="next">
-										<span class="pager-label">Next</span>
-										{ v.next.Title }
-									</a>
-								}
-							</nav>
+				// The footer sits here so the navigation reaches the end of the page.
+				<div class="docs-column">
+					<main class="docs-main" id="main-content" tabindex="-1">
+						if v.edition.isMain() {
+							@mainNote(v.versions)
 						}
-					</footer>
-				</main>
+						// The contents of the page, while the screen is too narrow for
+						// their column.
+						if len(v.toc) > 0 {
+							<details class="toc-inline">
+								<summary>On this page</summary>
+								@docsContents(v.toc)
+							</details>
+						}
+						@pageLinks(&v)
+						<article class="docs-content">
+							@templ.Raw(v.doc.body)
+						</article>
+						<footer class="docs-page-footer">
+							@pageLinks(&v)
+							if v.prev.Href != "" || v.next.Href != "" {
+								<nav class="pager" aria-label="Previous and next page">
+									if v.prev.Href != "" {
+										<a class="pager-prev" href={ v.prev.Href } rel="prev">
+											<span class="pager-label">Previous</span>
+											{ v.prev.Title }
+										</a>
+									}
+									if v.next.Href != "" {
+										<a class="pager-next" href={ v.next.Href } rel="next">
+											<span class="pager-label">Next</span>
+											{ v.next.Title }
+										</a>
+									}
+								</nav>
+							}
+						</footer>
+					</main>
+					@siteFooter(v.base())
+				</div>
 				if len(v.toc) > 0 {
 					<aside class="docs-toc" aria-labelledby="docs-toc-title">
 						<p class="toc-title" id="docs-toc-title">On this page</p>
@@ -100,7 +104,6 @@ templ docsPage(v docView) {
 					</aside>
 				}
 			</div>
-			@siteFooter(v.base())
 		</body>
 	</html>
 }
