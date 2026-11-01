@@ -442,7 +442,7 @@ A CLI without a release version skips the check. A failed request, such as one w
 
 `templ generate` deletes the text files that templ development mode reads. A `templ generate` in a module while `watch` runs on it stops the app from rendering its templates. Restart `watch` to write the files again. `datapages gen` does not run `templ generate`. `datapages init` runs it only on a run that sets up a project.
 
-- Directory: `$DATAPAGES_WATCH_LOCK_DIR`, or `datapages-watch` in the system temporary directory, which is `$TMPDIR` or `/tmp` on Unix.
+- Directory: `$DATAPAGES_WATCH_LOCK_DIR`, or `datapages-watch` in the [system temporary directory](https://pkg.go.dev/os#TempDir).
 - File: `<hash>.lock`, where `<hash>` is 16 hexadecimal digits of the SHA-256 of the absolute module path. Each module has 1 file.
 - Content: 1 line with the process ID, the module directory and the `--host` address, separated by tabs.
 - Refresh: `watch` writes the file again every 2 seconds. Readers treat a file older than 10 seconds as stale, which allows 5 missed refreshes.
@@ -461,7 +461,7 @@ The CLI reads these variables:
 | `FORCE_COLOR` | all | Any non-empty value, `0` included, turns colors on when stderr is no terminal |
 | `CLICOLOR_FORCE` | all | `1` turns colors on when stderr is no terminal |
 | `DATAPAGES_WATCH_LOCK_DIR` | `watch` | Directory of the [watch lock](#watch-lock) files |
-| `DATAPAGES_LOADCACHE` | `gen`, `lint`, `watch`, `init` | `off` turns the load cache off. An absolute path moves it. A relative path turns it off. The default is `datapages/load` in the user cache directory, such as `~/Library/Caches` on macOS and `~/.cache` on Linux |
+| `DATAPAGES_LOADCACHE` | `gen`, `lint`, `watch`, `init` | `off` turns the load cache off. An absolute path moves it. A relative path turns it off. The default is `datapages/load` in the [user cache directory](https://pkg.go.dev/os#UserCacheDir) |
 | `DATAPAGES_LOADCACHE_DEBUG` | `gen`, `lint`, `watch`, `init` | Any non-empty value prints `loadcache:` lines with hits, misses and timings to stderr |
 | `GOPACKAGESDRIVER` | `gen`, `lint`, `watch`, `init` | A value other than `off` turns the load cache off. So does a `gopackagesdriver` on the PATH while the variable is unset |
 

@@ -146,7 +146,7 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-An action that takes `datapages.Signals`, `datapages.SSE` or [`datapages.PageCacheWriter`](#parameter-pagecache-datapagespagecachewriter) requires `Datastar-Request: true`. Requests without it receive 406 Not Acceptable. Any other action can receive HTML form submissions. It is guarded by [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection): requests reported as same-site or cross-site by `Sec-Fetch-Site`, or with an `Origin` that differs from `Host`, receive 403. Requests with neither header are allowed. Authenticated forms also fail the CSRF check when sessions and CSRF protection are enabled.
+An action that takes `datapages.Signals`, `datapages.SSE` or [`datapages.PageCacheWriter`](#parameter-pagecache-datapagespagecachewriter) requires `Datastar-Request: true`. Requests without it receive 406 Not Acceptable. Any other action can receive HTML form submissions. Cross-origin requests get 403 from [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection). Authenticated forms also fail the CSRF check when sessions and CSRF protection are enabled.
 
 A `QUERYXXX` action answers the safe, idempotent `QUERY` method of [RFC 10008](https://www.rfc-editor.org/rfc/rfc10008). Datastar sends it with `@query`, which puts the signals in the body. It takes the parameters and return values of the other actions. It skips the CSRF check and must not change server state. The `Datastar-Request` requirement and the cross-origin check above apply to it.
 
@@ -194,7 +194,7 @@ func (PageIndex) OnSomethingHappened(
 }
 ```
 
-`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops and `RecoverError` handles the error when defined; otherwise the server uses its internal-error path. The stream closes with a 5s reconnect delay. A broker subscription failure follows the same path. Without `RecoverError`, a broker subscription failure returns its error status and Datastar applies exponential reconnect delays up to 30s. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
+`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops and `RecoverError` handles the error when defined; otherwise the server uses its internal-error path. The stream closes with a 5s reconnect delay. A broker subscription failure follows the same path. Without `RecoverError`, a broker subscription failure returns its error status, and the page [reconnects](#deployments). `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
 
 `datapages.StreamID` identifies an SSE stream within a process. Its parameter name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and must not be exposed to clients.
 
@@ -374,7 +374,7 @@ A process restart drops all instances. An action arriving before reconnect recei
 
 `MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most 1 instance per open stream. 0 selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
 
-Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Datastar ignores `Retry-After` and retries after 1s, doubling to a 30s ceiling, without a limit; see [Deployments](#deployments). Until the stream connects, a stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. The generated `Server` reports the live count with `StateLiveInstances()`. On a `datapages.Server`, call it as `s.(*datapagesgen.Server).StateLiveInstances()`. Servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
+Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Datastar ignores `Retry-After` and [reconnects as usual](#deployments). Until the stream connects, a stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. The generated `Server` reports the live count with `StateLiveInstances()`. On a `datapages.Server`, call it as `s.(*datapagesgen.Server).StateLiveInstances()`. Servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
 
 **Multi-server routing.** State is process-local. A tab's stream and actions must reach the same backend. Route them by a hash of `Datapages-Instance`, by session or by an affinity cookie. `GET` may reach any server.
 
@@ -516,7 +516,7 @@ session datapages.Session[Data]
 
 See [datapages.go](datapages.go) for method definitions.
 
-Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends when the session closes or reaches its `ExpiresAt()`. Its page then reloads after 1s and renders for the session the browser holds, if any. A page with only user-addressed events also reloads when its stream reconnects after the session ended. A page that also has public events reconnects to `_$/anon/` and keeps its content. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
+Expired sessions are unauthenticated and their cookies are removed. A stream opened with a session ends when the session closes or reaches its `ExpiresAt()`. Its page then reloads after 1s and renders for the session the browser holds, if any. A page with only user-addressed events also reloads when its stream reconnects after the session ended. A page that also has public events reconnects to `_$/anon/` and keeps its content. A zero `ExpiresAt()` never expires, and its cookie [lasts for the browser session](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies#removal_defining_the_lifetime_of_a_cookie).
 
 A `POST`, `PUT`, `PATCH` or `DELETE` action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions. When a handler renders a document without reading the session, it uses the session cookie to write the CSRF script without reading the store. A document rendered for a session cookie is sent with `Cache-Control: private` unless the response already has a `Cache-Control` header. A [`datapages.File`](#return-value-datapagesfile) from a handler with a session parameter is sent with `Vary: Cookie`.
 
@@ -871,7 +871,7 @@ type memBody struct{ *bytes.Reader }
 func (memBody) Close() error { return nil }
 ```
 
-[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response. It handles `HEAD`, `Range` and, when `ModTime` is set, `If-Modified-Since`. `ETag` sets a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes, and enables `If-None-Match`, `If-Match` and `If-Range`. A character outside `etagc` of that section makes the `ETag` invalid and produces 500.
+[`net/http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the response and handles range and conditional requests with `ModTime` and `ETag`. `ETag` is a strong [entity tag](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3), which Datapages quotes. A character outside `etagc` of that section makes the `ETag` invalid and produces 500.
 
 A handler with a session parameter sends [`Vary: Cookie`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary). Serve a file that is the same for every visitor from a handler without a session parameter. Every response includes [`X-Content-Type-Options: nosniff`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options).
 
@@ -891,7 +891,7 @@ newSession datapages.NewSession[Data]
 
 Signs in a client when `UserID` is nonempty; otherwise it is a no-op. Datapages generates the token and issuance time. The handler supplies `UserID`, optional `ExpiresAt`, and `Data`. The session the request arrived with is closed first, which ends its streams and reloads their pages. See [datapages.go](datapages.go).
 
-`ExpiresAt` becomes the `Max-Age` and `Expires` of the session cookie; a zero `ExpiresAt` writes a cookie the browser drops when it closes. The session record stays in the store either way.
+`ExpiresAt` becomes the `Max-Age` and `Expires` of the session cookie. A zero `ExpiresAt` omits both, and the cookie [lasts for the browser session](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies#removal_defining_the_lifetime_of_a_cookie). The session record stays in the store either way.
 
 #### Validating a User ID
 
@@ -986,9 +986,9 @@ datapages.WithCSPNonce(func(r *http.Request) string { return nonceOf(r) })
 
 Datapages may call the function several times while writing 1 response. It must return the same value for every call with the same request. Application middleware should mint the nonce once, store it in the request context and write the same value into its `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script Datapages writes as `nonce`. An empty return writes the page without nonces.
 
-`data-nonce` turns on Datastar's CSP mode, in which the policy needs no `'unsafe-eval'`. It requires Datastar 1.0.3 or later.
+`data-nonce` turns on [Datastar's CSP mode](https://data-star.dev/reference/security#csp-mode), in which the policy needs no `'unsafe-eval'`. It requires Datastar 1.0.3 or later.
 
-The nonce must differ per response and must not be guessable. Do not cache a response that contains a nonce.
+The nonce must follow the [CSP nonce rules](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP#nonces). Do not cache a response that contains a nonce.
 
 Offline support applies the nonce to scripts written by the server. The nonce cannot reach a page served from the service worker's cache; see [Service Worker](#service-worker).
 
@@ -1010,7 +1010,7 @@ A request without the header passes. A request with the header also passes if it
 
 The build ID defaults to the first 16 bytes of the executable's SHA-256 hash, encoded as hex. If the server cannot read the executable, it hashes the embedded Go build information and logs a warning. `datapages.WithBuildID` sets the ID. Replicas that serve the same pages must use the same ID. The ID is public.
 
-Stream initialization uses `{retry:'always',retryMaxCount:Infinity}`. The page reconnects its stream after every end, including an error response such as a reverse proxy's `502` while the application restarts. Datastar retries after 1s and doubles the delay up to 30s. It does not give up. Graceful shutdown resets every open stream. A connection to the same build resumes the stream. A connection to another build reloads the page. Events published while no process serves the stream are lost; see [Event delivery](#event-delivery).
+Stream initialization uses `{retry:'always',retryMaxCount:Infinity}`. The page reconnects its stream after every end, including an error response such as a reverse proxy's `502` while the application restarts. Datastar retries with its [default delays](https://data-star.dev/reference/actions#options) and never gives up. Graceful shutdown resets every open stream. A connection to the same build resumes the stream. A connection to another build reloads the page. Events published while no process serves the stream are lost; see [Event delivery](#event-delivery).
 
 Shutdown resets a stream by panicking with `http.ErrAbortHandler`. Middleware added with `WithMiddleware` that recovers panics must re-panic this value.
 
@@ -1045,7 +1045,7 @@ By default, an asset of at least 256 bytes is eligible when its media type is:
 - `font/ttf`, `font/otf`, `font/collection` or `font/sfnt`.
 - `image/bmp`, `image/x-icon` or `image/vnd.microsoft.icon`.
 
-The media type of a font asset is `font/otf` for `.otf`, `font/ttf` for `.ttf`, `font/collection` for `.ttc` and `.otc`, `font/woff` for `.woff` and `font/woff2` for `.woff2`. Other assets get the type of Go's `mime` table, which reads the mime database of the host. An asset whose extension has no type there gets the type sniffed from its content.
+The media type of a font asset is `font/otf` for `.otf`, `font/ttf` for `.ttf`, `font/collection` for `.ttc` and `.otc`, `font/woff` for `.woff` and `font/woff2` for `.woff2`. Other assets get the type that [`mime.TypeByExtension`](https://pkg.go.dev/mime#TypeByExtension) returns. An asset whose extension has no type there gets the type sniffed from its content.
 
 A response with `Cache-Control: no-transform`, which `AssetsCacheConfig.CacheControl` or a middleware can set, is not eligible. Eligible assets use the first explicitly accepted coding from brotli 6 and gzip 9. Brotli uses a 4 MiB window. Other assets stay uncompressed. Dev mode disables asset compression.
 
@@ -1145,7 +1145,7 @@ Allowed without the `href` package:
 - Absolute with any scheme except `javascript:`: for example, `http://...`, `https://...`, `mailto:...`, `tel:...`, `ftp://...`, `ftps://...`
 - Constants, backtick literals, and double-quoted literals resolving to the above
 
-Templ preserves `http`, `https`, `mailto`, `tel`, `ftp`, and `ftps` schemes in expression hrefs. Other schemes pass lint but render as `about:invalid#TemplFailedSanitizationURL`. Literal attributes bypass this sanitizer.
+Templ [sanitizes expression hrefs](https://templ.guide/syntax-and-usage/attributes#url-attributes) and keeps only the `http`, `https`, `mailto`, `tel`, `ftp` and `ftps` schemes. Other schemes pass lint, but templ replaces the URL.
 
 Disallowed:
 
@@ -1192,11 +1192,11 @@ The href linter treats absolute URLs as external, including URLs on the applicat
 
 ### Build-Constrained Application Files
 
-The app package cannot contain build-constrained files, which have a `//go:build` line or a name ending in an operating system or architecture, such as `_windows.go`. The generator rejects such a file on every platform, except a test file and a file under `//go:build ignore`. `datapages.NewServer` calls are read from all files except those under `//go:build ignore` and may occur in platform-specific commands.
+The app package cannot contain files with [build constraints](https://pkg.go.dev/cmd/go#hdr-Build_constraints), including file name suffixes such as `_windows.go`. The generator rejects such a file on every platform, except a test file and a file under `//go:build ignore`. `datapages.NewServer` calls are read from all files except those under `//go:build ignore` and may occur in platform-specific commands.
 
 ## Service Worker
 
-The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecachewriter) parameter. It runs only in a secure context (HTTPS or localhost); otherwise the offline API does nothing.
+The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecachewriter) parameter. It runs only in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts). Elsewhere the offline API does nothing.
 
 The worker scope covers the whole origin, regardless of the script URL. The registration script requests scope `/`, and the script response sets `Service-Worker-Allowed: /`.
 

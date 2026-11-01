@@ -225,7 +225,7 @@ Type list of glob patterns. Default none. The scaffold sets 3.
 
 A changed file whose path matches a pattern does not rebuild the app. Custom watchers that include the file still run. `watch` adds `datapages.yaml` and `datapages.yml` to the patterns, which keeps the Save to config button of the [settings page](network.md#change-the-toxics) from restarting the app. `watch` matches the path relative to [`dir-work`](#dir-work), with `/` as the separator on every system.
 
-The patterns use the syntax of [doublestar](https://github.com/bmatcuk/doublestar). `*` matches within 1 path element, `**` matches any number of elements, and `?`, `[...]` and `{a,b}` work as in shell globs:
+The patterns use the [doublestar syntax](https://github.com/bmatcuk/doublestar#patterns):
 
 | Pattern | Matches | Does not match |
 | ------- | ------- | -------------- |

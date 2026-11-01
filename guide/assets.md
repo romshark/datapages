@@ -34,7 +34,7 @@ opts = append(opts, datapages.WithAssets(app.StaticFS, false))
 
 ## Set cache headers
 
-Assets carry `Cache-Control: public, max-age=0` and an `ETag` computed from the file contents. The browser asks before every reuse, sends the `ETag` back in `If-None-Match` and receives `304 Not Modified` without a body while the file is unchanged. `datapages.WithAssetsCache` changes these headers.
+Assets carry `Cache-Control: public, max-age=0` and an `ETag` computed from the file contents. The browser [revalidates](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching#etagif-none-match) before every reuse, and the server answers `304 Not Modified` while the file is unchanged. `datapages.WithAssetsCache` changes these headers.
 
 `MaxAge` lets browsers reuse files without asking. It applies to every file below the prefix. Set it only when every file name changes with its content, as `datastar-1.0.4.js` or `app.3f9a1c.css` does. Otherwise browsers keep old files after a deploy until `MaxAge` ends. For such names, let browsers keep files for a year:
 
@@ -45,7 +45,7 @@ datapages.WithAssetsCache(datapages.AssetsCacheConfig{
 }),
 ```
 
-This sends `Cache-Control: public, max-age=31536000, immutable`. `Immutable` keeps a reload from revalidating a fresh file and requires a positive `MaxAge`. `CacheControl` sets the header value as written and excludes `MaxAge` and `Immutable`. A value with `no-transform` keeps the assets uncompressed. `DisableETag` omits the `ETag`, for a CDN or a compressing middleware that writes its own.
+This sends `Cache-Control: public, max-age=31536000, immutable`. `Immutable` adds the [`immutable`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control#immutable) directive and requires a positive `MaxAge`. `CacheControl` sets the header value as written and excludes `MaxAge` and `Immutable`. A value with `no-transform` keeps the assets uncompressed. `DisableETag` omits the `ETag`, for a CDN or a compressing middleware that writes its own.
 
 ## Write asset URLs
 
@@ -102,7 +102,7 @@ func (a *App) GETLogo(r *http.Request) (file datapages.File, err error) {
 }
 ```
 
-`Uploads` is an `*os.Root` field of `App`. The response carries `Cache-Control: no-cache` and `Last-Modified`. The browser revalidates with `If-Modified-Since` and receives 304 while the file is unchanged. `href.App.Logo()` returns the URL. See [Actions](actions.md) for GET actions and [`datapages.File`](../SPECIFICATION.md#return-value-datapagesfile) for its fields.
+`Uploads` is an `*os.Root` field of `App`. The response carries `Cache-Control: no-cache` and `Last-Modified`, which makes the browser [revalidate](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching#if-modified-since) before every reuse. The server answers 304 while the file is unchanged. `href.App.Logo()` returns the URL. See [Actions](actions.md) for GET actions and [`datapages.File`](../SPECIFICATION.md#return-value-datapagesfile) for its fields.
 
 ## Self-host the Datastar bundle
 
@@ -119,7 +119,7 @@ Pass its URL to the server:
 opts = append(opts, datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")))
 ```
 
-Keep the version in the file name. Browsers and the offline service worker cache files by URL. If an upgrade keeps the name, they can keep using the old file from their cache. A new name is a new URL, which they download. `WithDatastarJS` accepts an `http`, `https` or relative URL. `WithCSPNonce` requires Datastar 1.0.3 or later. See [Security](security.md) for the `Content-Security-Policy`.
+Put the version in the file name, so each upgrade gets a [new URL](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching#cache_busting) that no cache holds yet. `WithDatastarJS` accepts an `http`, `https` or relative URL. `WithCSPNonce` requires Datastar 1.0.3 or later. See [Security](security.md) for the `Content-Security-Policy`.
 
 ## Dev mode
 

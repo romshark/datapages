@@ -149,7 +149,7 @@ A button with `data-on:click={ action.PageIndex.Add.POST() }` sends `POST /add/`
 | Check | Answer | Applies to |
 | --- | --- | --- |
 | `Datastar-Request: true` is missing | `406 Not Acceptable` | actions that take `datapages.Signals`, `datapages.SSE` or `datapages.PageCacheWriter` |
-| `Sec-Fetch-Site` is `same-site` or `cross-site`, or `Origin` differs from `Host` | `403 Forbidden` | the other actions, which a plain HTML form can reach |
+| The request is [cross-origin](https://pkg.go.dev/net/http#CrossOriginProtection) | `403 Forbidden` | the other actions, which a plain HTML form can reach |
 | `Datapages-Instance` is missing or has no state on this server | `409 Conflict` with `Datapages-Retry: reconnect` | actions that take `datapages.State[T]` |
 | `X-CSRF-Token` is missing or wrong | `403 Forbidden` | `POST`, `PUT`, `PATCH` and `DELETE` requests that carry a session cookie |
 | The signals body exceeds 1 MiB | `400 Bad Request` | actions other than `DELETE` that take `datapages.Signals`, see `datapages.WithBodySizeLimit` |
@@ -210,7 +210,7 @@ The acting tab receives the event on its own stream like any other tab. Delivery
 
 ## Reconnects
 
-The stream request that the document writes uses `retry:'always'` and `retryMaxCount:Infinity`. Datastar reopens the stream after every end, whether the server closed it, a proxy answered `502` or the network dropped. It waits 1s, then doubles the wait up to 30s, without a limit. After a failed `StreamOpen` or a session end, the server sets the wait to 5s.
+The stream request that the document writes uses `retry:'always'` and `retryMaxCount:Infinity`. Datastar reopens the stream after every end, whether the server closed it, a proxy answered `502` or the network dropped. It [backs off](https://data-star.dev/reference/actions#options) between attempts and never gives up. After a failed `StreamOpen` or a session end, the server sets the wait to 5s.
 
 A reconnect opens a new stream on whatever server receives it:
 

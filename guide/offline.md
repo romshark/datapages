@@ -7,7 +7,7 @@ The service worker comes from the module `github.com/romshark/datapages/modules/
 - `Set` stores a snapshot, which the worker serves only when the request for the page fails, as while the browser is offline.
 - `SetShim` stores a shim, which the worker serves at once, online too, and replaces with the live page.
 
-Browsers run service workers only on HTTPS or localhost. On any other origin, cache writes reach no worker.
+Browsers run service workers only in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts), such as HTTPS or localhost. On any other origin, cache writes reach no worker.
 
 ## Add a fallback page
 
@@ -174,19 +174,19 @@ offline.WithServiceWorker("", offline.Config{
 
 ## Test it locally
 
-`datapages watch` serves `http://localhost:7331`, which is a secure context. Another device that opens the server by its network address over plain HTTP gets no worker. Serve HTTPS to test there.
+`datapages watch` serves `http://localhost:7331`, which is a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts). Another device that opens the server by its network address over plain HTTP gets no worker. Serve HTTPS to test there.
 
 1. Open a page of the app. Its response registers the worker, which then controls every page of the origin.
 2. Open the pages whose handlers call `Set`.
-3. Switch the browser offline, for example with the Offline checkbox under Application > Service workers in Chrome DevTools.
+3. Switch the browser offline, for example with the Offline checkbox of the [Service workers pane](https://developer.chrome.com/docs/devtools/progressive-web-apps#service-workers) in Chrome DevTools.
 4. Navigate. A URL with a snapshot or a shim shows it, and any other URL shows `PageOffline`.
 
 Stopping the server also makes the worker serve snapshots. The browser then stays online, and neither the `is-offline` class nor the banner appears. The Unreachable preset of the [Toxiproxy proxy](network.md#apply-a-preset) has the same effect without stopping the server. Open the app through the address of the proxy, which is another origin with a worker of its own.
 
 > [!WARNING]
-> The worker stays registered for its origin, which is the scheme, the host and the port, after the server stops. It also answers for the next application served at that origin, such as another project run with `datapages watch`, with the shims and assets it cached.
+> The worker stays registered for its [origin](https://developer.mozilla.org/en-US/docs/Glossary/Origin) after the server stops. It also answers for the next application served at that origin, such as another project run with `datapages watch`, with the shims and assets it cached.
 
-A hard reload, such as Shift+Cmd+R or Ctrl+Shift+R, bypasses the worker for 1 navigation. To remove the worker, unregister it in Chrome DevTools under Application > Service workers, or run this in the console of a page of the origin:
+A [hard reload](https://web.dev/articles/service-worker-lifecycle#shift-reload) bypasses the worker for 1 navigation. To remove the worker, unregister it in the [Service workers pane](https://developer.chrome.com/docs/devtools/progressive-web-apps#service-workers) of Chrome DevTools, or run this in the console of a page of the origin:
 
 ```js
 navigator.serviceWorker.getRegistrations()

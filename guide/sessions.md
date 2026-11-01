@@ -113,7 +113,7 @@ Datapages closes the session in the store and deletes the cookie. The action nee
 
 ## Expiry and cookie lifetime
 
-`NewSession.ExpiresAt` sets the `Max-Age` and `Expires` attributes of the cookie, which keeps the visitor signed in across browser restarts. A zero `ExpiresAt` writes a cookie that the browser deletes when it closes, and a session that never expires on the server.
+`NewSession.ExpiresAt` sets the `Max-Age` and `Expires` attributes of the cookie, which keeps the visitor signed in across browser restarts. A zero `ExpiresAt` writes a cookie that [lasts for the browser session](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies#removal_defining_the_lifetime_of_a_cookie), and a session that never expires on the server.
 
 From `ExpiresAt` on, Datapages treats a request with the session as a guest, deletes the cookie and deletes the record. It deletes only the records of sessions that a client sends again. Delete the other expired records on a schedule:
 

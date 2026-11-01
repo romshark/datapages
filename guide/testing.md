@@ -124,7 +124,7 @@ func TestIndexPage(t *testing.T) {
 }
 ```
 
-The server compresses responses. `srv.Client()` uses a transport that requests gzip and decodes the response for the test. Send every request through `srv.Client()` or a copy of it. `httptest.Server.Close` closes idle connections in `http.DefaultTransport`. That can fail a concurrent test that uses `http.DefaultClient`.
+The server compresses responses, and `srv.Client()` [decodes gzip](https://pkg.go.dev/net/http#Transport.DisableCompression). Send every request through `srv.Client()` or a copy of it. `httptest.Server.Close` closes idle connections in `http.DefaultTransport`. That can fail a concurrent test that uses `http.DefaultClient`.
 
 ## Send an action
 
@@ -176,7 +176,7 @@ func TestAddClearsInput(t *testing.T) {
 }
 ```
 
-An action that takes `sse datapages.SSE` answers with a `text/event-stream` body. The body ends when the handler returns. Each patch is an `event:` line followed by `data:` lines:
+An action that takes `sse datapages.SSE` answers with a `text/event-stream` body. The body ends when the handler returns. Each patch is a [Datastar SSE event](https://data-star.dev/reference/sse_events):
 
 ```text
 event: datastar-patch-signals

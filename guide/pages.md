@@ -370,7 +370,7 @@ A page gets an SSE stream when it handles an event, declares `StreamOpen` or `St
 
 A page without these features has no stream. A page that handles only user-addressed events and has no per-tab state opens its stream only for a signed-in visitor.
 
-By default, the browser closes the stream while the tab is hidden, and the page reloads when the tab becomes visible again. The reload renders what changed while the stream was closed. 2 return values of `GET` change this:
+By default, Datastar closes the stream while the tab is hidden, and the page reloads when the tab becomes visible again. The reload renders what changed while the stream was closed. 2 return values of `GET` change this:
 
 - `enableBackgroundStreaming` set to `true` keeps the stream open while the tab is hidden and turns off the reload. Each hidden tab then holds its connection. Return `disableRefreshAfterHidden` set to `false` next to it to keep the reload.
 - `disableRefreshAfterHidden` set to `true` turns off the reload. The stream still closes while the tab is hidden, and the page misses the events of that time.

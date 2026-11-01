@@ -153,7 +153,7 @@ After an application with [offline support](offline.md) ran on `http://localhost
 
 The offline service worker registers for the whole origin at scope `/`. It stays registered after you switch projects. The worker can answer navigations with stored shims and same-origin asset requests with stored copies. A hard reload bypasses it for 1 load.
 
-Unregister the worker in the browser developer tools. In Chrome, use Application, Service workers. Clearing the origin's site data also removes it. Give each project its own `--host` port to keep the workers on separate origins.
+[Remove the worker](offline.md#test-it-locally). Give each project its own `--host` port to keep the workers on separate origins.
 
 ## The server exits at startup with a NATS or session key error
 
@@ -186,7 +186,7 @@ To send the form fields instead of signals, add `action.WithContentType(action.C
 There are 2 causes:
 
 - CSRF. A `POST`, `PUT`, `PATCH` or `DELETE` request that carries the session cookie must send `X-CSRF-Token`. The CSRF script of the page adds it to Datastar requests. A plain HTML form does not send it, and a page rendered before the visitor signed in carries no script for the new session. Submit forms through Datastar actions, and navigate to a new page after sign-in, as a `datapages.Redirect` does.
-- Origin. An action that takes neither signals nor SSE accepts plain forms and refuses a request whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` differs from `Host`. Serve the page and the action from 1 origin. A proxy must pass the original `Host` header.
+- Origin. An action that takes neither signals nor SSE accepts plain forms, and [`http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection) refuses cross-origin requests to it. Serve the page and the action from 1 origin. A proxy must pass the original `Host` header.
 
 See [Sessions and auth](sessions.md) and [Plain Forms and CSRF](../SPECIFICATION.md#plain-forms-and-csrf).
 

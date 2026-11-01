@@ -245,7 +245,7 @@ return datapages.File{
 
 ## Prevent compression side channels
 
-A compressed response that contains a secret and input an attacker controls can reveal the secret through its size. The attacker makes the victim's browser send many requests with guessed input and watches the sizes of the responses, an attack known as BREACH. All events of 1 stream share 1 compression window, which exposes a secret sent in an earlier event to input in a later one.
+A compressed response that contains a secret and input an attacker controls can leak the secret through its size. This is the [BREACH](https://www.breachattack.com/) attack. All events of 1 stream share 1 compression window, which exposes a secret sent in an earlier event to input in a later one.
 
 Datapages masks its CSRF tokens with new random bytes on every render. Its `SameSite=Lax` session cookie leaves the requests of other sites unauthenticated, except top-level navigations. Other secrets are the application's. A page is affected when it shows a secret, such as an API key or a recovery code, together with input that a link or another user sets, such as a search term or a message.
 
@@ -344,7 +344,7 @@ func limitStreams(max int) func(http.Handler) http.Handler {
 opts = append(opts, datapages.WithMiddleware(limitStreams(20)))
 ```
 
-A stream over the limit receives 429, and the page retries it after 1s and then up to 30s apart. Behind a proxy, key the map by the client address that a trusted proxy forwards, or by session.
+A stream over the limit receives 429, and the page [retries it with backoff](https://data-star.dev/reference/actions#options). Behind a proxy, key the map by the client address that a trusted proxy forwards, or by session.
 
 The server has no write timeout because streams stay open. A client that stops reading keeps the goroutine and connection of its stream. `datapages.WithFileSendTimeout` ends the response of a `datapages.File` or a static asset whose writes block for 1 minute.
 

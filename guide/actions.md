@@ -232,7 +232,7 @@ type memBody struct{ *bytes.Reader }
 func (memBody) Close() error { return nil }
 ```
 
-The response carries `Content-Disposition: attachment; filename=reviews.csv`, which makes the browser save the file, and `Cache-Control: no-cache`, the header of the zero `Cache` field. `net/http.ServeContent` writes the body and handles `HEAD`, `Range` and, with `ModTime` or `ETag`, conditional requests. `Body` must support seeking, and Datapages closes it after serving.
+The response carries `Content-Disposition: attachment; filename=reviews.csv`, which makes the browser save the file, and `Cache-Control: no-cache`, the header of the zero `Cache` field. [`http.ServeContent`](https://pkg.go.dev/net/http#ServeContent) writes the body and uses `ModTime` and `ETag` for conditional requests. Datapages closes `Body` after serving.
 
 A GET action takes only `r`, `session`, `path` and `query`. Other actions may return a `datapages.File` too. Serve a file that a visitor uploaded with `Disposition.Download`. Shown inline, an uploaded `text/html` or `image/svg+xml` file runs its scripts on the application's origin. Return application HTML as a templ component and never as a file, because templ escapes it and `datapages lint` checks it.
 

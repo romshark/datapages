@@ -69,7 +69,7 @@ Datapages compresses page and action bodies of at least 256 bytes, other than SS
 datapages.WithResponseCompression(datapages.ResponseCompressionLowCPU()),
 ```
 
-`datapages.File` responses stay uncompressed. Static assets use separate compression, which [Asset compression](#asset-compression) describes. To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding` in `Header`. Give each representation its own `ETag` and send `Vary: Accept-Encoding`.
+`datapages.File` responses stay uncompressed. Static assets use separate compression, which [Asset compression](#asset-compression) describes. To send precompressed content, serve an archive such as `export.csv.gz` with type `application/gzip`, or negotiate `Accept-Encoding` and set `Content-Encoding`, `ETag` and `Vary` in `Header` as [RFC 9110 section 8.8.3.3](https://www.rfc-editor.org/rfc/rfc9110#section-8.8.3.3) shows.
 
 The size of a compressed response can reveal a secret placed beside input an attacker controls. Send such a page with `Cache-Control: private, no-transform`, which a middleware can set, and Datapages leaves it uncompressed. Do the same for its `_$/` stream, or give the page a `StreamConfig` that returns `Compression: &datapages.SSECompressionConfig{Disabled: true}`. See [Security](security.md) and [Response Compression](../SPECIFICATION.md#response-compression).
 

@@ -163,7 +163,7 @@ opts = append(opts, datapages.WithStateConfig(datapages.StateConfig{
 }))
 ```
 
-0 selects the default and a negative value removes the limit. A stream that would exceed it receives `503 Service Unavailable` with `Retry-After`. The page retries after 1 second and doubles the delay up to 30 seconds. The application is not notified. The generated `Server` reports the live count with `StateLiveInstances()`, and with Prometheus the `datapages_state_instances` gauge exports it. The limit applies to the whole server, so limit the connections of each client in a proxy or in middleware added with `datapages.WithMiddleware`, as [Security](security.md#limit-abuse) shows.
+0 selects the default and a negative value removes the limit. A stream that would exceed it receives `503 Service Unavailable` with `Retry-After`. The page [retries with backoff](https://data-star.dev/reference/actions#options). The application is not notified. The generated `Server` reports the live count with `StateLiveInstances()`, and with Prometheus the `datapages_state_instances` gauge exports it. The limit applies to the whole server, so limit the connections of each client in a proxy or in middleware added with `datapages.WithMiddleware`, as [Security](security.md#limit-abuse) shows.
 
 ## Run several processes
 

@@ -110,7 +110,7 @@ Without `WithHTTPServer`, the server uses these values:
 
 `ReadTimeout` limits reading a request and its body. It does not end a stream that stays open longer. A request body that takes longer to arrive fails, which [`example/file-upload`](../example/file-upload/) avoids by moving the read deadline while the bytes of an upload arrive.
 
-`WithHTTPServer` replaces this server, values included. Datapages sets `Addr`, `Handler` and `BaseContext`, sets `ErrorLog` when it is nil and uses every other field as given. `net/http` reads a zero `ReadTimeout` or `WriteTimeout` as no limit, and a zero `ReadHeaderTimeout` or `IdleTimeout` as the `ReadTimeout`. Copy the values to keep from the generated package:
+`WithHTTPServer` replaces this server, values included. Datapages sets `Addr`, `Handler` and `BaseContext`, sets `ErrorLog` when it is nil and uses every other field as given. See [`http.Server`](https://pkg.go.dev/net/http#Server) for what a zero timeout means. Copy the values to keep from the generated package:
 
 ```go title="cmd/server/main.go"
 opts = append(opts, datapages.WithHTTPServer(&http.Server{
@@ -202,7 +202,7 @@ An ID has 1 to 128 printable ASCII characters without spaces. Every document con
 
 During a rolling deployment, old and new processes serve at the same time. Route each client to 1 build until the old processes stop, for example with session affinity. A tab whose requests alternate between builds reloads at every switch.
 
-Shutdown resets every open stream. Datastar reconnects after 1s and doubles the delay up to 30s, without a limit, also after the `502` of a proxy while no process runs. A stream that reaches the same build continues, and a stream that reaches another build reloads its page. See [Deployments](../SPECIFICATION.md#deployments).
+Shutdown resets every open stream. Datastar keeps [reconnecting](https://data-star.dev/reference/actions#options) until it succeeds, also after a proxy's `502` while no process runs. A stream that reaches the same build continues, and a stream that reaches another build reloads its page. See [Deployments](../SPECIFICATION.md#deployments).
 
 ## Shut down gracefully
 
@@ -227,7 +227,7 @@ The wait ends after 10s by default. Set another limit:
 opts = append(opts, datapages.WithShutdownTimeout(20*time.Second))
 ```
 
-When the limit passes, the server logs `shutting down` with the error `context deadline exceeded` and `ListenAndServe` returns. Requests still running end when the process exits. Keep the limit below the time the platform waits before it kills the process, such as the 30s default of Kubernetes `terminationGracePeriodSeconds` and the 10s default of `docker stop`.
+When the limit passes, the server logs `shutting down` with the error `context deadline exceeded` and `ListenAndServe` returns. Requests still running end when the process exits. Keep the limit below the time the platform waits before it kills the process, such as the Kubernetes [grace period](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow) or the [`docker stop` timeout](https://docs.docker.com/reference/cli/docker/container/stop/#timeout). Both `docker stop` and the limit default to 10s, so raise `--timeout` or lower the limit.
 
 Middleware added with `WithMiddleware` that recovers panics must re-panic `http.ErrAbortHandler`. Shutdown resets streams with that panic.
 
@@ -245,8 +245,8 @@ The offline service worker runs only on HTTPS or `localhost`. See [Use TLS](secu
 
 Each open page with a stream holds 1 request open, a `GET` of the page path followed by `_$/`, answered with `text/event-stream`. The server writes each event when it happens and nothing between events. The proxy must:
 
-- Pass each event on at once. nginx buffers proxied responses unless `proxy_buffering off` applies or the response carries `X-Accel-Buffering: no`. The middleware below adds the header to streams.
-- Keep quiet streams open. A proxy that closes a connection after a time without data, as nginx does after `proxy_read_timeout` (60s by default), ends every stream that has no event for that long. The page reconnects after 1s, but it misses the events dispatched in between and its per-tab state starts zeroed. Set the timeout above the longest quiet time of a page, such as 1 hour.
+- Pass each event on at once. nginx [buffers proxied responses](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering) by default. The middleware below turns that off for streams with `X-Accel-Buffering: no`.
+- Keep quiet streams open. A proxy that closes a connection after a time without data, as nginx does after [`proxy_read_timeout`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_read_timeout), ends every stream that has no event for that long. The page reconnects after 1s, but it misses the events dispatched in between and its per-tab state starts zeroed. Set the timeout above the longest quiet time of a page, such as 1 hour.
 - Forward the `Host` header of the browser. For browsers that send no `Sec-Fetch-Site`, the cross-origin check of form actions compares `Origin` with `Host` and answers 403 when they differ.
 - Forward the headers that Datapages reads and writes, `Datastar-Request`, `Datapages-Build`, `Datapages-Instance` and `X-CSRF-Token` in requests and `Datapages-Build`, `Datapages-Instance` and `Datapages-Retry` in responses.
 - Send the stream and the actions of 1 tab to 1 process when pages use per-tab state, see [Run several processes](#run-several-processes).

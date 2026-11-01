@@ -23,7 +23,7 @@ go install ./cmd/datapages
 A release of the CLI generates the code of its release, which does not compile against the checkout, with errors such as `not enough arguments in call to s.streams.Handle`.
 
 > [!NOTE]
-> Fast shim, Offline cache and Docs install a service worker for their server address. The browser keeps the worker after the server stops. It can answer requests from the next example at that address with cached files. Before running another example there, unregister the worker under Application and Service workers in the browser developer tools.
+> Fast shim, Offline cache and Docs install a service worker for their server address. The browser keeps the worker after the server stops. It can answer requests from the next example at that address with cached files. Before running another example there, [remove the worker](offline.md#test-it-locally).
 
 Each example also has the agent instructions that `datapages init` writes. See [AI agents](ai-agents.md).
 
@@ -198,7 +198,7 @@ Run:
 go run ./cmd/server   # http://localhost:8080/
 ```
 
-Reload a page with a shim to see the shim before the live page. The worker runs only on HTTPS and on localhost.
+Reload a page with a shim to see the shim before the live page. The worker needs a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts), such as localhost.
 
 The code is in [`example/fast-shim`](../example/fast-shim/).
 

@@ -24,7 +24,7 @@ go install github.com/romshark/datapages/cmd/datapages@latest
 go install github.com/a-h/templ/cmd/templ@v0.3.1100
 ```
 
-`go install` writes both programs to `$GOBIN`, or to the `bin` directory of `go env GOPATH` when `GOBIN` is unset. Add that directory to your `PATH`. [GitHub Releases](https://github.com/romshark/datapages/releases) also has archives of the CLI for Linux, macOS and Windows on amd64 and arm64.
+Make sure the [`go install` directory](https://go.dev/ref/mod#go-install) is on your `PATH`. [GitHub Releases](https://github.com/romshark/datapages/releases) also has archives of the CLI for Linux, macOS and Windows on amd64 and arm64.
 
 ## Check the installation
 
@@ -38,7 +38,7 @@ templ version
 v0.3.1100
 ```
 
-A release of the CLI prints its version without the `v` prefix. A CLI built with `go build` or `go install` in a git checkout prints a pseudo-version, such as `0.10.2-0.20261022233632-c5bb9323e8fb`, with `+dirty` for uncommitted changes. `go run` prints `(devel)`. `datapages version --full` adds the build information and the modules the binary was built with.
+A release of the CLI prints its version without the `v` prefix. A CLI built in a git checkout prints a [pseudo-version](https://go.dev/doc/go1.24#go-command), such as `0.10.2-0.20261022233632-c5bb9323e8fb`. `go run` prints `(devel)`. `datapages version --full` adds the build information and the modules the binary was built with.
 
 ## Create a project
 

@@ -122,8 +122,8 @@ templ reviewForm(p Product) {
 The [attribute reference](https://data-star.dev/reference/attributes) lists the other attributes and the modifiers, such as `__debounce.300ms`.
 
 - The value of every Datastar attribute is a JavaScript expression. `data-signals:review.text="''"` declares an empty string.
-- HTML lowercases attribute names. `data-signals:newTitle` declares `$newtitle`. Write `data-signals:new-title` to declare `$newTitle`, or put the name in the value, as `data-bind="newTitle"`.
-- `data-bind` keeps the type of a signal declared earlier. The `<select>` sets `$review.rating` to the number `4`, not the string `"4"`, and the action decodes it into an `int`.
+- HTML [lowercases attribute names](https://data-star.dev/reference/attributes#attribute-casing). Write `data-signals:new-title` to declare `$newTitle`, or put the name in the value, as `data-bind="newTitle"`.
+- `data-bind` [keeps the type](https://data-star.dev/reference/attributes#predefined-signal-types) of a signal declared earlier, which lets the action decode `$review.rating` into an `int`.
 - Datastar leaves signals whose names start with `_` out of requests. Use the prefix for interaction state, such as `$_posting`.
 - Never put a secret in a signal. The browser can read every signal, and requests send them to the server.
 - Navigate with `<a href>`, not with an action. The browser then keeps its history.
@@ -369,7 +369,7 @@ Put `//datapages:nolint` on the line above an element to suppress the reports ab
 
 ## Pitfalls
 
-- Templ reads text that starts with `if `, `for ` or `switch ` as Go code, also at the start of the content of an element. Write the word as `{ "if" }` or reword the text.
+- Templ [reads text that starts with `if`, `for` or `switch` as Go code](https://templ.guide/syntax-and-usage/statements#ifswitchfor-within-text).
 - Write event attributes with a colon, as `data-on:click`. The plugin attributes `data-on-intersect`, `data-on-interval` and `data-on-signal-patch` take a hyphen.
 - Write `data-on:click={ action.X.Y.POST() }`. A hand-written `data-on:click="@post('/x/')"` fails lint and breaks when the route changes.
 - Templ writes an apostrophe in an attribute as `&#39;`, and the browser decodes it before Datastar parses the expression. An apostrophe inside a single-quoted string then ends the string. Reword the text, use `&quot;` for the inner string, or escape the apostrophe with a backslash.
@@ -386,7 +386,7 @@ templ greeting(name string) {
 }
 ```
 
-`templ.JSONString` encodes the value with `encoding/json`, which quotes it, escapes quotes and backslashes, and writes `<` and `>` as Unicode escapes. Quoted by hand, as `data-signals:name={ "'" + name + "'" }`, the name `O'Brien` makes the expression invalid, and the name `x' + (document.title = 'pwned') + '` runs as script. Put server values into signals this way and use them as `$name` in other expressions, instead of writing them into the expressions. [SECURITY.md](../SECURITY.md) also names `templ.Raw`, which writes markup without escaping.
+`templ.JSONString` encodes the value with [`json.Marshal`](https://pkg.go.dev/encoding/json#Marshal), which quotes and escapes it. Quoted by hand, as `data-signals:name={ "'" + name + "'" }`, the name `O'Brien` makes the expression invalid, and the name `x' + (document.title = 'pwned') + '` runs as script. Put server values into signals this way and use them as `$name` in other expressions, instead of writing them into the expressions. [SECURITY.md](../SECURITY.md) also names `templ.Raw`, which writes markup without escaping.
 
 ## See also
 
