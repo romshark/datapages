@@ -166,7 +166,7 @@ func TestEditionPages(t *testing.T) {
 				`<p class="main-note" role="note">` +
 					`This page documents the unreleased main branch.`,
 			},
-			wantNot: []string{"neo-option value=\"v", "the latest release", noindex},
+			wantNot: []string{`data-neo-value="v`, "the latest release", noindex},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -222,7 +222,7 @@ func TestLandingPage(t *testing.T) {
 				`<a class="header-link" href="docs/v1.2/">Docs</a>`,
 				`<a class="icon-link" href="docs/v1.2/changelog">`,
 			},
-			wantNot: []string{"neo-select"},
+			wantNot: []string{"<neo-select"},
 		},
 		"main alone": {
 			e: edition{version: "main"},
@@ -230,7 +230,7 @@ func TestLandingPage(t *testing.T) {
 				"datapages/cmd/datapages@main</div>",
 				`<a href="docs/main/installation" class="btn btn-primary">`,
 			},
-			wantNot: []string{"neo-select"},
+			wantNot: []string{"<neo-select"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
