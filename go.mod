@@ -12,7 +12,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.55.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/romshark/morpheus v0.3.1
+	github.com/romshark/morpheus v0.3.2
 	github.com/romshark/templier v0.13.4
 	github.com/romshark/yamagiconf v1.1.2
 	github.com/rs/zerolog v1.35.1

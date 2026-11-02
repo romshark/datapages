@@ -205,8 +205,8 @@ github.com/prometheus/procfs v0.23.0 h1:ad+S6FTkzwaMgacKLM5h6bNKExS+DMH0YiUwXItH
 github.com/prometheus/procfs v0.23.0/go.mod h1:3AVXO0FqLafyYFU/V/IQRZlC8Rgqz8Dm/x6pKLK+RIk=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
-github.com/romshark/morpheus v0.3.1 h1:Ukgw7zU2wJZA5hvwEuR65YpnIJYr+R+zkIn/PfDMD8s=
-github.com/romshark/morpheus v0.3.1/go.mod h1:MokISzeqDFyLw6N0xZOfPRbMQ66XMlc0409lz1e1o58=
+github.com/romshark/morpheus v0.3.2 h1:kbeLzK8+lK+mxFV6G5SyF9ota9CB1LSwdC7vyIEkxAU=
+github.com/romshark/morpheus v0.3.2/go.mod h1:MokISzeqDFyLw6N0xZOfPRbMQ66XMlc0409lz1e1o58=
 github.com/romshark/templier v0.13.4 h1:sseNLssaNKwqShojyImTPKdMVRqZjoqROt1TeixsBPQ=
 github.com/romshark/templier v0.13.4/go.mod h1:wslQuvImdR4MmKCaSAC1/XvIYBq1mpKZUc8Dp/58VOE=
 github.com/romshark/yamagiconf v1.1.2 h1:FmjefhGiJ0/3QxfQ/vU25/qM+io3V+bF/Rn+mcTqxQo=
