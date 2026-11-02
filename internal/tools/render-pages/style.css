@@ -745,7 +745,8 @@ html:has(.docs-page) {
    A bar that sticks below the header, or at the top while the header doesn't
    stick, and opens the list over the text. The bar covers the text that
    scrolls below it, with 0.5rem above and below its summary.
-   docs.js limits the list to the viewport. */
+   docs.js limits the list to the viewport and sets data-stuck while the bar
+   sticks. */
 .toc-inline {
   display: none;
   position: sticky;
@@ -793,6 +794,12 @@ html:has(.docs-page) {
 
   &[open] summary svg {
     rotate: 180deg;
+  }
+
+  /* A shadow, because a border would move the text below the bar by 1px
+     when the bar sticks. */
+  &[data-stuck] {
+    box-shadow: 0 1px 0 var(--border);
   }
 
   .toc-inline-current {

@@ -128,10 +128,18 @@ if (sections.length > 0) {
 // The list of the bar ends 8px above the bottom of the viewport and scrolls
 // when longer. The room changes with the scroll, because at the top of the page
 // the bar sits below the position where it sticks. The bar closes after a jump
-// to a section, on a click outside it and on Escape.
+// to a section, on a click outside it and on Escape. While it sticks, the bar
+// has the data-stuck attribute, which CSS cannot detect in every browser.
 const bar = document.querySelector(".toc-inline");
 if (bar) {
 	const list = bar.querySelector(".toc");
+	const stick = () => {
+		const top = parseFloat(getComputedStyle(bar).top);
+		bar.toggleAttribute("data-stuck", bar.getBoundingClientRect().top < top + 1);
+	};
+	addEventListener("scroll", stick, { passive: true });
+	addEventListener("resize", stick);
+	stick();
 	const fit = () => {
 		if (bar.open) {
 			list.style.maxBlockSize = `${innerHeight - list.getBoundingClientRect().top - 8}px`;
