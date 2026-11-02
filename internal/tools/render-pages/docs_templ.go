@@ -604,7 +604,7 @@ func skipLink() templ.Component {
 // "docs", "examples", "faq" or "" for none. suggested are the pages that the
 // search offers while its field is empty. A page with versions is
 // a documentation page, which has a menu of the versions that the site serves
-// and loads Morpheus for it, the search and the theme menu. The children come first in the navigation, as the Menu button
+// and loads Morpheus for it, the search and the theme select. The children come first in the navigation, as the Menu button
 // of a documentation page.
 func siteHeader(
 	home, docs, section string, versions []versionLink, suggested []suggestion,
@@ -707,7 +707,7 @@ func siteHeader(
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = themeMenu().Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = themeSelect().Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -146,7 +146,7 @@ templ skipLink() {
 // "docs", "examples", "faq" or "" for none. suggested are the pages that the
 // search offers while its field is empty. A page with versions is
 // a documentation page, which has a menu of the versions that the site serves
-// and loads Morpheus for it, the search and the theme menu. The children come first in the navigation, as the Menu button
+// and loads Morpheus for it, the search and the theme select. The children come first in the navigation, as the Menu button
 // of a documentation page.
 templ siteHeader(
 	home, docs, section string, versions []versionLink, suggested []suggestion,
@@ -172,7 +172,7 @@ templ siteHeader(
 			</a>
 			if len(versions) > 0 {
 				@searchDialog(suggested)
-				@themeMenu()
+				@themeSelect()
 			}
 			@themeSwitch()
 		</nav>

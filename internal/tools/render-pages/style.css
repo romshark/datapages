@@ -423,22 +423,12 @@ a {
   }
 }
 
-/* The theme switch of a docs page on a narrow screen. Its button shows the icon
-   of the chosen theme. .site-header outranks the display of <neo-button> in Morpheus. */
-.site-header .theme-menu {
+/* The theme switch of a docs page on a narrow screen. .site-header outranks
+   the display of <neo-select> in Morpheus. */
+.site-header .theme-select {
   svg {
     inline-size: 1rem;
     block-size: 1rem;
-  }
-
-  > svg {
-    display: none;
-  }
-
-  :root:not([data-theme]) & > .icon-desktop,
-  :root[data-theme="light"] & > .icon-sun,
-  :root[data-theme="dark"] & > .icon-moon {
-    display: block;
   }
 
   @media (width > 59.25rem) {
@@ -525,9 +515,11 @@ a {
 
 /* ── Version menu ────────────────────────────────── */
 
-/* The version menu of a docs page, as wide as the version it shows. The
-   button, popover and option colors of Morpheus have no dark variant. */
-.version-select {
+/* The version menu and the theme switch of a docs page, as wide as what they
+   show. The button, popover and option colors of Morpheus have no dark
+   variant. */
+.version-select,
+.theme-select {
   --neo-select-min-width: 0;
   --neo-button-bg: var(--bg);
   --neo-button-color: var(--text);
@@ -540,6 +532,9 @@ a {
   --neo-select-option-hover-bg: var(--bg-card);
   --neo-select-option-selected-bg: color-mix(in srgb, var(--accent) 15%, transparent);
   --neo-select-option-selected-color: var(--text);
+}
+
+.version-select {
   font-family: var(--font-mono);
   font-size: 0.75rem;
 }

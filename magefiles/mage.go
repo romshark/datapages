@@ -531,7 +531,7 @@ const morpheusModule = "github.com/romshark/morpheus"
 // docsMorpheusComponents are the Morpheus components that the docs pages render.
 // "morpheus bundle" adds the components they require.
 var docsMorpheusComponents = []string{
-	"button", "clipcopy", "dialog", "menu", "select", "sidebar",
+	"button", "clipcopy", "dialog", "select", "sidebar",
 }
 
 // docsMorpheusIcons are the icons of Morpheus that the components of the docs
