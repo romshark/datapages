@@ -795,11 +795,6 @@ html:has(.docs-page) {
     rotate: 180deg;
   }
 
-  .toc-inline-title {
-    flex: none;
-    font-weight: 600;
-  }
-
   .toc-inline-current {
     min-inline-size: 0;
     overflow: hidden;

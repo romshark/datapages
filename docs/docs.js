@@ -63,9 +63,11 @@ for (const a of document.querySelectorAll("a[data-fallback]")) {
 	});
 }
 
-// The contents mark the section whose heading was scrolled past last, in the
-// column and in the bar, which shows its title too. At the end of the page,
-// they mark the URL's section if in view, else the last section in view.
+// The contents mark the section whose heading was scrolled past last,
+// in the column and in the bar, which shows its title too. Their first entry,
+// the title of the page, stands for the text above the first section and is marked
+// until a heading is scrolled past. At the end of the page, they mark the URL's
+// section if in view, else the last section in view.
 // Each section has 1 link in each of the 2 lists.
 const tocLinks = [...document.querySelectorAll(".toc a")];
 const sections = [...new Set(tocLinks.map((a) => a.hash))]
@@ -84,7 +86,7 @@ if (sections.length > 0) {
 		const top = parseFloat(getComputedStyle(root).scrollPaddingTop) || 0;
 		const end = scrollY + innerHeight >= root.scrollHeight - 1;
 		const inView = (heading) => heading.getBoundingClientRect().top < innerHeight;
-		let current = null;
+		let current = sections[0];
 		for (const section of sections) {
 			const heading = section[1];
 			if (end ? !inView(heading) : heading.getBoundingClientRect().top > top + 96) {
@@ -108,7 +110,7 @@ if (sections.length > 0) {
 			}
 		}
 		if (currentTitle) {
-			currentTitle.textContent = current ? current[0][0].textContent : "";
+			currentTitle.textContent = current[0][0].textContent;
 		}
 	};
 	const schedule = () => {

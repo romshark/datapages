@@ -270,8 +270,9 @@ func TestReadDocs(t *testing.T) {
 		"<code>guide/README.md</code> does not exist yet.")
 }
 
-// TestContents tests that the contents of a page list its headings from level
-// 2 down to the depth of the page.
+// TestContents tests that the contents of a page list its title,
+// then its headings from level 2 down to the depth of the page,
+// and that a page without such headings has no contents.
 func TestContents(t *testing.T) {
 	sections := []section{
 		{ID: "spec", Title: "Spec", Level: 1},
@@ -280,27 +281,45 @@ func TestContents(t *testing.T) {
 		{ID: "parameters", Title: "Parameters", Level: 4},
 	}
 	for name, tt := range map[string]struct {
-		page docPage
-		want []tocEntry
+		page     docPage
+		sections []section
+		want     []tocEntry
 	}{
 		"default depth": {
-			page: testPages[1],
+			page:     testPages[1],
+			sections: sections,
 			want: []tocEntry{
+				{Href: "#spec", Title: "Spec", Level: 1},
 				{Href: "#pages", Title: "Pages", Level: 2},
 				{Href: "#actions", Title: "Actions", Level: 3},
 			},
 		},
 		"depth 4": {
-			page: testPages[2],
+			page:     testPages[2],
+			sections: sections,
 			want: []tocEntry{
+				{Href: "#spec", Title: "Spec", Level: 1},
 				{Href: "#pages", Title: "Pages", Level: 2},
 				{Href: "#actions", Title: "Actions", Level: 3},
 				{Href: "#parameters", Title: "Parameters", Level: 4},
 			},
 		},
+		"no title": {
+			page:     testPages[1],
+			sections: sections[1:],
+			want: []tocEntry{
+				{Href: "#pages", Title: "Pages", Level: 2},
+				{Href: "#actions", Title: "Actions", Level: 3},
+			},
+		},
+		"title only": {
+			page:     testPages[1],
+			sections: sections[:1],
+			want:     nil,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			d := doc{page: tt.page, sections: sections}
+			d := doc{page: tt.page, sections: tt.sections}
 			require.Equal(t, tt.want, contents(d))
 		})
 	}

@@ -343,14 +343,21 @@ type tocEntry struct {
 	Level int
 }
 
-// contents returns the contents of d:
-// its headings from level 2 down to the depth of its page.
+// contents returns the contents of d: the level 1 heading that opens it,
+// which stands for the text above the first section, and its headings from
+// level 2 down to the depth of its page. A page without such sections has none.
 func contents(d doc) []tocEntry {
 	var toc []tocEntry
 	for _, s := range d.sections {
 		if s.Level >= 2 && s.Level <= d.page.depth() {
 			toc = append(toc, tocEntry{Href: "#" + s.ID, Title: s.Title, Level: s.Level})
 		}
+	}
+	if len(toc) == 0 {
+		return nil
+	}
+	if s := d.sections[0]; s.Level == 1 {
+		toc = append([]tocEntry{{Href: "#" + s.ID, Title: s.Title, Level: 1}}, toc...)
 	}
 	return toc
 }
