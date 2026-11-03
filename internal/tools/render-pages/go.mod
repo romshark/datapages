@@ -7,10 +7,10 @@ require (
 	github.com/alecthomas/chroma/v3 v3.0.0-alpha.5
 	github.com/romshark/morpheus v0.3.3
 	github.com/stretchr/testify v1.12.1
-	github.com/yuin/goldmark/v2 v2.1.11
+	github.com/yuin/goldmark/v2 v2.1.15
 )
 
 require (
 	github.com/dlclark/regexp2/v2 v2.12.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 )
