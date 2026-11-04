@@ -528,7 +528,7 @@ func convertDocs(
 ) ([]doc, error) {
 	p := parser.New(
 		parser.WithAutoHeadingID(),
-		parser.WithExtensions(extension.GFMParser),
+		parser.WithExtensions(extension.NewGFMParser()),
 	)
 	s := site{
 		pages:        pages,
@@ -610,7 +610,7 @@ func convertDocs(
 		}
 		d.search = searchEntries(*d, nodes[i], src)
 		r := html.New(
-			html.WithExtensions(extension.GFMHTMLRenderer),
+			html.WithExtensions(extension.NewGFMHTMLRenderer()),
 			html.WithNodeRendererDecorator(ast.KindCodeBlock, codeBlocks()),
 			html.WithNodeRendererDecorator(ast.KindHeading, headingLinks),
 			html.WithNodeRendererDecorator(ast.KindBlockquote, callouts),
