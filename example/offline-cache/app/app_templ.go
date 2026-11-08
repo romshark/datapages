@@ -55,7 +55,7 @@ func head() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var3 string
-		templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(assets.Path("basecoat-1.0.2.css")).ResolveURL(ctx)
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(assets.Path("basecoat-1.1.0.css")).ResolveURL(ctx)
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 22, Col: 64}
 		}
@@ -68,7 +68,7 @@ func head() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression(assets.Path("basecoat-1.0.2.js")).ResolveURL(ctx)
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression(assets.Path("basecoat-1.1.0.js")).ResolveURL(ctx)
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 23, Col: 47}
 		}

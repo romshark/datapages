@@ -63,7 +63,7 @@ func head() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css\"><script src=\"https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/all.min.js\" defer></script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/basecoat-css@1.1.0/dist/basecoat.cdn.min.css\"><script src=\"https://cdn.jsdelivr.net/npm/basecoat-css@1.1.0/dist/js/all.min.js\" defer></script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
