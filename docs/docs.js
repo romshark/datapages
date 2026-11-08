@@ -414,7 +414,7 @@ if (diagrams.length > 0) {
 		const theme = document.documentElement.dataset.theme;
 		return theme ? theme === "dark" : system.matches;
 	};
-	import("https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.esm.min.mjs")
+	import("https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.esm.min.mjs")
 		.then(({ default: mermaid }) => {
 			const draw = () => {
 				mermaid.initialize({
