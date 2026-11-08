@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/Shopify/toxiproxy/v2 v2.13.0
 	github.com/a-h/templ v0.3.1100
-	github.com/andybalholm/brotli v1.2.7
+	github.com/andybalholm/brotli v1.2.8
 	github.com/charmbracelet/huh v1.0.0
 	github.com/fatih/color v1.19.0
 	github.com/klauspost/compress v1.20.3
