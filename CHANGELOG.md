@@ -8,6 +8,16 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-11-08
+
+Upgrade dependencies. The documentation pages keep the contents bar below the header while scrolling and show suggestions in an empty search.
+
+### Changed
+
+#### Runtime and modules
+
+- Require `github.com/romshark/morpheus` v0.3.3, which the settings page of `datapages watch` uses. `go get` of this release moves an application on Morpheus v0.3.1 or v0.3.2 to v0.3.3, which changes the default spacing of option, menu and tab rows and removes `--page-max-width`, `--neo-alert-title-line-size` and `--neo-card-horizontal-collapse`. The [v0.3.3 release notes](https://github.com/romshark/morpheus/releases/tag/v0.3.3) give the values that restore the old spacing.
+
 ## [0.11.2] - 2026-11-01
 
 Serve the documentation of a release under its feature version, as `/docs/v0.11/`, which patch releases keep. Links to `/docs/v0.11.1/` stop working. Fix the sidebar, the search results and the contents of the documentation pages. No code changes since v0.11.1.
@@ -291,7 +301,8 @@ Run `datapages gen` to apply these.
 - Prevent `natskv.SessionManager.SaveSession` from re-creating a session deleted by `CloseSession`, `CloseAllUserSessions` or `DeleteExpired`. A stale save could let a signed-out user or an attacker with a revoked cookie authenticate again. Applications using `SaveSession` are affected in v0.1.0 through v0.10.0. Upgrade to v0.10.1 and redeploy. There is no workaround.
 - End a user's private-event streams at the session's `ExpiresAt`. In v0.10.0, a client that opened a stream before expiry, including one using a stolen cookie, could keep reading afterward until the session was deleted. Applications setting a non-zero `NewSession.ExpiresAt` are affected. Upgrade to v0.10.1, run `datapages gen` and redeploy. Until then, call `DeleteExpired` frequently; the inmem and natskv stores end streams when they delete sessions.
 
-[Unreleased]: https://github.com/romshark/datapages/compare/v0.11.2...HEAD
+[Unreleased]: https://github.com/romshark/datapages/compare/v0.11.3...HEAD
+[0.11.3]: https://github.com/romshark/datapages/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/romshark/datapages/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/romshark/datapages/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/romshark/datapages/compare/v0.10.1...v0.11.0
