@@ -39,6 +39,14 @@ func TestCompileFixtures(t *testing.T) {
 	fixtures := parserFixtures(t)
 	require.NotEmpty(t, fixtures)
 
+	// The fixture builds run with GOPROXY=off, which makes an import that the
+	// example's go.mod does not require an error. It also keeps them from
+	// fetching what the go.mod does require, which a cold module cache lacks.
+	download := exec.Command("go", "mod", "download")
+	download.Dir = filepath.Join(repoRoot, "example", "classifieds")
+	out, err := download.CombinedOutput()
+	require.NoError(t, err, "go mod download:\n%s", out)
+
 	for _, fixture := range fixtures {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
