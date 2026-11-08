@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/Shopify/toxiproxy/v2 v2.13.0
 	github.com/a-h/templ v0.3.1100
-	github.com/andybalholm/brotli v1.2.7
+	github.com/andybalholm/brotli v1.2.8
 	github.com/charmbracelet/huh v1.0.0
 	github.com/fatih/color v1.19.0
 	github.com/klauspost/compress v1.20.3
@@ -19,7 +19,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go/modules/nats v0.44.0
-	go.yaml.in/yaml/v4 v4.0.0-rc.9
+	go.yaml.in/yaml/v4 v4.0.0
 	golang.org/x/mod v0.42.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/tools v0.52.0
