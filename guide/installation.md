@@ -7,13 +7,13 @@ Install the Datapages CLI and templ, then use `datapages init` to create a proje
 | Tool | Version | Used by |
 | ---- | ------- | ------- |
 | [Go](https://go.dev/dl/) | 1.27.4 or later, the `go` directive of the Datapages module | Everything |
-| [templ](https://templ.guide) | v0.3.1100 | `templ generate`, and `datapages watch`, which runs `templ` from the `PATH` |
+| [templ](https://templ.guide) | v0.3.1118 | `templ generate`, and `datapages watch`, which runs `templ` from the `PATH` |
 | Git | any | `datapages init`, which creates a repository when the directory is not in one |
 | [Docker](https://www.docker.com/) with Compose | any | The NATS server of a new project, which `make dev` starts |
 | make | any | The targets of the generated `Makefile` |
 | [Node.js](https://nodejs.org/) with npm | any | A project set up with `--web-components typescript`. `init` installs esbuild, and `init`, `make dev`, `make build` and `datapages watch` run it |
 
-Use the templ version named by the `github.com/a-h/templ` requirement in `go.mod`. A new project requires v0.3.1100. Generated templ files record that version. When git keeps the generated code, the generated CI workflow fails when `templ generate` changes a committed file.
+Use the templ version named by the `github.com/a-h/templ` requirement in `go.mod`. A new project requires v0.3.1118. Generated templ files record that version. When git keeps the generated code, the generated CI workflow fails when `templ generate` changes a committed file.
 
 Docker is needed only for NATS. [Run without Docker](#run-without-docker) shows how to start a project with the in-memory modules instead.
 
@@ -21,7 +21,7 @@ Docker is needed only for NATS. [Run without Docker](#run-without-docker) shows 
 
 ```sh
 go install github.com/romshark/datapages/cmd/datapages@latest
-go install github.com/a-h/templ/cmd/templ@v0.3.1100
+go install github.com/a-h/templ/cmd/templ@v0.3.1118
 ```
 
 Make sure the [`go install` directory](https://go.dev/ref/mod#go-install) is on your `PATH`. [GitHub Releases](https://github.com/romshark/datapages/releases) also has archives of the CLI for Linux, macOS and Windows on amd64 and arm64.
@@ -35,7 +35,7 @@ templ version
 
 ```text
 0.10.1
-v0.3.1100
+v0.3.1118
 ```
 
 A release of the CLI prints its version without the `v` prefix. A CLI built in a git checkout prints a [pseudo-version](https://go.dev/doc/go1.24#go-command), such as `0.10.2-0.20261022233632-c5bb9323e8fb`. `go run` prints `(devel)`. `datapages version --full` adds the build information and the modules the binary was built with.

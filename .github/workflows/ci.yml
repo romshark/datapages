@@ -115,7 +115,7 @@ jobs:
       # PATH. Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
         if: matrix.project.name == 'cmd'
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1100
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1118
 
       # The root entry tests the packages without an entry of their own.
       # The acceptance cases run in modules of their own:
@@ -208,7 +208,7 @@ jobs:
       # a command. mage itself only ever `go run`s it, which puts nothing on PATH.
       # Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1100
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1118
 
       - name: Run tests
         run: go test -timeout 15m ./...

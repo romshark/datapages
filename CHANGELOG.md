@@ -8,6 +8,18 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+### Changed
+
+#### Runtime and modules
+
+- Require Go 1.27.4.
+- Require templ v0.3.1118.
+- Require `github.com/romshark/morpheus` v0.4.0. See its [changelog](https://github.com/romshark/morpheus/blob/v0.4.0/CHANGELOG.md).
+
+#### `datapages init`
+
+- Pin templ v0.3.1118 in a new project's `Makefile` and `.github/workflows/ci.yml`. In an existing project, update both to the templ version in `go.mod`.
+
 ## [0.11.3] - 2026-11-08
 
 Upgrade dependencies. The documentation pages keep the contents bar below the header while scrolling and show suggestions in an empty search.
