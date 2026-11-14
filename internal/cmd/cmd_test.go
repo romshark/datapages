@@ -1379,7 +1379,7 @@ func TestInit(t *testing.T) {
 				out, err := exec.Command("git", "init", dir).CombinedOutput()
 				require.NoError(t, err, "git init: %s", out)
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
-					[]byte("module example.com/root\n\ngo 1.27.3\n"), 0o644))
+					[]byte("module example.com/root\n\ngo 1.27.4\n"), 0o644))
 				web := filepath.Join(dir, "web")
 				require.NoError(t, os.Mkdir(web, 0o755))
 				return web
@@ -1617,7 +1617,7 @@ func TestInit(t *testing.T) {
 				out, err := exec.Command("git", "init", dir).CombinedOutput()
 				require.NoError(t, err, "git init: %s", out)
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
-					[]byte("module example.com/root\n\ngo 1.27.3\n"), 0o644))
+					[]byte("module example.com/root\n\ngo 1.27.4\n"), 0o644))
 				return dir
 			},
 			projectDir: "myproject",

@@ -1,8 +1,8 @@
 module datapagestest/fixture/param_order
 
-go 1.27.3
+go 1.27.4
 
-require github.com/romshark/datapages v0.11.2
+require github.com/romshark/datapages v0.11.3
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -11,9 +11,9 @@ require (
 	github.com/pandatix/go-abnf v0.5.5 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
-	github.com/prometheus/common v0.73.1 // indirect
+	github.com/prometheus/common v0.74.0 // indirect
 	github.com/prometheus/procfs v0.23.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 

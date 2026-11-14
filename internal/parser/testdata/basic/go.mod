@@ -1,10 +1,10 @@
 module datapagestest/fixture/basic
 
-go 1.27.3
+go 1.27.4
 
 require (
-	github.com/a-h/templ v0.3.1100
-	github.com/romshark/datapages v0.11.2
+	github.com/a-h/templ v0.3.1118
+	github.com/romshark/datapages v0.11.3
 )
 
 require (
@@ -14,9 +14,9 @@ require (
 	github.com/pandatix/go-abnf v0.5.5 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
-	github.com/prometheus/common v0.73.1 // indirect
+	github.com/prometheus/common v0.74.0 // indirect
 	github.com/prometheus/procfs v0.23.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
