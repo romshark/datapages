@@ -38,7 +38,7 @@ func OfflineConfig() offline.Config {
 		WorkerVersion: offlineWorkerVersion,
 		Assets: []string{
 			assets.Path("style.css"),
-			assets.Path("datastar-1.0.4.js"),
+			assets.Path("datastar-1.0.5.js"),
 		},
 	}
 }
@@ -63,7 +63,7 @@ The other fields of `offline.Config`:
 Declaring `PageOffline` makes `datapages gen` generate the option `datapagesgen.WithOffline`, which passes the route of `PageOffline` to the module. Add it in `cmd/server/main.go` with the bundle URL:
 
 ```go title="cmd/server/main.go"
-datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
+datapages.WithDatastarJS(assets.Path("datastar-1.0.5.js")),
 datapagesgen.WithOffline(app.OfflineConfig()),
 ```
 

@@ -15,10 +15,12 @@ Releases up to v0.10.0 have their notes on
 - Require Go 1.27.4.
 - Require templ v0.3.1118.
 - Require `github.com/romshark/morpheus` v0.4.0. See its [changelog](https://github.com/romshark/morpheus/blob/v0.4.0/CHANGELOG.md).
+- Load Datastar v1.0.5 by default. See its [release notes](https://github.com/starfederation/datastar/releases/tag/v1.0.5).
 
 #### `datapages init`
 
 - Pin templ v0.3.1118 in a new project's `Makefile` and `.github/workflows/ci.yml`. In an existing project, update both to the templ version in `go.mod`.
+- Load the Rocket bundle of Datastar v1.0.5 with `--web-components rocket`.
 
 ## [0.11.3] - 2026-11-08
 

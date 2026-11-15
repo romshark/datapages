@@ -51,7 +51,7 @@ const (
 	DefaultFileSendTimeout = time.Minute
 
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
-	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar.js"
+	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.5/bundles/datastar.js"
 )
 
 // Core is the HTTP server a generated server is built on.

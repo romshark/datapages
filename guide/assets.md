@@ -36,7 +36,7 @@ opts = append(opts, datapages.WithAssets(app.StaticFS, false))
 
 Assets carry `Cache-Control: public, max-age=0` and an `ETag` computed from the file contents. The browser [revalidates](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching#etagif-none-match) before every reuse, and the server answers `304 Not Modified` while the file is unchanged. `datapages.WithAssetsCache` changes these headers.
 
-`MaxAge` lets browsers reuse files without asking. It applies to every file below the prefix. Set it only when every file name changes with its content, as `datastar-1.0.4.js` or `app.3f9a1c.css` does. Otherwise browsers keep old files after a deploy until `MaxAge` ends. For such names, let browsers keep files for a year:
+`MaxAge` lets browsers reuse files without asking. It applies to every file below the prefix. Set it only when every file name changes with its content, as `datastar-1.0.5.js` or `app.3f9a1c.css` does. Otherwise browsers keep old files after a deploy until `MaxAge` ends. For such names, let browsers keep files for a year:
 
 ```go title="cmd/server/main.go"
 datapages.WithAssetsCache(datapages.AssetsCacheConfig{
@@ -106,17 +106,17 @@ func (a *App) GETLogo(r *http.Request) (file datapages.File, err error) {
 
 ## Self-host the Datastar bundle
 
-Pages load the Datastar bundle from `https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar.js` by default. Serve it from the app's assets when pages must not depend on another origin. Download it into the assets directory:
+Pages load the Datastar bundle from `https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.5/bundles/datastar.js` by default. Serve it from the app's assets when pages must not depend on another origin. Download it into the assets directory:
 
 ```sh
-curl -fsSL -o app/static/datastar-1.0.4.js \
-  https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar.js
+curl -fsSL -o app/static/datastar-1.0.5.js \
+  https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.5/bundles/datastar.js
 ```
 
 Pass its URL to the server:
 
 ```go title="cmd/server/main.go"
-opts = append(opts, datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")))
+opts = append(opts, datapages.WithDatastarJS(assets.Path("datastar-1.0.5.js")))
 ```
 
 Put the version in the file name, so each upgrade gets a [new URL](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching#cache_busting) that no cache holds yet. `WithDatastarJS` accepts an `http`, `https` or relative URL. `WithCSPNonce` requires Datastar 1.0.3 or later. See [Security](security.md) for the `Content-Security-Policy`.

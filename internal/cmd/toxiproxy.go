@@ -279,7 +279,7 @@ func newSettingsServer(
 		// The user's shell can turn dev mode on for this process,
 		// and an installed CLI has no source tree.
 		datapages.WithAssetsFS(http.FS(static), false),
-		datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
+		datapages.WithDatastarJS(assets.Path("datastar-1.0.5.js")),
 		datapages.WithLogger(logger),
 		// The browser runs on the same machine, where compression saves nothing.
 		datapages.WithNoResponseCompression(),

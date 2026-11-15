@@ -98,7 +98,7 @@ The document for the page above, with line breaks added and script bodies shorte
 <meta name="datapages-build" content="build-1"/>
 <script>(() => { ... h.set("Datapages-Build",b) ... })()</script>
 <script>(() => { let __dpInstance="UDSVhIHvd6z8rC7ExQpGXw" ... })()</script>
-<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.5/bundles/datastar.js"></script>
 <script type="module"> ... h.set("X-CSRF-Token",'...') ... </script>
 </head><body data-on:visibilitychange__window="if (!document.hidden) window.location.reload()">
 <main><p id="user">u1</p><p id="counter">0</p><div id="toasts"></div></main>

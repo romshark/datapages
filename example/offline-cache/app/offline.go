@@ -18,7 +18,7 @@ func OfflineConfig() offline.Config {
 			assets.Path("style.css"),
 			assets.Path("basecoat-1.1.0.css"),
 			assets.Path("basecoat-1.1.0.js"),
-			assets.Path("datastar-1.0.4.js"),
+			assets.Path("datastar-1.0.5.js"),
 			assets.Path("favicon.svg"),
 		},
 	}

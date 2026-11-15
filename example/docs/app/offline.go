@@ -15,7 +15,7 @@ func OfflineConfig() offline.Config {
 	return offline.Config{
 		WorkerVersion: OfflineWorkerVersion,
 		Assets: []string{
-			assets.Path("datastar-1.0.4.js"),
+			assets.Path("datastar-1.0.5.js"),
 			assets.Path("editor.css"),
 			assets.Path("editor.js"),
 			assets.Path("favicon.svg"),

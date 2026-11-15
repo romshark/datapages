@@ -43,7 +43,7 @@ opts = append(opts,
 	datapages.WithSessionManager[app.SessionData](mgr),
 	datapages.WithAssets(app.StaticFS, false),
 	datapages.WithHTTPServer(&http.Server{ReadHeaderTimeout: 10 * time.Second}),
-	datapages.WithDatastarJS("https://cdn.example.com/datastar@1.0.4/datastar.js"),
+	datapages.WithDatastarJS("https://cdn.example.com/datastar@1.0.5/datastar.js"),
 	datapages.WithShutdownTimeout(30*time.Second),
 	datapages.WithFileSendTimeout(time.Minute),
 	datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
@@ -96,7 +96,7 @@ Declare at most 1 such variable in an app package. The URL prefix must start and
 
 Without `WithAssetsCache`, assets carry `Cache-Control: public, max-age=0` and an ETag, the headers of a zero `AssetsCacheConfig`. The browser asks before every reuse, and an unchanged file returns 304 with an empty body.
 
-Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash or the version of a vendored library, as in `datastar-1.0.4.js`. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` leaves the headers of a server without `WithAssetsCache`.
+Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash or the version of a vendored library, as in `datastar-1.0.5.js`. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` leaves the headers of a server without `WithAssetsCache`.
 
 The server computes an ETag on a file's first request and keeps it until the process exits, since assets must not change while it runs. A file that changes anyway keeps its old ETag, and browsers may get its old compressed content, until a restart. Serve files that change through a GET action that returns `datapages.File`. Development mode ignores this option and always sends `Cache-Control: no-cache` without `Last-Modified`.
 
@@ -122,4 +122,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages sha256:fab9d137b1de5fa5 -->
+<!-- written by datapages sha256:e08be075e57994f8 -->

@@ -1210,7 +1210,7 @@ func TestPrecompressCanceled(t *testing.T) {
 var exampleAssets = []string{
 	"../../example/docs/app/static/editor.js",
 	"../../example/offline-cache/app/static/basecoat-1.1.0.css",
-	"../../example/classifieds/app/static/datastar-1.0.4.js",
+	"../../example/classifieds/app/static/datastar-1.0.5.js",
 }
 
 // BenchmarkPrecompress measures the first copy of example assets.

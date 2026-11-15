@@ -436,13 +436,13 @@ func TestWithOption(t *testing.T) {
 		writeOptions([]actionexpr.Option{actionexpr.WithOption("", "$x")}))
 }
 
-// TestDatastarReadsEveryKey tests that Datastar 1.0.4, which
+// TestDatastarReadsEveryKey tests that Datastar 1.0.5, which
 // httpserve.DefaultDatastarJSSrc loads, reads the key each typed helper writes.
 // Datastar ignores a key it does not know, and the option has no effect.
 func TestDatastarReadsEveryKey(t *testing.T) {
 	t.Parallel()
 
-	src, err := os.ReadFile("../../example/classifieds/app/static/datastar-1.0.4.js")
+	src, err := os.ReadFile("../../example/classifieds/app/static/datastar-1.0.5.js")
 	if errors.Is(err, fs.ErrNotExist) {
 		t.Skip("the examples are not checked out")
 	}
@@ -474,7 +474,7 @@ func TestDatastarReadsEveryKey(t *testing.T) {
 			require.True(t, ok, "no option written: %q", written)
 			// The fetch actions destructure their options as {selector:c,headers:l,...}.
 			read := regexp.MustCompile(`[{,]` + regexp.QuoteMeta(key) + `:`)
-			require.True(t, read.Match(src), "Datastar 1.0.4 does not read %q", key)
+			require.True(t, read.Match(src), "Datastar 1.0.5 does not read %q", key)
 		})
 	}
 }

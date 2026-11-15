@@ -268,7 +268,7 @@ See [Static assets](assets.md) and [Asset Paths](../SPECIFICATION.md#asset-paths
 
 ## Browsers keep an old asset after a deploy
 
-The server sends a positive `MaxAge` as `Cache-Control: public, max-age=3600`. A browser then reuses its copy without asking until that time passes. Set `MaxAge` only for files whose names change with their content, such as `datastar-1.0.4.js`. Use the zero `AssetsCacheConfig` for other files. It sends `max-age=0` and an `ETag`.
+The server sends a positive `MaxAge` as `Cache-Control: public, max-age=3600`. A browser then reuses its copy without asking until that time passes. Set `MaxAge` only for files whose names change with their content, such as `datastar-1.0.5.js`. Use the zero `AssetsCacheConfig` for other files. It sends `max-age=0` and an `ETag`.
 
 The offline service worker has a separate cache. It keeps a same-origin asset until its `max-age` passes and never updates a cross-origin asset. See [Static assets](assets.md) and [Changing Assets](../SPECIFICATION.md#changing-assets).
 

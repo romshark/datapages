@@ -32,7 +32,7 @@ Each skill is a Markdown file that starts with a `name` and a `description`. Cla
 | `datapages-offline` | Offline pages, cached shims and the service worker |
 | `datapages-server` | Server entry points, options, the broker and static assets |
 | `datapages-templates` | `.templ` files, the `href` and `action` helpers, Web Components and templ pitfalls |
-| `datastar` | `data-*` attributes and the `@get` and `@post` actions of Datastar v1.0.4, which Datapages serves |
+| `datastar` | `data-*` attributes and the `@get` and `@post` actions of Datastar v1.0.5, which Datapages serves |
 
 `datapages-architecture` decides where a value lives, how a change reaches the browser, which type owns a handler and how many server processes run. The other skills say how to write what it chose. `datapages-templates` sends agents to `datastar` for the attributes.
 

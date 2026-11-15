@@ -22,8 +22,8 @@ import (
 // Datastar event types for the client version loaded by
 // [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
 //
-// [datastar-patch-elements]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchelements
-// [datastar-patch-signals]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorpatchsignals
+// [datastar-patch-elements]: https://github.com/starfederation/datastar/blob/v1.0.5/sdk/ADR.md#serversenteventgeneratorpatchelements
+// [datastar-patch-signals]: https://github.com/starfederation/datastar/blob/v1.0.5/sdk/ADR.md#serversenteventgeneratorpatchsignals
 const (
 	eventPatchElements = "datastar-patch-elements"
 	eventPatchSignals  = "datastar-patch-signals"
@@ -32,7 +32,7 @@ const (
 // scriptOpen starts a script element that removes itself after execution.
 // [ExecuteScript] specifies it, along with the selector body and mode append.
 //
-// [ExecuteScript]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#serversenteventgeneratorexecutescript
+// [ExecuteScript]: https://github.com/starfederation/datastar/blob/v1.0.5/sdk/ADR.md#serversenteventgeneratorexecutescript
 const scriptOpen = `<script data-effect="el.remove()">`
 
 var errClosed = errors.New("sse: stream closed")
@@ -62,7 +62,7 @@ type Stream struct {
 // Open panics if w doesn't support flushing because events would wait for the
 // handler to return. [Stream.Err] and later events report other flush failures.
 //
-// [SDK specification]: https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md#construction--initialization
+// [SDK specification]: https://github.com/starfederation/datastar/blob/v1.0.5/sdk/ADR.md#construction--initialization
 func Open(w http.ResponseWriter, r *http.Request, c *Compression) *Stream {
 	s := &Stream{ctx: r.Context(), w: w, rc: http.NewResponseController(w)}
 	h := w.Header()
