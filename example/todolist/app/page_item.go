@@ -1,10 +1,7 @@
 package app
 
 import (
-	"fmt"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen/href"
@@ -57,23 +54,16 @@ func (p PageItem) PUTEdit(
 	stateID string,
 	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	title := strings.TrimSpace(signals.Values.Title)
-	if title == "" {
-		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
-	}
-	var dueAt time.Time
-	if signals.Values.Due != "" {
-		var err error
-		dueAt, err = time.Parse("2006-01-02T15:04", signals.Values.Due)
-		if err != nil {
-			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
-		}
+	title, desc, dueAt, err := parseTodoInput(
+		signals.Values.Title, signals.Values.Description, signals.Values.Due,
+	)
+	if err != nil {
+		return err
 	}
 	if !p.App.list.UpdateItem(
-		path.Values.ID, title, strings.TrimSpace(signals.Values.Description),
-		signals.Values.Done, dueAt,
+		path.Values.ID, title, desc, signals.Values.Done, dueAt,
 	) {
-		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
+		return errTodoNotFound
 	}
 	return todoUpdated.Dispatch(EventTodoUpdated{Origin: stateID})
 }
@@ -87,7 +77,7 @@ func (p PageItem) DELETEItem(
 	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) (redirect datapages.Redirect, err error) {
 	if !p.App.list.DeleteItem(path.Values.ID) {
-		return redirect, fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
+		return redirect, errTodoNotFound
 	}
 	if err := todoUpdated.Dispatch(EventTodoUpdated{}); err != nil {
 		return redirect, err

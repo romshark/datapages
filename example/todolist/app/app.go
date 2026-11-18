@@ -4,10 +4,38 @@ import (
 	"embed"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/list"
 )
+
+// dueLayout is the value format of a datetime-local input.
+const dueLayout = "2006-01-02T15:04"
+
+var errTodoNotFound = fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
+
+// parseTodoInput trims title and description and parses due.
+// An empty due means the todo has no due date.
+func parseTodoInput(title, description, due string) (
+	string, string, time.Time, error,
+) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", "", time.Time{},
+			fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
+	}
+	var dueAt time.Time
+	if due != "" {
+		var err error
+		if dueAt, err = time.Parse(dueLayout, due); err != nil {
+			return "", "", time.Time{},
+				fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
+		}
+	}
+	return title, strings.TrimSpace(description), dueAt, nil
+}
 
 // StaticFS is /static/
 //
@@ -60,7 +88,7 @@ func (a *App) PUTToggle(
 	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
 	if !a.list.ToggleItem(path.Values.ID) {
-		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
+		return errTodoNotFound
 	}
 	return todoUpdated.Dispatch(EventTodoUpdated{})
 }

@@ -1,65 +1,45 @@
 package app
 
 import (
-	"fmt"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/list"
 )
+
+// ViewSignals are the search, filter and sort controls of [PageIndex],
+// reflected in the URL query. It converts to [list.ViewParameters].
+type ViewSignals struct {
+	Search string `json:"search" query:"q" reflectsignal:"search"`
+	Filter string `json:"filter" query:"filter" reflectsignal:"filter"`
+	Sort   string `json:"sort" query:"sort" reflectsignal:"sort"`
+}
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(
 	r *http.Request,
-	query datapages.Query[struct {
-		Search string `query:"q" reflectsignal:"search"`
-		Filter string `query:"filter" reflectsignal:"filter"`
-		Sort   string `query:"sort" reflectsignal:"sort"`
-	}],
+	query datapages.Query[ViewSignals],
 ) (body datapages.Component, err error) {
-	filter := query.Values.Filter
-	if filter == "" {
-		filter = "all"
+	vp := list.ViewParameters(query.Values)
+	// An empty value leaves the selects without a selected option.
+	// The other handlers pass empty values to [list.List.GetItems] as is.
+	if vp.Filter == "" {
+		vp.Filter = "all"
 	}
-	sortMode := query.Values.Sort
-	if sortMode == "" {
-		sortMode = "created"
+	if vp.Sort == "" {
+		vp.Sort = "created"
 	}
-	vp := list.ViewParameters{
-		Search: query.Values.Search,
-		Filter: filter,
-		Sort:   sortMode,
-	}
-	todos := p.App.list.GetItems(vp)
-	return pageIndex(todos, query.Values.Search, filter, sortMode), nil
+	return pageIndex(p.App.list.GetItems(vp), vp), nil
 }
 
 func (p PageIndex) StreamOpen(
 	r *http.Request,
 	state datapages.State[StateIndex],
-	signals datapages.Signals[struct {
-		Search string `json:"search"`
-		Filter string `json:"filter"`
-		Sort   string `json:"sort"`
-	}],
+	signals datapages.Signals[ViewSignals],
 ) error {
-	filter := signals.Values.Filter
-	if filter == "" {
-		filter = "all"
-	}
-	sortMode := signals.Values.Sort
-	if sortMode == "" {
-		sortMode = "created"
-	}
-	state.Values.ViewParameters = list.ViewParameters{
-		Search: signals.Values.Search,
-		Filter: filter,
-		Sort:   sortMode,
-	}
+	state.Values.ViewParameters = list.ViewParameters(signals.Values)
 	return nil
 }
 
@@ -73,19 +53,13 @@ func (p PageIndex) POSTCreate(
 	}],
 	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	title := strings.TrimSpace(signals.Values.NewTitle)
-	if title == "" {
-		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
+	title, desc, dueAt, err := parseTodoInput(
+		signals.Values.NewTitle, signals.Values.NewDesc, signals.Values.NewDue,
+	)
+	if err != nil {
+		return err
 	}
-	var dueAt time.Time
-	if signals.Values.NewDue != "" {
-		var err error
-		dueAt, err = time.Parse("2006-01-02T15:04", signals.Values.NewDue)
-		if err != nil {
-			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
-		}
-	}
-	p.App.list.AddItem(title, strings.TrimSpace(signals.Values.NewDesc), dueAt)
+	p.App.list.AddItem(title, desc, dueAt)
 	return todoUpdated.Dispatch(EventTodoUpdated{})
 }
 
@@ -94,16 +68,9 @@ func (p PageIndex) POSTFilter(
 	r *http.Request,
 	sse datapages.SSE,
 	state datapages.State[StateIndex],
-	signals datapages.Signals[struct {
-		Search string `json:"search"`
-		Filter string `json:"filter"`
-		Sort   string `json:"sort"`
-	}],
+	signals datapages.Signals[ViewSignals],
 ) error {
-	state.Values.Search = signals.Values.Search
-	state.Values.Filter = signals.Values.Filter
-	state.Values.Sort = signals.Values.Sort
-
+	state.Values.ViewParameters = list.ViewParameters(signals.Values)
 	todos := p.App.list.GetItems(state.Values.ViewParameters)
 	return sse.PatchElement(todoList(todos))
 }
