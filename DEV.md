@@ -10,7 +10,7 @@ mage watchDocs
 
 The docs are at http://127.0.0.1:7340/. An error, such as a link to a missing heading, appears in the tab until it is fixed.
 
-The folders and file names of `guide/` are the navigation, as [Layout](https://github.com/romshark/docpages/blob/v0.3.0/docs/2-guide/1-layout.md) of docpages describes. To add a page, add a Markdown file with the next number to a group folder, as `guide/4-guides/17-caching.md`. `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md` stay at the repository root. The pages of `guide/5-reference/` and `guide/6-more/` show them with `source` in their front matter.
+The folders and file names of `guide/` are the navigation, as [Layout](https://github.com/romshark/docpages/blob/v0.4.0/docs/2-guide/1-layout.md) of docpages describes. To add a page, add a Markdown file with the next number to a group folder, as `guide/4-guides/17-caching.md`. `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md` stay at the repository root. The pages of `guide/5-reference/` and `guide/6-more/` show them with `source` in their front matter.
 
 | File | Contents |
 | ---- | -------- |
@@ -24,6 +24,6 @@ The folders and file names of `guide/` are the navigation, as [Layout](https://g
 
 ## Versions
 
-The site serves the docs of main and of each feature version from v0.11 on, which `releases` in the front matter of `guide/README.md` selects. docpages builds the docs of a feature version from the tag of its latest patch, as v0.11.4 for v0.11, and `docs/docs/index.html` redirects to the latest release. See [Versions](https://github.com/romshark/docpages/blob/v0.3.0/docs/2-guide/7-versions.md) of docpages.
+The site serves the docs of main and of each feature version from v0.11 on, which `releases` in the front matter of `guide/README.md` selects. docpages builds the docs of a feature version from the tag of its latest patch, as v0.11.4 for v0.11, and `docs/docs/index.html` redirects to the latest release. See [Versions](https://github.com/romshark/docpages/blob/v0.4.0/docs/2-guide/7-versions.md) of docpages.
 
 The v0.11 tags hold `guide/` as flat files, without the numbered folders that docpages reads. docpages ignores those files and reads `guide/versions/v0.11/` in their place. It holds 1 stub per page, and the `source` of each stub is the flat file of the tag. A v0.11 patch that adds a file to `guide/` needs a stub there. Delete the folder if a v0.11 tag gets the numbered layout, which happens when a v0.11 patch is tagged on main.
