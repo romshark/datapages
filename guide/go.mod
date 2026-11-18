@@ -5,12 +5,15 @@ go 1.27.4
 tool github.com/romshark/docpages/cmd/docpages
 
 require (
+	github.com/a-h/templ v0.3.1118
+	github.com/romshark/docpages v0.3.0
+)
+
+require (
 	github.com/a-h/parse v0.0.42 // indirect
-	github.com/a-h/templ v0.3.1118 // indirect
 	github.com/alecthomas/chroma/v3 v3.0.0-alpha.5 // indirect
 	github.com/dlclark/regexp2/v2 v2.13.0 // indirect
 	github.com/evanw/esbuild v0.28.2 // indirect
-	github.com/romshark/docpages v0.3.0 // indirect
 	github.com/romshark/morpheus v0.6.0 // indirect
 	github.com/tdewolff/parse/v2 v2.8.20 // indirect
 	github.com/yuin/goldmark/v2 v2.1.16 // indirect
