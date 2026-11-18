@@ -9,11 +9,8 @@ package main
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/romshark/morpheus/neo"
-
-// themeScript applies the theme chosen with [themeSwitch] or [themeSelect] and
-// marks the choice in both. It runs in <head>, which sets the theme before the
-// first paint. Without a choice the stylesheet follows the system theme.
+// themeScript applies the theme chosen with [themeSwitch] and marks the choice
+// in it. It runs in <head>, which sets the theme before the first paint. Without a choice the stylesheet follows the system theme.
 func themeScript() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -31,7 +28,7 @@ func themeScript() templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<script>\n\t\t(() => {\n\t\t\tconst root = document.documentElement;\n\t\t\tconst stored = () => {\n\t\t\t\ttry {\n\t\t\t\t\treturn localStorage.getItem(\"theme\");\n\t\t\t\t} catch {\n\t\t\t\t\treturn null;\n\t\t\t\t}\n\t\t\t};\n\t\t\tconst apply = (choice) => {\n\t\t\t\tif (choice === \"light\" || choice === \"dark\") {\n\t\t\t\t\troot.dataset.theme = choice;\n\t\t\t\t} else {\n\t\t\t\t\tdelete root.dataset.theme;\n\t\t\t\t}\n\t\t\t\tconst current = root.dataset.theme ?? \"system\";\n\t\t\t\tfor (const b of document.querySelectorAll(\"[data-theme-choice]\")) {\n\t\t\t\t\tb.setAttribute(\"aria-pressed\", String(b.dataset.themeChoice === current));\n\t\t\t\t}\n\t\t\t\t// The attribute, because the select may not be upgraded yet.\n\t\t\t\tfor (const select of document.querySelectorAll(\"neo-select.theme-select\")) {\n\t\t\t\t\tselect.setAttribute(\"value\", current);\n\t\t\t\t}\n\t\t\t};\n\t\t\tconst choose = (choice) => {\n\t\t\t\ttry {\n\t\t\t\t\tif (choice === \"system\") {\n\t\t\t\t\t\tlocalStorage.removeItem(\"theme\");\n\t\t\t\t\t} else {\n\t\t\t\t\t\tlocalStorage.setItem(\"theme\", choice);\n\t\t\t\t\t}\n\t\t\t\t} catch {}\n\t\t\t\tapply(choice);\n\t\t\t};\n\t\t\tapply(stored());\n\t\t\tdocument.addEventListener(\"DOMContentLoaded\", () => apply(stored()));\n\t\t\tdocument.addEventListener(\"click\", (e) => {\n\t\t\t\tconst button = e.target.closest(\"[data-theme-choice]\");\n\t\t\t\tif (button) {\n\t\t\t\t\tchoose(button.dataset.themeChoice);\n\t\t\t\t}\n\t\t\t});\n\t\t\tdocument.addEventListener(\"neo-select-change\", (e) => {\n\t\t\t\tif (e.target.matches(\".theme-select\")) {\n\t\t\t\t\tchoose(e.detail.value);\n\t\t\t\t}\n\t\t\t});\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<script>\n\t\t(() => {\n\t\t\tconst root = document.documentElement;\n\t\t\tconst stored = () => {\n\t\t\t\ttry {\n\t\t\t\t\treturn localStorage.getItem(\"theme\");\n\t\t\t\t} catch {\n\t\t\t\t\treturn null;\n\t\t\t\t}\n\t\t\t};\n\t\t\tconst apply = (choice) => {\n\t\t\t\tif (choice === \"light\" || choice === \"dark\") {\n\t\t\t\t\troot.dataset.theme = choice;\n\t\t\t\t} else {\n\t\t\t\t\tdelete root.dataset.theme;\n\t\t\t\t}\n\t\t\t\tconst current = root.dataset.theme ?? \"system\";\n\t\t\t\tfor (const b of document.querySelectorAll(\"[data-theme-choice]\")) {\n\t\t\t\t\tb.setAttribute(\"aria-pressed\", String(b.dataset.themeChoice === current));\n\t\t\t\t}\n\t\t\t};\n\t\t\tconst choose = (choice) => {\n\t\t\t\ttry {\n\t\t\t\t\tif (choice === \"system\") {\n\t\t\t\t\t\tlocalStorage.removeItem(\"theme\");\n\t\t\t\t\t} else {\n\t\t\t\t\t\tlocalStorage.setItem(\"theme\", choice);\n\t\t\t\t\t}\n\t\t\t\t} catch {}\n\t\t\t\tapply(choice);\n\t\t\t};\n\t\t\tapply(stored());\n\t\t\tdocument.addEventListener(\"DOMContentLoaded\", () => apply(stored()));\n\t\t\tdocument.addEventListener(\"click\", (e) => {\n\t\t\t\tconst button = e.target.closest(\"[data-theme-choice]\");\n\t\t\t\tif (button) {\n\t\t\t\t\tchoose(button.dataset.themeChoice);\n\t\t\t\t}\n\t\t\t});\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -82,201 +79,6 @@ func themeSwitch() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</button></div>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// themeSelect is the theme switch of a documentation page on a narrow screen.
-// Its trigger shows the icon of the chosen theme.
-func themeSelect() templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var4 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var5 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = iconDesktop().Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				return nil
-			})
-			templ_7745c5c3_Err = themeOption("system", "System").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Var6 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = iconSun().Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				return nil
-			})
-			templ_7745c5c3_Err = themeOption("light", "Light").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = iconMoon().Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				return nil
-			})
-			templ_7745c5c3_Err = themeOption("dark", "Dark").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = neo.SelectAttrs(neo.SelectOpts{
-			Value:             neo.Set("system"),
-			Size:              neo.Set("sm"),
-			AriaLabel:         neo.Set("Theme"),
-			Caret:             neo.Set(""),
-			Placement:         neo.Set(neo.PlacementBottomEnd),
-			PopoverFitContent: neo.Set(true),
-		}, templ.Attributes{"class": "theme-select", "title": "Theme"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// themeOption is the option of [themeSelect] for the theme choice. It shows the
-// children, an icon, before the label, and only the icon on the trigger.
-func themeOption(choice, label string) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var8 := templ.GetChildren(ctx)
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var9 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var10 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templ_7745c5c3_Var8.Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				return nil
-			})
-			templ_7745c5c3_Err = neo.OptionTrigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templ_7745c5c3_Var8.Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(label)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `theme.templ`, Line: 107, Col: 9}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = neo.Option(neo.OptionOpts{Value: neo.Set(choice), Label: neo.Set(label)}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
