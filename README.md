@@ -47,7 +47,7 @@ Datapages parses and checks the application package, then generates the HTTP wir
 
 ## Getting Started
 
-See the [documentation](guide/README.md). Start with the [installation](guide/installation.md) and the [tutorial](guide/tutorial/README.md).
+See the [documentation](guide/README.md). Start with the [installation](guide/1-get-started/1-installation.md) and the [tutorial](guide/2-tutorial/README.md).
 
 ## Specification
 

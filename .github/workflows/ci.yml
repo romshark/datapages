@@ -19,8 +19,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # mage checkGen renders the docs, whose releases docpages reads from the
+      # Git tags, which a shallow clone lacks.
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Install Go 1.27.4
         uses: actions/setup-go@v7
         with:
@@ -39,7 +43,8 @@ jobs:
 
       # Runs every generator and fails if a file changes: templ everywhere,
       # the datapages code of every example and acceptance case, the AI agent
-      # instructions of every example, docs/style.css.
+      # instructions of every example. It also renders the docs, which fails
+      # on a dead link.
       - name: Check generated code is current
         run: mage checkGen
 
@@ -68,8 +73,8 @@ jobs:
           - path: "."
             name: "acceptance"
             packages: "./internal/acceptance"
-          - path: "internal/tools/render-pages"
-            name: "render-pages"
+          - path: "internal/tools/render-landing"
+            name: "render-landing"
           - path: "example/counter"
             name: "counter"
           - path: "example/classifieds"

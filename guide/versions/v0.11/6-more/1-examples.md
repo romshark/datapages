@@ -1,0 +1,3 @@
+---
+source: ../examples.md
+---

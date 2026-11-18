@@ -1,3 +1,13 @@
+---
+name: Datapages
+home: ../
+repository: https://github.com/romshark/datapages
+releases:
+  from: v0.11
+note: This page documents the unreleased main branch.
+suggested: true
+---
+
 # Introduction
 
 Datapages is a webdev meta-framework and toolchain for [Go](https://go.dev/), [Templ](https://templ.guide), and [Datastar](https://data-star.dev), designed for building modern web applications and hybrid desktop apps with a thin-client architecture.
@@ -102,13 +112,13 @@ Datapages fits an application whose server owns its data and rules. Use it when:
 
 ## When not to use Datapages
 
-Use a client-side application when it must run independently of a server or deploy as static files to a CDN. For a static site, use Templ directly. This [documentation site](../internal/tools/render-pages/) does that. Datastar and Web Components can add client-side interaction without Datapages.
+Use a client-side application when it must run independently of a server or deploy as static files to a CDN. For a static site, use Templ directly. [docpages](https://github.com/romshark/docpages), which renders this documentation site, does that. Datastar and Web Components can add client-side interaction without Datapages.
 
 ## How these docs are organized
 
-- Start with [Installation](installation.md), then build the application in the [tutorial](tutorial/README.md).
-- [Application model](application-model.md) explains the source and generated code. [Request lifecycle](request-lifecycle.md) follows a page load, stream, action and event through the server.
-- Use the task guides for implementation and the [specification](../SPECIFICATION.md), [CLI](cli.md), [configuration](configuration.md) and [Go API](https://pkg.go.dev/github.com/romshark/datapages) for reference.
+- Start with [Installation](1-get-started/1-installation.md), then build the application in the [tutorial](2-tutorial/README.md).
+- [Application model](3-concepts/1-application-model.md) explains the source and generated code. [Request lifecycle](3-concepts/2-request-lifecycle.md) follows a page load, stream, action and event through the server.
+- Use the task guides for implementation and the [specification](../SPECIFICATION.md), [CLI](5-reference/2-cli.md), [configuration](5-reference/3-configuration.md) and [Go API](https://pkg.go.dev/github.com/romshark/datapages) for reference.
 
 ## Get help
 

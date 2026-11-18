@@ -20,8 +20,8 @@ jobs:
         project:
           - path: "."
             name: "root"
-          - path: "internal/tools/render-pages"
-            name: "internal/tools/render-pages"
+          - path: "internal/tools/render-landing"
+            name: "internal/tools/render-landing"
           - path: "example/counter"
             name: "example/counter"
           - path: "example/classifieds"
