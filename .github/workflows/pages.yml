@@ -1,12 +1,9 @@
 name: Deploy GitHub Pages
 
-# The site serves the pages of the latest release under docs/<tag>/ and those
-# of the main branch under docs/main/. Each renders with the render-pages of its
-# own commit. Every release that has internal/tools/render-pages must therefore
-# keep taking the flags below and writing its pages to docs/docs/<tag>/ of its
-# checkout. Until the first such release, the site serves main alone. The run
-# for main writes the landing page, docs/index.html and llms.txt, which lead to
-# the release.
+# mage genDocs renders the site into docs/. docpages writes the docs of main
+# and of every release from its Git tag into docs/docs/, and
+# internal/tools/render-landing writes the landing page docs/index.html.
+# Git ignores these files, so each deployment renders them.
 on:
   push:
     branches:
@@ -14,10 +11,12 @@ on:
     paths:
       - "docs/**"
       - "guide/**"
-      - "internal/tools/render-pages/**"
+      - "internal/tools/render-landing/**"
+      - "magefiles/**"
       - "CHANGELOG.md"
       - "FAQ.md"
       - "SPECIFICATION.md"
+      - ".github/workflows/pages.yml"
   # The release workflow calls this after it publishes a release.
   workflow_call:
   workflow_dispatch:
@@ -28,7 +27,31 @@ permissions:
   id-token: write
 
 jobs:
+  # A release commit reaches main before its tag. Pages identifies a deployment
+  # by its commit and ignores a second deployment of the same commit, which
+  # would keep the pages deployed without the release. The release workflow
+  # deploys the commit once the tag exists.
+  pending-release:
+    runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.pending.outputs.pending }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      # The newest version of CHANGELOG.md has no tag yet.
+      - id: pending
+        run: |
+          version=$(sed -nE 's/^## \[([0-9][^]]*)\].*/\1/p' CHANGELOG.md | head -n 1)
+          if [[ -n "${version}" ]] &&
+            [[ -z "$(git ls-remote --tags origin "refs/tags/v${version}")" ]]; then
+            echo "pending=true" >> "${GITHUB_OUTPUT}"
+          fi
+
   deploy:
+    needs: pending-release
+    if: needs.pending-release.outputs.pending != 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -37,50 +60,27 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
-      # main, also when a release calls this from its tag.
+      # main, also when a release calls this from its tag. docpages reads the
+      # releases from the tags, which a shallow clone lacks.
       - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Install Go 1.27.3
+      - name: Install Go 1.27.4
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           check-latest: true
-          cache-dependency-path: internal/tools/render-pages/go.sum
+          cache-dependency-path: |
+            guide/go.sum
+            internal/tools/render-landing/go.sum
 
-      # The newest tag that is not a pre-release, if it has render-pages.
-      - name: Find the release
-        id: release
-        run: |
-          release=""
-          for tag in $(git tag --list 'v*' --sort=-v:refname); do
-            if [[ "${tag}" == *-* ]]; then
-              continue
-            fi
-            if git cat-file -e "${tag}:internal/tools/render-pages/go.mod" 2>/dev/null; then
-              release="${tag}"
-            fi
-            break
-          done
-          echo "tag=${release}" >> "${GITHUB_OUTPUT}"
+      - name: Install mage
+        run: go install github.com/magefile/mage@latest
 
-      - name: Render main
-        working-directory: internal/tools/render-pages
-        env:
-          RELEASE: ${{ steps.release.outputs.tag }}
-        run: go run . -version main -release "${RELEASE}"
-
-      - name: Render the release
-        if: steps.release.outputs.tag != ''
-        env:
-          RELEASE: ${{ steps.release.outputs.tag }}
-        run: |
-          git worktree add "${RUNNER_TEMP}/release" "${RELEASE}"
-          (cd "${RUNNER_TEMP}/release/internal/tools/render-pages" &&
-            go run . -version "${RELEASE}")
-          cp -R "${RUNNER_TEMP}/release/docs/docs/${RELEASE}" "docs/docs/${RELEASE}"
+      - name: Render the site
+        run: mage genDocs
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

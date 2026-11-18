@@ -1,0 +1,16 @@
+/* The badge after the logo in the header. Datapages is in beta until v1. */
+.site-header .logo::after {
+  content: "beta";
+  align-self: center;
+  margin-inline-start: 0.5rem;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  line-height: 1;
+}

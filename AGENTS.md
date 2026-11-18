@@ -18,8 +18,9 @@
 - `mage genAISkills`: generate AI agent instructions for every example.
 - `mage genOfflineWorker`: minify the offline service worker.
 - `mage genMorpheus`: build the Morpheus bundle of the Toxiproxy settings page of `datapages watch`.
-- `mage watchDocs`: serve the GitHub Pages site and reload it on changes. See `DEV.md`.
-- `mage gen`: generate templ files, Datapages code, AI agent instructions, documentation, the offline service worker and the Morpheus bundle.
+- `mage genDocs`: render the GitHub Pages site into `docs/`. See `DEV.md`.
+- `mage watchDocs`: serve the docs of `guide/` and reload them on changes. See `DEV.md`.
+- `mage gen`: generate templ files, Datapages code, AI agent instructions, the GitHub Pages site, the offline service worker and the Morpheus bundle.
 - `mage checkGen`: check that generated code is current.
 - `mage checkWatch`: report active `datapages watch` processes and fail if any exist.
 - `mage goFix`: run `go fix` on every module.
@@ -59,11 +60,11 @@ Internal, used by the CLI and build tooling:
   - `config/` - the `datapages.yaml` schema and its validation.
   - `toxic/` - the Toxiproxy front of `datapages watch`: the HTTP server of `watch.toxiproxy.host`, 1 Toxiproxy proxy per endpoint, and the settings.
     - `ui/` - the settings page, a Datapages application with templ and the Morpheus UI kit. See its `README.md`.
-- `internal/tools/render-pages/` - renders the GitHub Pages site, as its `README.md` describes.
+- `internal/tools/render-landing/` - renders the landing page of the GitHub Pages site, as its `README.md` describes.
 - `internal/tools/release-notes/` - prints the section of `CHANGELOG.md` that the release workflow publishes for a tag.
 - `internal/tools/genapp/` - generates the `datapagesgen` of an app package of this module. `datapages gen` refuses this module because its runtime packages import each other.
-- `guide/` - the Markdown sources of the documentation pages, 1 file per page.
-- `docs/` - the GitHub Pages site: committed images, scripts and minified stylesheet, and the generated pages.
+- `guide/` - the docs folder that [docpages](https://github.com/romshark/docpages) renders, 1 numbered folder per navigation group and 1 numbered Markdown file per page. A module of its own for its templates. See `DEV.md`.
+- `docs/` - the GitHub Pages site: committed images and the script of the landing page, and the generated pages.
 - `magefiles/` - build targets.
 
 Public, imported by application or generated code:
@@ -128,8 +129,7 @@ Never edit a generated file. Change the source or the generator, then regenerate
 - `*/datapagesgen/**` in examples and acceptance cases: written by the CLI from the app package. `mage genDatapages` builds `cmd/datapages` from source and runs `datapages gen` in every example and acceptance module.
 - `internal/cmd/toxic/ui/datapagesgen/**`: written by `internal/tools/genapp`, which `mage genDatapages` runs.
 - In every `example/*` module: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and everything under `.agents/skills/` and `.claude/skills/`. Written by `datapages init` from `internal/generator/agentdocs/data`. `mage genAISkills` runs it in every example to catch drift.
-- `docs/index.html`, `docs/llms.txt` and `docs/docs/`: written by `mage genDocs` through `internal/tools/render-pages`. The inputs are its templates, `guide/`, `SPECIFICATION.md`, `CHANGELOG.md` and `FAQ.md`. Git ignores the output. The Pages workflow generates it for each deployment, with the pages of the latest release under `docs/docs/<tag>/` and those of main under `docs/docs/main/`.
-- `docs/morpheus/`: the Morpheus bundle of the docs pages, with only the components they render. `mage genDocs` writes it with the `morpheus bundle` command at the version that `internal/tools/render-pages/go.mod` requires. It is committed with `docs/style.css`, because each release renders its pages with the copies of its own commit.
+- `docs/docs/`, `docs/index.html` and `docs/style.css`: written by `mage genDocs`. docpages renders `guide/` into `docs/docs/`, with the docs of main under `docs/docs/main/`. `internal/tools/render-landing` writes the landing page. Git ignores the output. The Pages workflow generates it for each deployment.
 - `modules/offline/sw.min.js`: minified from `sw.js` next to it. `mage genOfflineWorker`. The module embeds the minified file, which is why it is committed: `go build` cannot run the target.
 - `internal/cmd/toxic/ui/static/morpheus/`: the Morpheus bundle of the components the settings page renders, at the version `go.mod` requires. `mage genMorpheus`. Add a new component to the list in `magefiles/mage.go` first.
 - `mage gen` runs all of them.

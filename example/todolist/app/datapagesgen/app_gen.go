@@ -594,11 +594,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var query datapages.Query[struct {
-		Search string `query:"q" reflectsignal:"search"`
-		Filter string `query:"filter" reflectsignal:"filter"`
-		Sort   string `query:"sort" reflectsignal:"sort"`
-	}]
+	var query datapages.Query[dpapp.ViewSignals]
 	query.Values.Search = httpread.QueryValue(r.URL.RawQuery, "q")
 	query.Values.Filter = httpread.QueryValue(r.URL.RawQuery, "filter")
 	query.Values.Sort = httpread.QueryValue(r.URL.RawQuery, "sort")
@@ -668,11 +664,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var signals datapages.Signals[struct {
-		Search string `json:"search"`
-		Filter string `json:"filter"`
-		Sort   string `json:"sort"`
-	}]
+	var signals datapages.Signals[dpapp.ViewSignals]
 	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
@@ -801,11 +793,7 @@ func (s pageIndexHandlers) POSTFilter(
 		return
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
-	var signals datapages.Signals[struct {
-		Search string `json:"search"`
-		Filter string `json:"filter"`
-		Sort   string `json:"sort"`
-	}]
+	var signals datapages.Signals[dpapp.ViewSignals]
 	if err := dpsse.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return

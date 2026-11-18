@@ -22,8 +22,11 @@ func formatDue(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Format("2006-01-02T15:04")
+	return t.Format(dueLayout)
 }
+
+// resetNewTodo closes the new todo modal and clears its fields.
+const resetNewTodo = "$showModal=false;$newTitle='';$newDesc='';$newDue=''"
 
 templ head() {
 	<title>Todo List</title>
@@ -31,13 +34,13 @@ templ head() {
 	<link rel="stylesheet" href={ assets.Path("style.css") }/>
 }
 
-templ pageIndex(todos []list.Item, search, filter, sortMode string) {
+templ pageIndex(todos []list.Item, vp list.ViewParameters) {
 	<div
 		id="page-index"
 		class="container"
-		data-signals:search={ jsStr(search) }
-		data-signals:filter={ jsStr(filter) }
-		data-signals:sort={ jsStr(sortMode) }
+		data-signals:search={ jsStr(vp.Search) }
+		data-signals:filter={ jsStr(vp.Filter) }
+		data-signals:sort={ jsStr(vp.Sort) }
 		data-signals:show-modal="false"
 		data-signals:new-title="''"
 		data-signals:new-desc="''"
@@ -60,9 +63,9 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				data-on:change={ action.PageIndex.Filter.POST() }
 			>
 				// selected shows the value before Datastar binds the signal.
-				<option value="all" selected?={ filter == "all" }>All</option>
-				<option value="done" selected?={ filter == "done" }>Done</option>
-				<option value="pending" selected?={ filter == "pending" }>Pending</option>
+				<option value="all" selected?={ vp.Filter == "all" }>All</option>
+				<option value="done" selected?={ vp.Filter == "done" }>Done</option>
+				<option value="pending" selected?={ vp.Filter == "pending" }>Pending</option>
 			</select>
 			<select
 				aria-label="Sort by"
@@ -70,9 +73,9 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				data-indicator:_sorting
 				data-on:change={ action.PageIndex.Filter.POST() }
 			>
-				<option value="alpha" selected?={ sortMode == "alpha" }>Alphabetical</option>
-				<option value="created" selected?={ sortMode == "created" }>Created</option>
-				<option value="due" selected?={ sortMode == "due" }>Due Date</option>
+				<option value="alpha" selected?={ vp.Sort == "alpha" }>Alphabetical</option>
+				<option value="created" selected?={ vp.Sort == "created" }>Created</option>
+				<option value="due" selected?={ vp.Sort == "due" }>Due Date</option>
 			</select>
 			<button class="btn-primary" data-on:click="$showModal=true">
 				+ New Todo
@@ -103,19 +106,11 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				<label for="new-due">Due Date</label>
 				<input id="new-due" type="datetime-local" data-bind="newDue"/>
 				<div class="modal-actions">
-					<button
-						data-on:click="
-							$showModal=false;$newTitle='';$newDesc='';$newDue=''
-						"
-					>
-						Cancel
-					</button>
+					<button data-on:click={ resetNewTodo }>Cancel</button>
 					<button
 						class="btn-primary"
 						data-on:click={ action.PageIndex.Create.POST(
-							action.WithAfter(
-								"$showModal=false;$newTitle='';$newDesc='';$newDue=''",
-							),
+							action.WithAfter(resetNewTodo),
 						) }
 					>
 						Create
