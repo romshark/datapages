@@ -44,6 +44,7 @@ Datapages parses and checks the application package, then generates the HTTP wir
 - [`offline-cache`](example/offline-cache/): Service worker support with handler-cached pages, a `PageOffline` fallback, and tickets available without a connection.
 - [`file-upload`](example/file-upload/): Chunked file uploads to disk that can be paused, resumed and continued after a reload or a server restart, with server-enforced transfer limits.
 - [`docs`](example/docs/): Collaborative rich-text editor built on [Quill](https://quilljs.com), with operational transformation in Go.
+- [`realtime-charts`](example/realtime-charts/): A scrollable grid of [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) of a simulated market in six chart types, a market map drawn with [Apache ECharts](https://echarts.apache.org/) and a portfolio of the selected indexes drawn with [uPlot](https://github.com/leeoniya/uPlot). An in-memory time-series database fed by a goroutine that publishes one subject per index, a sidebar that selects the indexes and a pause the URL carries as a timestamp.
 
 ## Getting Started
 

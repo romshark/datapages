@@ -54,6 +54,8 @@ jobs:
             name: "file-upload"
           - path: "example/docs"
             name: "docs"
+          - path: "example/realtime-charts"
+            name: "realtime-charts"
     steps:
       - uses: actions/checkout@v7
         with:

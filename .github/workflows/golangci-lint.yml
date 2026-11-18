@@ -44,6 +44,8 @@ jobs:
             name: "example/file-upload"
           - path: "example/docs"
             name: "example/docs"
+          - path: "example/realtime-charts"
+            name: "example/realtime-charts"
     steps:
       - uses: actions/setup-go@v7
         with:

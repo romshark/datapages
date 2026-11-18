@@ -1,0 +1,1202 @@
+:root {
+	color-scheme: dark light;
+	/* The height of the navigation bar while it fits in one row, which the sidebar sticks
+	   below. */
+	--nav-h: 57px;
+	--bg: #0b0e14;
+	--surface: #131722;
+	--control: #1c2130;
+	--border: #262c3d;
+	--text: #d1d4dc;
+	--muted: #8a91a5;
+	--up: #26a69a;
+	--down: #ef5350;
+	/*
+	 * <rt-chart> reads these colors when it builds a chart and when the color scheme
+	 * changes. Lightweight Charts parses hex and rgba() colors, not color-mix().
+	 */
+	--chart-text: #8a91a5;
+	--chart-grid: #1c2130;
+	--up-fill: rgba(38, 166, 154, 0.28);
+	--up-fade: rgba(38, 166, 154, 0.04);
+	--down-fill: rgba(239, 83, 80, 0.28);
+	--down-fade: rgba(239, 83, 80, 0.04);
+	--line: #2962ff;
+	--line-fill: rgba(41, 98, 255, 0.32);
+	--line-fade: rgba(41, 98, 255, 0.02);
+	/*
+	 * The palette of the portfolio page has a color for every sector and holding.
+	 * <pf-chart> reads it the way <rt-chart> reads its colors.
+	 */
+	--c0: #4e79a7;
+	--c1: #f28e2b;
+	--c2: #e15759;
+	--c3: #76b7b2;
+	--c4: #59a14f;
+	--c5: #edc948;
+	--c6: #b07aa1;
+	--c7: #ff9da7;
+	--c8: #9c755f;
+	--c9: #bab0ac;
+	--tumbleweed: #c8a26a;
+	/* <market-map> reads the colors of the market map. */
+	--map-up: #30a46c;
+	--map-down: #e5484d;
+	--map-neutral: #3b4252;
+	--map-outline: #ffffff;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		--bg: #f3f5f9;
+		--surface: #ffffff;
+		--control: #f0f2f7;
+		--border: #dfe3eb;
+		--text: #131722;
+		--muted: #5d6477;
+		--up: #089981;
+		--down: #f23645;
+		--chart-text: #5d6477;
+		--chart-grid: #f0f2f7;
+		--up-fill: rgba(8, 153, 129, 0.22);
+		--up-fade: rgba(8, 153, 129, 0.03);
+		--down-fill: rgba(242, 54, 69, 0.22);
+		--down-fade: rgba(242, 54, 69, 0.03);
+		--line-fill: rgba(41, 98, 255, 0.24);
+		--line-fade: rgba(41, 98, 255, 0.02);
+		--tumbleweed: #a07a42;
+		--map-up: #2f9e5f;
+		--map-down: #e5484d;
+		--map-neutral: #9aa3b5;
+		--map-outline: #131722;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.navbar {
+	grid-area: nav;
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	min-height: var(--nav-h);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px 24px;
+	padding: 10px 20px;
+	background: color-mix(in srgb, var(--surface) 90%, transparent);
+	backdrop-filter: blur(8px);
+	border-bottom: 1px solid var(--border);
+}
+
+.brand {
+	display: flex;
+	margin: 0;
+}
+
+.logo {
+	display: block;
+	width: auto;
+	height: 26px;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+/*
+ * Both labels of the live button share the cell next to the dot, which makes the button
+ * as wide as the longer one whichever it shows.
+ */
+.live {
+	display: grid;
+	grid-template-columns: auto auto;
+	align-items: center;
+	column-gap: 6px;
+	padding: 5px 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--control);
+	color: var(--text);
+	font: inherit;
+	cursor: pointer;
+
+	&::before {
+		content: "";
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--up);
+		animation: pulse 2s ease-out infinite;
+	}
+
+	& > span {
+		grid-area: 1 / 2;
+	}
+
+	&.paused > .when-live,
+	&:not(.paused) > .when-paused {
+		visibility: hidden;
+	}
+
+	&:hover {
+		background: var(--border);
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--line);
+		outline-offset: 1px;
+	}
+
+	&.paused {
+		color: var(--muted);
+	}
+
+	&.paused::before {
+		background: var(--muted);
+		animation: none;
+	}
+}
+
+@keyframes pulse {
+	0% {
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--up) 60%, transparent);
+	}
+	100% {
+		box-shadow: 0 0 0 8px transparent;
+	}
+}
+
+.sync {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 10px 5px 8px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--control);
+	color: var(--text);
+	font: inherit;
+	cursor: pointer;
+
+	& svg {
+		display: block;
+	}
+
+	&:hover {
+		background: var(--border);
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--line);
+		outline-offset: 1px;
+	}
+
+	&[aria-pressed="true"] {
+		border-color: var(--line);
+		background: color-mix(in srgb, var(--line) 16%, var(--control));
+		color: var(--line);
+	}
+}
+
+/* Layout buttons look like tabs, the pressed one like the current tab. */
+.segments {
+	display: flex;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--control);
+}
+
+.segment {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	cursor: pointer;
+
+	& svg {
+		flex: none;
+	}
+
+	&:hover {
+		color: var(--text);
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--line);
+		outline-offset: -2px;
+	}
+
+	&[aria-pressed="true"] {
+		color: var(--text);
+		background: var(--surface);
+		box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+	}
+}
+
+/*
+ * Tabs that do not fit scroll sideways. A shadow at an edge shows that more tabs are
+ * beyond it: the shadows stay at the edges while two covers in the color of the strip
+ * scroll with the tabs and hide a shadow at the end the tabs reach.
+ */
+.tabs {
+	display: flex;
+	gap: 2px;
+	max-width: 100%;
+	padding: 3px;
+	overflow-x: auto;
+	background:
+		linear-gradient(to right, var(--control) 40%, transparent) left / 20px 100% no-repeat local,
+		linear-gradient(to left, var(--control) 40%, transparent) right / 20px 100% no-repeat local,
+		radial-gradient(farthest-side at 0 50%, var(--tabs-shadow), transparent) left / 8px 100% no-repeat scroll,
+		radial-gradient(farthest-side at 100% 50%, var(--tabs-shadow), transparent) right / 8px 100% no-repeat scroll,
+		var(--control);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	scrollbar-width: none;
+	--tabs-shadow: color-mix(in srgb, var(--text) 35%, transparent);
+}
+
+.tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 12px;
+	border-radius: 6px;
+	color: var(--muted);
+	font-size: 13px;
+	text-decoration: none;
+	white-space: nowrap;
+
+	& svg {
+		flex: none;
+	}
+
+	&:hover {
+		color: var(--text);
+	}
+
+	&[aria-current="page"] {
+		color: var(--text);
+		background: var(--surface);
+		box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+		view-transition-name: current-tab;
+	}
+}
+
+/*
+ * A tab crossfades one view into the next. The navigation bar and the sidebar are the
+ * same on every view, which makes the crossfade leave them in place, and the highlight of
+ * the current tab slides to the new tab. Its old and new pictures keep their size, since
+ * stretching them to the size between the two would stretch the names of the tabs.
+ */
+@media (prefers-reduced-motion: no-preference) {
+	@view-transition {
+		navigation: auto;
+	}
+}
+
+::view-transition-old(current-tab),
+::view-transition-new(current-tab) {
+	height: 100%;
+	object-fit: none;
+}
+
+.controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px 12px;
+}
+
+.control {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+
+	& select {
+		font: inherit;
+		color: var(--text);
+		background: var(--control);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 5px 8px;
+	}
+
+	& select:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+}
+
+/* Controls that do not fit in one row wrap, starting a row at the end. */
+.toolbar {
+	display: flex;
+	justify-content: flex-end;
+	margin-bottom: 12px;
+
+	& .control {
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+}
+
+/*
+ * The texts of the status and its sizers share one cell, which makes the status as wide
+ * as the widest of them. The text ends where the sizers end.
+ */
+.updated {
+	display: grid;
+	justify-items: end;
+	color: var(--muted);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+
+	& > span {
+		grid-area: 1 / 1;
+	}
+}
+
+.sizer {
+	visibility: hidden;
+}
+
+.error {
+	grid-area: error;
+	margin: 12px 20px 0;
+	padding: 8px 12px;
+	border-radius: 6px;
+	color: var(--down);
+	background: color-mix(in srgb, var(--down) 14%, transparent);
+
+	&:empty {
+		display: none;
+	}
+}
+
+/*
+ * The wrapper of the navigation bar and the sidebar takes no part in the layout of a wide
+ * screen: both are items of the grid of the page and stick on their own.
+ */
+.page {
+	display: grid;
+	grid-template-columns: 230px minmax(0, 1fr);
+	grid-template-rows: auto auto 1fr auto;
+	grid-template-areas:
+		"nav nav"
+		"side error"
+		"side main"
+		"side foot";
+	min-height: 100vh;
+}
+
+.top {
+	display: contents;
+}
+
+.sidebar {
+	grid-area: side;
+	align-self: start;
+	position: sticky;
+	top: var(--nav-h);
+	max-height: calc(100vh - var(--nav-h));
+	overflow-y: auto;
+	padding: 16px 0 16px 20px;
+
+	& h2 {
+		margin: 0 auto 0 0;
+		color: var(--muted);
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+
+	& ul {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+}
+
+.sidebar-header {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin: 0 4px 8px 10px;
+}
+
+/* The class select marks the buttons that show or hide all indexes. */
+.select {
+	padding: 4px 8px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+
+	&:hover:not(:disabled) {
+		color: var(--text);
+		background: var(--control);
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--line);
+		outline-offset: -2px;
+	}
+
+	&:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+}
+
+.index {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 6px 10px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+
+	&::before {
+		content: "";
+		flex: none;
+		width: 10px;
+		height: 10px;
+		border: 1.5px solid var(--border);
+		border-radius: 3px;
+	}
+
+	& .symbol {
+		color: var(--text);
+		font-weight: 600;
+	}
+
+	& .name {
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+
+	&:hover {
+		background: var(--control);
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--line);
+		outline-offset: -2px;
+	}
+
+	&[aria-pressed="true"] {
+		color: var(--text);
+	}
+
+	&[aria-pressed="true"]::before {
+		background: var(--line);
+		border-color: var(--line);
+	}
+}
+
+main {
+	grid-area: main;
+	min-width: 0;
+	padding: 16px 20px;
+}
+
+/*
+ * In a view without indexes a tumbleweed rolls and hops along the bottom of an empty
+ * chart and leaves it to come around again. Without motion it rests in the middle.
+ */
+.empty {
+	display: grid;
+	justify-items: center;
+	gap: 12px;
+	width: 100%;
+	max-width: 560px;
+	margin: 24px auto;
+	color: var(--muted);
+	text-align: center;
+
+	& p {
+		margin: 0;
+	}
+
+	.grid > & {
+		grid-column: 1 / -1;
+	}
+}
+
+.desert {
+	position: relative;
+	width: 100%;
+	height: 150px;
+	overflow: hidden;
+	background: repeating-linear-gradient(to bottom,
+		transparent 0 29px, color-mix(in srgb, var(--border) 60%, transparent) 29px 30px);
+	border-bottom: 1px solid var(--border);
+	mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+}
+
+.tumble {
+	position: absolute;
+	inset: auto 0 0;
+	height: 52px;
+	animation: tumble 7s linear infinite;
+}
+
+.tumbleweed {
+	position: absolute;
+	bottom: 2px;
+	left: 0;
+	width: 48px;
+	height: 48px;
+	color: var(--tumbleweed);
+	animation: hop 1.6s infinite, spin 1.4s linear infinite;
+}
+
+.shadow {
+	position: absolute;
+	bottom: -2px;
+	left: 9px;
+	width: 30px;
+	height: 5px;
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--text) 30%, transparent);
+	filter: blur(2px);
+	animation: shadow 1.6s infinite;
+}
+
+@keyframes tumble {
+	from {
+		translate: -15% 0;
+	}
+
+	86%,
+	to {
+		translate: 110% 0;
+	}
+}
+
+@keyframes spin {
+	to {
+		rotate: 1turn;
+	}
+}
+
+/* The tumbleweed hops twice, high then low, rising slower than it falls. */
+@keyframes hop {
+	0%,
+	40%,
+	62%,
+	100% {
+		translate: 0 0;
+		animation-timing-function: ease-out;
+	}
+
+	20% {
+		translate: 0 -22px;
+		animation-timing-function: ease-in;
+	}
+
+	51% {
+		translate: 0 -9px;
+		animation-timing-function: ease-in;
+	}
+}
+
+@keyframes shadow {
+	0%,
+	40%,
+	62%,
+	100% {
+		scale: 1;
+		opacity: 1;
+		animation-timing-function: ease-out;
+	}
+
+	20% {
+		scale: 0.55;
+		opacity: 0.4;
+		animation-timing-function: ease-in;
+	}
+
+	51% {
+		scale: 0.8;
+		opacity: 0.7;
+		animation-timing-function: ease-in;
+	}
+}
+
+/* Without motion the tumbleweed rests and the live dot stops pulsing. */
+@media (prefers-reduced-motion: reduce) {
+	.tumble,
+	.tumbleweed,
+	.shadow,
+	.live::before {
+		animation: none;
+	}
+
+	.tumble {
+		translate: calc(50% - 24px) 0;
+	}
+}
+
+.show-all {
+	padding: 6px 14px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--control);
+	color: var(--text);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+
+	&:hover {
+		background: var(--border);
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--line);
+		outline-offset: 1px;
+	}
+}
+
+/*
+ * Below this width the sidebar becomes a row of symbols below the navigation bar, which
+ * wraps when its sections do not fit in one row. The wrapper of both sticks as one block,
+ * since the height of the navigation bar depends on how often it wraps.
+ *
+ * The sections of the navigation bar fill the rows they wrap into. On a row the tabs
+ * share with the controls, the tabs take nearly all of the free space, which keeps the
+ * controls together at the end of the row. On a row of their own, the controls spread
+ * over it.
+ */
+@media (max-width: 1100px) {
+	.page {
+		display: block;
+	}
+
+	.top {
+		display: block;
+		position: sticky;
+		top: 0;
+		z-index: 10;
+	}
+
+	.navbar {
+		position: static;
+	}
+
+	.tabs {
+		flex: 1000 1 auto;
+	}
+
+	.tab {
+		flex: 1 1 0;
+		justify-content: center;
+	}
+
+	.controls {
+		flex: 1 1 auto;
+		justify-content: space-between;
+	}
+
+	/* The buttons stay at the start of the row while the symbols scroll. */
+	.sidebar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		position: static;
+		max-height: none;
+		overflow: visible;
+		padding: 8px 16px 4px;
+		background: color-mix(in srgb, var(--surface) 90%, transparent);
+		backdrop-filter: blur(8px);
+		border-bottom: 1px solid var(--border);
+
+		& h2 {
+			display: none;
+		}
+
+		& ul {
+			flex: 1;
+			flex-direction: row;
+			min-width: 0;
+			overflow-x: auto;
+			padding-bottom: 4px;
+			scrollbar-width: none;
+		}
+	}
+
+	.sidebar-header {
+		flex: none;
+		margin: 0 0 4px;
+		padding-right: 8px;
+		border-right: 1px solid var(--border);
+	}
+
+	.index {
+		flex: none;
+		width: auto;
+
+		& .name {
+			display: none;
+		}
+	}
+}
+
+/*
+ * On a phone the logo without its name stands left of the tabs, and the controls get a
+ * row of their own. The tabs get a smaller font and the page narrower margins. Tabs that
+ * still do not fit scroll sideways, with the current one in view. Above this width the
+ * whole logo and all tabs fit in one row.
+ */
+@media (max-width: 740px) {
+	.navbar {
+		column-gap: 10px;
+		padding-inline: 16px;
+	}
+
+	main,
+	.footer {
+		padding-inline: 16px;
+	}
+
+	.error {
+		margin-inline: 16px;
+	}
+
+	.tabs {
+		flex-basis: 0;
+		gap: 0;
+		padding: 2px;
+	}
+
+	.tab {
+		font-size: 11px;
+
+		& svg {
+			width: 14px;
+			height: 14px;
+		}
+	}
+
+	/*
+	 * The controls of the toolbar fill its rows, one row at the width of most phones.
+	 */
+	.toolbar .control {
+		flex: 1;
+		gap: 6px;
+
+		& > * {
+			flex: 1 1 auto;
+		}
+
+		& select {
+			padding-inline: 6px;
+		}
+	}
+
+	/* Without its name, the icon alone sets the height of the sync button. */
+	.sync {
+		justify-content: center;
+		padding: 6px 7px;
+	}
+
+	.segment {
+		flex: 1;
+		justify-content: center;
+		padding: 4px 8px;
+	}
+
+	/* The names hide like .visually-hidden, for assistive technology. */
+	.sync > span,
+	.segment > span {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+
+	.controls {
+		flex-basis: 100%;
+	}
+}
+
+.grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+	gap: 16px;
+
+	.rows & {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+.card {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	overflow: hidden;
+}
+
+/* An active <rt-chart> has the custom state active, which its card shows. */
+.card:has(rt-chart:state(active)) {
+	border-color: var(--line);
+}
+
+.card-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 14px 4px;
+}
+
+.ident {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+.symbol {
+	font-weight: 700;
+	letter-spacing: 0.04em;
+}
+
+.name {
+	overflow: hidden;
+	color: var(--muted);
+	font-size: 12px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.deactivate {
+	display: none;
+	flex: none;
+	align-self: center;
+	place-items: center;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--line) 18%, transparent);
+	color: var(--line);
+	cursor: pointer;
+
+	.card:has(rt-chart:state(active)) & {
+		display: grid;
+	}
+
+	&:hover {
+		background: color-mix(in srgb, var(--line) 30%, transparent);
+	}
+
+	& svg {
+		display: block;
+	}
+}
+
+.quote {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.price {
+	font-weight: 600;
+}
+
+.change {
+	padding: 1px 6px;
+	border-radius: 4px;
+	font-size: 12px;
+
+	&.up {
+		color: var(--up);
+		background: color-mix(in srgb, var(--up) 14%, transparent);
+	}
+
+	&.down {
+		color: var(--down);
+		background: color-mix(in srgb, var(--down) 14%, transparent);
+	}
+}
+
+rt-chart {
+	height: 240px;
+}
+
+.market {
+	display: grid;
+	gap: 8px;
+}
+
+market-map {
+	display: block;
+	height: max(420px, calc(100vh - 220px));
+
+	/*
+	 * On a phone the map is taller than the screen, which lays its sectors out as bands
+	 * across it with tiles large enough for their labels.
+	 */
+	@media (max-width: 740px) {
+		height: 1100px;
+	}
+}
+
+/* The legend shows the colors of the changes, from full down to full up. */
+.map-legend {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	color: var(--muted);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.map-scale {
+	width: min(240px, 50%);
+	height: 8px;
+	border-radius: 4px;
+	background: linear-gradient(to right, var(--map-down), var(--map-neutral), var(--map-up));
+}
+
+.portfolio {
+	display: grid;
+	gap: 16px;
+}
+
+.tiles {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+	gap: 16px;
+}
+
+.panels {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+	gap: 16px;
+}
+
+.tile,
+.panel {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+	padding: 12px 14px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+
+	& h2 {
+		margin: 0;
+		color: var(--muted);
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+
+	& p {
+		margin: 0;
+		font-variant-numeric: tabular-nums;
+	}
+}
+
+.tile-value {
+	font-size: 22px;
+	font-weight: 600;
+}
+
+.tile-note {
+	color: var(--muted);
+	font-size: 12px;
+}
+
+.tile .up {
+	color: var(--up);
+}
+
+.tile .down {
+	color: var(--down);
+}
+
+pf-chart {
+	display: block;
+	height: 240px;
+
+	.tile & {
+		height: 40px;
+		margin-top: auto;
+	}
+}
+
+.panel-wide {
+	grid-column: 1 / -1;
+}
+
+/* A narrow panel lists the sectors below the ring. */
+.donut {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 16px 24px;
+	min-height: 240px;
+
+	& svg {
+		flex: none;
+		width: 160px;
+		height: 160px;
+	}
+
+	& circle {
+		fill: none;
+		stroke: var(--color);
+		stroke-width: 0.36;
+	}
+
+	& ul {
+		display: grid;
+		gap: 6px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		font-size: 13px;
+	}
+
+	& li {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	& .swatch {
+		flex: none;
+		width: 10px;
+		height: 10px;
+		border-radius: 3px;
+		background: var(--color);
+	}
+
+	& .share {
+		margin-left: auto;
+		padding-left: 12px;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+}
+
+/* A slice of the ring and its swatch share a class of the palette. */
+.c0 {
+	--color: var(--c0);
+}
+
+.c1 {
+	--color: var(--c1);
+}
+
+.c2 {
+	--color: var(--c2);
+}
+
+.c3 {
+	--color: var(--c3);
+}
+
+.c4 {
+	--color: var(--c4);
+}
+
+.c5 {
+	--color: var(--c5);
+}
+
+.c6 {
+	--color: var(--c6);
+}
+
+.c7 {
+	--color: var(--c7);
+}
+
+.c8 {
+	--color: var(--c8);
+}
+
+.c9 {
+	--color: var(--c9);
+}
+
+.footer {
+	grid-area: foot;
+	padding: 0 20px 24px;
+	color: var(--muted);
+	font-size: 12px;
+
+	& a {
+		color: inherit;
+	}
+}
+
+.error-page {
+	max-width: 480px;
+	margin: 20vh auto 0;
+	padding: 0 20px;
+	text-align: center;
+
+	& a {
+		color: inherit;
+	}
+}
