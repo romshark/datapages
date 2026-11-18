@@ -8,6 +8,7 @@ require (
 	github.com/a-h/templ v0.3.1118
 	github.com/romshark/datapages v0.11.3
 	github.com/stretchr/testify v1.12.1
+	golang.org/x/net v0.63.0
 )
 
 require (

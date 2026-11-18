@@ -4,23 +4,25 @@
 package app_test
 
 import (
-	"context"
+	"encoding/json"
 	"io"
 	"math"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/example/file-upload/app"
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen"
+	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/file-upload/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/file-upload/store"
 	"github.com/romshark/datapages/modules/messaging"
@@ -30,17 +32,17 @@ import (
 // contents is what the test uploads, in chunks the test chooses.
 const contents = "0123456789abcdefghij"
 
-// tab is 1 browser tab: the instance identifier its page load minted,
-// the stream that keeps its per-tab state alive and what that stream delivered.
+// tab holds what 1 browser tab has: the page load that minted its instance
+// identifier and the stream that keeps its per-tab state alive. The other fields
+// are shared by every tab of the server.
 type tab struct {
-	srv      *httptest.Server
-	files    *store.Store
-	app      *app.App
-	instance string
-	close    context.CancelFunc
+	*datapagestest.Tab
+	stream *datapagestest.Stream
 
-	mu     sync.Mutex
-	stream strings.Builder
+	srv     *datapagestest.Server
+	visitor *datapagestest.Visitor // the browser the tabs belong to
+	files   *store.Store
+	app     *app.App
 }
 
 func newTab(t *testing.T) *tab {
@@ -49,8 +51,7 @@ func newTab(t *testing.T) *tab {
 }
 
 // newTabWith builds a server whose chunk requests end after idle of silence
-// and whose requests are read within readTimeout. A zero readTimeout leaves
-// the test server without one, as httptest does.
+// and whose requests are read within readTimeout. A zero readTimeout sets none.
 func newTabWith(t *testing.T, idle, readTimeout time.Duration) *tab {
 	t.Helper()
 
@@ -67,181 +68,106 @@ func newTabWith(t *testing.T, idle, readTimeout time.Duration) *tab {
 		datapages.WithMiddleware(app.ChunkDeadline(idle)))
 	require.NoError(t, err, "building server")
 
-	// Unstarted, because the read timeout belongs to the server that listens
-	// and httptest builds its own rather than taking the one of the app.
-	srv := httptest.NewUnstartedServer(s)
-	srv.Config.ReadTimeout = readTimeout
-	srv.Start()
-	t.Cleanup(srv.Close)
-	return open(t, srv, files, a)
-}
-
-// openTab loads the page in another tab of the same server,
-// as a second browser window would.
-func (tb *tab) openTab(t *testing.T) *tab {
-	t.Helper()
-	return open(t, tb.srv, tb.files, tb.app)
-}
-
-// open loads the page and connects the stream that allocates its per-tab state.
-func open(t *testing.T, srv *httptest.Server, files *store.Store, a *app.App) *tab {
-	t.Helper()
-	page, err := srv.Client().Get(srv.URL + "/")
-	require.NoError(t, err, "GET /")
-	defer func() { _ = page.Body.Close() }()
-	require.Equal(t, http.StatusOK, page.StatusCode, "GET /")
-	instance := page.Header.Get("Datapages-Instance")
-	require.NotEmpty(t, instance, "GET / minted no instance id")
-
-	tb := &tab{srv: srv, files: files, app: a, instance: instance}
-	tb.openStream(t)
+	// The read timeout belongs to the net/http server that serves the handler,
+	// not to the handler datapages.NewServer returns.
+	srv := datapagestest.New(t, s, datapagestest.WithHTTPServer(func(hs *http.Server) {
+		hs.ReadTimeout = readTimeout
+	}))
+	tb := &tab{srv: srv, visitor: srv.Visitor(t), files: files, app: a}
+	tb.load(t)
 	return tb
 }
 
-// openStream connects the page stream, which allocates the per-tab state.
-// Cancelling it is the tab going away.
-func (tb *tab) openStream(t *testing.T) {
+// openTab loads the page in another tab of the same browser,
+// as a second window would.
+func (tb *tab) openTab(t *testing.T) *tab {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	tb.close = cancel
-	t.Cleanup(cancel)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tb.srv.URL+"/_$/", nil)
-	require.NoError(t, err, "building stream request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Datapages-Instance", tb.instance)
-	resp, err := tb.srv.Client().Do(req)
-	require.NoError(t, err, "opening stream")
-	require.Equal(t, http.StatusOK, resp.StatusCode, "opening stream")
-	t.Cleanup(func() { _ = resp.Body.Close() })
-
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := resp.Body.Read(buf)
-			tb.mu.Lock()
-			tb.stream.Write(buf[:n])
-			tb.mu.Unlock()
-			if err != nil {
-				return
-			}
-		}
-	}()
+	other := &tab{srv: tb.srv, visitor: tb.visitor, files: tb.files, app: tb.app}
+	other.load(t)
+	return other
 }
 
-// streamAt is how much of the stream arrived so far.
-// Waiting from there ignores what an earlier step of the test delivered.
-func (tb *tab) streamAt() int {
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
-	return tb.stream.Len()
-}
-
-// waitForStream returns what the stream delivered once it contains want.
-// Everything a tab receives arrives asynchronously through the broker.
-func (tb *tab) waitForStream(t *testing.T, want string) string {
+// load opens the page and connects the stream that allocates its per-tab state.
+// Closing the stream is the tab going away.
+func (tb *tab) load(t *testing.T) {
 	t.Helper()
-	return tb.waitForStreamFrom(t, 0, want)
-}
-
-// waitForStreamFrom is waitForStream over what arrived after from.
-func (tb *tab) waitForStreamFrom(t *testing.T, from int, want string) string {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		tb.mu.Lock()
-		got := tb.stream.String()
-		tb.mu.Unlock()
-		if len(got) > from {
-			got = got[from:]
-		} else {
-			got = ""
-		}
-		if strings.Contains(got, want) {
-			return got
-		}
-		if time.Now().After(deadline) {
-			require.Contains(t, got, want, "the stream never delivered it")
-			return got
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// action sends a request the way the Datastar client sends it.
-// A failing one answers 200 with the message RecoverError patched into the page.
-func (tb *tab) action(
-	t *testing.T, method, path, contentType, body string,
-) (int, string) {
-	t.Helper()
-	return tb.request(t, method, path, contentType, body, true)
-}
-
-// request sends 1 request, as Datastar or as
-// the plain fetch the uploader uses for the chunks.
-func (tb *tab) request(
-	t *testing.T, method, path, contentType, body string, datastar bool,
-) (int, string) {
-	t.Helper()
-	var r io.Reader
-	if body != "" {
-		r = strings.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(
-		context.Background(), method, tb.srv.URL+path, r,
-	)
-	require.NoError(t, err, "building %s %s", method, path)
-	if datastar {
-		req.Header.Set("Datastar-Request", "true")
-	}
-	req.Header.Set("Datapages-Instance", tb.instance)
-	req.Header.Set("Accept-Encoding", "identity")
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	resp, err := tb.srv.Client().Do(req)
-	require.NoError(t, err, "%s %s", method, path)
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading %s %s", method, path)
-	return resp.StatusCode, string(b)
+	tb.Tab = tb.visitor.Load(t, href.PageIndex())
+	require.NotEmpty(t, tb.Instance(), "GET / minted no instance id")
+	tb.stream = tb.Connect(t, tb.Page().PublicSignals(t))
 }
 
 // chunk sends 1 chunk the way the uploader does, as a plain fetch.
+// Without the Datastar-Request header a refusal arrives as
+// a status code rather than as a message RecoverError renders.
 func (tb *tab) chunk(t *testing.T, id string, offset int64, data string) int {
 	t.Helper()
-	status, _ := tb.request(t, http.MethodPut,
-		"/upload/"+id+"/?offset="+strconv.FormatInt(offset, 10),
-		"application/octet-stream", data, false)
-	return status
+	req := tb.visitor.NewRequest(t, http.MethodPut,
+		"/upload/"+id+"/?offset="+strconv.FormatInt(offset, 10), strings.NewReader(data))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	return tb.visitor.Send(t, req).Status
 }
 
 // pause sends the action the Pause button sends.
-func (tb *tab) pause(t *testing.T, id string) (int, string) {
+func (tb *tab) pause(t *testing.T, id string) *datapagestest.Response {
 	t.Helper()
-	return tb.action(t, http.MethodPost, "/pause/"+id+"/", "", "")
+	return tb.Do(t, action.PageIndex.Pause.POST(id), nil)
 }
 
-// stage opens the upload dialog on 1 file and starts it under name.
-func (tb *tab) start(t *testing.T, original, name, contentType string, size int) string {
-	t.Helper()
-	status, _ := tb.action(t, http.MethodPost, "/stage/", "application/json",
-		`{"files":[{"name":"`+original+`","size":`+strconv.Itoa(size)+
-			`,"type":"`+contentType+`"}]}`)
-	require.Equal(t, http.StatusOK, status, "staging %s", original)
+// picked is what the page sends the stage action for one file the visitor picked,
+// in the shape dpUpload.files gives it.
+func picked(name, contentType string, size int) map[string]any {
+	return map[string]any{"files": []map[string]any{
+		{"name": name, "size": size, "type": contentType},
+	}}
+}
 
-	from := tb.streamAt()
-	status, _ = tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0="+url.QueryEscape(name))
-	require.Equal(t, http.StatusOK, status, "starting %s", original)
-	return idOfStartScript(t, tb.waitForStreamFrom(t, from, "dpUpload.start(["))
+// start opens the upload dialog on one file, starts it under name and returns the
+// job the uploader of the tab receives for it.
+func (tb *tab) start(t *testing.T, original, name, contentType string, size int) job {
+	t.Helper()
+	resp := tb.Do(t, action.PageIndex.Stage.POST(), picked(original, contentType, size))
+	require.Equal(t, http.StatusOK, resp.Status, "staging %s", original)
+
+	resp = tb.Do(t, startUpload, url.Values{"name-0": {name}})
+	require.Equal(t, http.StatusOK, resp.Status, "starting %s", original)
+	return tb.waitForStart(t)
+}
+
+// startUpload is the action of the Start upload control of the dialog, which
+// sends the dialog's form. TestUploadDialogStartsOnClick sends the control's own.
+var startUpload = action.PageIndex.Start.POST(action.WithContentType(action.ContentTypeForm))
+
+// job is an upload job by the names browser.js reads it with.
+type job struct {
+	ID        string `json:"id"`
+	Offset    int64  `json:"offset"`
+	ChunkSize int64  `json:"chunkSize"`
+}
+
+// waitForStart waits for the job that starting one file sends the uploader of the tab.
+// It travels on the tab's stream, not on the response of the start action.
+func (tb *tab) waitForStart(t *testing.T) job {
+	t.Helper()
+	var jobs []job
+	decodeCall(t, tb.stream.WaitFor(t, calls("dpUpload.start")), "dpUpload.start", &jobs)
+	require.Len(t, jobs, 1, "starting one file")
+	return jobs[0]
+}
+
+// resumed returns the job that the response of
+// a resume or a reattachment tells the uploader to go on with.
+func resumed(t *testing.T, resp *datapagestest.Response) job {
+	t.Helper()
+	var j job
+	decodeCall(t, resp.Event(t, calls("dpUpload.go")), "dpUpload.go", &j)
+	return j
 }
 
 // TestUpload covers 1 file from the dialog to the download,
 // interrupted by a pause and resumed, then deleted.
 func TestUpload(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "renamed.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "renamed.txt", "text/plain", len(contents)).ID
 
 	f, err := tb.files.Get(id)
 	require.NoError(t, err, "reading the created file")
@@ -258,15 +184,14 @@ func TestUpload(t *testing.T) {
 
 	// A paused file refuses bytes, which is what stops an uploader that did
 	// not see the pause yet.
-	status, _ := tb.pause(t, id)
-	require.Equal(t, http.StatusOK, status, "pausing")
+	require.Equal(t, http.StatusOK, tb.pause(t, id).Status, "pausing")
 	require.Equal(t, http.StatusForbidden, tb.chunk(t, id, 10, contents[10:]))
 
-	status, body := tb.action(t, http.MethodPost, "/resume/"+id+"/", "", "")
-	require.Equal(t, http.StatusOK, status, "resuming")
-	require.Contains(t, body, `dpUpload.go({"id":"`+id+`"`,
-		"resuming does not tell the uploader to continue")
-	require.Contains(t, body, `"offset":10`,
+	resp := tb.Do(t, action.PageIndex.Resume.POST(id), nil)
+	require.Equal(t, http.StatusOK, resp.Status, "resuming")
+	resume := resumed(t, resp)
+	require.Equal(t, id, resume.ID, "resuming does not tell the uploader to continue")
+	require.EqualValues(t, 10, resume.Offset,
 		"resuming does not continue at the received bytes")
 
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
@@ -274,25 +199,18 @@ func TestUpload(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, store.StatusComplete, f.Status, "the file did not complete")
 
-	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
-	require.NoError(t, err, "downloading")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "downloading")
-	require.Equal(t, "text/plain", resp.Header.Get("Content-Type"),
+	download := tb.visitor.Get(t, href.App.File(id))
+	require.Equal(t, http.StatusOK, download.Status, "downloading")
+	require.Equal(t, "text/plain", download.Header.Get("Content-Type"),
 		"the download does not carry the type the browser reported")
 	require.Equal(t, `attachment; filename=renamed.txt`,
-		resp.Header.Get("Content-Disposition"),
+		download.Header.Get("Content-Disposition"),
 		"the download does not name the file")
-	got, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the download")
-	require.Equal(t, contents, string(got), "the download differs from what was sent")
+	require.Equal(t, contents, download.Body, "the download differs from what was sent")
 
-	status, _ = tb.action(t, http.MethodDelete, "/files/"+id+"/", "", "")
-	require.Equal(t, http.StatusOK, status, "deleting")
-	resp, err = tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
-	require.NoError(t, err, "downloading a deleted file")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusNotFound, resp.StatusCode,
+	require.Equal(t, http.StatusOK,
+		tb.Do(t, action.PageIndex.File.DELETE(id), nil).Status, "deleting")
+	require.Equal(t, http.StatusNotFound, tb.visitor.Get(t, href.App.File(id)).Status,
 		"a deleted file is still being served")
 }
 
@@ -300,20 +218,17 @@ func TestUpload(t *testing.T) {
 // to download, so that no partial blob can be taken for the whole file.
 func TestDownloadIncomplete(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
-	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
-	require.NoError(t, err, "downloading an incomplete file")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, tb.visitor.Get(t, href.App.File(id)).Status)
 }
 
 // TestChunkStatus covers what the uploader reacts to: a repeated chunk it may
 // keep going after, a hole it must not, and a file that is gone.
 func TestChunkStatus(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusConflict, tb.chunk(t, id, 5, contents[5:]),
 		"a chunk that leaves a hole was accepted")
@@ -332,96 +247,128 @@ func TestChunkStatus(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, tb.chunk(t, id, 20, "x"))
 }
 
+// reattachment is what the page sends the reattach action for a file the visitor
+// picked again, in the shape dpUpload.reattachment gives it.
+func reattachment(id, name string, size int) map[string]any {
+	return map[string]any{"id": id, "name": name, "size": size}
+}
+
+// toastTitle returns the text of the title slot of the toast ev appends, "" when
+// there is none. neo-toast shows its named slots only.
+func toastTitle(t *testing.T, ev datapagestest.Event) string {
+	t.Helper()
+	if titles := ev.All(t, element("", "slot", "title")); len(titles) > 0 {
+		return titles[0].Text()
+	}
+	return ""
+}
+
+// toast returns the message RecoverError shows for a refused action, and "" for a
+// response without one, such as the empty answer of an action that succeeded
+// without writing anything.
+func toast(t *testing.T, resp *datapagestest.Response) string {
+	t.Helper()
+	if resp.Body == "" {
+		return ""
+	}
+	for _, ev := range resp.Events(t) {
+		if ev.Data["selector"] == "#toast" {
+			return toastTitle(t, ev)
+		}
+	}
+	return ""
+}
+
 // TestReattach covers a transfer whose browser lost the file: the visitor
 // picks it again and the server checks it before the bytes continue.
 func TestReattach(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "renamed.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "renamed.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	// A rejected reattachment answers with the message the visitor reads,
 	// because RecoverError patches it into the page.
 	for name, tc := range map[string]struct {
-		body string
-		want string
+		payload map[string]any
+		want    string
 	}{
 		"other name": {
-			body: `{"id":"` + id + `","name":"other.txt","size":20}`,
-			want: "&#34;other.txt&#34; of 20 bytes is not &#34;notes.txt&#34;",
+			payload: reattachment(id, "other.txt", 20),
+			want:    `"other.txt" of 20 bytes is not "notes.txt"`,
 		},
 		"other size": {
-			body: `{"id":"` + id + `","name":"notes.txt","size":21}`,
-			want: "of 21 bytes is not &#34;notes.txt&#34; of 20 bytes",
+			payload: reattachment(id, "notes.txt", 21),
+			want:    `of 21 bytes is not "notes.txt" of 20 bytes`,
 		},
 		"unknown file": {
-			body: `{"id":"nosuchfile","name":"notes.txt","size":20}`,
-			want: "file not found",
+			payload: reattachment("nosuchfile", "notes.txt", 20),
+			want:    "file not found",
 		},
 		// The name the dialog chose is not what the browser reports for the
 		// file the visitor picks again.
 		"renamed file": {
-			body: `{"id":"` + id + `","name":"renamed.txt","size":20}`,
-			want: "&#34;renamed.txt&#34; of 20 bytes is not &#34;notes.txt&#34;",
+			payload: reattachment(id, "renamed.txt", 20),
+			want:    `"renamed.txt" of 20 bytes is not "notes.txt"`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			status, body := tb.action(t, http.MethodPost, "/reattach/",
-				"application/json", tc.body)
-			require.Equal(t, http.StatusOK, status)
-			require.Contains(t, body, tc.want)
-			require.Contains(t, body, "selector #toast",
+			resp := tb.Do(t, action.PageIndex.Reattach.POST(), tc.payload)
+			require.Equal(t, http.StatusOK, resp.Status)
+			ev := resp.Event(t, datapagestest.Func("an event saying "+strconv.Quote(tc.want),
+				func(ev datapagestest.Event) bool {
+					return strings.Contains(datapagestest.Text(ev.Root()), tc.want)
+				}))
+			require.Equal(t, "#toast", ev.Data["selector"],
 				"the message did not reach the toaster")
-			require.Contains(t, body, "mode append",
+			require.Equal(t, "append", ev.Data["mode"],
 				"the message replaces the stack instead of joining it")
-			require.Contains(t, body, `<span slot="title">`,
+			require.Contains(t, toastTitle(t, ev), tc.want,
 				"the message is in no slot and neo-toast projects none of it")
 		})
 	}
 
-	status, body := tb.action(t, http.MethodPost, "/reattach/", "application/json",
-		`{"id":"`+id+`","name":"notes.txt","size":20}`)
-	require.Equal(t, http.StatusOK, status, "reattaching the picked file")
-	require.Contains(t, body, `"offset":10`,
+	resp := tb.Do(t, action.PageIndex.Reattach.POST(), reattachment(id, "notes.txt", 20))
+	require.Equal(t, http.StatusOK, resp.Status, "reattaching the picked file")
+	require.EqualValues(t, 10, resumed(t, resp).Offset,
 		"reattaching does not continue at the received bytes")
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
 }
 
-// TestOwnership tests that only the tab holding the bytes may pause or resume
-// a transfer. Every other tab is told so and is offered the take-over control instead,
-// which asks for the file rather than posting anything.
+// TestOwnership tests that only the tab holding the bytes may pause
+// or resume a transfer. Every other tab is told so and is offered the take-over
+// control instead, which asks for the file rather than posting anything.
 func TestOwnership(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	other := tb.openTab(t)
-	status, body := other.pause(t, id)
-	require.Equal(t, http.StatusOK, status)
-	require.Contains(t, body, "this tab does not hold the bytes of that file")
+	resp := other.pause(t, id)
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, toast(t, resp), "this tab does not hold the bytes of that file")
 
 	f, err := tb.files.Get(id)
 	require.NoError(t, err)
 	require.Equal(t, store.StatusUploading, f.Status,
 		"a tab that holds no bytes paused the transfer")
 
-	status, body = other.action(t, http.MethodPost, "/resume/"+id+"/", "", "")
-	require.Equal(t, http.StatusOK, status)
-	require.Contains(t, body, "this tab does not hold the bytes of that file")
+	resp = other.Do(t, action.PageIndex.Resume.POST(id), nil)
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, toast(t, resp), "this tab does not hold the bytes of that file")
 
 	// The tab that started it may, and taking the transfer over moves that
 	// right to the tab that picked the file again.
-	status, _ = tb.pause(t, id)
-	require.Equal(t, http.StatusOK, status, "the owning tab could not pause")
+	require.Equal(t, http.StatusOK, tb.pause(t, id).Status,
+		"the owning tab could not pause")
 
-	status, _ = other.action(t, http.MethodPost, "/reattach/", "application/json",
-		`{"id":"`+id+`","name":"notes.txt","size":20}`)
-	require.Equal(t, http.StatusOK, status, "taking the transfer over")
-	status, _ = other.pause(t, id)
-	require.Equal(t, http.StatusOK, status, "the tab that took over could not pause")
+	resp = other.Do(t, action.PageIndex.Reattach.POST(), reattachment(id, "notes.txt", 20))
+	require.Equal(t, http.StatusOK, resp.Status, "taking the transfer over")
+	require.Equal(t, http.StatusOK, other.pause(t, id).Status,
+		"the tab that took over could not pause")
 
-	status, body = tb.pause(t, id)
-	require.Equal(t, http.StatusOK, status)
-	require.Contains(t, body, "this tab does not hold the bytes of that file",
+	resp = tb.pause(t, id)
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, toast(t, resp), "this tab does not hold the bytes of that file",
 		"the tab that gave the transfer up can still pause it")
 }
 
@@ -430,13 +377,13 @@ func TestOwnership(t *testing.T) {
 // start of a new upload touch only the files they were given.
 func TestSecondUploadLeavesTheFirst(t *testing.T) {
 	tb := newTab(t)
-	first := tb.start(t, "a.txt", "a.txt", "text/plain", len(contents))
+	first := tb.start(t, "a.txt", "a.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, first, 0, contents[:10]))
 
 	before, err := tb.files.Get(first)
 	require.NoError(t, err)
 
-	second := tb.start(t, "b.txt", "b.txt", "text/plain", len(contents))
+	second := tb.start(t, "b.txt", "b.txt", "text/plain", len(contents)).ID
 	require.NotEqual(t, first, second)
 
 	after, err := tb.files.Get(first)
@@ -453,7 +400,7 @@ func TestSecondUploadLeavesTheFirst(t *testing.T) {
 // the file as it was. Only the visitor pauses a file.
 func TestRefusedChunkKeepsStatus(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "a.txt", "a.txt", "text/plain", len(contents))
+	id := tb.start(t, "a.txt", "a.txt", "text/plain", len(contents)).ID
 
 	require.Equal(t, http.StatusConflict, tb.chunk(t, id, 5, contents[5:]),
 		"a chunk that leaves a hole was accepted")
@@ -468,19 +415,15 @@ func TestRefusedChunkKeepsStatus(t *testing.T) {
 // since nothing will ever be appended to finish it.
 func TestEmptyFile(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "empty.txt", "empty.txt", "text/plain", 0)
+	id := tb.start(t, "empty.txt", "empty.txt", "text/plain", 0).ID
 
 	f, err := tb.files.Get(id)
 	require.NoError(t, err, "reading the created file")
 	require.Equal(t, store.StatusComplete, f.Status)
 
-	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
-	require.NoError(t, err, "downloading")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	got, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the download")
-	require.Empty(t, got)
+	download := tb.visitor.Get(t, href.App.File(id))
+	require.Equal(t, http.StatusOK, download.Status)
+	require.Empty(t, download.Body)
 }
 
 // TestStreamCloseGivesUp tests that a tab going away releases what it was sending,
@@ -488,15 +431,14 @@ func TestEmptyFile(t *testing.T) {
 // The status stays as it was: only the visitor pauses a file, and the visitor did not.
 func TestStreamCloseGivesUp(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
-	tb.close()
-	require.Eventually(t, func() bool {
+	tb.stream.Close()
+	tb.srv.WaitFor(t, "the tab that went away to release the transfer", func() bool {
 		f, err := tb.files.Get(id)
 		return err == nil && f.Owner == ""
-	}, 3*time.Second, 10*time.Millisecond,
-		"the tab went away and still held the transfer")
+	})
 
 	f, err := tb.files.Get(id)
 	require.NoError(t, err)
@@ -505,41 +447,41 @@ func TestStreamCloseGivesUp(t *testing.T) {
 }
 
 // TestOrphanedFileOffersTakeOver tests that a page load offers the take-over
-// control for a file nobody is sending. A server restart leaves exactly that
-// behind: the status is read back from disk and the owner is not.
+// control for a file nobody is sending. A server restart leaves exactly that behind:
+// the status is read back from disk and the owner is not.
 func TestOrphanedFileOffersTakeOver(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
-	tb.close()
-	require.Eventually(t, func() bool {
+	tb.stream.Close()
+	tb.srv.WaitFor(t, "the transfer to be given up", func() bool {
 		f, err := tb.files.Get(id)
 		return err == nil && f.Owner == ""
-	}, 3*time.Second, 10*time.Millisecond, "the transfer was not given up")
+	})
 
-	resp, err := tb.srv.Client().Get(tb.srv.URL + "/")
-	require.NoError(t, err, "GET /")
-	defer func() { _ = resp.Body.Close() }()
-	page, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the page")
-
-	require.Contains(t, string(page), "Take over",
+	list := tb.visitor.Get(t, href.PageIndex()).Get(t, datapagestest.ID("file-list"))
+	// The buttons of a row show their names in a label span.
+	label := func(text string) datapagestest.Query {
+		return element("span", "class", "label").HasText(text)
+	}
+	require.Contains(t, list.Text(), "Take over",
 		"a file nobody is sending is not offered to be taken over")
-	require.NotContains(t, string(page), `class="label">Pause</span>`,
+	require.Empty(t, list.All(t, label("Pause")),
 		"a page load offers to pause a file it is not sending")
-	require.NotContains(t, string(page), `class="label">Resume</span>`,
+	require.Empty(t, list.All(t, label("Resume")),
 		"a page load offers to resume a file it cannot send")
-	require.Contains(t, string(page), "status-interrupted")
+	require.NotEmpty(t, list.All(t, class("status-interrupted")))
 }
 
-// stage opens the upload dialog on 1 file and returns what it rendered.
-func (tb *tab) stage(t *testing.T, name, contentType string, size int) string {
+// stage opens the upload dialog on 1 file and returns the dialog it rendered.
+func (tb *tab) stage(
+	t *testing.T, name, contentType string, size int,
+) *datapagestest.Element {
 	t.Helper()
-	_, body := tb.action(t, http.MethodPost, "/stage/", "application/json",
-		`{"files":[{"name":"`+name+`","size":`+strconv.Itoa(size)+
-			`,"type":"`+contentType+`"}]}`)
-	return body
+	resp := tb.Do(t, action.PageIndex.Stage.POST(), picked(name, contentType, size))
+	return resp.Event(t, datapagestest.Patched("upload-dialog")).
+		Get(t, datapagestest.ID("upload-dialog"))
 }
 
 // TestPickingAnUnfinishedFileAgain tests that a file already half uploaded is
@@ -547,23 +489,22 @@ func (tb *tab) stage(t *testing.T, name, contentType string, size int) string {
 // keeps its bytes instead of creating a second file.
 func TestPickingAnUnfinishedFileAgain(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	dialog := tb.stage(t, "notes.txt", "text/plain", len(contents))
-	require.Contains(t, dialog, "Continue the unfinished upload (50%)")
-	require.Contains(t, dialog, `name="dup-0"`)
+	require.Contains(t, dialog.Text(), "Continue the unfinished upload (50%)")
+	require.NotEmpty(t, dialog.All(t, element("input", "name", "dup-0")))
 
 	// The dialog defaults to continuing, which is what an unchanged form sends.
-	from := tb.streamAt()
-	status, _ := tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0=notes.txt&dup-0=continue")
-	require.Equal(t, http.StatusOK, status, "starting")
+	resp := tb.Do(t, startUpload,
+		url.Values{"name-0": {"notes.txt"}, "dup-0": {"continue"}})
+	require.Equal(t, http.StatusOK, resp.Status, "starting")
 
 	require.Len(t, tb.files.List(), 1, "continuing created a second file")
-	again := idOfStartScript(t, tb.waitForStreamFrom(t, from, "dpUpload.start(["))
-	require.Equal(t, id, again, "the job does not name the file it continues")
-	require.Contains(t, tb.waitForStreamFrom(t, from, `"offset":10`), `"offset":10`,
+	again := tb.waitForStart(t)
+	require.Equal(t, id, again.ID, "the job does not name the file it continues")
+	require.EqualValues(t, 10, again.Offset,
 		"the job does not continue at the received bytes")
 
 	f, err := tb.files.Get(id)
@@ -572,20 +513,19 @@ func TestPickingAnUnfinishedFileAgain(t *testing.T) {
 	require.Equal(t, store.StatusUploading, f.Status)
 }
 
-// TestPickingAnUnfinishedFileAgainSeparately tests the other choice of that
-// dialog: a second file under the name the visitor gave it.
+// TestPickingAnUnfinishedFileAgainSeparately tests the other choice of that dialog:
+// a second file under the name the visitor gave it.
 func TestPickingAnUnfinishedFileAgainSeparately(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	tb.stage(t, "notes.txt", "text/plain", len(contents))
-	from := tb.streamAt()
-	status, _ := tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0=copy.txt&dup-0=separate")
-	require.Equal(t, http.StatusOK, status, "starting")
+	resp := tb.Do(t, startUpload,
+		url.Values{"name-0": {"copy.txt"}, "dup-0": {"separate"}})
+	require.Equal(t, http.StatusOK, resp.Status, "starting")
 
-	second := idOfStartScript(t, tb.waitForStreamFrom(t, from, "dpUpload.start(["))
+	second := tb.waitForStart(t).ID
 	require.NotEqual(t, id, second, "the second pick continued the first upload")
 	require.Len(t, tb.files.List(), 2)
 
@@ -599,13 +539,13 @@ func TestPickingAnUnfinishedFileAgainSeparately(t *testing.T) {
 // for a second copy does not produce 2 rows a visitor cannot tell apart.
 func TestSeparateUploadKeepsNamesApart(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	tb.stage(t, "notes.txt", "text/plain", len(contents))
-	status, _ := tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0=notes.txt&dup-0=separate")
-	require.Equal(t, http.StatusOK, status, "starting")
+	resp := tb.Do(t, startUpload,
+		url.Values{"name-0": {"notes.txt"}, "dup-0": {"separate"}})
+	require.Equal(t, http.StatusOK, resp.Status, "starting")
 
 	names := make([]string, 0, 2)
 	for _, f := range tb.files.List() {
@@ -618,25 +558,27 @@ func TestSeparateUploadKeepsNamesApart(t *testing.T) {
 // upload that is continued renames nothing, and that editing the name does.
 func TestContinuingKeepsTheName(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "holiday.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "holiday.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
 	// The dialog offers the name the file carries, not the one the browser reports,
 	// which is what an unchanged confirmation keeps.
-	dialog := tb.stage(t, "notes.txt", "text/plain", len(contents))
-	require.Contains(t, dialog, `value="holiday.txt"`)
+	field := tb.stage(t, "notes.txt", "text/plain", len(contents)).
+		Get(t, element("", "name", "name-0"))
+	value, _ := field.Attr("value")
+	require.Equal(t, "holiday.txt", value)
 
-	status, _ := tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0=holiday.txt&dup-0=continue")
-	require.Equal(t, http.StatusOK, status, "starting")
+	resp := tb.Do(t, startUpload,
+		url.Values{"name-0": {"holiday.txt"}, "dup-0": {"continue"}})
+	require.Equal(t, http.StatusOK, resp.Status, "starting")
 	f, err := tb.files.Get(id)
 	require.NoError(t, err)
 	require.Equal(t, "holiday.txt", f.Name)
 
 	tb.stage(t, "notes.txt", "text/plain", len(contents))
-	status, _ = tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0=trip.txt&dup-0=continue")
-	require.Equal(t, http.StatusOK, status, "starting")
+	resp = tb.Do(t, startUpload,
+		url.Values{"name-0": {"trip.txt"}, "dup-0": {"continue"}})
+	require.Equal(t, http.StatusOK, resp.Status, "starting")
 	f, err = tb.files.Get(id)
 	require.NoError(t, err)
 	require.Equal(t, "trip.txt", f.Name, "the name the dialog carried was ignored")
@@ -647,31 +589,30 @@ func TestContinuingKeepsTheName(t *testing.T) {
 // not offered to be continued: there is nothing left of it to send.
 func TestPickingACompleteFileAgain(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
 
 	dialog := tb.stage(t, "notes.txt", "text/plain", len(contents))
-	require.NotContains(t, dialog, "Continue the unfinished upload")
-	require.NotContains(t, dialog, `name="dup-0"`)
+	require.NotContains(t, dialog.Text(), "Continue the unfinished upload")
+	require.Empty(t, dialog.All(t, element("input", "name", "dup-0")))
 }
 
 // TestContinuingAFileThatWentAway tests that a dialog left open while the
 // upload it would continue is deleted still starts the file.
 func TestContinuingAFileThatWentAway(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 	tb.stage(t, "notes.txt", "text/plain", len(contents))
 
-	status, _ := tb.action(t, http.MethodDelete, "/files/"+id+"/", "", "")
-	require.Equal(t, http.StatusOK, status, "deleting")
+	require.Equal(t, http.StatusOK,
+		tb.Do(t, action.PageIndex.File.DELETE(id), nil).Status, "deleting")
 
-	from := tb.streamAt()
-	status, _ = tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0=notes.txt&dup-0=continue")
-	require.Equal(t, http.StatusOK, status, "starting")
+	resp := tb.Do(t, startUpload,
+		url.Values{"name-0": {"notes.txt"}, "dup-0": {"continue"}})
+	require.Equal(t, http.StatusOK, resp.Status, "starting")
 
-	fresh := idOfStartScript(t, tb.waitForStreamFrom(t, from, "dpUpload.start(["))
+	fresh := tb.waitForStart(t).ID
 	require.NotEqual(t, id, fresh)
 	require.Len(t, tb.files.List(), 1)
 }
@@ -687,19 +628,20 @@ func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tb := newTab(t)
-			id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+			id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 			require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 			before, err := tb.files.Get(id)
 			require.NoError(t, err)
 
 			other := tb.openTab(t)
-			require.Contains(t, other.stage(t, "notes.txt", "text/plain", len(contents)),
-				`name="dup-0"`, "the dialog does not offer to continue the upload")
-			status, body := other.action(t, http.MethodPost, "/start/",
-				"application/x-www-form-urlencoded",
-				"name-0="+url.QueryEscape(fileName)+"&dup-0=continue")
-			require.Equal(t, http.StatusOK, status)
-			require.Contains(t, body, "invalid file name",
+			require.NotEmpty(t,
+				other.stage(t, "notes.txt", "text/plain", len(contents)).
+					All(t, element("input", "name", "dup-0")),
+				"the dialog does not offer to continue the upload")
+			resp := other.Do(t, startUpload,
+				url.Values{"name-0": {fileName}, "dup-0": {"continue"}})
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.Contains(t, toast(t, resp), "invalid file name",
 				"the visitor is not told what is wrong with the name")
 
 			after, err := tb.files.Get(id)
@@ -708,9 +650,10 @@ func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
 				"a refused dialog took the transfer from the tab sending it")
 			require.Equal(t, "notes.txt", after.Name, "a refused dialog renamed the file")
 
-			status, body = tb.pause(t, id)
-			require.Equal(t, http.StatusOK, status)
-			require.NotContains(t, body, "this tab does not hold the bytes of that file",
+			resp = tb.pause(t, id)
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.NotContains(t, toast(t, resp),
+				"this tab does not hold the bytes of that file",
 				"the tab sending the file can no longer pause it")
 		})
 	}
@@ -720,15 +663,16 @@ func TestContinuingUnderAnInvalidNameChangesNothing(t *testing.T) {
 // refuses starts none of its files, not even those listed before that name.
 func TestStartRefusesTheWholeDialog(t *testing.T) {
 	tb := newTab(t)
-	status, _ := tb.action(t, http.MethodPost, "/stage/", "application/json",
+	resp := tb.Do(t, action.PageIndex.Stage.POST(), json.RawMessage(
 		`{"files":[{"name":"a.txt","size":20,"type":"text/plain"},`+
-			`{"name":"b.txt","size":20,"type":"text/plain"}]}`)
-	require.Equal(t, http.StatusOK, status, "staging")
+			`{"name":"b.txt","size":20,"type":"text/plain"}]}`,
+	))
+	require.Equal(t, http.StatusOK, resp.Status, "staging")
 
-	status, body := tb.action(t, http.MethodPost, "/start/",
-		"application/x-www-form-urlencoded", "name-0=a.txt&name-1=+")
-	require.Equal(t, http.StatusOK, status)
-	require.Contains(t, body, "invalid file name",
+	resp = tb.Do(t, startUpload,
+		url.Values{"name-0": {"a.txt"}, "name-1": {" "}})
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, toast(t, resp), "invalid file name",
 		"the visitor is not told what is wrong with the name")
 	require.Empty(t, tb.files.List(), "a refused dialog stored some of its files")
 }
@@ -736,81 +680,88 @@ func TestStartRefusesTheWholeDialog(t *testing.T) {
 // TestSlowChunkOutlivesTheReadTimeout tests that a chunk slower than the read
 // timeout of the server still arrives whole. A server times a whole request,
 // which an upload held back by a limit outlives: the deadline has to follow
-// the bytes instead.
+// the bytes instead. The 3s the bytes take pass at once on the clock of a
+// testing/synctest bubble.
 func TestSlowChunkOutlivesTheReadTimeout(t *testing.T) {
-	const idle = 400 * time.Millisecond
-	tb := newTabWith(t, idle, 200*time.Millisecond)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	synctest.Test(t, func(t *testing.T) {
+		const idle = 400 * time.Millisecond
+		tb := newTabWith(t, idle, 200*time.Millisecond)
+		id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
-	// 5 pieces, each within the idle deadline, together well past both it
-	// and the read timeout of the server.
-	pr, pw := io.Pipe()
-	go func() {
-		for _, b := range []byte(contents) {
-			time.Sleep(150 * time.Millisecond)
-			if _, err := pw.Write([]byte{b}); err != nil {
-				break
+		// The bytes arrive one at a time, 150ms apart: each within the idle deadline,
+		// together well past both it and the read timeout of the server.
+		pr, pw := io.Pipe()
+		go func() {
+			for _, b := range []byte(contents) {
+				time.Sleep(150 * time.Millisecond)
+				if _, err := pw.Write([]byte{b}); err != nil {
+					break
+				}
 			}
-		}
-		_ = pw.Close()
-	}()
+			_ = pw.Close()
+		}()
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut,
-		tb.srv.URL+"/upload/"+id+"/?offset=0", pr)
-	require.NoError(t, err, "building the chunk request")
-	resp, err := tb.srv.Client().Do(req)
-	require.NoError(t, err, "sending a slow chunk")
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "a slow chunk was cut off")
+		req := tb.visitor.NewRequest(t, http.MethodPut, "/upload/"+id+"/?offset=0", pr)
+		require.Equal(t, http.StatusOK, tb.visitor.Send(t, req).Status,
+			"a slow chunk was cut off")
 
-	f, err := tb.files.Get(id)
-	require.NoError(t, err)
-	require.Equal(t, store.StatusComplete, f.Status,
-		"the slow chunk did not arrive whole")
+		f, err := tb.files.Get(id)
+		require.NoError(t, err)
+		require.Equal(t, store.StatusComplete, f.Status,
+			"the slow chunk did not arrive whole")
+	})
+}
+
+// waitForLimits waits for the patch that writes the limits that took effect back
+// into the controls of the tab, and returns its signals.
+func (tb *tab) waitForLimits(t *testing.T) map[string]json.RawMessage {
+	t.Helper()
+	return tb.stream.WaitFor(t, datapagestest.Signal("limitUp")).Signals(t)
 }
 
 // TestLimits tests that the numbers the inputs send reach both transfer
 // directions and come back to every tab as the values that took effect.
+// The limiter waits on the clock of a testing/synctest bubble.
 func TestLimits(t *testing.T) {
-	payload := strings.Repeat("x", 32<<10)
-	tb := newTab(t)
+	synctest.Test(t, func(t *testing.T) {
+		payload := strings.Repeat("x", 32<<10)
+		tb := newTab(t)
 
-	status, _ := tb.action(t, http.MethodPost, "/limits/", "application/json",
-		`{"limitUp":32,"limitDown":32}`)
-	require.Equal(t, http.StatusOK, status, "setting the limits")
-	tb.waitForStream(t, `"limitUp":32`)
-	tb.waitForStream(t, `"limitDown":32`)
+		resp := tb.Do(t, action.PageIndex.Limits.POST(),
+			json.RawMessage(`{"limitUp":32,"limitDown":32}`))
+		require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
+		signals := tb.waitForLimits(t)
+		require.JSONEq(t, "32", string(signals["limitUp"]))
+		require.JSONEq(t, "32", string(signals["limitDown"]))
 
-	id := tb.start(t, "big.bin", "big.bin", "application/octet-stream", len(payload))
+		id := tb.start(t,
+			"big.bin", "big.bin", "application/octet-stream", len(payload)).ID
 
-	// 32 KiB at 32 KiB/s is a second of transfer, less the burst the limiter
-	// starts with. The bound is loose: a busy machine may take much longer,
-	// and only being faster than the limit would be a failure.
-	start := time.Now()
-	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, payload))
-	require.Greater(t, time.Since(start), 300*time.Millisecond,
-		"the upload limit did not slow the chunk down")
+		// 32 KiB at 32 KiB/s is a second of transfer, less the burst the limiter
+		// starts with. Only being faster than the limit would be a failure.
+		start := time.Now()
+		require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, payload))
+		require.Greater(t, time.Since(start), 300*time.Millisecond,
+			"the upload limit did not slow the chunk down")
 
-	start = time.Now()
-	resp, err := tb.srv.Client().Get(tb.srv.URL + href.App.File(id))
-	require.NoError(t, err, "downloading")
-	defer func() { _ = resp.Body.Close() }()
-	got, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading the download")
-	require.Greater(t, time.Since(start), 300*time.Millisecond,
-		"the download limit did not slow the response down")
-	require.Equal(t, payload, string(got), "the limit changed the content")
+		start = time.Now()
+		download := tb.visitor.Get(t, href.App.File(id))
+		require.Greater(t, time.Since(start), 300*time.Millisecond,
+			"the download limit did not slow the response down")
+		require.Equal(t, payload, download.Body, "the limit changed the content")
+	})
 }
 
 // TestLimitsAreClamped tests that a number the inputs cannot produce is
 // brought into range and reported back rather than refused.
 func TestLimitsAreClamped(t *testing.T) {
 	tb := newTab(t)
-	status, _ := tb.action(t, http.MethodPost, "/limits/", "application/json",
-		`{"limitUp":-5,"limitDown":999999999}`)
-	require.Equal(t, http.StatusOK, status, "setting the limits")
-	tb.waitForStream(t, `"limitUp":`+strconv.Itoa(app.MinLimitKiB))
-	tb.waitForStream(t, `"limitDown":`+strconv.Itoa(app.MaxLimitKiB))
+	resp := tb.Do(t, action.PageIndex.Limits.POST(),
+		json.RawMessage(`{"limitUp":-5,"limitDown":999999999}`))
+	require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
+	signals := tb.waitForLimits(t)
+	require.JSONEq(t, strconv.Itoa(app.MinLimitKiB), string(signals["limitUp"]))
+	require.JSONEq(t, strconv.Itoa(app.MaxLimitKiB), string(signals["limitDown"]))
 }
 
 // TestRateBelowTheMinimumResets tests that every way of reaching 0 answers
@@ -829,13 +780,11 @@ func TestRateBelowTheMinimumResets(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tb := newTab(t)
-			from := tb.streamAt()
-			status, _ := tb.action(t, http.MethodPost, "/limits/", "application/json",
-				`{"limitUp":`+rate+`,"unlimitedUp":false,"limitDown":1,"unlimitedDown":true}`)
-			require.Equal(t, http.StatusOK, status, "setting the limit to %s", rate)
-			require.Contains(t,
-				tb.waitForStreamFrom(t, from, "limitUp"),
-				`"limitUp":`+strconv.Itoa(app.MinLimitKiB),
+			resp := tb.Do(t, action.PageIndex.Limits.POST(), json.RawMessage(`{"limitUp":`+
+				rate+`,"unlimitedUp":false,"limitDown":1,"unlimitedDown":true}`))
+			require.Equal(t, http.StatusOK, resp.Status, "setting the limit to %s", rate)
+			require.JSONEq(t, strconv.Itoa(app.MinLimitKiB),
+				string(tb.waitForLimits(t)["limitUp"]),
 				"the field was left holding a rate the server never took")
 			require.EqualValues(t, app.MinLimitKiB, tb.app.Limits().Upload.KiB)
 		})
@@ -843,15 +792,15 @@ func TestRateBelowTheMinimumResets(t *testing.T) {
 }
 
 // TestRateArrivesQuoted tests that a rate the browser sends as a string is
-// read as the number it holds. Datastar binds a web component by its value
-// property, which makes the field report "128" where a native input sent 128.
+// read as the number it holds. Datastar binds a web component by its value property,
+// which makes the field report "128" where a native input sent 128.
 func TestRateArrivesQuoted(t *testing.T) {
 	tb := newTab(t)
-	from := tb.streamAt()
-	status, _ := tb.action(t, http.MethodPost, "/limits/", "application/json",
-		`{"limitUp":"128","unlimitedUp":false,"limitDown":"64","unlimitedDown":false}`)
-	require.Equal(t, http.StatusOK, status, "setting the limits")
-	require.Contains(t, tb.waitForStreamFrom(t, from, "limitUp"), `"limitUp":128`)
+	resp := tb.Do(t, action.PageIndex.Limits.POST(), json.RawMessage(
+		`{"limitUp":"128","unlimitedUp":false,"limitDown":"64","unlimitedDown":false}`,
+	))
+	require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
+	require.JSONEq(t, "128", string(tb.waitForLimits(t)["limitUp"]))
 	require.EqualValues(t, 128, tb.app.Limits().Upload.KiB)
 	require.EqualValues(t, 64*1024, tb.app.Limits().Download.Rate())
 }
@@ -861,8 +810,8 @@ func TestRateArrivesQuoted(t *testing.T) {
 // back up returns a round rate where adding the step would return 65.
 //
 // The browser evaluates limitStepExpr; [stepped] is its twin in Go, and what
-// this asserts is the rate the server ends up holding. It pins the intended
-// grid, not the JavaScript.
+// this asserts is the rate the server ends up holding. It pins the intended grid,
+// not the JavaScript.
 func TestLimitStepExprSnapsToTheGrid(t *testing.T) {
 	for name, tc := range map[string]struct {
 		from string
@@ -878,27 +827,27 @@ func TestLimitStepExprSnapsToTheGrid(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tb := newTab(t)
-			limits := func(rate string) string {
-				return `{"limitUp":` + rate +
-					`,"unlimitedUp":false,"limitDown":1,"unlimitedDown":true}`
+			limits := func(rate string) json.RawMessage {
+				return json.RawMessage(`{"limitUp":` + rate +
+					`,"unlimitedUp":false,"limitDown":1,"unlimitedDown":true}`)
 			}
-			status, _ := tb.action(t, http.MethodPost, "/limits/",
-				"application/json", limits(tc.from))
-			require.Equal(t, http.StatusOK, status, "seeding the rate")
+			resp := tb.Do(t, action.PageIndex.Limits.POST(), limits(tc.from))
+			require.Equal(t, http.StatusOK, resp.Status, "seeding the rate")
+			// Each change sends the tab the limits once.
+			// Taking the patch of the seed leaves the next one to the step.
+			tb.waitForLimits(t)
 
-			from := tb.streamAt()
-			status, _ = tb.action(t, http.MethodPost, "/limits/",
-				"application/json", limits(stepped(tc.from, tc.up)))
-			require.Equal(t, http.StatusOK, status, "stepping the rate")
-			tb.waitForStreamFrom(t, from, `"limitUp":`+tc.want)
+			resp = tb.Do(t, action.PageIndex.Limits.POST(), limits(stepped(tc.from, tc.up)))
+			require.Equal(t, http.StatusOK, resp.Status, "stepping the rate")
+			require.JSONEq(t, tc.want, string(tb.waitForLimits(t)["limitUp"]))
 			require.EqualValues(t, tc.want,
 				strconv.FormatInt(tb.app.Limits().Upload.KiB, 10))
 		})
 	}
 }
 
-// stepped mirrors limitStepExpr, the expression the arrow keys evaluate in the
-// browser. The server never runs it, and what keeps the 2 honest is this
+// stepped mirrors limitStepExpr, the expression the arrow keys evaluate in the browser.
+// The server never runs it, and what keeps the 2 honest is this
 // test asserting the rate the server ends up holding.
 func stepped(from string, up bool) string {
 	v, err := strconv.Atoi(from)
@@ -920,38 +869,50 @@ func stepped(from string, up bool) string {
 // to when the switch goes off again.
 func TestUnlimitedKeepsTheRate(t *testing.T) {
 	tb := newTab(t)
-	status, _ := tb.action(t, http.MethodPost, "/limits/", "application/json",
-		`{"limitUp":256,"unlimitedUp":true,"limitDown":128,"unlimitedDown":false}`)
-	require.Equal(t, http.StatusOK, status, "setting the limits")
+	resp := tb.Do(t, action.PageIndex.Limits.POST(), json.RawMessage(
+		`{"limitUp":256,"unlimitedUp":true,"limitDown":128,"unlimitedDown":false}`,
+	))
+	require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
 
-	tb.waitForStream(t, `"limitUp":256`)
-	tb.waitForStream(t, `"unlimitedUp":true`)
+	signals := tb.waitForLimits(t)
+	require.JSONEq(t, "256", string(signals["limitUp"]))
+	require.JSONEq(t, "true", string(signals["unlimitedUp"]))
 
 	limits := tb.app.Limits()
 	require.True(t, limits.Upload.Unlimited, "the switch did not reach the server")
 	require.Zero(t, limits.Upload.Rate(), "an unlimited direction is still paced")
 	require.EqualValues(t, 256, limits.Upload.KiB, "the rate was forgotten")
-	require.EqualValues(t, 128*1024, limits.Download.Rate(), "the limited direction is not paced")
+	require.EqualValues(t,
+		128*1024,
+		limits.Download.Rate(),
+		"the limited direction is not paced")
 }
+
+// halfway matches the progress bar of a file that holds 10 of its 20 bytes, which
+// the list shows once the first chunk of contents arrived.
+var halfway = element("neo-progress", "label", "10 B of 20 B")
+
+// copyLink selects the button of the copy control in the row of a finished file.
+// The actions menu holds a second copy control, without a button.
+var copyLink = datapagestest.Role("button", "Copy the link to this file")
 
 // TestCompleteFileOffersItsLink tests that a finished file carries a copy
 // control holding the absolute URL of the download, and that a file still
 // receiving bytes carries none: that URL answers 404 until it completes.
 func TestCompleteFileOffersItsLink(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
-	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	require.NotContains(t,
-		tb.waitForStreamFrom(t, from, "file-list"),
-		"neo-clipcopy", "an incomplete file offers a link that 404s")
+	require.Empty(t, tb.waitForList(t, halfway).All(t, element("neo-clipcopy")),
+		"an incomplete file offers a link that 404s")
 
-	from = tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
-	require.Contains(t,
-		tb.waitForStreamFrom(t, from, "neo-clipcopy"),
-		`value="`+tb.srv.URL+href.App.File(id)+`"`,
+	value, _ := tb.waitForList(t, copyLink).
+		All(t, element("neo-clipcopy"))[0].Attr("value")
+	// The absolute URL of the download is where a request for it goes.
+	download := tb.visitor.NewRequest(t, http.MethodGet, href.App.File(id), nil)
+	require.Equal(t, download.URL.String(), value,
 		"the copy control does not carry the absolute download URL")
 }
 
@@ -960,44 +921,46 @@ func TestCompleteFileOffersItsLink(t *testing.T) {
 // download rather than a transfer.
 func TestCompleteFileShowsNoStatusIcon(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
-	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	require.Contains(t, tb.waitForStreamFrom(t, from, "file-list"), "status-uploading",
+	require.NotEmpty(t, tb.waitForList(t, halfway).All(t, class("status-uploading")),
 		"a transfer in flight lost its badge")
 
-	from = tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 10, contents[10:]))
-	require.NotContains(t,
-		lastFileList(t, tb.waitForStreamFrom(t, from, "neo-clipcopy")),
-		`class="status`, "a finished file still carries a badge")
+	list := tb.waitForList(t, copyLink)
+	// The badge, its icon and its note each carry a class that starts with status.
+	badge := datapagestest.Where("a badge", func(e *datapagestest.Element) bool {
+		c, _ := e.Attr("class")
+		return strings.HasPrefix(c, "status")
+	})
+	require.Empty(t, list.All(t, badge), "a finished file still carries a badge")
 }
 
-// lastFileList is the most recent rendering of the list in what the stream
-// delivered. The buffer holds every patch since it was marked, and the earlier
-// ones describe the file at an earlier point of its transfer.
-func lastFileList(t *testing.T, stream string) string {
+// waitForList waits for a patch of the file list with an element q selects and
+// returns the list. A transfer patches the list many times, and the earlier
+// patches describe the file at an earlier point of its transfer.
+func (tb *tab) waitForList(t *testing.T, q datapagestest.Query) *datapagestest.Element {
 	t.Helper()
-	i := strings.LastIndex(stream, `<ul id="file-list"`)
-	require.GreaterOrEqual(t, i, 0, "the stream delivered no file list")
-	return stream[i:]
+	list := datapagestest.ID("file-list")
+	ev := tb.stream.WaitFor(t, datapagestest.Func("a file list with "+q.String(),
+		func(ev datapagestest.Event) bool { return len(ev.All(t, q.In(list))) > 0 }))
+	return ev.Get(t, list)
 }
 
 // TestRowCarriesAnActionsMenu tests that every row also renders its controls
 // as 1 menu, which is what a phone shows in place of the row of buttons.
 func TestRowCarriesAnActionsMenu(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
-	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
-	body := lastFileList(t, tb.waitForStreamFrom(t, from, "Copy link"))
-	require.Contains(t, body, `class="actions-menu"`, "no menu button in the row")
-	require.Contains(t, body, "<neo-menu", "the menu button opens nothing")
-	require.Contains(t, body, "<neo-menuitem data-neo-dialog-trigger>",
+	menu := tb.waitForList(t, copyLink).Get(t, class("actions-menu"))
+	require.NotEmpty(t, menu.All(t, element("neo-menu")), "the menu button opens nothing")
+	require.NotEmpty(t, menu.All(t, element("neo-menuitem", "data-neo-dialog-trigger", "")),
 		"the menu cannot reach the delete confirmation")
-	require.Contains(t, body, "Copy link", "the menu is missing the copy entry")
+	require.Contains(t, menu.Text(), "Copy link",
+		"the menu is missing the copy entry")
 }
 
 // TestUploadDialogStartsOnClick tests that the Start control carries the action itself.
@@ -1005,12 +968,13 @@ func TestRowCarriesAnActionsMenu(t *testing.T) {
 // and the dialog would sit there doing nothing when pressed.
 func TestUploadDialogStartsOnClick(t *testing.T) {
 	tb := newTab(t)
-	status, body := tb.action(t, http.MethodPost, "/stage/", "application/json",
-		`{"files":[{"name":"notes.txt","size":20,"type":"text/plain"}]}`)
-	require.Equal(t, http.StatusOK, status, "staging")
-	require.Contains(t, body, "Start upload", "no start control in the dialog")
-	require.Contains(t, body, "/start/", "the start control carries no action")
-	require.NotContains(t, body, `type="submit"`,
+	dialog := tb.stage(t, "notes.txt", "text/plain", 20)
+
+	start := dialog.Get(t, element("neo-button").HasText("Start upload")).Action(t, "click")
+	require.Equal(t, http.StatusOK,
+		tb.Do(t, start, url.Values{"name-0": {"notes.txt"}}).Status, "starting")
+	tb.waitForStart(t)
+	require.Empty(t, dialog.All(t, element("", "type", "submit")),
 		"a custom element cannot submit a form")
 }
 
@@ -1019,18 +983,22 @@ func TestUploadDialogStartsOnClick(t *testing.T) {
 // neither a button carrying an href nor an anchor nested in a menu row goes anywhere.
 func TestDownloadIsALink(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
-	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents))
-	body := lastFileList(t, tb.waitForStreamFrom(t, from, "Copy link"))
+	list := tb.waitForList(t, copyLink)
 
-	require.Contains(t, body,
-		`<a data-neo-link href="`+href.App.File(id)+`" variant="button-primary">`,
+	require.NotEmpty(t, list.All(t, element("a", "data-neo-link", "",
+		"href", href.App.File(id), "variant", "button-primary")),
 		"the row's download is not a link")
-	require.NotContains(t, body, `<neo-button role="button" href=`,
+	buttonWithHref := datapagestest.Where("a neo-button with an href",
+		func(e *datapagestest.Element) bool {
+			_, ok := e.Attr("href")
+			return e.Node().Data == "neo-button" && ok
+		})
+	require.Empty(t, list.All(t, buttonWithHref),
 		"an href on a neo-button navigates nowhere")
-	require.Contains(t, body, `<neo-menuitem data-href="`+href.App.File(id)+`"`,
+	require.NotEmpty(t, list.All(t, element("neo-menuitem", "data-href", href.App.File(id))),
 		"the menu's download row carries no address")
 }
 
@@ -1039,65 +1007,63 @@ func TestDownloadIsALink(t *testing.T) {
 // percentage, rather than in a paragraph of its own below it.
 func TestProgressCarriesTheBytes(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 
-	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	// The list the start renders can still arrive after from and has a bar too.
-	body := lastFileList(t, tb.waitForStreamFrom(t, from, "10 B of 20 B"))
-	require.Contains(t, body, ` label="10 B of 20 B"`, "the bar carries no amount")
-	require.Contains(t, body, `value="50"`, "the bar carries no percentage")
-	require.NotContains(t, body, "progress-text", "the amount is still a paragraph")
+	// The list the start renders comes first and has a bar too.
+	list := tb.waitForList(t, halfway)
+	value, _ := list.Get(t, halfway).Attr("value")
+	require.Equal(t, "50", value, "the bar carries no percentage")
+	require.Empty(t, list.All(t, class("progress-text")), "the amount is still a paragraph")
 }
 
-// TestBadgeFollowsTheOwner tests that the badge agrees with the control beside
-// it. A file paused in a tab that has since gone is one nobody can resume, so
-// the row offers to take it over and the badge has to say interrupted rather
-// than paused.
+// TestBadgeFollowsTheOwner tests that the badge agrees with the control beside it.
+// A file paused in a tab that has since gone is one nobody can resume, so the row
+// offers to take it over and the badge has to say interrupted rather than paused.
 func TestBadgeFollowsTheOwner(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "notes.txt", "text/plain", len(contents)).ID
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
 
-	from := tb.streamAt()
-	status, _ := tb.pause(t, id)
-	require.Equal(t, http.StatusOK, status, "pausing")
-	paused := lastFileList(t, tb.waitForStreamFrom(t, from, "status-paused"))
-	require.Contains(t, paused, "You paused this upload",
+	require.Equal(t, http.StatusOK, tb.pause(t, id).Status, "pausing")
+	paused := tb.waitForList(t, class("status-paused"))
+	require.Contains(t, paused.Text(), "You paused this upload",
 		"the badge of a held file does not say who paused it")
 
 	// The tab that held the bytes goes away, as a reload does.
 	other := tb.openTab(t)
-	from = other.streamAt()
-	tb.close()
-	orphaned := lastFileList(t, other.waitForStreamFrom(t, from, "status-interrupted"))
-	require.NotContains(t, orphaned, "status-paused",
+	tb.stream.Close()
+	orphaned := other.waitForList(t, class("status-interrupted"))
+	require.Empty(t, orphaned.All(t, class("status-paused")),
 		"a file nobody holds still badges as paused")
-	require.Contains(t, orphaned, "No tab is sending this file",
+	require.Contains(t, orphaned.Text(), "No tab is sending this file",
 		"the badge does not say what happened to the file")
-	require.Contains(t, orphaned, "Take over",
+	require.Contains(t, orphaned.Text(), "Take over",
 		"the badge and the control disagree")
 }
 
-// TestDeleteAsksFirst tests that every row carries a confirmation naming its
-// file, that the browser owns opening it, and that the file survives until the
+// TestDeleteAsksFirst tests that every row carries a confirmation naming its file,
+// that the browser owns opening it, and that the file survives until the
 // delete itself is sent.
 func TestDeleteAsksFirst(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "notes.txt", "holiday photos.txt", "text/plain", len(contents))
+	id := tb.start(t, "notes.txt", "holiday photos.txt", "text/plain", len(contents)).ID
 
-	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	body := tb.waitForStreamFrom(t, from, "neo-dialog")
-	require.Contains(t, body, "Delete this file?", "the row carries no confirmation")
-	require.Contains(t, body, "holiday photos.txt", "the dialog does not name the file")
-	require.Contains(t, body, "data-neo-dialog-trigger",
+	// The row's dialog comes before the one of the actions menu.
+	dialog := tb.waitForList(t, halfway).All(t, element("neo-dialog"))[0]
+	require.Contains(t, dialog.Text(), "Delete this file?",
+		"the row carries no confirmation")
+	require.Contains(t, dialog.Text(), "holiday photos.txt",
+		"the dialog does not name the file")
+	require.NotEmpty(t, dialog.All(t, element("", "data-neo-dialog-trigger", "")),
 		"nothing opens the dialog: a Morpheus dialog stays inert without a trigger")
-	require.Contains(t, body, "data-neo-dialog-close", "nothing cancels the dialog")
+	require.NotEmpty(t, dialog.All(t, element("", "data-neo-dialog-close", "")),
+		"nothing cancels the dialog")
 	require.Len(t, tb.files.List(), 1, "rendering the dialog deleted the file")
 
-	status, _ := tb.action(t, http.MethodDelete, "/files/"+id+"/", "", "")
-	require.Equal(t, http.StatusOK, status, "deleting")
+	require.Equal(t, http.StatusOK,
+		tb.Do(t, action.PageIndex.File.DELETE(id), nil).Status, "deleting")
 	require.Empty(t, tb.files.List(), "the confirmed delete kept the file")
 }
 
@@ -1105,13 +1071,12 @@ func TestDeleteAsksFirst(t *testing.T) {
 // file is stored under rather than the one the browser reported.
 func TestDeleteDialogNamesTheStoredFile(t *testing.T) {
 	tb := newTab(t)
-	id := tb.start(t, "original.txt", "renamed.txt", "text/plain", len(contents))
+	id := tb.start(t, "original.txt", "renamed.txt", "text/plain", len(contents)).ID
 
-	from := tb.streamAt()
 	require.Equal(t, http.StatusOK, tb.chunk(t, id, 0, contents[:10]))
-	require.Contains(t,
-		tb.waitForStreamFrom(t, from, "neo-dialog"),
-		`<strong class="delete-name">renamed.txt</strong>`,
+	name := tb.waitForList(t, halfway).
+		All(t, element("strong", "class", "delete-name"))[0]
+	require.Equal(t, "renamed.txt", name.Text(),
 		"the dialog names what the browser reported, not what the store holds")
 }
 
@@ -1130,17 +1095,15 @@ func TestChunkSizeFollowsTheLimit(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tb := newTab(t)
-			status, _ := tb.action(t, http.MethodPost, "/limits/", "application/json",
+			resp := tb.Do(t, action.PageIndex.Limits.POST(), json.RawMessage(
 				`{"limitUp":`+strconv.FormatInt(tc.limitKiB, 10)+
 					`,"unlimitedUp":`+strconv.FormatBool(tc.unlimited)+
-					`,"limitDown":1,"unlimitedDown":true}`)
-			require.Equal(t, http.StatusOK, status, "setting the limits")
+					`,"limitDown":1,"unlimitedDown":true}`,
+			))
+			require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
 
-			from := tb.streamAt()
-			tb.start(t, "f.bin", "f.bin", "text/plain", 4096)
-			require.Contains(t,
-				tb.waitForStreamFrom(t, from, "dpUpload.start(["),
-				`"chunkSize":`+strconv.FormatInt(tc.want, 10),
+			started := tb.start(t, "f.bin", "f.bin", "text/plain", 4096)
+			require.Equal(t, tc.want, started.ChunkSize,
 				"the job does not carry the chunk size of a %d KiB/s limit", tc.limitKiB)
 		})
 	}
@@ -1150,24 +1113,66 @@ func TestChunkSizeFollowsTheLimit(t *testing.T) {
 // the chunk size that took effect, which is what reaches a running transfer.
 func TestLimitChangeResizesTransfers(t *testing.T) {
 	tb := newTab(t)
-	from := tb.streamAt()
-	status, _ := tb.action(t, http.MethodPost, "/limits/", "application/json",
-		`{"limitUp":4,"limitDown":0}`)
-	require.Equal(t, http.StatusOK, status, "setting the limits")
-	require.Contains(t,
-		tb.waitForStreamFrom(t, from, "dpUpload.resize("),
-		"dpUpload.resize("+strconv.Itoa(4*1024*10)+")",
+	resp := tb.Do(t, action.PageIndex.Limits.POST(),
+		json.RawMessage(`{"limitUp":4,"limitDown":0}`))
+	require.Equal(t, http.StatusOK, resp.Status, "setting the limits")
+	var size int64
+	resize := tb.stream.WaitFor(t, calls("dpUpload.resize"))
+	decodeCall(t, resize, "dpUpload.resize", &size)
+	require.Equal(t, int64(4*1024*10), size,
 		"the limit did not resize the running transfers")
 }
 
-// idOfStartScript reads the file identifier out of the dpUpload.start call the
-// start action sends back.
-func idOfStartScript(t *testing.T, body string) string {
+// calls matches an event that makes the browser call fn. The server sends the
+// uploader its commands as a script that calls it with one JSON argument.
+func calls(fn string) datapagestest.Match {
+	return datapagestest.Func("a script calling "+fn, func(ev datapagestest.Event) bool {
+		_, ok := argOf(ev, fn)
+		return ok
+	})
+}
+
+// argOf returns the argument of the call of fn in the script ev appends,
+// and false when ev appends no such script.
+func argOf(ev datapagestest.Event, fn string) (string, bool) {
+	script, ok := ev.Script()
+	if !ok {
+		return "", false
+	}
+	arg, ok := strings.CutPrefix(script, fn+"(")
+	if !ok {
+		return "", false
+	}
+	return strings.CutSuffix(arg, ")")
+}
+
+// decodeCall decodes the argument of the call of fn that ev makes into v.
+func decodeCall(t *testing.T, ev datapagestest.Event, fn string, v any) {
 	t.Helper()
-	const open = `dpUpload.start([{"id":"`
-	_, after, ok := strings.Cut(body, open)
-	require.True(t, ok, "no start call in %q", body)
-	id, _, ok := strings.Cut(after, `"`)
-	require.True(t, ok, "unterminated identifier in %q", body)
-	return id
+	arg, ok := argOf(ev, fn)
+	require.True(t, ok, "no call of %s in %q", fn, ev.Data["elements"])
+	require.NoError(t,
+		json.Unmarshal([]byte(arg), v), "decoding the argument of %s", fn)
+}
+
+// element selects the elements named tag, of any name for "",
+// that have the attributes attrs lists as key and value pairs.
+func element(tag string, attrs ...string) datapagestest.Query {
+	q := datapagestest.Where("an element",
+		func(*datapagestest.Element) bool { return true })
+	if tag != "" {
+		q = datapagestest.Tag(tag)
+	}
+	for i := 0; i+1 < len(attrs); i += 2 {
+		q = q.Attr(attrs[i], attrs[i+1])
+	}
+	return q
+}
+
+// class selects the elements whose class attribute lists name.
+func class(name string) datapagestest.Query {
+	return datapagestest.Where("class "+name, func(e *datapagestest.Element) bool {
+		v, _ := e.Attr("class")
+		return slices.Contains(strings.Fields(v), name)
+	})
 }

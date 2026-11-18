@@ -13,6 +13,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -66,19 +67,37 @@ func Each(t *testing.T, body func(t *testing.T, broker messaging.Broker)) {
 	}
 }
 
+// EachInBubble is [Each] with the inmem broker inside a testing/synctest bubble,
+// whose clock moves only while every goroutine of the test waits: a session that
+// expires in two seconds expires at once. The nats broker reaches its server over a
+// socket, which cannot join a bubble, and runs on the real clock. body must not call
+// t.Run, which panics inside a bubble.
+func EachInBubble(t *testing.T, body func(t *testing.T, broker messaging.Broker)) {
+	t.Helper()
+	run := map[string]func(t *testing.T){
+		"inmem": func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) { body(t, inmem.New(ChanBuffer)) })
+		},
+		"nats": func(t *testing.T) { body(t, NATS(t)) },
+	}
+	for name, f := range run {
+		t.Run(name, f)
+	}
+}
+
 // NATS builds a broker on the server Main started.
 func NATS(t *testing.T) messaging.Broker {
 	t.Helper()
 	return natscore.New(Conn(t), natscore.Config{ChanBuffer: ChanBuffer})
 }
 
-// natsMu serializes the tests that reach the NATS server.
+// natsLock serializes the tests that reach the NATS server.
 //
 // 1 server serves the whole case and its subject space is shared: 2 tests
 // publishing the same subject at the same time would each read the other's messages.
 // The lock is released by a cleanup registered before the test registers its
 // own, hence after the streams and the server it opens are closed.
-var natsMu sync.Mutex
+var natsLock sync.Mutex
 
 // Conn connects to the server Main started.
 //
@@ -89,8 +108,8 @@ func Conn(t *testing.T) *nats.Conn {
 	require.NotEmpty(t, natsURL,
 		"no NATS server: the case must run brokers.Main from its TestMain")
 
-	natsMu.Lock()
-	t.Cleanup(natsMu.Unlock)
+	natsLock.Lock()
+	t.Cleanup(natsLock.Unlock)
 
 	// The testcontainers NATS module only waits for the port to be open,
 	// not for the server to be fully initialized.

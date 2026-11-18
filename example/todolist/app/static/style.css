@@ -164,6 +164,12 @@ keeps the layout in place.
 	}
 }
 
+.todo-rows {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
 .todo-row {
 	display: flex;
 	align-items: center;

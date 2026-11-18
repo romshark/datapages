@@ -18,17 +18,20 @@ package contract
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"github.com/romshark/datapages/datapagestest"
 )
 
 // Server is the generated *Server, named by what the suite calls on it.
@@ -86,8 +89,8 @@ type Case struct {
 	// The server must refuse the request instead of crashing.
 	SignalActions []string
 
-	// StreamPath is the SSE route of a page that has one,
-	// "" when the app has no page that handles events or hooks a stream.
+	// StreamPath is the SSE route of the Index page,
+	// "" when that page neither handles events nor hooks a stream.
 	StreamPath string
 
 	// DispatchAction is an action that dispatches an event the page behind
@@ -260,68 +263,46 @@ func (c Case) index() string {
 	return "/"
 }
 
-func (c Case) server(t *testing.T, opts ...any) *httptest.Server {
+func (c Case) serve(t *testing.T, opts ...any) *datapagestest.Server {
 	t.Helper()
-	srv, _ := c.serverAndHandle(t, opts...)
+	srv, _ := c.serveHandle(t, opts...)
 	return srv
 }
 
-// serverAndHandle returns the test server together with the generated server behind it,
+// serveHandle returns the served server together with the generated server behind it,
 // for the assertions that call its own methods.
-func (c Case) serverAndHandle(t *testing.T, opts ...any) (*httptest.Server, Server) {
+func (c Case) serveHandle(t *testing.T, opts ...any) (*datapagestest.Server, Server) {
 	t.Helper()
 	handle := c.NewServer(t, opts...)
-	srv := httptest.NewServer(handle)
-	t.Cleanup(srv.Close)
-	return srv, handle
+	return datapagestest.New(t, handle), handle
 }
 
-// get performs a plain page load without content negotiation.
-// The bytes it reads are then the bytes the handler wrote.
-func get(t *testing.T, srv *httptest.Server, path string) (*http.Response, string) {
+func (c Case) visit(t *testing.T, opts ...any) *datapagestest.Visitor {
 	t.Helper()
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+path, nil,
-	)
-	if err != nil {
-		t.Fatalf("building GET %s: %v", path, err)
-	}
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("GET %s: %v", path, err)
-	}
-	b, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if err != nil {
-		t.Fatalf("reading %s: %v", path, err)
-	}
-	return resp, string(b)
+	return c.serve(t, opts...).Visitor(t)
 }
 
 // testPageShell tests what the server wraps every page body in.
 // Nothing else assembles the document.
 // Every page that renders at all renders inside this.
 func (c Case) testPageShell(t *testing.T) {
-	srv := c.server(t)
-
-	resp, body := get(t, srv, c.index())
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET %s: status = %d, want 200", c.index(), resp.StatusCode)
+	resp := c.visit(t).Get(t, c.index())
+	if resp.Status != http.StatusOK {
+		t.Fatalf("GET %s: status = %d, want 200", c.index(), resp.Status)
 	}
 	if got, want := resp.Header.Get("Content-Type"), "text/html"; !strings.HasPrefix(got, want) {
 		t.Errorf("Content-Type = %q, want prefix %q", got, want)
 	}
 	for _, want := range []string{"<!DOCTYPE html>", "<html", "<head", "<body", "</html>"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the page shell does not carry %q:\n%s", want, body)
+		if !strings.Contains(resp.Body, want) {
+			t.Errorf("the page shell does not carry %q:\n%s", want, resp.Body)
 		}
 	}
-	if !strings.Contains(body, "<script") {
-		t.Errorf("the page shell loads no client script:\n%s", body)
+	if !strings.Contains(resp.Body, "<script") {
+		t.Errorf("the page shell loads no client script:\n%s", resp.Body)
 	}
 
-	checkAttributeSeparation(t, c.index(), body)
+	checkAttributeSeparation(t, c.index(), resp.Body)
 }
 
 // checkAttributeSeparation tests the separator between the attributes the
@@ -352,64 +333,49 @@ func (c Case) testAttributeSeparation(t *testing.T) {
 	if len(c.Links) == 0 {
 		t.Skip("the case lists no links")
 	}
-	srv := c.server(t)
+	v := c.visit(t)
 	for _, link := range c.Links {
-		resp, body := get(t, srv, link)
-		if resp.StatusCode != http.StatusOK {
+		resp := v.Get(t, link)
+		if resp.Status != http.StatusOK {
 			continue // A page the case answers with a status of its own.
 		}
-		checkAttributeSeparation(t, link, body)
+		checkAttributeSeparation(t, link, resp.Body)
 	}
 }
 
 // testCompression tests that a page response matches its Content-Encoding.
 func (c Case) testCompression(t *testing.T) {
-	srv := c.server(t)
+	v := c.visit(t)
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+c.index(), nil,
-	)
-	if err != nil {
-		t.Fatalf("building request: %v", err)
-	}
-	// The transport strips Content-Encoding when it added the header itself.
-	// Setting the header here keeps what the server chose visible.
+	// The visitor's transport decodes no response, which keeps what the server
+	// chose visible.
+	req := v.NewRequest(t, http.MethodGet, c.index(), nil)
 	req.Header.Set("Accept-Encoding", "gzip")
+	resp := v.Send(t, req)
 
-	resp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("GET %s: %v", c.index(), err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading body: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.Status)
 	}
 	if enc := resp.Header.Get("Content-Encoding"); enc == "gzip" {
-		if bytes.Contains(b, []byte("<!DOCTYPE html>")) {
+		if strings.Contains(resp.Body, "<!DOCTYPE html>") {
 			t.Error("the response claims to be gzip and is not encoded")
 		}
 		return
 	}
-	if !bytes.Contains(b, []byte("<!DOCTYPE html>")) {
-		t.Errorf("an uncompressed response is not the page:\n%s", b)
+	if !strings.Contains(resp.Body, "<!DOCTYPE html>") {
+		t.Errorf("an uncompressed response is not the page:\n%s", resp.Body)
 	}
 }
 
 // testUnknownRoute tests a URL no page claims.
 // Whatever the app supplies for it, the router must not serve it something else.
 func (c Case) testUnknownRoute(t *testing.T) {
-	srv := c.server(t)
-
-	resp, body := get(t, srv, "/no-such-page-a1b2c3/")
-	if resp.StatusCode == http.StatusOK && strings.Contains(body, "<!DOCTYPE html>") {
+	resp := c.visit(t).Get(t, "/no-such-page-a1b2c3/")
+	if resp.Status == http.StatusOK && strings.Contains(resp.Body, "<!DOCTYPE html>") {
 		// An app with a PageError404 renders it here. That page is allowed;
 		// serving some other page at this URL is not.
-		if !strings.Contains(strings.ToLower(body), "not found") {
-			t.Errorf("an unclaimed URL was served a page:\n%s", body)
+		if !strings.Contains(strings.ToLower(resp.Body), "not found") {
+			t.Errorf("an unclaimed URL was served a page:\n%s", resp.Body)
 		}
 	}
 }
@@ -423,51 +389,47 @@ func (c Case) testGeneratedLinksAreRouted(t *testing.T) {
 	if len(c.Links) == 0 {
 		t.Skip("the case lists no links")
 	}
-	srv := c.server(t)
+	v := c.visit(t)
 
-	unrouted := unroutedBody(t, srv, http.MethodGet)
+	unrouted := unroutedBody(t, v, nil, http.MethodGet)
 
 	for _, link := range c.Links {
 		t.Run(link, func(t *testing.T) {
-			resp, body := get(t, srv, link)
-			if resp.StatusCode == http.StatusNotFound && body == unrouted {
+			resp := v.Get(t, link)
+			if resp.Status == http.StatusNotFound && resp.Body == unrouted {
 				t.Errorf("href builds %s, which the router does not serve", link)
 			}
-			if resp.StatusCode == http.StatusMethodNotAllowed {
+			if resp.Status == http.StatusMethodNotAllowed {
 				t.Errorf("href builds %s, which the router does not serve by GET", link)
 			}
 		})
 	}
 }
 
-// unroutedBody asks for a URL nothing claims and returns what the server answers with.
+// unroutedBody asks for a URL nothing claims and returns what the server answers with:
+// a page load for GET and an action of tab for any other method.
 //
 // A 404 alone does not mean a URL is unrouted. A handler may answer 404
 // because the thing it was asked for does not exist. The body separates the 2 cases.
 // An unrouted URL is answered by the router, with the app's own
 // error page when it has one.
-func unroutedBody(t *testing.T, srv *httptest.Server, method string) string {
+func unroutedBody(
+	t *testing.T, v *datapagestest.Visitor, tab *datapagestest.Tab, method string,
+) string {
 	t.Helper()
 	const nowhere = "/no-such-route-a1b2c3d4/"
+	var resp *datapagestest.Response
 	if method == http.MethodGet {
-		resp, body := get(t, srv, nowhere)
-		if resp.StatusCode != http.StatusNotFound {
-			// An app whose 404 page is served with 200 has no distinguishable body here.
-			// The comparison is left to match nothing.
-			return "\x00 unrouted responses are not 404"
-		}
-		return body
+		resp = v.Get(t, nowhere)
+	} else {
+		resp = tab.Do(t, Call(method, nowhere), nil)
 	}
-	resp := send(t, srv, method, nowhere, "")
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading the response of an unrouted URL: %v", err)
-	}
-	if resp.StatusCode != http.StatusNotFound {
+	if resp.Status != http.StatusNotFound {
+		// An app whose 404 page is served with 200 has no distinguishable body here.
+		// The comparison is left to match nothing.
 		return "\x00 unrouted responses are not 404"
 	}
-	return string(b)
+	return resp.Body
 }
 
 // testGeneratedActionsAreRouted tests every expression the generated action
@@ -476,26 +438,22 @@ func (c Case) testGeneratedActionsAreRouted(t *testing.T) {
 	if len(c.Actions) == 0 {
 		t.Skip("the case lists no actions")
 	}
-	srv := c.server(t)
+	v := c.visit(t)
+	tab := v.Load(t, c.index())
 
 	unrouted := map[string]string{}
 	for _, expr := range c.Actions {
 		t.Run(expr, func(t *testing.T) {
-			method, target := parseAction(t, expr)
+			method, target := route(t, expr)
 			if _, ok := unrouted[method]; !ok {
-				unrouted[method] = unroutedBody(t, srv, method)
+				unrouted[method] = unroutedBody(t, v, tab, method)
 			}
-			resp := send(t, srv, method, target, "")
-			defer func() { _ = resp.Body.Close() }()
-			b, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("reading %s %s: %v", method, target, err)
-			}
-			if resp.StatusCode == http.StatusNotFound && string(b) == unrouted[method] {
+			resp := tab.Do(t, expr, nil)
+			if resp.Status == http.StatusNotFound && resp.Body == unrouted[method] {
 				t.Errorf("action builds %s %s, which the router does not serve",
 					method, target)
 			}
-			if resp.StatusCode == http.StatusMethodNotAllowed {
+			if resp.Status == http.StatusMethodNotAllowed {
 				t.Errorf("action builds %s %s, which the router serves by another method",
 					method, target)
 			}
@@ -510,97 +468,33 @@ func (c Case) testMalformedSignals(t *testing.T) {
 	if len(c.SignalActions) == 0 {
 		t.Skip("the case lists no actions that read signals")
 	}
-	srv := c.server(t)
+	v := c.visit(t)
+	tab := v.Load(t, c.index())
 
 	for _, expr := range c.SignalActions {
 		t.Run(expr, func(t *testing.T) {
-			method, target := parseAction(t, expr)
-			resp := send(t, srv, method, target, `{"broken": `)
-			_ = resp.Body.Close()
-			if resp.StatusCode < 400 {
+			method, target := route(t, expr)
+			resp := tab.Do(t, expr, json.RawMessage(`{"broken": `))
+			if resp.Status < 400 {
 				t.Errorf("%s %s: status = %d on a body that is not signals",
-					method, target, resp.StatusCode)
+					method, target, resp.Status)
 			}
 		})
 	}
 
 	// The server keeps serving afterwards.
-	if resp, _ := get(t, srv, c.index()); resp.StatusCode != http.StatusOK {
-		t.Errorf("the server stopped serving pages: status = %d", resp.StatusCode)
+	if resp := v.Get(t, c.index()); resp.Status != http.StatusOK {
+		t.Errorf("the server stopped serving pages: status = %d", resp.Status)
 	}
 }
 
-// parseAction takes the method and URL out of an expression such as
-// "@post('/form/submit/')". That is the form a template carries.
-func parseAction(t *testing.T, expr string) (method, target string) {
-	t.Helper()
-	at := strings.Index(expr, "@")
-	open := strings.Index(expr, "('")
-	closing := strings.LastIndex(expr, "')")
-	if at < 0 || open < at || closing < open {
-		t.Fatalf("not an action expression: %s", expr)
+// signals turns a Case body into the signals of [datapagestest.Tab.Do]: the JSON as
+// it is, or nil for an empty body, which sends "{}" the way Datastar does.
+func signals(body string) any {
+	if body == "" {
+		return nil
 	}
-	switch verb := expr[at+1 : open]; verb {
-	case "post":
-		method = http.MethodPost
-	case "put":
-		method = http.MethodPut
-	case "patch":
-		method = http.MethodPatch
-	case "delete":
-		method = http.MethodDelete
-	case "query":
-		method = "QUERY"
-	case "get":
-		method = http.MethodGet
-	default:
-		t.Fatalf("unknown action verb %q in %s", verb, expr)
-	}
-	target = expr[open+2 : closing]
-	if i := strings.Index(target, "'"); i >= 0 {
-		target = target[:i] // the expression carries options after the URL
-	}
-	if _, err := url.Parse(target); err != nil {
-		t.Fatalf("action %s builds an unparsable URL: %v", expr, err)
-	}
-	return method, target
-}
-
-func send(
-	t *testing.T, srv *httptest.Server, method, target, body string,
-) *http.Response {
-	t.Helper()
-	return sendAs(t, srv, method, target, body, "")
-}
-
-// sendAs sends an action request as the tab named by instanceID.
-func sendAs(
-	t *testing.T, srv *httptest.Server, method, target, body, instanceID string,
-) *http.Response {
-	t.Helper()
-	var r io.Reader
-	if body != "" {
-		r = strings.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(
-		context.Background(), method, srv.URL+target, r,
-	)
-	if err != nil {
-		t.Fatalf("building %s %s: %v", method, target, err)
-	}
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if instanceID != "" {
-		req.Header.Set("Datapages-Instance", instanceID)
-	}
-	resp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("%s %s: %v", method, target, err)
-	}
-	return resp
+	return json.RawMessage(body)
 }
 
 // testStream tests the SSE connection of a page with events or stream hooks.
@@ -612,36 +506,31 @@ func (c Case) testStream(t *testing.T) {
 	if c.StreamPath == "" {
 		t.Skip("the app has no page with a stream")
 	}
-	srv := c.server(t)
+	// The bubble's clock lets an hour pass at once. t.Run panics inside a bubble,
+	// which keeps both rounds in one test.
+	synctest.Test(t, func(t *testing.T) {
+		v := c.visit(t)
 
-	for _, round := range []string{"first", "after a reload"} {
-		t.Run(round, func(t *testing.T) {
-			body, _, cancel := c.openStream(t, srv)
-			defer cancel()
-
-			// The connection stays open: reading blocks rather than ending.
-			read := make(chan error, 1)
-			go func() {
-				buf := make([]byte, 1)
-				_, err := body.Read(buf)
-				read <- err
-			}()
-			select {
-			case err := <-read:
-				if err != nil {
-					t.Errorf("the stream ended by itself: %v", err)
-				}
-			case <-time.After(300 * time.Millisecond):
-				// Still open, as a stream should be.
+		var st *datapagestest.Stream
+		for _, round := range []string{"first", "after a reload"} {
+			// A reload closes the stream of the page it leaves.
+			if st != nil {
+				st.Close()
 			}
-		})
-	}
+			st = v.Load(t, c.index()).Connect(t, nil)
 
-	// The page keeps serving while a stream of it is open.
-	if resp, _ := get(t, srv, c.index()); resp.StatusCode != http.StatusOK {
-		t.Errorf("GET %s: status = %d while a stream is open",
-			c.index(), resp.StatusCode)
-	}
+			// The connection stays open rather than ending.
+			time.Sleep(time.Hour)
+			if st.Ended() {
+				t.Errorf("%s: the stream ended by itself", round)
+			}
+		}
+
+		// The page keeps serving while a stream of it is open.
+		if resp := v.Get(t, c.index()); resp.Status != http.StatusOK {
+			t.Errorf("GET %s: status = %d while a stream is open", c.index(), resp.Status)
+		}
+	})
 }
 
 // testTrailingSlash tests a URL typed without its trailing slash.
@@ -662,23 +551,22 @@ func (c Case) testTrailingSlash(t *testing.T) {
 	if target == "" {
 		t.Skip("the case has no link below the root")
 	}
-	srv := c.server(t)
+	v := c.visit(t)
 
-	withSlash, slashBody := get(t, srv, target)
-	without, plainBody := get(t, srv, strings.TrimSuffix(target, "/"))
+	withSlash := v.Get(t, target)
+	without := v.Get(t, strings.TrimSuffix(target, "/"))
 
-	if without.StatusCode != withSlash.StatusCode {
+	if without.Status != withSlash.Status {
 		t.Errorf("GET %s: status = %d with a trailing slash and %d without",
-			target, withSlash.StatusCode, without.StatusCode)
+			target, withSlash.Status, without.Status)
 	}
-	if withSlash.Header.Get("Datapages-Instance") != "" ||
-		withSlash.Header.Get("Set-Cookie") != "" {
+	if withSlash.Instance() != "" || withSlash.Header.Get("Set-Cookie") != "" {
 		// A stateful page mints an id per load, a page that issues a session
 		// mints a token the CSRF script carries. 2 loads of either differ
 		// by design and only the status can be compared.
 		return
 	}
-	if plainBody != slashBody {
+	if without.Body != withSlash.Body {
 		t.Errorf("GET %s renders differently without its trailing slash", target)
 	}
 }
@@ -690,16 +578,9 @@ func (c Case) testShutdownClosesStreams(t *testing.T) {
 	if c.StreamPath == "" {
 		t.Skip("the app has no page with a stream")
 	}
-	srv, handle := c.serverAndHandle(t)
+	srv, handle := c.serveHandle(t)
 
-	body, _, cancel := c.openStream(t, srv)
-	defer cancel()
-
-	ended := make(chan struct{})
-	go func() {
-		defer close(ended)
-		_, _ = io.Copy(io.Discard, body)
-	}()
+	st := srv.Visitor(t).Load(t, c.index()).Connect(t, nil)
 
 	ctx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()
@@ -707,11 +588,7 @@ func (c Case) testShutdownClosesStreams(t *testing.T) {
 		t.Errorf("Shutdown: %v", err)
 	}
 
-	select {
-	case <-ended:
-	case <-time.After(5 * time.Second):
-		t.Error("an open stream outlived the shutdown")
-	}
+	st.WaitEnd(t, "an open stream outlived the shutdown")
 }
 
 // testStreamRequiresDatastar tests the stream route reached by a client that
@@ -721,67 +598,10 @@ func (c Case) testStreamRequiresDatastar(t *testing.T) {
 	if c.StreamPath == "" {
 		t.Skip("the app has no page with a stream")
 	}
-	srv := c.server(t)
-
-	resp, _ := get(t, srv, c.StreamPath)
-	if resp.StatusCode != http.StatusNotAcceptable {
+	resp := c.visit(t).Get(t, c.StreamPath)
+	if resp.Status != http.StatusNotAcceptable {
 		t.Errorf("GET %s: status = %d, want %d",
-			c.StreamPath, resp.StatusCode, http.StatusNotAcceptable)
-	}
-}
-
-// openStream connects to the case's stream the way the client does.
-//
-// A stateful page hands out an instance id on the page load and expects it
-// back on the stream. The page load therefore comes first in either case.
-func (c Case) openStream(
-	t *testing.T, srv *httptest.Server,
-) (body io.ReadCloser, instanceID string, cancel context.CancelFunc) {
-	t.Helper()
-
-	page, err := srv.Client().Get(srv.URL + c.index())
-	if err != nil {
-		t.Fatalf("GET %s: %v", c.index(), err)
-	}
-	_ = page.Body.Close()
-	instance := page.Header.Get("Datapages-Instance")
-
-	// The context's cancel is kept under its own name. The returned closure
-	// is also called cancel. Calling that one from inside itself gives a stack
-	// overflow instead of a closed stream.
-	ctx, closeConn := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet, srv.URL+c.StreamPath, nil,
-	)
-	if err != nil {
-		closeConn()
-		t.Fatalf("building the stream request: %v", err)
-	}
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
-	if instance != "" {
-		req.Header.Set("Datapages-Instance", instance)
-	}
-
-	resp, err := srv.Client().Do(req)
-	if err != nil {
-		closeConn()
-		t.Fatalf("opening the stream: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		_ = resp.Body.Close()
-		closeConn()
-		t.Fatalf("opening the stream: status %d", resp.StatusCode)
-	}
-	if got, want := resp.Header.Get("Content-Type"),
-		"text/event-stream"; !strings.HasPrefix(got, want) {
-		t.Errorf("Content-Type = %q, want prefix %q", got, want)
-	}
-	return resp.Body, instance, func() {
-		closeConn()
-		_ = resp.Body.Close()
-		// Give the server the moment it needs to run the close hooks.
-		time.Sleep(100 * time.Millisecond)
+			c.StreamPath, resp.Status, http.StatusNotAcceptable)
 	}
 }
 
@@ -796,40 +616,18 @@ func (c Case) testDispatchReachesTheStream(t *testing.T) {
 	if c.StreamPath == "" || c.DispatchAction == "" {
 		t.Skip("the app has no action that dispatches to a stream")
 	}
-	srv := c.server(t)
+	tab := c.visit(t).Load(t, c.index())
+	st := tab.Connect(t, nil)
 
-	body, instance, cancel := c.openStream(t, srv)
-	defer cancel()
-
-	received := make(chan string, 1)
-	go func() {
-		buf := make([]byte, 4096)
-		n, err := body.Read(buf)
-		if err != nil {
-			received <- ""
-			return
-		}
-		received <- string(buf[:n])
-	}()
-
-	method, target := parseAction(t, c.DispatchAction)
-	resp := sendAs(t, srv, method, target, c.DispatchBody, instance)
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("%s %s: status = %d", method, target, resp.StatusCode)
+	method, target := route(t, c.DispatchAction)
+	resp := tab.Do(t, c.DispatchAction, signals(c.DispatchBody))
+	if resp.Status != http.StatusOK {
+		t.Fatalf("%s %s: status = %d", method, target, resp.Status)
 	}
 
-	select {
-	case got := <-received:
-		if got == "" {
-			t.Error("the stream ended instead of carrying the event")
-		}
-		if !strings.Contains(got, "event:") {
-			t.Errorf("what arrived is not an SSE event:\n%s", got)
-		}
-	case <-time.After(2 * time.Second):
-		t.Error("the dispatched event never reached the stream")
-	}
+	st.WaitFor(t, datapagestest.Func("an event", func(datapagestest.Event) bool {
+		return true
+	}))
 }
 
 // testStateIsReleased covers the end of a tab's life.
@@ -840,44 +638,33 @@ func (c Case) testStateIsReleased(t *testing.T) {
 	if c.StateAction == "" {
 		t.Skip("the app holds no per-tab state")
 	}
-	srv := c.server(t)
-
-	_, instance, cancel := c.openStream(t, srv)
-	if instance == "" {
-		cancel()
+	srv := c.serve(t)
+	tab := srv.Visitor(t).Load(t, c.index())
+	if tab.Instance() == "" {
 		t.Fatal("a stateful page load minted no instance id")
 	}
+	st := tab.Connect(t, nil)
 
-	method, target := parseAction(t, c.StateAction)
-	resp := sendAs(t, srv, method, target, c.StateActionBody, instance)
-	status := resp.StatusCode
-	_ = resp.Body.Close()
-	if status != http.StatusOK {
-		cancel()
+	method, target := route(t, c.StateAction)
+	act := func() *datapagestest.Response {
+		return tab.Do(t, c.StateAction, signals(c.StateActionBody))
+	}
+	if resp := act(); resp.Status != http.StatusOK {
 		t.Fatalf("%s %s: status = %d while the stream is open",
-			method, target, status)
+			method, target, resp.Status)
 	}
 
-	cancel()
+	st.Close()
 
 	// The release is prompt, but the server learns of the drop on its own
 	// schedule, which is what this polls for rather than sleeps out.
-	var after *http.Response
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		after = sendAs(t, srv, method, target, c.StateActionBody, instance)
-		if after.StatusCode == http.StatusConflict || time.Now().After(deadline) {
-			break
-		}
-		_ = after.Body.Close()
-		time.Sleep(20 * time.Millisecond)
-	}
-	defer func() { _ = after.Body.Close() }()
-	if after.StatusCode != http.StatusConflict {
-		t.Errorf("%s %s after the stream closed: status = %d, want %d",
-			method, target, after.StatusCode, http.StatusConflict)
-	}
-	if retry := after.Header.Get("Datapages-Retry"); retry != "reconnect" {
+	var after *datapagestest.Response
+	srv.WaitFor(t, fmt.Sprintf("%s %s to answer %d after the stream closed",
+		method, target, http.StatusConflict), func() bool {
+		after = act()
+		return after.Status == http.StatusConflict
+	})
+	if retry := after.Retry(); retry != "reconnect" {
 		t.Errorf("Datapages-Retry = %q, want %q", retry, "reconnect")
 	}
 }
@@ -1008,10 +795,9 @@ func (c Case) testMiddleware(t *testing.T) {
 
 	// 1 call carrying 2 and a second call carrying 1: all 3 run in
 	// the order they were written, across calls.
-	srv := c.server(t,
+	c.visit(t,
 		c.WithMiddleware(tag("first"), tag("second")),
-		c.WithMiddleware(tag("third")))
-	_, _ = get(t, srv, c.index())
+		c.WithMiddleware(tag("third"))).Get(t, c.index())
 
 	mu.Lock()
 	got := strings.Join(order, ",")
@@ -1020,14 +806,14 @@ func (c Case) testMiddleware(t *testing.T) {
 		t.Errorf("middleware ran in order %q, want %q", got, want)
 	}
 
-	refusing := c.server(t,
+	refusing := c.visit(t,
 		c.WithMiddleware(func(http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				http.Error(w, "no", http.StatusTeapot)
 			})
 		}))
-	if resp, _ := get(t, refusing, c.index()); resp.StatusCode != http.StatusTeapot {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusTeapot)
+	if resp := refusing.Get(t, c.index()); resp.Status != http.StatusTeapot {
+		t.Errorf("status = %d, want %d", resp.Status, http.StatusTeapot)
 	}
 }
 
@@ -1039,10 +825,9 @@ func (c Case) testDatastarJS(t *testing.T) {
 		t.Skip("the case wires no WithDatastarJS")
 	}
 	const src = "/vendor/datastar-a1b2c3.js"
-	srv := c.server(t, c.WithDatastarJS(src))
-
-	if _, body := get(t, srv, c.index()); !strings.Contains(body, src) {
-		t.Errorf("the page does not load the configured script:\n%s", body)
+	resp := c.visit(t, c.WithDatastarJS(src)).Get(t, c.index())
+	if !strings.Contains(resp.Body, src) {
+		t.Errorf("the page does not load the configured script:\n%s", resp.Body)
 	}
 }
 
@@ -1054,11 +839,12 @@ func (c Case) testBuildCheck(t *testing.T) {
 		t.Skip("the case wires no WithBuildID")
 	}
 	const build = "contract-build"
-	srv := c.server(t, c.WithBuildID(build))
+	v := c.visit(t, c.WithBuildID(build))
+	tab := v.Load(t, c.index())
 
 	meta := `<meta name="datapages-build" content="` + build + `"/>`
-	if _, body := get(t, srv, c.index()); !strings.Contains(body, meta) {
-		t.Errorf("the page does not carry %s:\n%s", meta, body)
+	if !strings.Contains(tab.Page().Body, meta) {
+		t.Errorf("the page does not carry %s:\n%s", meta, tab.Page().Body)
 	}
 
 	var routes [][2]string
@@ -1066,13 +852,13 @@ func (c Case) testBuildCheck(t *testing.T) {
 		routes = append(routes, [2]string{http.MethodGet, c.StreamPath})
 	}
 	for _, expr := range c.Actions {
-		method, target := parseAction(t, expr)
+		method, target := route(t, expr)
 		routes = append(routes, [2]string{method, target})
 	}
 	for _, route := range routes {
 		method, target := route[0], route[1]
 		t.Run(method+" "+target, func(t *testing.T) {
-			status, header, body := sendBuild(t, srv, method, target, "another-build")
+			status, header, body := sendBuild(t, v, tab, method, target, "another-build")
 			if status != http.StatusResetContent {
 				t.Errorf("another build: status = %d, want 205", status)
 			}
@@ -1083,7 +869,7 @@ func (c Case) testBuildCheck(t *testing.T) {
 				t.Errorf("another build: the handler wrote %q", body)
 			}
 			for _, sent := range []string{build, ""} {
-				if status, _, _ := sendBuild(t, srv, method, target, sent); status ==
+				if status, _, _ := sendBuild(t, v, tab, method, target, sent); status ==
 					http.StatusResetContent {
 					t.Errorf("build %q: status 205, want the handler's answer", sent)
 				}
@@ -1092,24 +878,20 @@ func (c Case) testBuildCheck(t *testing.T) {
 	}
 }
 
-// sendBuild sends a Datastar request with an optional build ID. It reads only
-// the start of the body because an open stream does not end.
+// sendBuild sends a Datastar request of tab with an optional build ID through the
+// visitor's client. It reads the body of a 205 only: an open stream does not end.
 func sendBuild(
-	t *testing.T, srv *httptest.Server, method, target, build string,
+	t *testing.T, v *datapagestest.Visitor, tab *datapagestest.Tab,
+	method, target, build string,
 ) (status int, header, body string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, srv.URL+target, nil)
-	if err != nil {
-		t.Fatalf("building %s %s: %v", method, target, err)
-	}
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
+	req := tab.NewRequest(t, method, target, nil).WithContext(ctx)
 	if build != "" {
 		req.Header.Set("Datapages-Build", build)
 	}
-	resp, err := srv.Client().Do(req)
+	resp, err := v.Client().Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, target, err)
 	}
@@ -1127,12 +909,12 @@ func (c Case) testHTTPServerOption(t *testing.T) {
 	if c.WithHTTPServer == nil {
 		t.Skip("the case wires no WithHTTPServer")
 	}
-	srv := c.server(t, c.WithHTTPServer(
+	v := c.visit(t, c.WithHTTPServer(
 		&http.Server{ReadHeaderTimeout: 3 * time.Second},
 	))
 
-	if resp, _ := get(t, srv, c.index()); resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
+	if resp := v.Get(t, c.index()); resp.Status != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.Status)
 	}
 }
 
@@ -1206,3 +988,27 @@ func (b *buffer) Reset() {
 	defer b.mu.Unlock()
 	b.buf.Reset()
 }
+
+// Call returns the expression a page writes for an action of method at path,
+// which [datapagestest.Tab.Do] sends. Use it for a request no generated action
+// writes, such as one to a missing route. path must hold no quote.
+func Call(method, path string) string {
+	return "@" + strings.ToLower(method) + "('" + path + "')"
+}
+
+// actionCall matches a generated action call and the JavaScript string of its
+// URL, whose escapes carry a quote of a route.
+var actionCall = regexp.MustCompile(`@(get|post|put|patch|delete|query)\('((?:[^'\\]|\\.)*)'`)
+
+// route returns the method and URL of the action expr calls.
+func route(t *testing.T, expr string) (method, target string) {
+	t.Helper()
+	m := actionCall.FindStringSubmatch(expr)
+	if m == nil {
+		t.Fatalf("%q calls no action", expr)
+	}
+	return strings.ToUpper(m[1]), jsEscapes.Replace(m[2])
+}
+
+// jsEscapes decodes the escapes the action package writes into a JavaScript string.
+var jsEscapes = strings.NewReplacer(`\\`, `\`, `\'`, `'`, `\n`, "\n", `\r`, "\r")
