@@ -10,9 +10,9 @@ require (
 	github.com/fatih/color v1.19.0
 	github.com/klauspost/compress v1.20.4
 	github.com/mattn/go-isatty v0.0.24
-	github.com/nats-io/nats.go v1.55.0
+	github.com/nats-io/nats.go v1.56.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/romshark/morpheus v0.4.0
+	github.com/romshark/morpheus v0.6.0
 	github.com/romshark/templier v0.13.5
 	github.com/romshark/yamagiconf v1.1.3
 	github.com/rs/zerolog v1.35.1
@@ -22,7 +22,7 @@ require (
 	go.yaml.in/yaml/v4 v4.0.0
 	golang.org/x/mod v0.43.0
 	golang.org/x/sync v0.25.0
-	golang.org/x/tools v0.52.0
+	golang.org/x/tools v0.53.0
 )
 
 require (
