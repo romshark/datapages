@@ -68,8 +68,8 @@ mage gen           # Generate all (templ + datapages + AI skills + docs)
 mage genTempl      # Generate templ templates
 mage genDatapages  # Generate datapages code for all examples
 mage genAISkills   # Generate the AI agent instructions of every example
-mage genDocs       # Generate documentation pages
-mage watchDocs     # Serve the documentation pages and reload them on changes, see DEV.md
+mage genDocs       # Render the GitHub Pages site into docs/ with docpages and render-landing
+mage watchDocs     # Serve the docs of guide/ and reload them on changes, see DEV.md
 mage checkGen      # Check that all generated code is current
 mage goFix         # Run go fix on all modules
 mage all           # Run fmt, modTidy, genTempl, genDocs, test and vulncheck

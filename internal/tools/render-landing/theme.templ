@@ -1,0 +1,62 @@
+package main
+
+// themeScript applies the theme chosen with [themeSwitch] and marks the choice
+// in it. It runs in <head>, which sets the theme before the first paint. Without a choice the stylesheet follows the system theme.
+templ themeScript() {
+	<script>
+		(() => {
+			const root = document.documentElement;
+			const stored = () => {
+				try {
+					return localStorage.getItem("theme");
+				} catch {
+					return null;
+				}
+			};
+			const apply = (choice) => {
+				if (choice === "light" || choice === "dark") {
+					root.dataset.theme = choice;
+				} else {
+					delete root.dataset.theme;
+				}
+				const current = root.dataset.theme ?? "system";
+				for (const b of document.querySelectorAll("[data-theme-choice]")) {
+					b.setAttribute("aria-pressed", String(b.dataset.themeChoice === current));
+				}
+			};
+			const choose = (choice) => {
+				try {
+					if (choice === "system") {
+						localStorage.removeItem("theme");
+					} else {
+						localStorage.setItem("theme", choice);
+					}
+				} catch {}
+				apply(choice);
+			};
+			apply(stored());
+			document.addEventListener("DOMContentLoaded", () => apply(stored()));
+			document.addEventListener("click", (e) => {
+				const button = e.target.closest("[data-theme-choice]");
+				if (button) {
+					choose(button.dataset.themeChoice);
+				}
+			});
+		})();
+	</script>
+}
+
+// themeSwitch lets the visitor choose the system, the light or the dark theme.
+templ themeSwitch() {
+	<div class="theme-switch" role="group" aria-label="Theme">
+		<button type="button" data-theme-choice="system" aria-pressed="true" aria-label="System theme" title="System theme">
+			@iconDesktop()
+		</button>
+		<button type="button" data-theme-choice="light" aria-pressed="false" aria-label="Light theme" title="Light theme">
+			@iconSun()
+		</button>
+		<button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="Dark theme" title="Dark theme">
+			@iconMoon()
+		</button>
+	</div>
+}

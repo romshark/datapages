@@ -2,11 +2,10 @@
 package list
 
 import (
-	"fmt"
-	"sort"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -23,17 +22,17 @@ type Item struct {
 // List is a thread-safe todo list.
 type List struct {
 	lock   sync.RWMutex
-	todos  []*Item
-	nextID atomic.Int64
+	todos  []*Item // In creation order.
+	nextID int64
 }
 
 func (l *List) AddItem(title, description string, dueAt time.Time) {
-	id := fmt.Sprintf("%x", l.nextID.Add(1))
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
+	l.nextID++
 	l.todos = append(l.todos, &Item{
-		ID:          id,
+		ID:          strconv.FormatInt(l.nextID, 16),
 		Title:       title,
 		Description: description,
 		CreatedAt:   time.Now(),
@@ -41,17 +40,22 @@ func (l *List) AddItem(title, description string, dueAt time.Time) {
 	})
 }
 
+// index returns the position of the item with id in l.todos, or -1.
+// The caller must hold l.lock.
+func (l *List) index(id string) int {
+	return slices.IndexFunc(l.todos, func(t *Item) bool { return t.ID == id })
+}
+
 func (l *List) ToggleItem(id string) bool {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
-	for _, t := range l.todos {
-		if t.ID == id {
-			t.Done = !t.Done
-			return true
-		}
+	i := l.index(id)
+	if i < 0 {
+		return false
 	}
-	return false
+	l.todos[i].Done = !l.todos[i].Done
+	return true
 }
 
 func (l *List) UpdateItem(
@@ -60,61 +64,59 @@ func (l *List) UpdateItem(
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
-	for _, t := range l.todos {
-		if t.ID == id {
-			t.Title = title
-			t.Description = description
-			t.Done = done
-			t.DueAt = dueAt
-			return true
-		}
+	i := l.index(id)
+	if i < 0 {
+		return false
 	}
-	return false
+	t := l.todos[i]
+	t.Title = title
+	t.Description = description
+	t.Done = done
+	t.DueAt = dueAt
+	return true
 }
 
 func (l *List) DeleteItem(id string) bool {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
-	for i, t := range l.todos {
-		if t.ID == id {
-			l.todos = append(l.todos[:i], l.todos[i+1:]...)
-			return true
-		}
+	i := l.index(id)
+	if i < 0 {
+		return false
 	}
-	return false
+	l.todos = slices.Delete(l.todos, i, i+1)
+	return true
 }
 
 func (l *List) GetItem(id string) (Item, bool) {
 	l.lock.RLock()
 	defer l.lock.RUnlock()
-	for _, t := range l.todos {
-		if t.ID == id {
-			return *t, true
-		}
+
+	i := l.index(id)
+	if i < 0 {
+		return Item{}, false
 	}
-	return Item{}, false
+	return *l.todos[i], true
 }
 
+// ViewParameters selects and orders the items of [List.GetItems].
+// The zero value selects all items in creation order.
 type ViewParameters struct {
-	Search string
-	Filter string // "all", "done", "pending"
-	Sort   string // "alpha", "created", "due"
+	Search string // Case-insensitive substring of the title.
+	Filter string // "all", "done" or "pending". Empty means "all".
+	Sort   string // "alpha", "created" or "due". Empty means "created".
 }
 
+// GetItems returns copies of the items vp selects, in the order of vp.Sort.
+// Items that sort equal stay in creation order.
 func (l *List) GetItems(vp ViewParameters) []Item {
 	l.lock.RLock()
 	defer l.lock.RUnlock()
 
-	filter, sortMode, search := "all", "created", ""
-	if vp != (ViewParameters{}) {
-		filter, sortMode, search = vp.Filter, vp.Sort, vp.Search
-	}
-
 	var result []Item
-	searchLower := strings.ToLower(search)
+	search := strings.ToLower(vp.Search)
 	for _, t := range l.todos {
-		switch filter {
+		switch vp.Filter {
 		case "done":
 			if !t.Done {
 				continue
@@ -125,24 +127,23 @@ func (l *List) GetItems(vp ViewParameters) []Item {
 			}
 		}
 		if search != "" &&
-			!strings.Contains(strings.ToLower(t.Title), searchLower) {
+			!strings.Contains(strings.ToLower(t.Title), search) {
 			continue
 		}
 		result = append(result, *t)
 	}
 
-	switch sortMode {
+	// "created" needs no sort because l.todos is in creation order.
+	switch vp.Sort {
 	case "alpha":
-		sort.Slice(result, func(i, j int) bool {
-			return strings.ToLower(result[i].Title) < strings.ToLower(result[j].Title)
+		slices.SortStableFunc(result, func(a, b Item) int {
+			return strings.Compare(
+				strings.ToLower(a.Title), strings.ToLower(b.Title),
+			)
 		})
 	case "due":
-		sort.Slice(result, func(i, j int) bool {
-			return result[i].DueAt.Before(result[j].DueAt)
-		})
-	default: // "created"
-		sort.Slice(result, func(i, j int) bool {
-			return result[i].CreatedAt.Before(result[j].CreatedAt)
+		slices.SortStableFunc(result, func(a, b Item) int {
+			return a.DueAt.Compare(b.DueAt)
 		})
 	}
 	return result

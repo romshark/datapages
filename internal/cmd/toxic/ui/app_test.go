@@ -113,7 +113,7 @@ func startSettings(t *testing.T) *settings {
 		&ui.App{Front: front},
 		broker,
 		datapages.WithAssetsFS(http.FS(static), false),
-		datapages.WithDatastarJS(assets.Path("datastar-1.0.4.js")),
+		datapages.WithDatastarJS(assets.Path("datastar-1.0.5.js")),
 		datapages.WithLogger(slog.New(slog.DiscardHandler)),
 	)
 	require.NoError(t, err)
@@ -301,7 +301,7 @@ func TestPage(t *testing.T) {
 	require.Contains(t, body, "<h2>Global toxics</h2>")
 	require.Contains(t, body, rootPath)
 	require.Contains(t, body, limitedPath)
-	require.Contains(t, body, `src="/static/datastar-1.0.4.js"`)
+	require.Contains(t, body, `src="/static/datastar-1.0.5.js"`)
 	// The kind icon of "GET /", inlined from static/icons.
 	icon := regexp.MustCompile(
 		`<neo-icon [^>]*aria-label="Page"[^>]*><svg`,
@@ -344,7 +344,7 @@ func TestPage(t *testing.T) {
 	require.NotContains(t, body, limitedPath)
 
 	for _, file := range []string{
-		"ui.css", "favicon.svg", "datastar-1.0.4.js", "morpheus/morpheus.min.js",
+		"ui.css", "favicon.svg", "datastar-1.0.5.js", "morpheus/morpheus.min.js",
 	} {
 		code, _ := do(t, http.MethodGet, base+"/static/"+file, "", nil)
 		require.Equal(t, http.StatusOK, code, file)

@@ -19,12 +19,16 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # mage checkGen renders the docs, whose releases docpages reads from the
+      # Git tags, which a shallow clone lacks.
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Install Go 1.27.3
+        with:
+          fetch-depth: 0
+      - name: Install Go 1.27.4
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           check-latest: true
           cache-dependency-path: "**/go.sum"
 
@@ -39,7 +43,8 @@ jobs:
 
       # Runs every generator and fails if a file changes: templ everywhere,
       # the datapages code of every example and acceptance case, the AI agent
-      # instructions of every example, docs/style.css.
+      # instructions of every example. It also renders the docs, which fails
+      # on a dead link.
       - name: Check generated code is current
         run: mage checkGen
 
@@ -68,8 +73,8 @@ jobs:
           - path: "."
             name: "acceptance"
             packages: "./internal/acceptance"
-          - path: "internal/tools/render-pages"
-            name: "render-pages"
+          - path: "internal/tools/render-landing"
+            name: "render-landing"
           - path: "example/counter"
             name: "counter"
           - path: "example/classifieds"
@@ -99,10 +104,10 @@ jobs:
         uses: actions/checkout@v7
       # The cache key hashes the module's go.sum, which needs the checkout.
       # A shared key would make the first job to finish save the cache for all.
-      - name: Install Go 1.27.3
+      - name: Install Go 1.27.4
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           check-latest: true
           cache-dependency-path: ${{ matrix.project.path }}/go.sum
 
@@ -117,7 +122,7 @@ jobs:
       # PATH. Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
         if: matrix.project.name == 'cmd'
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1100
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1118
 
       # The root entry tests the packages without an entry of their own.
       # The acceptance cases run in modules of their own:
@@ -186,10 +191,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       # Shares the cache key of the root entry of test.
-      - name: Install Go 1.27.3
+      - name: Install Go 1.27.4
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           check-latest: true
           cache-dependency-path: go.sum
 
@@ -210,7 +215,7 @@ jobs:
       # a command. mage itself only ever `go run`s it, which puts nothing on PATH.
       # Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1100
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1118
 
       - name: Run tests
         run: go test -timeout 15m ./...

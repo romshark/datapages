@@ -22,8 +22,11 @@ func formatDue(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Format("2006-01-02T15:04")
+	return t.Format(dueLayout)
 }
+
+// resetNewTodo closes the new todo modal and clears its fields.
+const resetNewTodo = "$showModal=false;$newTitle='';$newDesc='';$newDue=''"
 
 templ head() {
 	<title>Todo List</title>
@@ -31,13 +34,13 @@ templ head() {
 	<link rel="stylesheet" href={ assets.Path("style.css") }/>
 }
 
-templ pageIndex(todos []list.Item, search, filter, sortMode string) {
+templ pageIndex(todos []list.Item, vp list.ViewParameters) {
 	<div
 		id="page-index"
 		class="container"
-		data-signals:search={ jsStr(search) }
-		data-signals:filter={ jsStr(filter) }
-		data-signals:sort={ jsStr(sortMode) }
+		data-signals:search={ jsStr(vp.Search) }
+		data-signals:filter={ jsStr(vp.Filter) }
+		data-signals:sort={ jsStr(vp.Sort) }
 		data-signals:show-modal="false"
 		data-signals:new-title="''"
 		data-signals:new-desc="''"
@@ -89,19 +92,11 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				<label>Due Date</label>
 				<input type="datetime-local" data-bind="newDue"/>
 				<div class="modal-actions">
-					<button
-						data-on:click="
-							$showModal=false;$newTitle='';$newDesc='';$newDue=''
-						"
-					>
-						Cancel
-					</button>
+					<button data-on:click={ resetNewTodo }>Cancel</button>
 					<button
 						class="btn-primary"
 						data-on:click={ action.PageIndex.Create.POST(
-							action.WithAfter(
-								"$showModal=false;$newTitle='';$newDesc='';$newDue=''",
-							),
+							action.WithAfter(resetNewTodo),
 						) }
 					>
 						Create

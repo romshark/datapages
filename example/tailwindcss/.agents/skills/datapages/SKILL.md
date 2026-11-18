@@ -28,7 +28,7 @@ go build ./...
 
 An earlier `templ generate` can produce references to helpers that do not exist yet. Remove those references, run `templ generate`, then run `datapages gen`. Restore the references and run `templ generate` again. After an initial parse failure, the generator may write empty stub helper packages.
 
-Use Templ `v0.3.1100`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
+Use Templ `v0.3.1118`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
 
 ### Never run `templ generate` while `datapages watch` runs
 
@@ -117,4 +117,4 @@ Test the app over HTTP with the `github.com/romshark/datapages/datapagestest` pa
 | `datapages-testing` | tests of pages, actions, streams, events and sessions |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages sha256:68a70cb45c5c9775 -->
+<!-- written by datapages sha256:5102f1d8944c64ae -->
