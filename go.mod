@@ -8,11 +8,11 @@ require (
 	github.com/andybalholm/brotli v1.3.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/fatih/color v1.19.0
-	github.com/klauspost/compress v1.20.4
+	github.com/klauspost/compress v1.20.5
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.56.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/romshark/morpheus v0.6.1
+	github.com/romshark/morpheus v0.7.0
 	github.com/romshark/templier v0.13.5
 	github.com/romshark/yamagiconf v1.1.3
 	github.com/rs/zerolog v1.35.1
@@ -43,7 +43,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
-	github.com/charmbracelet/x/ansi v0.11.9 // indirect
+	github.com/charmbracelet/x/ansi v0.11.10 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/exp/golden v0.1.0 // indirect
 	github.com/charmbracelet/x/exp/strings v0.1.0 // indirect
@@ -114,7 +114,7 @@ require (
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/xo/terminfo v1.3.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.2 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
