@@ -8,15 +8,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/datapagestest"
 	"github.com/romshark/datapages/internal/acceptance/recovererroralone/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+func serve(t *testing.T) *datapagestest.Server {
 	t.Helper()
-	return client.New(t, mustNewServer(t, &app.App{},
+	return datapagestest.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
@@ -24,9 +24,9 @@ func newClient(t *testing.T) *client.Client {
 // RecoverError and supplies no PageError500.
 func TestRecoverErrorIsCalled(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	index := serve(t).Visitor(t).Load(t, "/")
 
-	resp := c.Action(t, http.MethodPost, "/fail/", "")
+	resp := index.Do(t, "@post('/fail/')", nil)
 
 	require.Contains(t, resp.Body, `<div id="toast">something went wrong</div>`,
 		"RecoverError did not answer the failed request")
@@ -38,9 +38,9 @@ func TestRecoverErrorIsCalled(t *testing.T) {
 // when the app defines RecoverError but no PageError500.
 func TestPageLoadWithoutAn500Page(t *testing.T) {
 	t.Parallel()
-	c := newClient(t)
+	v := serve(t).Visitor(t)
 
-	resp := c.Get(t, "/boom/")
+	resp := v.Get(t, "/boom/")
 	require.Equal(t, http.StatusInternalServerError, resp.Status)
 	require.NotContains(t, resp.Header.Get("Content-Type"), "text/event-stream")
 	require.NotContains(t, resp.Body, "toast")
