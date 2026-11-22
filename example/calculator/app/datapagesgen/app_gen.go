@@ -64,6 +64,10 @@ func (s *Server) recoverPanic(
 	if v == nil {
 		return
 	}
+	if v == http.ErrAbortHandler {
+		// net/http resets the connection without logging.
+		panic(v)
+	}
 	stack := debug.Stack()
 	s.Logger().Error("recovered panic",
 		slog.String("handler", handler),

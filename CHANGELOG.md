@@ -8,6 +8,14 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+### Fixed
+
+#### Generated code
+
+Run `datapages gen` to apply these.
+
+- Stop logging `recovered panic` with a stack trace, `panic in <Page> stream` and `http: superfluous response.WriteHeader call` for every open stream when the server shuts down, as on every rebuild in `datapages watch`. This affects pages with an `OnXXX` handler or a `StreamOpen` or `StreamClose` hook in v0.11.0 through v0.11.4.
+
 ## [0.11.4] - 2026-11-18
 
 Upgrade dependencies.

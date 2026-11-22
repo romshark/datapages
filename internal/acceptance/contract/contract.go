@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/romshark/datapages/datapagestest"
+	"github.com/romshark/datapages/internal/testlog"
 )
 
 // Server is the generated *Server, named by what the suite calls on it.
@@ -574,11 +575,20 @@ func (c Case) testTrailingSlash(t *testing.T) {
 // testShutdownClosesStreams tests what happens to an open stream when the
 // server is told to stop. A shutdown that waits for connections the client will not
 // close never finishes. The deployment then has to kill the process to roll forward.
+//
+// The stream ends with a panic of [http.ErrAbortHandler]. A recover that
+// takes it for a handler panic logs an error with a stack for every open tab
+// at every deployment.
 func (c Case) testShutdownClosesStreams(t *testing.T) {
 	if c.StreamPath == "" {
 		t.Skip("the app has no page with a stream")
 	}
-	srv, handle := c.serveHandle(t)
+	var log testlog.Buffer
+	var opts []any
+	if c.WithLogger != nil {
+		opts = append(opts, c.WithLogger(log.Logger()))
+	}
+	srv, handle := c.serveHandle(t, opts...)
 
 	st := srv.Visitor(t).Load(t, c.index()).Connect(t, nil)
 
@@ -589,6 +599,9 @@ func (c Case) testShutdownClosesStreams(t *testing.T) {
 	}
 
 	st.WaitEnd(t, "an open stream outlived the shutdown")
+	// The handler logs before it returns, and the client reads the end of
+	// the stream only after that.
+	log.RequireBelow(t, slog.LevelWarn)
 }
 
 // testStreamRequiresDatastar tests the stream route reached by a client that
