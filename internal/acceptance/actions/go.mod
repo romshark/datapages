@@ -8,9 +8,9 @@ replace github.com/romshark/datapages => ../../../
 require (
 	github.com/a-h/templ v0.3.1118
 	github.com/andybalholm/brotli v1.3.0
-	github.com/klauspost/compress v1.20.4
+	github.com/klauspost/compress v1.20.5
 	github.com/nats-io/nats.go v1.56.0
-	github.com/romshark/datapages v0.11.3
+	github.com/romshark/datapages v0.11.4
 	github.com/stretchr/testify v1.12.1
 )
 
