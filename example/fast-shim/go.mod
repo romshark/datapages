@@ -6,7 +6,7 @@ replace github.com/romshark/datapages => ../../
 
 require (
 	github.com/a-h/templ v0.3.1118
-	github.com/romshark/datapages v0.11.4
+	github.com/romshark/datapages v0.11.6
 )
 
 require (

@@ -7,7 +7,7 @@ replace github.com/romshark/datapages => ../../
 require (
 	github.com/a-h/templ v0.3.1118
 	github.com/cvilsmeier/sqinn-go/v2 v2.1.10
-	github.com/romshark/datapages v0.11.4
+	github.com/romshark/datapages v0.11.6
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.59.0
 )
