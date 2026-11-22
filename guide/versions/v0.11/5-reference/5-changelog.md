@@ -1,3 +1,0 @@
----
-source: ../../CHANGELOG.md
----

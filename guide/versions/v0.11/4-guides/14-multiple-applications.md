@@ -1,3 +1,0 @@
----
-source: ../multiple-applications.md
----

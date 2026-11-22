@@ -1,3 +1,0 @@
----
-source: ../configuration.md
----

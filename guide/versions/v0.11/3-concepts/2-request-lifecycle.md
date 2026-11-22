@@ -1,3 +1,0 @@
----
-source: ../request-lifecycle.md
----

@@ -1,3 +1,0 @@
----
-source: ../actions.md
----

@@ -1,3 +1,0 @@
----
-source: ../pages.md
----

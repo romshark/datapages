@@ -1,3 +1,0 @@
----
-source: ../state.md
----

@@ -8,6 +8,16 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-11-22
+
+Stop logging errors for open streams at shutdown. Upgrade dependencies.
+
+### Changed
+
+#### Runtime and modules
+
+- Require `github.com/romshark/morpheus` v0.7.0. See its [changelog](https://github.com/romshark/morpheus/blob/v0.7.0/CHANGELOG.md).
+
 ### Fixed
 
 #### Generated code
@@ -327,7 +337,8 @@ Run `datapages gen` to apply these.
 - Prevent `natskv.SessionManager.SaveSession` from re-creating a session deleted by `CloseSession`, `CloseAllUserSessions` or `DeleteExpired`. A stale save could let a signed-out user or an attacker with a revoked cookie authenticate again. Applications using `SaveSession` are affected in v0.1.0 through v0.10.0. Upgrade to v0.10.1 and redeploy. There is no workaround.
 - End a user's private-event streams at the session's `ExpiresAt`. In v0.10.0, a client that opened a stream before expiry, including one using a stolen cookie, could keep reading afterward until the session was deleted. Applications setting a non-zero `NewSession.ExpiresAt` are affected. Upgrade to v0.10.1, run `datapages gen` and redeploy. Until then, call `DeleteExpired` frequently; the inmem and natskv stores end streams when they delete sessions.
 
-[Unreleased]: https://github.com/romshark/datapages/compare/v0.11.4...HEAD
+[Unreleased]: https://github.com/romshark/datapages/compare/v0.11.5...HEAD
+[0.11.5]: https://github.com/romshark/datapages/compare/v0.11.4...v0.11.5
 [0.11.4]: https://github.com/romshark/datapages/compare/v0.11.3...v0.11.4
 [0.11.3]: https://github.com/romshark/datapages/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/romshark/datapages/compare/v0.11.1...v0.11.2

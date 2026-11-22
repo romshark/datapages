@@ -1,3 +1,0 @@
----
-source: ../offline.md
----

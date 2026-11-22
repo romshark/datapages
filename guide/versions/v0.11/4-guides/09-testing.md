@@ -1,3 +1,0 @@
----
-source: ../testing.md
----
