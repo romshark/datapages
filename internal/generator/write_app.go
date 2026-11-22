@@ -1728,6 +1728,11 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 // A panic reaches the same path an error takes, which is what RecoverError and
 // the error page answer. The stack is logged whatever they do with it.
 //
+// recoverPanic passes [http.ErrAbortHandler] on to net/http.
+// The stream handler registers it around
+// [github.com/romshark/datapages/runtime/stream.Handler.Handle],
+// which ends an open stream with that panic on shutdown.
+//
 // The PageError500 GET handler registers recoverPanicFinal instead, for the
 // same reason it reports its error through httpErrFinal. StreamConfig and
 // StreamOpen register recoverPanicInto, since the stream reports their errors.
@@ -1741,6 +1746,10 @@ func (s *Server) recoverPanic(
 	v := recover()
 	if v == nil {
 		return
+	}
+	if v == http.ErrAbortHandler {
+		// net/http resets the connection without logging.
+		panic(v)
 	}
 	stack := debug.Stack()
 	s.Logger().Error("recovered panic",
