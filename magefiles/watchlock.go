@@ -23,18 +23,27 @@ func watchLockDir() string {
 	return filepath.Join(os.TempDir(), "datapages-watch")
 }
 
-// CheckWatch fails when a datapages watch is running.
+// CheckWatch fails when a datapages watch runs on a module of this repository.
 //
 // Templ generation deletes the temporary template files used by watch mode.
 func CheckWatch() error { return checkNoWatch("templ generate") }
 
-// checkNoWatch reports active watches and the operation that conflicts with them.
+// checkNoWatch reports the active watches that conflict with the operation.
+//
+// templ generate deletes the watch mode files of the templates under the
+// directory it walks, and no others: each file name is a hash of the path of
+// its template. A watch conflicts when its module and the repository overlap.
+// A watch of another repository does not.
 func checkNoWatch(what string) error {
 	dir := watchLockDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		// A directory that is missing or unreadable is no evidence of a watch.
 		return nil
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
 	}
 	var running []string
 	for _, e := range entries {
@@ -55,6 +64,11 @@ func checkNoWatch(what string) error {
 		if err != nil {
 			continue
 		}
+		// A record without a module directory may be of any module.
+		if module := watchLockModule(content); module != "" &&
+			!within(root, module) && !within(module, root) {
+			continue
+		}
 		running = append(running, describeWatchLock(content))
 	}
 	if len(running) == 0 {
@@ -64,6 +78,36 @@ func checkNoWatch(what string) error {
 		"  %s\n"+
 		"stop each listed watch; stale locks expire after %s in %s",
 		what, strings.Join(running, "\n  "), watchLockTTL, dir)
+}
+
+// watchLockModule returns the module directory of a lock record,
+// "" when the record has none.
+func watchLockModule(content []byte) string {
+	fields := strings.Split(strings.TrimSpace(string(content)), "\t")
+	if len(fields) < 2 {
+		return ""
+	}
+	return fields[1]
+}
+
+// within reports whether path is dir or lies under it.
+// Symbolic links are resolved first, which matches 2 spellings of 1 directory,
+// such as /var/... and /private/var/... on macOS.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(resolve(dir), resolve(path))
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolve returns path with its symbolic links resolved,
+// or path unchanged when they cannot be.
+func resolve(path string) string {
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return r
+	}
+	return filepath.Clean(path)
 }
 
 func describeWatchLock(content []byte) string {

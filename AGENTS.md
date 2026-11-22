@@ -22,13 +22,13 @@
 - `mage watchDocs`: serve the docs of `guide/` and reload them on changes. See `DEV.md`.
 - `mage gen`: generate templ files, Datapages code, AI agent instructions, the GitHub Pages site, the offline service worker and the Morpheus bundle.
 - `mage checkGen`: check that generated code is current.
-- `mage checkWatch`: report active `datapages watch` processes and fail if any exist.
+- `mage checkWatch`: report the `datapages watch` processes of modules in this repository and fail if any exist.
 - `mage goFix`: run `go fix` on every module.
 - `mage all`: run `fmt`, `modTidy`, `genTempl`, `genDocs`, `test` and `vulncheck`.
 
-Do not run `templ generate` or any target that wraps it (`genTempl`, `genDocs`, `gen`, `checkGen`, `all`) while `datapages watch` is running. Watch mode serves application template strings from temporary files. A separate generation deletes those files when it exits, which prevents the server from rendering until the next `.templ` change.
+Do not run `templ generate` or any target that wraps it (`genTempl`, `genDocs`, `gen`, `checkGen`, `all`) while `datapages watch` runs on a module of this repository. A watch of another repository is unaffected. Watch mode serves application template strings from temporary files. A separate generation deletes those files when it exits, which prevents the server from rendering until the next `.templ` change.
 
-`datapages watch` stores 1 lock file per module in the system temporary directory under `datapages-watch` and refreshes it every 2s. `genTempl` and `genDocs` run `mage checkWatch` before generating. SIGKILL prevents lock cleanup, but a stale lock expires 10s after its last write. `TestWatch` skips while a lock is held. See the `datapages` skill for recovery instructions.
+`datapages watch` stores 1 lock file per module in the system temporary directory under `datapages-watch` and refreshes it every 2s. `genTempl` and `genDocs` run `mage checkWatch` before generating, which ignores the locks of modules outside this repository. SIGKILL prevents lock cleanup, but a stale lock expires 10s after its last write. `TestWatch` skips while a lock is held. See the `datapages` skill for recovery instructions.
 
 # Project Structure
 

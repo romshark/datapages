@@ -449,7 +449,7 @@ A CLI without a release version skips the check. A failed request, such as one w
 - Removal: `watch` deletes the file when it exits. A `watch` killed with SIGKILL leaves the file, which goes stale 10 seconds later.
 - Failure: when the file cannot be written, `watch` prints `warning:` with the cause and runs without the lock.
 
-No `datapages` command reads the lock. The mage targets of the Datapages repository that run `templ generate` refuse to start while a fresh lock exists. A script of your own can make the same check. A `.lock` file in the directory that changed within the last 10 seconds means that a `watch` runs.
+No `datapages` command reads the lock. The mage targets of the Datapages repository that run `templ generate` refuse to start while a fresh lock of a module in the repository exists. A script of your own can make the same check. A `.lock` file in the directory that changed within the last 10 seconds means that a `watch` runs on the module its record holds. `templ generate` deletes the text files of the templates under the directory it runs in, and no others. A `watch` of a module that neither lies in that directory nor holds it is unaffected.
 
 ## Environment variables
 
