@@ -419,11 +419,11 @@ func (s *Server) lookupTabContext(id string) (*stateSlotTabContext, bool) {
 func (s *Server) releaseTabContext(id string, slot *stateSlotTabContext) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseTabContextLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseTabContextLocked is releaseTabContext for a caller that holds slot.mu.
-func (s *Server) releaseTabContextLocked(id string, slot *stateSlotTabContext) {
+// releaseLocked is [Server.releaseTabContext] for a caller that holds slot.mu.
+func (slot *stateSlotTabContext) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -592,7 +592,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseTabContextLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}
@@ -783,7 +783,7 @@ func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseTabContextLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}

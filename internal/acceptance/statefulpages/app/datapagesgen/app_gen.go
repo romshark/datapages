@@ -444,11 +444,11 @@ func (s *Server) lookupStateFilters(id string) (*stateSlotStateFilters, bool) {
 func (s *Server) releaseStateFilters(id string, slot *stateSlotStateFilters) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateFiltersLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateFiltersLocked is releaseStateFilters for a caller that holds slot.mu.
-func (s *Server) releaseStateFiltersLocked(id string, slot *stateSlotStateFilters) {
+// releaseLocked is [Server.releaseStateFilters] for a caller that holds slot.mu.
+func (slot *stateSlotStateFilters) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -750,7 +750,7 @@ func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateFiltersLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}
@@ -859,7 +859,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateFiltersLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}
@@ -1089,7 +1089,7 @@ func (s pageOpenStateHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateFiltersLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}
@@ -1333,7 +1333,7 @@ func (s pagePanicOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request)
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateFiltersLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}

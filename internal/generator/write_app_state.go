@@ -141,7 +141,7 @@ func (w *Writer) writeStateAllocateOrReject(p *model.Page) {
 	w.Line(2, "}")
 	w.Line(2, "slotLocked = false")
 	w.Line(2, "if !opened {")
-	w.Linef(3, "s.release%sLocked(instanceID, slot)", suffix)
+	w.Line(3, "slot.releaseLocked(s.Server, instanceID)")
 	w.Line(2, "}")
 	w.Line(2, "slot.mu.Unlock()")
 	w.Line(1, "}")
@@ -410,13 +410,16 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Linef(0, "func (s *Server) release%s(id string, slot *%s) {", suffix, slot)
 	w.Line(1, "slot.mu.Lock()")
 	w.Line(1, "defer slot.mu.Unlock()")
-	w.Linef(1, "s.release%sLocked(id, slot)", suffix)
+	w.Line(1, "slot.releaseLocked(s, id)")
 	w.Line(0, "}")
 
+	// releaseLocked is a method of the slot type. A Server method named
+	// release<T>Locked has the name of release<T> of a state type named <T>Locked.
+	// The parser fixture name_collisions holds such a pair.
 	w.Raw("\n")
-	w.Linef(0, "// release%sLocked is release%s for a caller that holds slot.mu.",
-		suffix, suffix)
-	w.Linef(0, "func (s *Server) release%sLocked(id string, slot *%s) {", suffix, slot)
+	w.Linef(0, "// releaseLocked is [Server.release%s] for a caller that holds slot.mu.",
+		suffix)
+	w.Linef(0, "func (slot *%s) releaseLocked(s *Server, id string) {", slot)
 	w.Line(1, "if slot.dead {")
 	w.Line(2, "return")
 	w.Line(1, "}")

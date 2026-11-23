@@ -530,11 +530,11 @@ func (s *Server) lookupStateNotes(id string) (*stateSlotStateNotes, bool) {
 func (s *Server) releaseStateNotes(id string, slot *stateSlotStateNotes) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateNotesLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateNotesLocked is releaseStateNotes for a caller that holds slot.mu.
-func (s *Server) releaseStateNotesLocked(id string, slot *stateSlotStateNotes) {
+// releaseLocked is [Server.releaseStateNotes] for a caller that holds slot.mu.
+func (slot *stateSlotStateNotes) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -576,11 +576,11 @@ func (s *Server) lookupStateTab(id string) (*stateSlotStateTab, bool) {
 func (s *Server) releaseStateTab(id string, slot *stateSlotStateTab) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateTabLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateTabLocked is releaseStateTab for a caller that holds slot.mu.
-func (s *Server) releaseStateTabLocked(id string, slot *stateSlotStateTab) {
+// releaseLocked is [Server.releaseStateTab] for a caller that holds slot.mu.
+func (slot *stateSlotStateTab) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -2328,7 +2328,7 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateTabLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}
@@ -2448,7 +2448,7 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateTabLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}

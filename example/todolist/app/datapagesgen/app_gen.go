@@ -416,11 +416,11 @@ func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
 func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateIndexLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateIndexLocked is releaseStateIndex for a caller that holds slot.mu.
-func (s *Server) releaseStateIndexLocked(id string, slot *stateSlotStateIndex) {
+// releaseLocked is [Server.releaseStateIndex] for a caller that holds slot.mu.
+func (slot *stateSlotStateIndex) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -462,11 +462,11 @@ func (s *Server) lookupStateItem(id string) (*stateSlotStateItem, bool) {
 func (s *Server) releaseStateItem(id string, slot *stateSlotStateItem) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateItemLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateItemLocked is releaseStateItem for a caller that holds slot.mu.
-func (s *Server) releaseStateItemLocked(id string, slot *stateSlotStateItem) {
+// releaseLocked is [Server.releaseStateItem] for a caller that holds slot.mu.
+func (slot *stateSlotStateItem) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -712,7 +712,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateIndexLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}
@@ -949,7 +949,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateItemLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}

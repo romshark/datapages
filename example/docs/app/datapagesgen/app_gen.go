@@ -454,11 +454,11 @@ func (s *Server) lookupStateDoc(id string) (*stateSlotStateDoc, bool) {
 func (s *Server) releaseStateDoc(id string, slot *stateSlotStateDoc) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateDocLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateDocLocked is releaseStateDoc for a caller that holds slot.mu.
-func (s *Server) releaseStateDocLocked(id string, slot *stateSlotStateDoc) {
+// releaseLocked is [Server.releaseStateDoc] for a caller that holds slot.mu.
+func (slot *stateSlotStateDoc) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -763,7 +763,7 @@ func (s pageDocHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateDocLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}

@@ -1772,8 +1772,8 @@ func TestParse_ErrStreamEmbedMethod(t *testing.T) {
 // identifier when spelled as one. Each pair is accepted:
 // a page name ending in an HTTP verb against another page's action, the same
 // against a stream handler, a page suffix against an action name, an app
-// action against a page action, and the subject prefix of one event against
-// the subject of another.
+// action against a page action, the subject prefix of one event against
+// the subject of another, and a state type against another with Locked appended.
 //
 // That the code generated for them compiles is TestCompileFixtures' job,
 // which builds every fixture in this directory.

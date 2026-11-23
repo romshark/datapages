@@ -541,11 +541,11 @@ func (s *Server) lookupStateMessages(id string) (*stateSlotStateMessages, bool) 
 func (s *Server) releaseStateMessages(id string, slot *stateSlotStateMessages) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateMessagesLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateMessagesLocked is releaseStateMessages for a caller that holds slot.mu.
-func (s *Server) releaseStateMessagesLocked(id string, slot *stateSlotStateMessages) {
+// releaseLocked is [Server.releaseStateMessages] for a caller that holds slot.mu.
+func (slot *stateSlotStateMessages) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -1289,7 +1289,7 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateMessagesLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}
@@ -1468,7 +1468,7 @@ func (s pageMessagesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Reque
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateMessagesLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}

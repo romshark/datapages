@@ -443,11 +443,11 @@ func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
 func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	s.releaseStateIndexLocked(id, slot)
+	slot.releaseLocked(s, id)
 }
 
-// releaseStateIndexLocked is releaseStateIndex for a caller that holds slot.mu.
-func (s *Server) releaseStateIndexLocked(id string, slot *stateSlotStateIndex) {
+// releaseLocked is [Server.releaseStateIndex] for a caller that holds slot.mu.
+func (slot *stateSlotStateIndex) releaseLocked(s *Server, id string) {
 	if slot.dead {
 		return
 	}
@@ -662,7 +662,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		}
 		slotLocked = false
 		if !opened {
-			s.releaseStateIndexLocked(instanceID, slot)
+			slot.releaseLocked(s.Server, instanceID)
 		}
 		slot.mu.Unlock()
 	}

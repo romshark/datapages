@@ -196,3 +196,39 @@ type EventPrefixTick struct {
 func (PageIndex) OnPrefTick(_ EventPrefTick, _ datapages.SSE) error { return nil }
 
 func (PageIndex) OnPrefixTick(_ EventPrefixTick, _ datapages.SSE) error { return nil }
+
+// A state type against another with Locked appended:
+// release, StateTab and Locked spell what release and StateTabLocked spell,
+// releaseStateTabLocked.
+
+// StateTab is the per-tab state of PageTab.
+type StateTab struct{ N int }
+
+// StateTabLocked is the per-tab state of PageTabLocked.
+type StateTabLocked struct{ N int }
+
+// PageTab is /tab
+type PageTab struct{ App *App }
+
+func (PageTab) GET(r *http.Request) (body datapages.Component, err error) {
+	return body, err
+}
+
+func (PageTab) StreamOpen(r *http.Request, state datapages.State[StateTab]) error {
+	_ = state
+	return nil
+}
+
+// PageTabLocked is /tab-locked
+type PageTabLocked struct{ App *App }
+
+func (PageTabLocked) GET(r *http.Request) (body datapages.Component, err error) {
+	return body, err
+}
+
+func (PageTabLocked) StreamOpen(
+	r *http.Request, state datapages.State[StateTabLocked],
+) error {
+	_ = state
+	return nil
+}
