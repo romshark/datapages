@@ -105,6 +105,17 @@ func (w *Writer) writeVerifyInstanceIDHeader() {
 //
 // The deferred release also covers a stream that fails before its close hook.
 // Release is idempotent because an opened stream calls it from both paths.
+//
+// The slot comes back locked. A page with StreamOpen keeps it locked until
+// StreamOpen returns, see [Writer.writeStatefulStreamOpenHook]. An action finds
+// the slot as soon as it is registered, before the broker subscription and the
+// response head. Locking only around StreamOpen let an action that arrived in
+// between read the zero value.
+//
+// unlockSlot needs no synchronization of its own:
+// [github.com/romshark/datapages/runtime/stream.Handler.Handle] calls the open
+// hook on the handler goroutine. The deferred call covers a stream that ends
+// before the hook. It runs before the deferred release, which takes the same mutex.
 func (w *Writer) writeStateAllocateOrReject(p *model.Page) {
 	suffix := stateSuffix(p.State)
 	w.Linef(1, "slot := s.allocate%s(instanceID)", suffix)
@@ -116,6 +127,25 @@ func (w *Writer) writeStateAllocateOrReject(p *model.Page) {
 	w.Line(2, "return")
 	w.Line(1, "}")
 	w.Linef(1, "defer s.release%s(instanceID, slot)", suffix)
+	if p.StreamOpen == nil {
+		w.Line(1, "// Without StreamOpen the zero value is the initial state.")
+		w.Line(1, "slot.mu.Unlock()")
+		return
+	}
+	w.Line(1, "// Actions on this instance wait until StreamOpen returns. A stream that")
+	w.Line(1, "// doesn't open drops the state first, and a waiting action answers 409.")
+	w.Line(1, "slotLocked := true")
+	w.Line(1, "unlockSlot := func(opened bool) {")
+	w.Line(2, "if !slotLocked {")
+	w.Line(3, "return")
+	w.Line(2, "}")
+	w.Line(2, "slotLocked = false")
+	w.Line(2, "if !opened {")
+	w.Linef(3, "s.release%sLocked(instanceID, slot)", suffix)
+	w.Line(2, "}")
+	w.Line(2, "slot.mu.Unlock()")
+	w.Line(1, "}")
+	w.Line(1, "defer unlockSlot(false)")
 }
 
 func (w *Writer) writeStateRouteKeyVar() {
@@ -355,12 +385,15 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Linef(0,
 		"// allocate%s reserves capacity and registers state before the stream opens.",
 		suffix)
+	w.Line(0, "// It returns the slot locked, which makes an action that finds it wait")
+	w.Line(0, "// until the stream has initialized the state and unlocks it.")
 	w.Line(0, "// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].")
 	w.Linef(0, "func (s *Server) allocate%s(id string) *%s {", suffix, slot)
 	w.Line(1, "if !s.ReserveStateInstance() {")
 	w.Line(2, "return nil")
 	w.Line(1, "}")
 	w.Linef(1, "slot := &%s{state: new(%s.%s)}", slot, appPkg, stateType)
+	w.Line(1, "slot.mu.Lock()")
 	w.Linef(1, "s.%s.Store(id, slot)", instances)
 	w.Line(1, "return slot")
 	w.Line(0, "}")
@@ -376,13 +409,19 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(0, "// under the same id while an older stream closes.")
 	w.Linef(0, "func (s *Server) release%s(id string, slot *%s) {", suffix, slot)
 	w.Line(1, "slot.mu.Lock()")
+	w.Line(1, "defer slot.mu.Unlock()")
+	w.Linef(1, "s.release%sLocked(id, slot)", suffix)
+	w.Line(0, "}")
+
+	w.Raw("\n")
+	w.Linef(0, "// release%sLocked is release%s for a caller that holds slot.mu.",
+		suffix, suffix)
+	w.Linef(0, "func (s *Server) release%sLocked(id string, slot *%s) {", suffix, slot)
 	w.Line(1, "if slot.dead {")
-	w.Line(2, "slot.mu.Unlock()")
 	w.Line(2, "return")
 	w.Line(1, "}")
 	w.Line(1, "slot.dead = true")
 	w.Line(1, "slot.state = nil")
-	w.Line(1, "slot.mu.Unlock()")
 	w.Linef(1, "s.%s.CompareAndDelete(id, slot)", instances)
 	w.Line(1, "s.ReleaseStateInstance()")
 	w.Line(0, "}")

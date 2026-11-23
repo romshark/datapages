@@ -236,3 +236,27 @@ func (pageIndex_Update) POST(options ...Option) string {
 	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
+
+var PageOpenState pageOpenState
+
+type pageOpenState struct {
+	Read pageOpenState_Read
+}
+
+type pageOpenState_Read struct{}
+
+// POST references /openstate/read/
+func (pageOpenState_Read) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/openstate/read/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/openstate/read/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/openstate/read/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}

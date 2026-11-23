@@ -358,8 +358,8 @@ func (PageIndex) StreamOpen(r *http.Request, state datapages.State[StateIndex]) 
 
 1. `GET` generates an identifier, sets `Datapages-Instance` in the response, and embeds it in the HTML. No state is allocated yet.
 2. The client includes the header in later Datastar actions and SSE connects.
-3. On connect, the server checks for 22 base64url characters, allocates a zeroed `*T`, and registers the `id -> slot` mapping before `StreamOpen` or event handlers run.
-4. Before a stateful action or `OnXXX`, the server validates the header, looks up and locks the slot, and passes its state to the handler. A missing slot yields `409 Conflict` with `Datapages-Retry: reconnect`.
+3. On connect, the server checks for 22 base64url characters, allocates a zeroed `*T`, and registers the `id -> slot` mapping locked, before it subscribes to the broker and sends the response head. On a page with `StreamOpen`, the slot stays locked until `StreamOpen` returns. A stream that ends before then, including by an error or a panic in `StreamOpen`, releases the slot before it unlocks it.
+4. Before a stateful action or `OnXXX`, the server validates the header, looks up and locks the slot, and passes its state to the handler. An action that finds the slot before `StreamOpen` returned waits for it. A missing or released slot yields `409 Conflict` with `Datapages-Retry: reconnect`.
 5. On disconnect, the server removes the instance and releases its reference to the state. Reconnect with the same ID allocates a new `*T`; instances are never reused across streams.
 
 By default, hiding a tab closes its stream and releases its state. Visibility reload creates a new instance with zeroed state. State needed after reload must be reconstructible from the URL or signals read by `StreamOpen`. Returning `enableBackgroundStreaming=true` keeps the stream and state alive and disables visibility reload. Returning only `disableRefreshAfterHidden=true` suppresses the reload without preserving state.

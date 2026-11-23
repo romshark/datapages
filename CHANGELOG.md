@@ -8,6 +8,14 @@ Releases up to v0.10.0 have their notes on
 
 ## [Unreleased]
 
+### Fixed
+
+#### Generated code
+
+Run `datapages gen` to apply these.
+
+- Stop passing the zero value of `T` to an action that takes `datapages.State[T]` and arrives before `StreamOpen` of its tab's stream returns. The action now waits and receives what `StreamOpen` wrote, or `409 Conflict` with `Datapages-Retry: reconnect` if the stream fails to open. This affects pages with `StreamOpen` and per-tab state in v0.10.0 through v0.11.6 ([#49](https://github.com/romshark/datapages/issues/49)).
+
 ## [0.11.6] - 2026-11-22
 
 Fix the Morpheus bundle of the `datapages watch` settings page.

@@ -396,12 +396,15 @@ type stateSlotTabContext struct {
 }
 
 // allocateTabContext reserves capacity and registers state before the stream opens.
+// It returns the slot locked, which makes an action that finds it wait
+// until the stream has initialized the state and unlocks it.
 // It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateTabContext(id string) *stateSlotTabContext {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotTabContext{state: new(dpapp.TabContext)}
+	slot.mu.Lock()
 	s.stateInstancesTabContext.Store(id, slot)
 	return slot
 }
@@ -415,13 +418,17 @@ func (s *Server) lookupTabContext(id string) (*stateSlotTabContext, bool) {
 // under the same id while an older stream closes.
 func (s *Server) releaseTabContext(id string, slot *stateSlotTabContext) {
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	s.releaseTabContextLocked(id, slot)
+}
+
+// releaseTabContextLocked is releaseTabContext for a caller that holds slot.mu.
+func (s *Server) releaseTabContextLocked(id string, slot *stateSlotTabContext) {
 	if slot.dead {
-		slot.mu.Unlock()
 		return
 	}
 	slot.dead = true
 	slot.state = nil
-	slot.mu.Unlock()
 	s.stateInstancesTabContext.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -576,6 +583,20 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseTabContext(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseTabContextLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 	stateID := stateRouteKey(instanceID)
 
 	p := dpapp.PageIndex{
@@ -589,9 +610,8 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				datapages.State[dpapp.TabContext]{Values: slot.state},
@@ -754,6 +774,20 @@ func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseTabContext(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseTabContextLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 	stateID := stateRouteKey(instanceID)
 
 	p := dpapp.PageOther{
@@ -767,9 +801,8 @@ func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageOther.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				datapages.State[dpapp.TabContext]{Values: slot.state},

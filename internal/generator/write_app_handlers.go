@@ -1466,8 +1466,10 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 // writeStatefulStreamOpenHook emits the onOpen closure for a stateful page,
 // which calls the user's StreamOpen under the slot mutex.
 //
-// The slot is allocated by the handler before the response opens, not here.
-// See writeStateAllocateOrReject.
+// The handler allocates the slot locked before the response opens,
+// and the hook unlocks it. See [Writer.writeStateAllocateOrReject].
+// The unlock is deferred before the recovery and therefore runs after it,
+// which makes a panic count as a failed open.
 func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	if p.StreamOpen == nil {
 		w.Line(1, "nil,")
@@ -1477,9 +1479,8 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *dpsse.Stream,")
 	w.Line(1, ") (err error) {")
+	w.Line(2, "defer func() { unlockSlot(err == nil) }()")
 	w.Linef(2, "defer s.recoverPanicInto(&err, %q)", p.TypeName+".StreamOpen")
-	w.Line(2, "slot.mu.Lock()")
-	w.Line(2, "defer slot.mu.Unlock()")
 	if p.StreamOpen.OutputErr != nil {
 		w.Raw("\t\treturn ")
 	} else {

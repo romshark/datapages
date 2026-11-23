@@ -431,12 +431,15 @@ type stateSlotStateDoc struct {
 }
 
 // allocateStateDoc reserves capacity and registers state before the stream opens.
+// It returns the slot locked, which makes an action that finds it wait
+// until the stream has initialized the state and unlocks it.
 // It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateDoc(id string) *stateSlotStateDoc {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotStateDoc{state: new(dpapp.StateDoc)}
+	slot.mu.Lock()
 	s.stateInstancesStateDoc.Store(id, slot)
 	return slot
 }
@@ -450,13 +453,17 @@ func (s *Server) lookupStateDoc(id string) (*stateSlotStateDoc, bool) {
 // under the same id while an older stream closes.
 func (s *Server) releaseStateDoc(id string, slot *stateSlotStateDoc) {
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	s.releaseStateDocLocked(id, slot)
+}
+
+// releaseStateDocLocked is releaseStateDoc for a caller that holds slot.mu.
+func (s *Server) releaseStateDocLocked(id string, slot *stateSlotStateDoc) {
 	if slot.dead {
-		slot.mu.Unlock()
 		return
 	}
 	slot.dead = true
 	slot.state = nil
-	slot.mu.Unlock()
 	s.stateInstancesStateDoc.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -747,6 +754,20 @@ func (s pageDocHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseStateDoc(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateDocLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 
 	p := dpapp.PageDoc{
 		App: s.app,
@@ -756,9 +777,8 @@ func (s pageDocHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageDoc.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				sse,

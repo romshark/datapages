@@ -518,12 +518,15 @@ type stateSlotStateMessages struct {
 }
 
 // allocateStateMessages reserves capacity and registers state before the stream opens.
+// It returns the slot locked, which makes an action that finds it wait
+// until the stream has initialized the state and unlocks it.
 // It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateMessages(id string) *stateSlotStateMessages {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotStateMessages{state: new(dpapp.StateMessages)}
+	slot.mu.Lock()
 	s.stateInstancesStateMessages.Store(id, slot)
 	return slot
 }
@@ -537,13 +540,17 @@ func (s *Server) lookupStateMessages(id string) (*stateSlotStateMessages, bool) 
 // under the same id while an older stream closes.
 func (s *Server) releaseStateMessages(id string, slot *stateSlotStateMessages) {
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	s.releaseStateMessagesLocked(id, slot)
+}
+
+// releaseStateMessagesLocked is releaseStateMessages for a caller that holds slot.mu.
+func (s *Server) releaseStateMessagesLocked(id string, slot *stateSlotStateMessages) {
 	if slot.dead {
-		slot.mu.Unlock()
 		return
 	}
 	slot.dead = true
 	slot.state = nil
-	slot.mu.Unlock()
 	s.stateInstancesStateMessages.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -1273,6 +1280,20 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer s.releaseStateMessages(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateMessagesLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 
 	p := dpapp.PageMessages{
 		App: s.app,
@@ -1285,9 +1306,8 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageMessages.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				datapages.State[dpapp.StateMessages]{Values: slot.state},
@@ -1439,6 +1459,20 @@ func (s pageMessagesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer s.releaseStateMessages(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateMessagesLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 
 	p := dpapp.PageMessages{
 		App: s.app,
@@ -1451,9 +1485,8 @@ func (s pageMessagesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Reque
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageMessages.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				datapages.State[dpapp.StateMessages]{Values: slot.state},

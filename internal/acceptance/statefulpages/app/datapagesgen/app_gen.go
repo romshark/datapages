@@ -298,7 +298,11 @@ func evSubjPageIndex(stateID string) []string {
 	}
 }
 
+var evSubjPageOpenState = []string{}
+
 var evSubjPagePanicOnClose = []string{}
+
+var evSubjPagePanicOpen = []string{}
 
 const stateInstanceIDHeader = "Datapages-Instance"
 
@@ -417,12 +421,15 @@ type stateSlotStateFilters struct {
 }
 
 // allocateStateFilters reserves capacity and registers state before the stream opens.
+// It returns the slot locked, which makes an action that finds it wait
+// until the stream has initialized the state and unlocks it.
 // It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateFilters(id string) *stateSlotStateFilters {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotStateFilters{state: new(dpapp.StateFilters)}
+	slot.mu.Lock()
 	s.stateInstancesStateFilters.Store(id, slot)
 	return slot
 }
@@ -436,13 +443,17 @@ func (s *Server) lookupStateFilters(id string) (*stateSlotStateFilters, bool) {
 // under the same id while an older stream closes.
 func (s *Server) releaseStateFilters(id string, slot *stateSlotStateFilters) {
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	s.releaseStateFiltersLocked(id, slot)
+}
+
+// releaseStateFiltersLocked is releaseStateFilters for a caller that holds slot.mu.
+func (s *Server) releaseStateFiltersLocked(id string, slot *stateSlotStateFilters) {
 	if slot.dead {
-		slot.mu.Unlock()
 		return
 	}
 	slot.dead = true
 	slot.state = nil
-	slot.mu.Unlock()
 	s.stateInstancesStateFilters.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -468,11 +479,23 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
+		"GET /openstate/{$}",
+		pageOpenStateHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /openstate/_$/{$}",
+		pageOpenStateHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /panicclose/{$}",
 		pagePanicOnCloseHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /panicclose/_$/{$}",
 		pagePanicOnCloseHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /panicopen/{$}",
+		pagePanicOpenHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /panicopen/_$/{$}",
+		pagePanicOpenHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /closestate/mark/{$}",
 		pageCloseStateHandlers{s}.POSTMark)
@@ -482,6 +505,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /export/{$}",
 		pageIndexHandlers{s}.POSTExport)
+	s.Mux().HandleFunc(
+		"POST /openstate/read/{$}",
+		pageOpenStateHandlers{s}.POSTRead)
 }
 
 func (s *Server) httpErrIntern(
@@ -571,6 +597,8 @@ func (s pageCloseStateHandlers) GETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer s.releaseStateFilters(instanceID, slot)
+	// Without StreamOpen the zero value is the initial state.
+	slot.mu.Unlock()
 
 	p := dpapp.PageCloseState{
 		App: s.app,
@@ -713,6 +741,20 @@ func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer s.releaseStateFilters(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateFiltersLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 
 	p := dpapp.PageFailOpen{
 		App: s.app,
@@ -722,9 +764,8 @@ func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageFailOpen.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				streamID,
@@ -809,6 +850,20 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseStateFilters(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateFiltersLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 	stateID := stateRouteKey(instanceID)
 
 	p := dpapp.PageIndex{
@@ -819,9 +874,8 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				streamID,
@@ -964,6 +1018,154 @@ func (s pageIndexHandlers) POSTExport(
 	}
 }
 
+type pageOpenStateHandlers struct{ *Server }
+
+func (s pageOpenStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOpenState.GET")
+
+	instanceID, err := newStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// A shared cache would expose this bearer id to another visitor.
+	httpserve.SetNoStore(w.Header())
+
+	p := dpapp.PageOpenState{
+		App: s.app,
+	}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageOpenState.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/openstate/_$/',{retry:'always',retryMaxCount:Infinity})"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageOpenState", err)
+		return
+	}
+}
+
+func (s pageOpenStateHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PageOpenState stream")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateFilters(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateFilters(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateFiltersLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
+
+	p := dpapp.PageOpenState{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPageOpenState,
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream,
+		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
+			defer s.recoverPanicInto(&err, "PageOpenState.StreamOpen")
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.StateFilters]{Values: slot.state},
+			)
+		},
+		func(streamID datapages.StreamID) {
+			s.releaseStateFilters(instanceID, slot)
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			for range ch {
+			}
+		})
+}
+
+func (s pageOpenStateHandlers) POSTRead(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageOpenState.Read")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateFilters(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	sse := s.OpenSSE(w, r)
+	defer sse.Close()
+	defer s.recoverPanic(w, r, sse, "PageOpenState.Read")
+	p := dpapp.PageOpenState{
+		App: s.app,
+	}
+	err := p.POSTRead(
+		r,
+		sse,
+		datapages.State[dpapp.StateFilters]{Values: slot.state},
+	)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageOpenState.Read", err)
+		return
+	}
+}
+
 type pagePanicOnCloseHandlers struct{ *Server }
 
 func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -1026,6 +1228,8 @@ func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer s.releaseStateFilters(instanceID, slot)
+	// Without StreamOpen the zero value is the initial state.
+	slot.mu.Unlock()
 
 	p := dpapp.PagePanicOnClose{
 		App: s.app,
@@ -1048,6 +1252,110 @@ func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Reque
 					s.LogErr("handling PagePanicOnClose.StreamClose", err)
 				}
 			}
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream, ch <-chan messaging.Message,
+		) {
+			for range ch {
+			}
+		})
+}
+
+type pagePanicOpenHandlers struct{ *Server }
+
+func (s pagePanicOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePanicOpen.GET")
+
+	instanceID, err := newStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// A shared cache would expose this bearer id to another visitor.
+	httpserve.SetNoStore(w.Header())
+
+	p := dpapp.PagePanicOpen{
+		App: s.app,
+	}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePanicOpen.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/panicopen/_$/',{retry:'always',retryMaxCount:Infinity})"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, http.StatusOK, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PagePanicOpen", err)
+		return
+	}
+}
+
+func (s pagePanicOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "PagePanicOpen stream")
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateFilters(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateFilters(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateFiltersLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
+
+	p := dpapp.PagePanicOpen{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, s.SSECompression(), evSubjPagePanicOpen,
+		func(
+			streamID datapages.StreamID,
+			sse *dpsse.Stream,
+		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
+			defer s.recoverPanicInto(&err, "PagePanicOpen.StreamOpen")
+			return p.StreamOpen(
+				r,
+				datapages.State[dpapp.StateFilters]{Values: slot.state},
+			)
+		},
+		func(streamID datapages.StreamID) {
+			s.releaseStateFilters(instanceID, slot)
 		},
 		func(
 			streamID datapages.StreamID,

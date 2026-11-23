@@ -49,5 +49,11 @@ func PageFailOpen() string { return "/failopen/" }
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 
+// PageOpenState references /openstate/{$}
+func PageOpenState() string { return "/openstate/" }
+
 // PagePanicOnClose references /panicclose/{$}
 func PagePanicOnClose() string { return "/panicclose/" }
+
+// PagePanicOpen references /panicopen/{$}
+func PagePanicOpen() string { return "/panicopen/" }

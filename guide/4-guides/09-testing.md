@@ -277,7 +277,7 @@ func TestAddUpdatesOtherTabs(t *testing.T) {
 Mind the timing:
 
 - Datapages subscribes a stream to the broker before it sends the response headers. Once `openTab` returns, the next dispatch reaches the stream, and the test needs no sleep.
-- `StreamOpen` runs after the headers went out, and `StreamClose` after the client is gone. Poll for their effects as `waitFor` does.
+- `StreamOpen` runs after the headers went out, and `StreamClose` after the client is gone. Poll for their effects as `waitFor` does. A stateful action sent once `openTab` returns needs no wait: it waits for `StreamOpen` on the server and receives the state that `StreamOpen` wrote.
 - `t.Cleanup` runs its functions in reverse order. The `cancel` of `openTab` closes the stream before `srv.Close` waits for open requests. Without it, `Close` blocks until the test times out.
 - That a patch did not arrive can only be shown by waiting. Assert the exact patch that must arrive instead, as the next test does.
 

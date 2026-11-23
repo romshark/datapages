@@ -101,7 +101,7 @@ An action on `*App` may take `State[T]`. A tab of a page that uses another type,
 State lives as long as the tab's stream:
 
 1. `GET` mints a random ID, the instance ID, and sends it in the `Datapages-Instance` response header and in an inline script. It allocates nothing.
-2. The page sends the ID with each Datastar request. When its stream connects, the server allocates a zero `T` before `StreamOpen` runs.
+2. The page sends the ID with each Datastar request. When its stream connects, the server allocates a zero `T` before `StreamOpen` runs. An action that arrives before `StreamOpen` returns waits for it and receives the state `StreamOpen` wrote. When the stream fails to open, the action receives `409 Conflict`.
 3. Before a stateful action or event handler, the server locks the tab's instance. The handlers of 1 tab run 1 at a time and need no locks of their own for `state.Values`.
 4. When the stream closes, the server releases the instance.
 5. A reconnect with the same ID allocates a new zero `T`. An action that arrives while no stream holds the instance receives `409 Conflict` with `Datapages-Retry: reconnect`, and the page reloads once.

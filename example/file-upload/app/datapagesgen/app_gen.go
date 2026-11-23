@@ -420,12 +420,15 @@ type stateSlotStateIndex struct {
 }
 
 // allocateStateIndex reserves capacity and registers state before the stream opens.
+// It returns the slot locked, which makes an action that finds it wait
+// until the stream has initialized the state and unlocks it.
 // It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateIndex(id string) *stateSlotStateIndex {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotStateIndex{state: new(dpapp.StateIndex)}
+	slot.mu.Lock()
 	s.stateInstancesStateIndex.Store(id, slot)
 	return slot
 }
@@ -439,13 +442,17 @@ func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
 // under the same id while an older stream closes.
 func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	s.releaseStateIndexLocked(id, slot)
+}
+
+// releaseStateIndexLocked is releaseStateIndex for a caller that holds slot.mu.
+func (s *Server) releaseStateIndexLocked(id string, slot *stateSlotStateIndex) {
 	if slot.dead {
-		slot.mu.Unlock()
 		return
 	}
 	slot.dead = true
 	slot.state = nil
-	slot.mu.Unlock()
 	s.stateInstancesStateIndex.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -646,6 +653,20 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseStateIndex(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateIndexLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 	stateID := stateRouteKey(instanceID)
 
 	p := dpapp.PageIndex{
@@ -656,9 +677,8 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageIndex.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				datapages.State[dpapp.StateIndex]{Values: slot.state},

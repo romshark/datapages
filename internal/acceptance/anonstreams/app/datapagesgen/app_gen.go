@@ -507,12 +507,15 @@ type stateSlotStateNotes struct {
 }
 
 // allocateStateNotes reserves capacity and registers state before the stream opens.
+// It returns the slot locked, which makes an action that finds it wait
+// until the stream has initialized the state and unlocks it.
 // It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateNotes(id string) *stateSlotStateNotes {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotStateNotes{state: new(dpapp.StateNotes)}
+	slot.mu.Lock()
 	s.stateInstancesStateNotes.Store(id, slot)
 	return slot
 }
@@ -526,13 +529,17 @@ func (s *Server) lookupStateNotes(id string) (*stateSlotStateNotes, bool) {
 // under the same id while an older stream closes.
 func (s *Server) releaseStateNotes(id string, slot *stateSlotStateNotes) {
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	s.releaseStateNotesLocked(id, slot)
+}
+
+// releaseStateNotesLocked is releaseStateNotes for a caller that holds slot.mu.
+func (s *Server) releaseStateNotesLocked(id string, slot *stateSlotStateNotes) {
 	if slot.dead {
-		slot.mu.Unlock()
 		return
 	}
 	slot.dead = true
 	slot.state = nil
-	slot.mu.Unlock()
 	s.stateInstancesStateNotes.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -546,12 +553,15 @@ type stateSlotStateTab struct {
 }
 
 // allocateStateTab reserves capacity and registers state before the stream opens.
+// It returns the slot locked, which makes an action that finds it wait
+// until the stream has initialized the state and unlocks it.
 // It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateTab(id string) *stateSlotStateTab {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotStateTab{state: new(dpapp.StateTab)}
+	slot.mu.Lock()
 	s.stateInstancesStateTab.Store(id, slot)
 	return slot
 }
@@ -565,13 +575,17 @@ func (s *Server) lookupStateTab(id string) (*stateSlotStateTab, bool) {
 // under the same id while an older stream closes.
 func (s *Server) releaseStateTab(id string, slot *stateSlotStateTab) {
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	s.releaseStateTabLocked(id, slot)
+}
+
+// releaseStateTabLocked is releaseStateTab for a caller that holds slot.mu.
+func (s *Server) releaseStateTabLocked(id string, slot *stateSlotStateTab) {
 	if slot.dead {
-		slot.mu.Unlock()
 		return
 	}
 	slot.dead = true
 	slot.state = nil
-	slot.mu.Unlock()
 	s.stateInstancesStateTab.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -1455,6 +1469,8 @@ func (s pageNotesHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseStateNotes(instanceID, slot)
+	// Without StreamOpen the zero value is the initial state.
+	slot.mu.Unlock()
 
 	p := dpapp.PageNotes{
 		App: s.app,
@@ -1519,6 +1535,8 @@ func (s pageNotesHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer s.releaseStateNotes(instanceID, slot)
+	// Without StreamOpen the zero value is the initial state.
+	slot.mu.Unlock()
 	s.handleStreamRequest(w, r, s.SSECompression(), sessToken, sess, nil,
 		nil,
 		func(streamID datapages.StreamID) {
@@ -2301,6 +2319,20 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseStateTab(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateTabLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 
 	p := dpapp.PageTabs{
 		App: s.app,
@@ -2310,9 +2342,8 @@ func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageTabs.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				streamID,
@@ -2408,6 +2439,20 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer s.releaseStateTab(instanceID, slot)
+	// Actions on this instance wait until StreamOpen returns. A stream that
+	// doesn't open drops the state first, and a waiting action answers 409.
+	slotLocked := true
+	unlockSlot := func(opened bool) {
+		if !slotLocked {
+			return
+		}
+		slotLocked = false
+		if !opened {
+			s.releaseStateTabLocked(instanceID, slot)
+		}
+		slot.mu.Unlock()
+	}
+	defer unlockSlot(false)
 
 	p := dpapp.PageTabs{
 		App: s.app,
@@ -2417,9 +2462,8 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 			streamID datapages.StreamID,
 			sse *dpsse.Stream,
 		) (err error) {
+			defer func() { unlockSlot(err == nil) }()
 			defer s.recoverPanicInto(&err, "PageTabs.StreamOpen")
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
 			return p.StreamOpen(
 				r,
 				streamID,

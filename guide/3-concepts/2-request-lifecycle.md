@@ -134,7 +134,7 @@ After the build check, the generated stream handler checks the request:
 
 Then it opens the stream:
 
-1. It allocates a zeroed `StateIndex` for the instance ID, on a page with state.
+1. It allocates a zeroed `StateIndex` for the instance ID, on a page with state. An action of the tab waits until `StreamOpen` returns.
 2. It subscribes to the subjects of the events the page handles, before it answers. A dispatch that follows the response head therefore reaches the stream.
 3. It answers `200` with `Content-Type: text/event-stream` and `Cache-Control: no-cache`, and keeps the response open.
 4. It runs `StreamOpen`. An error goes to `App.RecoverError` when the app declares it, and the stream ends with a reconnect delay of 5s.

@@ -4,12 +4,15 @@ package acceptance_test
 
 import (
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +36,11 @@ const (
 	pathCloseState       = "/closestate/"
 	pathCloseStateStream = "/closestate/_$/"
 	pathCloseStateMark   = "/closestate/mark/"
+	pathOpenState        = "/openstate/"
+	pathOpenStateStream  = "/openstate/_$/"
+	pathOpenStateRead    = "/openstate/read/"
+	pathPanicOpen        = "/panicopen/"
+	pathPanicOpenStream  = "/panicopen/_$/"
 )
 
 func newClient(t *testing.T) *client.Client {
@@ -494,17 +502,20 @@ func TestInstanceCapDisabled(t *testing.T) {
 // its instance was already reserved.
 //
 // The close hook that gives an instance back is wired up only once the open
-// hook has succeeded, which leaves an open that fails to release what it took
-// by itself. An instance it kept instead would be held for the life of the process,
+// hook has succeeded, which leaves an open that fails to release what it took by itself.
+// An instance it kept instead would be held for the life of the process,
 // and enough of those leave no tab of any stateful page able to open a stream again.
 // The server holds a budget of 1, which is what makes the release observable:
 // a second stream is served only if the first gave its instance back.
 // The id that named it stops being answered in the same place, and both are asserted.
 func TestFailedOpenReleasesInstance(t *testing.T) {
-	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+	c := client.New(t, mustNewServer(
+		t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer),
 		datapages.WithStateConfig(datapages.StateConfig{
 			MaxConcurrentInstances: 1,
-		})))
+		}),
+	))
 
 	page := c.Get(t, pathFailOpen)
 	require.Equal(t, http.StatusOK, page.Status, "GET %s", pathFailOpen)
@@ -533,6 +544,200 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 	require.Equal(t, http.StatusOK, update(t, tab, "after-failure").Status)
 	require.True(t, tab.Saw("deliveries:1 filter:after-failure"),
 		"a tab opened after a failed open holds no state")
+}
+
+// TestActionWaitsForStreamOpen tests an action that finds its tab's instance
+// before StreamOpen ran. The stream registers the instance before it subscribes
+// and sends the response head. The action must wait for StreamOpen and receive
+// the state it wrote. When the stream ends before StreamOpen succeeds, the action
+// must receive 409, not the state of a stream that is about to drop it.
+//
+// A test client that acts as soon as the head arrives hits the window after the
+// head on a slow machine. A browser can also hit the one before it.
+// The test holds the stream at either point for [client.Settle], after the head
+// with a middleware or before it with a broker subscription that then fails.
+//
+// A stream that ends before the open hook must still release and unlock the instance.
+// Otherwise both requests hang, and closing the test server waits
+// for them until the test binary times out.
+func TestActionWaitsForStreamOpen(t *testing.T) {
+	for name, tt := range map[string]struct {
+		page, stream, action, body string
+		// subscribeFails holds the stream in its broker subscription,
+		// before the head and the open hook, and then fails the subscription.
+		// Otherwise the stream is held after its head.
+		subscribeFails bool
+		status         int
+		retry, patch   string
+	}{
+		"opens": {
+			page: pathOpenState, stream: pathOpenStateStream, action: pathOpenStateRead,
+			status: http.StatusOK, patch: "filter:" + app.OpenedFilter,
+		},
+		// PageIndex holds the same state type.
+		// Its action asks for the instance of the failed open.
+		"fails": {
+			page: pathFailOpen, stream: pathFailOpenStream,
+			action: pathAction, body: `{"filter":"x"}`,
+			status: http.StatusConflict, retry: "reconnect",
+		},
+		"panics": {
+			page: pathPanicOpen, stream: pathPanicOpenStream,
+			action: pathAction, body: `{"filter":"x"}`,
+			status: http.StatusConflict, retry: "reconnect",
+		},
+		"subscribe fails": {
+			page: pathOpenState, stream: pathOpenStateStream, action: pathOpenStateRead,
+			subscribeFails: true,
+			status:         http.StatusConflict, retry: "reconnect",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			hold := make(chan struct{})
+			release := sync.OnceFunc(func() { close(hold) })
+			subscribing := make(chan struct{})
+			var broker messaging.Broker = inmem.New(messaging.DefaultBrokerChanBuffer)
+			opts := []datapages.ServerOption{
+				datapages.WithLogger(slog.New(slog.DiscardHandler)),
+			}
+			if tt.subscribeFails {
+				broker = &heldBroker{Broker: broker, subscribing: subscribing, hold: hold}
+			} else {
+				opts = append(opts, holdAfterHead(tt.stream, hold))
+			}
+			c := client.New(t, mustNewServer(t, &app.App{}, broker, opts...))
+			// Closing the server waits for the held handler.
+			t.Cleanup(release)
+
+			id := c.Get(t, tt.page).Instance()
+			require.NotEmpty(t, id, "GET %s mints no instance id", tt.page)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			req := c.Request(t, http.MethodGet, tt.stream, "").WithContext(ctx)
+			req.Header.Set("Datapages-Instance", id)
+
+			// A failed subscription answers before any head, and the answer ends.
+			// It arrives only once the handler returned.
+			var streamEnded chan actionResult
+			if tt.subscribeFails {
+				streamEnded = make(chan actionResult, 1)
+				go func() { streamEnded <- send(c.HTTP(), req) }()
+				select {
+				case <-subscribing:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the stream never subscribed")
+				}
+			} else {
+				stream, err := c.HTTP().Do(req)
+				require.NoError(t, err, "opening the stream")
+				t.Cleanup(func() { _ = stream.Body.Close() })
+				require.Equal(t, http.StatusOK, stream.StatusCode, "opening the stream")
+			}
+
+			act := c.Request(t, http.MethodPost, tt.action, tt.body)
+			act.Header.Set("Datapages-Instance", id)
+			answered := make(chan actionResult, 1)
+			go func() { answered <- send(c.HTTP(), act) }()
+
+			select {
+			case r := <-answered:
+				t.Fatalf("the action was answered while the stream was held "+
+					"before StreamOpen: %d %q",
+					r.resp.Status, r.resp.Body)
+			case <-time.After(client.Settle):
+			}
+			release()
+
+			var r actionResult
+			select {
+			case r = <-answered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the action was not answered after the stream went on")
+			}
+			require.NoError(t, r.err, "sending the action")
+			require.Equal(t, tt.status, r.resp.Status, "body: %q", r.resp.Body)
+			require.Equal(t, tt.retry, r.resp.Retry())
+			require.Contains(t, r.resp.Body, tt.patch)
+
+			if streamEnded == nil {
+				return
+			}
+			select {
+			case s := <-streamEnded:
+				require.NoError(t, s.err, "the stream request")
+				require.Equal(t, http.StatusInternalServerError, s.resp.Status,
+					"the stream of a failed subscription, body: %q", s.resp.Body)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the stream handler did not return after its subscription failed")
+			}
+		})
+	}
+}
+
+// heldBroker holds every subscription until hold is closed and then fails it.
+// It closes subscribing when the first subscription starts.
+type heldBroker struct {
+	messaging.Broker
+	subscribing chan<- struct{}
+	hold        <-chan struct{}
+	once        sync.Once
+}
+
+func (b *heldBroker) Subscribe(
+	context.Context, messaging.Metrics, ...string,
+) (messaging.Subscription, error) {
+	b.once.Do(func() { close(b.subscribing) })
+	<-b.hold
+	return nil, errors.New("broker down")
+}
+
+// holdAfterHead holds the handler of the stream at path after its response
+// head went out, until hold is closed.
+func holdAfterHead(path string, hold <-chan struct{}) datapages.ServerOption {
+	return datapages.WithMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == path {
+				w = &heldWriter{ResponseWriter: w, hold: hold}
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+}
+
+// heldWriter passes its first Flush through, which sends the response head,
+// and returns from it once hold is closed.
+type heldWriter struct {
+	http.ResponseWriter
+	hold <-chan struct{}
+	once sync.Once
+}
+
+func (h *heldWriter) Flush() {
+	_ = http.NewResponseController(h.ResponseWriter).Flush()
+	h.once.Do(func() { <-h.hold })
+}
+
+func (h *heldWriter) Unwrap() http.ResponseWriter { return h.ResponseWriter }
+
+type actionResult struct {
+	resp client.Response
+	err  error
+}
+
+// send is [client.Client.Do] for a goroutine other than the test's,
+// which must not fail the test.
+func send(hc *http.Client, req *http.Request) actionResult {
+	resp, err := hc.Do(req)
+	if err != nil {
+		return actionResult{err: err}
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	return actionResult{
+		resp: client.Response{Status: resp.StatusCode, Body: string(b), Header: resp.Header},
+		err:  err,
+	}
 }
 
 // TestPanicInEventHandlerReleasesInstance covers an OnXXX handler that panics

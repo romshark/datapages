@@ -163,6 +163,59 @@ func (p PageFailOpen) StreamOpen(
 	return ErrStreamOpen
 }
 
+// ErrPanicOpen is what PagePanicOpen.StreamOpen panics with.
+var ErrPanicOpen = errors.New("this stream does not open quietly")
+
+// PagePanicOpen is /panicopen
+//
+// Its StreamOpen writes the state and then panics.
+// The open failed, and an action must not find the state it left behind.
+type PagePanicOpen struct{ App *App }
+
+func (PagePanicOpen) GET(r *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="status">panicopen</div>`), nil
+}
+
+func (PagePanicOpen) StreamOpen(
+	r *http.Request,
+	state datapages.State[StateFilters],
+) error {
+	state.Values.Filter = OpenedFilter
+	panic(ErrPanicOpen)
+}
+
+// OpenedFilter is what PageOpenState.StreamOpen writes into the state.
+const OpenedFilter = "opened"
+
+// PageOpenState is /openstate
+//
+// Its StreamOpen writes the state. An action on the tab must find that value,
+// not the zero value the stream allocated, however early it arrives.
+type PageOpenState struct{ App *App }
+
+func (PageOpenState) GET(r *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="status">openstate</div>`), nil
+}
+
+func (PageOpenState) StreamOpen(
+	r *http.Request,
+	state datapages.State[StateFilters],
+) error {
+	state.Values.Filter = OpenedFilter
+	return nil
+}
+
+// POSTRead is /openstate/read
+//
+// The action answers with the state it was given.
+func (PageOpenState) POSTRead(
+	r *http.Request,
+	sse datapages.SSE,
+	state datapages.State[StateFilters],
+) error {
+	return sse.PatchElement(templ.Raw(status(state.Values)))
+}
+
 // PageCloseState is /closestate
 //
 // Its StreamClose reads the state one last time. The value it finds there must
