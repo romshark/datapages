@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/cover"
@@ -102,6 +103,15 @@ func runCase(t *testing.T, name string) {
 	}
 	if !opts.NoRace {
 		args = append(args, "-race")
+	}
+	// A case that hangs must time out before the runner does.
+	// Otherwise the runner exits first, without the output that names the hung test,
+	// and the case keeps running. The case gets 1/2 of the time left. -timeout counts
+	// from the start of each test binary, and the other 1/2 covers the build before it.
+	// From an empty build cache, the cases took 125s to build on an
+	// Apple M4 Pro, 14 at a time.
+	if deadline, ok := t.Deadline(); ok {
+		args = append(args, "-timeout="+(time.Until(deadline)/2).String())
 	}
 	cmd := exec.Command("go", args...)
 	cmd.Dir = name

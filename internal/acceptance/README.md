@@ -32,6 +32,10 @@ Per case it:
 `go test ./internal/acceptance/ -run 'TestAcceptance/routing'` runs 1 case.
 `-short` skips all of them.
 
+A case gets `-timeout` set to 1/2 of the time the runner has left. A case that
+hangs then times out before the runner, which prints the goroutine dump of the
+case and the name of the test that hung.
+
 Don't pass `-race` to the runner. It only shells out `go test` per case, and each
 case is already run with the race detector. What the outer flag instruments is
 the parser and the generator inside `requireGeneratedIsCurrent`, which triples
