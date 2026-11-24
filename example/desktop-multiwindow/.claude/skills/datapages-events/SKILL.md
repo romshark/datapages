@@ -122,4 +122,4 @@ Datapages serves the stream at the page route plus `_$/`. A page with user-addre
 
 Share a handler across pages by embedding: see `datapages-pages`.
 
-<!-- written by datapages v0.11.6 sha256:d9588d302224bbd3 -->
+<!-- written by datapages sha256:d9588d302224bbd3 -->

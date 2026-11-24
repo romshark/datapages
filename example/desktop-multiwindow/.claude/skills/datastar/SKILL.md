@@ -92,4 +92,4 @@ Each request fires `datastar-fetch` events. `evt.detail.type` is `started`, `fin
 
 A misused attribute logs `Uncaught datastar runtime error: <name>` with a link to a page explaining it.
 
-<!-- written by datapages v0.11.6 sha256:f2e8fc154ad4d5c9 -->
+<!-- written by datapages sha256:f2e8fc154ad4d5c9 -->

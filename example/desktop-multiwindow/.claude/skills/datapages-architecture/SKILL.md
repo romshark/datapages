@@ -207,4 +207,4 @@ Deviate when the requirements make a simpler or different model more suitable.
 
 A page that re-reads data on navigation is correct before events exist. Add events only when changes must reach already open pages. Add `State[T]` only when a handler without a request needs a per-tab value.
 
-<!-- written by datapages v0.11.6 sha256:60cec6e75142ed1c -->
+<!-- written by datapages sha256:60cec6e75142ed1c -->

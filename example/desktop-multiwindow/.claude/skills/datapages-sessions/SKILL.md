@@ -82,4 +82,4 @@ Use `modules/sessions/natskv`. Use `modules/sessions/inmem` only for development
 
 Datapages does not scan the store for expired records. It deletes an expired record only when a client sends that session. Call `mgr.DeleteExpired(ctx)` on a ticker to delete all other expired records.
 
-<!-- written by datapages v0.11.6 sha256:55faea4cf346fc36 -->
+<!-- written by datapages sha256:55faea4cf346fc36 -->

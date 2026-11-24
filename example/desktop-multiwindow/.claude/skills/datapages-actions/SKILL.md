@@ -155,4 +155,4 @@ A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.Pa
 
 `StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.
 
-<!-- written by datapages v0.11.6 sha256:5819cd4a70aa7a5d -->
+<!-- written by datapages sha256:5819cd4a70aa7a5d -->

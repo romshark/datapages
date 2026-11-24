@@ -122,4 +122,4 @@ Use `assets.Path("style.css")` from the generated `assets` package to reference 
 
 See `datapages watch --help` for CLI flags.
 
-<!-- written by datapages v0.11.6 sha256:e08be075e57994f8 -->
+<!-- written by datapages sha256:e08be075e57994f8 -->

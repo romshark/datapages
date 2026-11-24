@@ -41,6 +41,6 @@ Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that mat
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Web Components, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-Full reference: https://github.com/romshark/datapages/blob/v0.11.6/SPECIFICATION.md
+Full reference: https://github.com/romshark/datapages/blob/main/SPECIFICATION.md
 
-<!-- written by datapages v0.11.6 sha256:2c52f4d01b5a5f5c -->
+<!-- written by datapages sha256:a01c2c886a2d2755 -->

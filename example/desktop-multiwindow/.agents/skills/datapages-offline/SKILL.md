@@ -199,4 +199,4 @@ An action that takes `datapages.PageCacheWriter` answers 406 to a request withou
 
 `newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. Navigation waits up to 500ms for the worker to apply `ClearAll` before loading the destination.
 
-<!-- written by datapages v0.11.6 sha256:64821e2c6232acdf -->
+<!-- written by datapages sha256:64821e2c6232acdf -->

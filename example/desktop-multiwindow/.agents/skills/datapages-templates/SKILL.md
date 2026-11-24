@@ -177,4 +177,4 @@ customElements.define("place-map", PlaceMap);
 - An apostrophe in an attribute becomes `&#39;`. The browser decodes it before the JavaScript parser reads the expression, which can make the expression invalid. Reword it, use `&quot;` for inner strings or escape it with a backslash.
 - Encode a value interpolated into `data-signals` with `json.Marshal` instead of quoting it yourself. An apostrophe in the value ends the string, and what follows it runs as script.
 
-<!-- written by datapages v0.11.6 sha256:677ab9028c081479 -->
+<!-- written by datapages sha256:677ab9028c081479 -->

@@ -116,4 +116,4 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
 
-<!-- written by datapages v0.11.6 sha256:a07853963aa08fca -->
+<!-- written by datapages sha256:a07853963aa08fca -->
