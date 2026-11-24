@@ -36,6 +36,7 @@ Datapages parses and checks the application package, then generates the HTTP wir
 - [`counter`](example/counter/): 2 real-time counters in 1 module. `app/simple` is the smallest example, and `app/fancy` adds a polished interface.
 - [`todolist`](example/todolist/): Collaborative todo list with per-tab server-side state.
 - [`calculator`](example/calculator/): Calculator that runs as a multi-client server or a single-client desktop app.
+- [`desktop-multiwindow`](example/desktop-multiwindow/): Desktop app with any number of windows, each with an SSE stream, loaded from a port of its own.
 - [`classifieds`](example/classifieds/): Full-featured classifieds marketplace with sessions, auth, Prometheus metrics, Grafana dashboards and load testing.
 - [`tailwindcss`](example/tailwindcss/): Minimal static page with Tailwind CSS.
 - [`webcomponents`](example/webcomponents/): Landing page with vanilla and [Lit](https://lit.dev)-based Web Components bundled via esbuild through a custom watcher.

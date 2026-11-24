@@ -34,6 +34,10 @@ jobs:
             name: "example/sqlitesessions"
           - path: "example/calculator"
             name: "example/calculator"
+            wails: true
+          - path: "example/desktop-multiwindow"
+            name: "example/desktop-multiwindow"
+            wails: true
           - path: "example/todolist"
             name: "example/todolist"
           - path: "example/offline-cache"
@@ -52,7 +56,7 @@ jobs:
           check-latest: true
           cache: false
       - name: Install Wails system dependencies
-        if: matrix.project.name == 'example/calculator'
+        if: matrix.project.wails
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev

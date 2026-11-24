@@ -1,0 +1,207 @@
+package app
+
+import (
+	"fmt"
+
+	"github.com/romshark/datapages/example/desktop-multiwindow/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/desktop-multiwindow/app/datapagesgen/href"
+)
+
+templ head() {
+	<title>Multiwindow</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<style>
+		:root {
+			color-scheme: light dark;
+			font-family: system-ui, sans-serif;
+			--line: rgb(127 127 127 / 0.3);
+			--fill: rgb(127 127 127 / 0.1);
+			--own: #1a7f37;
+			--shared: #bf3989;
+		}
+		body {
+			margin: 0;
+			line-height: 1.4;
+		}
+		#page-index {
+			display: grid;
+			gap: 1.25rem;
+			padding: 1.25rem;
+		}
+		header {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.75rem;
+			align-items: center;
+		}
+		h1 {
+			margin: 0;
+			font-size: 1.5rem;
+		}
+		h2 {
+			margin: 0 0 0.5rem;
+			color: GrayText;
+			font-size: 0.75rem;
+			font-weight: 600;
+			letter-spacing: 0.05em;
+			text-transform: uppercase;
+		}
+		.port {
+			flex: none;
+			padding: 0.15rem 0.45rem;
+			border: 1px solid var(--line);
+			border-radius: 0.3rem;
+			font: 600 0.75rem/1.2 ui-monospace, monospace;
+			white-space: nowrap;
+		}
+		li .port {
+			border-color: transparent;
+			background: var(--own);
+			color: #fff;
+		}
+		li .port.shared {
+			background: var(--shared);
+		}
+		.warning {
+			margin: 0.75rem 0 0;
+			padding: 0.5rem 0.75rem;
+			border-left: 3px solid var(--shared);
+			background: var(--fill);
+		}
+		.actions {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.5rem;
+		}
+		button, .actions a {
+			padding: 0.45rem 0.9rem;
+			font: inherit;
+			cursor: pointer;
+		}
+		button:disabled {
+			cursor: default;
+		}
+		ol {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.5rem;
+			margin: 0;
+			padding: 0;
+			list-style: none;
+		}
+		.window {
+			display: flex;
+			align-items: center;
+			gap: 0.75rem;
+			padding: 0.4rem 0.5rem 0.4rem 0.75rem;
+			border: 1px solid var(--line);
+			border-radius: 0.4rem;
+			background: none;
+			color: inherit;
+			white-space: nowrap;
+		}
+		button.window:hover {
+			border-color: currentColor;
+		}
+		.window.self {
+			border-color: currentColor;
+			background: var(--fill);
+			font-weight: 600;
+		}
+		#ping {
+			margin: 0;
+			min-height: 1.4em;
+		}
+		footer {
+			padding-top: 0.75rem;
+			border-top: 1px solid var(--line);
+			color: GrayText;
+			font-size: 0.8rem;
+		}
+	</style>
+}
+
+templ pageIndex(v view) {
+	<main id="page-index">
+		<header>
+			if v.Self.Number == 0 {
+				<h1>Connecting</h1>
+			} else {
+				<h1>Window { fmt.Sprint(v.Self.Number) }</h1>
+				<span class="port">:{ v.Self.Port }</span>
+			}
+		</header>
+		<div class="actions">
+			if v.Desktop {
+				<button data-on:click={ action.PageIndex.OpenWindow.POST() }>
+					Open window
+				</button>
+			} else {
+				<a href={ href.PageIndex() } target="_blank">Open tab</a>
+			}
+			<button
+				data-on:click={ action.PageIndex.Ping.POST() }
+				disabled?={ v.Self.Number == 0 }
+			>Ping all windows</button>
+		</div>
+		@windowList(v.Self, v.Windows, v.Desktop)
+		<p id="ping"></p>
+		<footer>
+			Each window keeps an SSE stream open, which holds 1 HTTP/1.1 connection.
+			The webview opens at most 6 connections per host and port.
+			The desktop app therefore loads each window from a port of its own.
+		</footer>
+	</main>
+}
+
+// windowList renders a button for each window that desktop can focus.
+// The windows of a shared port can't be told apart.
+templ windowList(self window, windows []listed, desktop bool) {
+	<section id="windows">
+		<h2>{ countWindows(len(windows)) } connected</h2>
+		<ol>
+			for _, w := range windows {
+				<li>
+					if desktop && w.Number != self.Number && !w.Shared {
+						<button
+							class="window"
+							data-on:click={ action.PageIndex.Focus.POST(w.Number) }
+						>
+							@windowLabel(w)
+						</button>
+					} else {
+						<div class={ "window", templ.KV("self", w.Number == self.Number) }>
+							@windowLabel(w)
+						</div>
+					}
+				</li>
+			}
+		</ol>
+		if othersOnPort(self, windows) > 0 {
+			<p class="warning">
+				This window shares port { self.Port } with
+				{ countWindows(othersOnPort(self, windows)) }.
+				The stream of each window holds 1 of the 6 connections the webview
+				opens per host and port. With 6 windows on 1 port, no other request
+				gets a connection, and the buttons stop working.
+			</p>
+		}
+	</section>
+}
+
+templ windowLabel(w listed) {
+	<span>Window { fmt.Sprint(w.Number) }</span>
+	<span class={ "port", templ.KV("shared", w.Shared) }>
+		:{ w.Port }
+	</span>
+}
+
+templ pinged(from, self int, at string) {
+	<p id="ping">
+		if from == self {
+			This window pinged all windows at { at }.
+		} else {
+			Window { fmt.Sprint(from) } pinged all windows at { at }.
+		}
+	</p>
+}

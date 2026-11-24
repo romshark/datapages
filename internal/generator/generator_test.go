@@ -26,6 +26,7 @@ var examples = []string{
 	"calculator",
 	"classifieds",
 	"counter",
+	"desktop-multiwindow",
 	"docs",
 	"fast-shim",
 	"file-upload",

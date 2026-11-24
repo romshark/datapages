@@ -1,6 +1,6 @@
 # Examples
 
-The [`example/`](../../example/) directory contains 12 applications in 11 modules.
+The [`example/`](../../example/) directory contains 13 applications in 12 modules.
 
 ## Run an example
 
@@ -91,6 +91,30 @@ mage testUIWorkflows  # UI tests with Maestro
 `mage runServer` and `mage runDesktop` run `templ generate` and `datapages gen` first. `go run ./cmd/server` starts the HTTP server without Mage. The desktop app uses cgo and needs a C compiler. `mage testUIWorkflows` needs [Maestro](https://maestro.dev/).
 
 The code is in [`example/calculator`](../../example/calculator/).
+
+## Desktop multiwindow
+
+A [Wails v3](https://wails.io/) desktop app that opens any number of windows. Each window holds an SSE stream and lists the connected windows with their ports. A webview opens at most 6 HTTP/1.1 connections per host and port, and each stream holds 1 of them. The app loads each window from a port of its own, and 1 `http.Server` with the Datapages server as its handler serves all the ports.
+
+Features:
+
+- `StreamOpen` and `StreamClose` with `datapages.StreamID`, which register and remove the window of a stream. See [Events](../4-guides/04-events.md).
+- `datapages.State[T]` that holds the window of a stream, read by an action and by `On` handlers. See [Per-tab state](../4-guides/05-state.md).
+- `datapages.EnableBackgroundStreaming`, which keeps the stream of a minimized window open.
+- The generated server as the `http.Handler` of an `http.Server` of the application, shut down with `Shutdown`.
+- A launch token and a `Host` check in front of the server, which keep other processes and sites out of the loopback ports.
+
+Run:
+
+```sh
+go run .               # the desktop app, 1 port per window
+go run . -shared-port  # the desktop app on 1 port, limited to 6 windows
+go run ./cmd/server    # the server for a browser, http://localhost:8080/
+```
+
+The desktop app uses cgo and needs a C compiler. The [README](../../example/desktop-multiwindow/README.md) describes the trade-offs of a port per window.
+
+The code is in [`example/desktop-multiwindow`](../../example/desktop-multiwindow/).
 
 ## Classifieds
 

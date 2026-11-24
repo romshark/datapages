@@ -86,6 +86,7 @@ Public, imported by application or generated code:
 Examples, 1 module each:
 
 - `example/calculator/` - server-side evaluation.
+- `example/desktop-multiwindow/` - a Wails desktop app with 1 SSE stream per window, each window loaded from a port of its own.
 - `example/counter/` - the same counter 2 times in 1 module, `app/simple` and `app/fancy`, 1 entry point each. The multi-application example.
 - `example/todolist/` - collaborative todo list with per-tab server-side state registered in `StreamOpen` and read by the event handlers.
 - `example/classifieds/` - the full application.
