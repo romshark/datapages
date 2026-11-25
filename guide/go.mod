@@ -11,7 +11,7 @@ require (
 
 require (
 	github.com/a-h/parse v0.0.42 // indirect
-	github.com/alecthomas/chroma/v3 v3.0.0-alpha.6 // indirect
+	github.com/alecthomas/chroma/v3 v3.0.0-alpha.7 // indirect
 	github.com/dlclark/regexp2/v2 v2.13.2 // indirect
 	github.com/evanw/esbuild v0.28.2 // indirect
 	github.com/romshark/morpheus v0.7.0 // indirect

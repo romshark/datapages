@@ -13,7 +13,7 @@ require (
 	github.com/nats-io/nats.go v1.56.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/romshark/morpheus v0.7.0
-	github.com/romshark/templier v0.13.5
+	github.com/romshark/templier v0.13.6
 	github.com/romshark/yamagiconf v1.1.3
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
@@ -87,7 +87,7 @@ require (
 	github.com/moby/moby/client v0.6.3 // indirect
 	github.com/moby/patternmatcher v0.6.1 // indirect
 	github.com/moby/sys/sequential v0.7.0 // indirect
-	github.com/moby/sys/user v0.5.0 // indirect
+	github.com/moby/sys/user v0.5.1 // indirect
 	github.com/moby/sys/userns v0.2.1 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
