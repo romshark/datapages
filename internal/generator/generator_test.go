@@ -31,6 +31,7 @@ var examples = []string{
 	"fast-shim",
 	"file-upload",
 	"offline-cache",
+	"realtime-charts",
 	"sqlitesessions",
 	"tailwindcss",
 	"todolist",

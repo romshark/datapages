@@ -21,6 +21,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/nats v0.45.0
 	go.yaml.in/yaml/v4 v4.0.0
 	golang.org/x/mod v0.43.0
+	golang.org/x/net v0.63.0
 	golang.org/x/sync v0.25.0
 	golang.org/x/tools v0.53.0
 )
